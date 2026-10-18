@@ -33,6 +33,9 @@
       "zone_name": "uploads.sh",
     },
   ],
+  // Static files (the Work Object icons under public/slack/icons) are served
+  // before the worker runs.
+  "assets": { "directory": "./public" },
   "workers_dev": false,
   "observability": {
     "enabled": true,

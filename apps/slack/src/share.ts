@@ -128,12 +128,26 @@ export const ITEM_LIST_SIZE = 10;
 /** How many images a feed or gallery card shows side by side. */
 export const STRIP_SIZE = 4;
 
+/** Small icons beside a Work Object field's value (served from apps/slack/public/slack/icons). */
+export type FieldIcon =
+  | "pr"
+  | "pr-open"
+  | "pr-merged"
+  | "pr-closed"
+  | "issue"
+  | "issue-open"
+  | "issue-closed"
+  | "gallery"
+  | "feed";
+
 export interface EntityField {
   key: string;
   label: string;
   value: string;
   url?: string;
+  /** Slack can't draw both on one field; `tag` wins. */
   tag?: "red" | "yellow" | "green" | "gray" | "blue";
+  icon?: FieldIcon;
 }
 
 /** One item of a feed or gallery, as the flexpane pager shows it. */
@@ -396,10 +410,26 @@ function mediaKind(contentType: string | null | undefined): string {
   return "File";
 }
 
-const STATE_TAGS = { open: "green", closed: "red", merged: "blue" } as const;
+/** The PR or issue icon, colored by state when the state is known. */
+function threadIcon(kind: string | null, state?: "open" | "closed" | "merged" | null): FieldIcon {
+  const base = kind === "issue" ? "issue" : "pr";
+  if (!state) return base;
+  if (base === "issue") return state === "open" ? "issue-open" : "issue-closed";
+  return `pr-${state}`;
+}
 
-function threadField(gh: { repo: string; number: number; url: string }): EntityField {
-  return { key: "github", label: "GitHub", value: prRef(gh.repo, gh.number), url: gh.url };
+function threadField(
+  gh: { repo: string; number: number; url: string; kind?: string | null },
+  state?: "open" | "closed" | "merged" | null,
+): EntityField {
+  const value = prRef(gh.repo, gh.number);
+  return {
+    key: "github",
+    label: "GitHub",
+    value: state ? `${value} · ${STATE_LABELS[state]}` : value,
+    url: gh.url,
+    icon: threadIcon(gh.kind ?? null, state),
+  };
 }
 
 function pathField(path: string | null | undefined): EntityField[] {
@@ -491,7 +521,13 @@ async function feedPreview(
         created: item.uploaded ?? null,
         updated: item.uploaded ?? null,
         fields: [
-          { key: "change_feed", label: "Change feed", value: feed.title, url: feedPage },
+          {
+            key: "change_feed",
+            label: "Change feed",
+            value: feed.title,
+            url: feedPage,
+            icon: "feed",
+          },
           ...pathField(item.path),
         ],
         ...ownerOf(feed.repo),
@@ -538,12 +574,15 @@ async function feedPreview(
       canonicalUrl: canonical(pageUrl),
       updated: latest?.uploaded ?? feed.updatedAt,
       fields: [
+        // The PR's state rides on the GitHub field as an icon and a word.
         ...(isThread
-          ? [threadField({ repo: feed.repo, number: feed.number!, url: ghUrl! })]
+          ? [
+              threadField(
+                { repo: feed.repo, number: feed.number!, url: ghUrl!, kind: feed.kind },
+                feed.github?.state,
+              ),
+            ]
           : [{ key: "repo", label: "Repository", value: feed.repo }]),
-        ...(state && feed.github?.state
-          ? [{ key: "state", label: "State", value: state, tag: STATE_TAGS[feed.github.state] }]
-          : []),
         ...(page ? [{ key: "files", label: "Files", value: String(page.total) }] : []),
       ],
       strip: strip(feed.items.filter((item) => item.status === "available")),
@@ -615,7 +654,13 @@ async function galleryPreview(
         created: item.uploaded ?? null,
         updated: item.uploaded ?? null,
         fields: [
-          { key: "gallery", label: "Gallery", value: gallery.title, url: galleryPage },
+          {
+            key: "gallery",
+            label: "Gallery",
+            value: gallery.title,
+            url: galleryPage,
+            icon: "gallery",
+          },
           { key: "position", label: "Position", value: position },
         ],
         links: originalLink(item.url),

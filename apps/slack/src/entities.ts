@@ -75,15 +75,34 @@ function unixSeconds(iso: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
 }
 
-function customField(field: EntityField): Json {
+/** `iconBase` is where the field icons are served; without it, fields carry no icon. */
+function customField(field: EntityField, iconBase?: string): Json {
   return {
     key: field.key,
     label: field.label,
     value: clamp(field.value, FIELD_MAX),
     type: "string",
     ...(field.url ? { link: field.url } : {}),
-    ...(field.tag ? { tag_color: field.tag } : {}),
+    ...(field.tag
+      ? { tag_color: field.tag }
+      : field.icon && iconBase
+        ? { icon: { url: `${iconBase}/${field.icon}.png`, alt_text: field.label } }
+        : {}),
   };
+}
+
+/** The header icon for each kind of link, in place of the app icon. */
+const TYPE_ICONS: Record<string, string> = {
+  Image: "type-image",
+  Video: "type-video",
+  File: "type-file",
+  "Change feed": "type-feed",
+  Gallery: "type-gallery",
+};
+
+function productIcon(displayType: string, iconBase: string | undefined): Json | null {
+  const name = TYPE_ICONS[displayType];
+  return name && iconBase ? { url: `${iconBase}/${name}.png`, alt_text: displayType } : null;
 }
 
 function imageField(image: { url: string; alt: string } | undefined): Json | null {
@@ -215,6 +234,8 @@ export interface EntityOptions {
   images?: boolean;
   /** Building the side panel (`entity.presentDetails`) rather than the card. */
   details?: boolean;
+  /** Where the field and header icons are served, e.g. https://agents.uploads.sh/slack/icons. */
+  iconBase?: string;
 }
 
 /** A file's size and content type, for the end of its side panel. */
@@ -285,6 +306,8 @@ export function entityMetadata(
   // The card leads with the PR and path; the creator (often the same org
   // for every link) only shows in the side panel.
   const details = options.details ?? false;
+  // Icons are images too, so the imageless fallback leaves them out.
+  const iconBase = withImages ? options.iconBase : undefined;
   const image = !withImages ? undefined : pager ? pager.image : preview.image;
   const preview_ = imageField(image);
 
@@ -321,7 +344,7 @@ export function entityMetadata(
     ...(pager?.fields ?? []),
     ...(thumbnails && !pager ? [thumbnails] : []),
     ...(itemList ? [itemList] : []),
-    ...entity.fields.map(customField),
+    ...entity.fields.map((field) => customField(field, iconBase)),
     // Size and type are trivia: the card leaves them out so the PR and page
     // path lead, and the side panel lists them last.
     ...(entity.type === "file" && details ? fileFacts(entity) : []),
@@ -341,6 +364,9 @@ export function entityMetadata(
     attributes: {
       title: { text: clamp(preview.title, TITLE_MAX) },
       display_type: entity.displayType,
+      ...(productIcon(entity.displayType, iconBase)
+        ? { product_icon: productIcon(entity.displayType, iconBase) }
+        : {}),
       ...(fullSize ? { full_size_preview: fullSize } : {}),
       ...(updated !== null ? { metadata_last_modified: updated } : {}),
     },
@@ -392,6 +418,7 @@ export async function presentDetails(
       trigger_id: input.triggerId,
       metadata: entityMetadata(preview, page ?? undefined, {
         fullSizeHosts: deps.fullSizeHosts,
+        iconBase: deps.iconBase,
         details: true,
       }),
     },

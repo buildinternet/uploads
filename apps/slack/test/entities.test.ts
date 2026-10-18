@@ -15,6 +15,7 @@ import { signSlackRequest } from "../src/slack/signature";
 const SECRET = "test-signing-secret";
 const TOKENS_KEY = "test-tokens-key-0123456789";
 const WEB = "https://uploads.sh";
+const ICONS = "https://agents.uploads.sh/slack/icons";
 
 let sqlite: SqliteD1;
 beforeEach(async () => {
@@ -214,6 +215,7 @@ describe("Work Object unfurls", () => {
     expect(payload.attributes).toEqual({
       title: { text: "after.png" },
       display_type: "Image",
+      product_icon: { url: `${ICONS}/type-image.png`, alt_text: "Image" },
       metadata_last_modified: 1792282655,
     });
     expect(payload.fields).toEqual({
@@ -227,6 +229,8 @@ describe("Work Object unfurls", () => {
         value: "acme/app#12",
         type: "string",
         link: "https://github.com/acme/app/pull/12",
+        // A file doesn't know its PR's state, so the icon is the neutral one.
+        icon: { url: `${ICONS}/pr.png`, alt_text: "GitHub" },
       },
       { key: "page_path", label: "Page", value: "/settings", type: "string" },
     ]);
@@ -252,13 +256,18 @@ describe("Work Object unfurls", () => {
     expect(entity.entity_type).toBe("slack#/entities/content_item");
     expect(entity.external_ref).toEqual({ id: FEED_ID, type: "feed" });
     expect(entity.entity_payload.attributes.display_type).toBe("Change feed");
+    expect(entity.entity_payload.attributes.product_icon.url).toBe(`${ICONS}/type-feed.png`);
+    // The PR's state rides on the GitHub field instead of a field of its own.
     expect(entity.entity_payload.custom_fields).toContainEqual({
-      key: "state",
-      label: "State",
-      value: "Open",
+      key: "github",
+      label: "GitHub",
+      value: "acme/app#12 · Open",
       type: "string",
-      tag_color: "green",
+      link: "https://github.com/acme/app/pull/12",
+      icon: { url: `${ICONS}/pr-open.png`, alt_text: "GitHub" },
     });
+    const keys = entity.entity_payload.custom_fields.map((f: { key: string }) => f.key);
+    expect(keys).not.toContain("state");
     // The unfurl has no pager buttons (those live in the flexpane), only the PR link.
     expect(entity.entity_payload.actions).toEqual({
       overflow_actions: [
@@ -336,6 +345,8 @@ describe("Work Object unfurls", () => {
     expect(imageless.fields).not.toHaveProperty("preview");
     expect(imageless.fields.date_created).toEqual({ value: 1792282655 });
     expect(imageless.fields).not.toHaveProperty("created_by");
+    expect(imageless.attributes).not.toHaveProperty("product_icon");
+    expect(imageless.custom_fields[0]).not.toHaveProperty("icon");
     expect(slack.calls[2]!.body.metadata).toBeUndefined();
     expect(slack.calls[2]!.body.unfurls[FILE_PAGE]).toBeDefined();
   });

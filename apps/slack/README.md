@@ -119,6 +119,15 @@ The side panel's creator is the repo owner's GitHub account (the card
 leaves it out, since it's often the same org for every link). Galleries and files
 with no repo show uploads.sh instead, since the public API has no uploader.
 
+Icons: each card's header uses a per-type icon (`attributes.product_icon`:
+image, video, file, change feed, gallery), and the GitHub, Change feed, and
+Gallery fields carry a small icon beside their value. A change feed's GitHub
+field shows the PR or issue state as its icon and a word ("acme/app#12 ·
+Merged"); a file's shows a neutral PR icon, since the file doesn't know the
+state. The PNGs live in `public/slack/icons/` and are served as static assets
+at `agents.uploads.sh/slack/icons/`. The glyphs are from GitHub's
+[Octicons](https://github.com/primer/octicons) (MIT).
+
 Turning it on:
 
 1. Sync the manifest (`features.rich_previews` and the
