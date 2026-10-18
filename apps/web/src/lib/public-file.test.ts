@@ -402,6 +402,43 @@ describe("fetchPublicFile", () => {
     );
   });
 
+  it("separates API headers from delayed body delivery and identifies the binding transport", async () => {
+    const onServerTiming = vi.fn();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const response = new Response(
+      new ReadableStream({
+        async start(controller) {
+          await blocked;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(file)));
+          controller.close();
+        },
+      }),
+      { headers: { "Server-Timing": "file_api;dur=17" } },
+    );
+    const pending = fetchPublicFile("acme", "screenshots/shot.png", {
+      origin: "https://api.uploads.sh",
+      fetch: async () => response,
+      transport: "binding",
+      onServerTiming,
+    });
+    try {
+      await vi.waitFor(() =>
+        expect(onServerTiming).toHaveBeenCalledWith(
+          expect.stringMatching(/^file_api_headers;dur=\d+;desc="binding"$/),
+        ),
+      );
+      expect(onServerTiming).not.toHaveBeenCalledWith(expect.stringContaining("file_api_body;"));
+    } finally {
+      release();
+    }
+    expect((await pending).status).toBe("ok");
+    expect(onServerTiming).toHaveBeenCalledWith(expect.stringMatching(/^file_api_body;dur=\d+$/));
+    expect(onServerTiming).toHaveBeenCalledWith("file_api;dur=17");
+  });
+
   it("sends an identifying User-Agent so the API zone's empty-UA WAF rule lets the SSR call through", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json(file),

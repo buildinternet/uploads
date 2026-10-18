@@ -312,6 +312,8 @@ export async function fetchPublicFile(
     origin: string;
     fetch?: typeof globalThis.fetch;
     timeoutMs?: number;
+    /** Transport selected by the SSR caller; never inferred from the origin. */
+    transport?: "binding" | "http";
     /** Forward API phase timings to the enclosing SSR response, including errors. */
     onServerTiming?: (value: string) => void;
   },
@@ -331,6 +333,22 @@ export async function fetchPublicFile(
   if (origin.protocol !== "https:" && !(origin.protocol === "http:" && loopback))
     return { status: "unavailable" };
 
+  // Worker wall clocks advance at I/O boundaries. These measure header/body
+  // waits, not the CPU cost of JSON parsing or validation (use Workers logs).
+  const timed = async <T>(
+    name: string,
+    work: () => Promise<T>,
+    transport?: "binding" | "http",
+  ): Promise<T> => {
+    const started = Date.now();
+    try {
+      return await work();
+    } finally {
+      options.onServerTiming?.(
+        `${name};dur=${Date.now() - started}${transport ? `;desc="${transport}"` : ""}`,
+      );
+    }
+  };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
   try {
@@ -338,27 +356,32 @@ export async function fetchPublicFile(
       `/public/files/${encodeURIComponent(workspace)}/${encodeKey(key)}`,
       origin,
     );
-    const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
-      signal: controller.signal,
-      headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
-      cache: "no-store",
-      credentials: "omit",
-      referrerPolicy: "no-referrer",
-    });
+    const response = await timed(
+      "file_api_headers",
+      () =>
+        (options.fetch ?? globalThis.fetch)(endpoint, {
+          signal: controller.signal,
+          headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
+          cache: "no-store",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        }),
+      options.transport,
+    );
     const serverTiming = response.headers.get("Server-Timing");
     if (serverTiming) options.onServerTiming?.(serverTiming);
     if (response.status === 404) return { status: "not_found" };
     if (response.status === 401) {
       let body: unknown;
       try {
-        body = await response.json();
+        body = await timed("file_api_body", () => response.json());
       } catch {
         return { status: "unavailable" };
       }
       return isAuthRequiredError(body) ? { status: "auth_required" } : { status: "unavailable" };
     }
     if (!response.ok) return { status: "unavailable" };
-    const value: unknown = await response.json();
+    const value: unknown = await timed("file_api_body", () => response.json());
     return isPublicFile(value)
       ? {
           status: "ok",
