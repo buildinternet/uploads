@@ -282,6 +282,9 @@ export function entityMetadata(
       ? pagerParts(page, entity.ref.type === "feed" ? "feed" : "gallery")
       : null;
   const withImages = options.images ?? true;
+  // The card leads with the PR and path; the creator (often the same org
+  // for every link) only shows in the side panel.
+  const details = options.details ?? false;
   const image = !withImages ? undefined : pager ? pager.image : preview.image;
   const preview_ = imageField(image);
 
@@ -289,7 +292,7 @@ export function entityMetadata(
     entity.type === "file"
       ? compact({
           preview: preview_,
-          created_by: creatorField(entity.owner, withImages),
+          created_by: details ? creatorField(entity.owner, withImages) : null,
           date_created: dateField(created),
           // A file's update time is its upload time; one date is enough.
           date_updated: updated !== created ? dateField(updated) : null,
@@ -300,7 +303,7 @@ export function entityMetadata(
           // fields instead; the pager flexpane shows the current item.
           preview: pager ? preview_ : null,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
-          created_by: creatorField(entity.owner, withImages),
+          created_by: details ? creatorField(entity.owner, withImages) : null,
           date_updated: dateField(updated),
         });
 
@@ -321,7 +324,7 @@ export function entityMetadata(
     ...entity.fields.map(customField),
     // Size and type are trivia: the card leaves them out so the PR and page
     // path lead, and the side panel lists them last.
-    ...(entity.type === "file" && options.details ? fileFacts(entity) : []),
+    ...(entity.type === "file" && details ? fileFacts(entity) : []),
   ];
   const overflow = (entity.links ?? []).slice(0, MAX_OVERFLOW).map((link, index) => ({
     text: link.text,

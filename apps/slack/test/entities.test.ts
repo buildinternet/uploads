@@ -218,14 +218,6 @@ describe("Work Object unfurls", () => {
     });
     expect(payload.fields).toEqual({
       preview: { type: "slack#/types/image", image_url: FILE.url, alt_text: "after.png" },
-      created_by: {
-        type: "slack#/types/user",
-        user: {
-          text: "acme",
-          url: "https://github.com/acme",
-          icon: { url: "https://avatars.githubusercontent.com/acme", alt_text: "acme" },
-        },
-      },
       date_created: { value: 1792282655 },
     });
     expect(payload.custom_fields).toEqual([
@@ -343,7 +335,7 @@ describe("Work Object unfurls", () => {
     const imageless = slack.calls[1]!.body.metadata.entities[0].entity_payload;
     expect(imageless.fields).not.toHaveProperty("preview");
     expect(imageless.fields.date_created).toEqual({ value: 1792282655 });
-    expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
+    expect(imageless.fields).not.toHaveProperty("created_by");
     expect(slack.calls[2]!.body.metadata).toBeUndefined();
     expect(slack.calls[2]!.body.unfurls[FILE_PAGE]).toBeDefined();
   });
@@ -389,8 +381,13 @@ describe("Work Object creator", () => {
     },
   } as unknown as Parameters<typeof entityMetadata>[0];
 
+  it("leaves the creator off the card", () => {
+    expect(entityMetadata(gallery).entity_payload.fields).not.toHaveProperty("created_by");
+  });
+
   it("falls back to uploads.sh when there's no repo owner", () => {
-    const { fields } = entityMetadata(gallery).entity_payload as Record<string, any>;
+    const { fields } = entityMetadata(gallery, undefined, { details: true })
+      .entity_payload as Record<string, any>;
     expect(fields.created_by).toEqual({
       type: "slack#/types/user",
       user: {
@@ -399,7 +396,7 @@ describe("Work Object creator", () => {
         icon: { url: PROVIDER_ICON_URL, alt_text: "uploads.sh" },
       },
     });
-    const imageless = entityMetadata(gallery, undefined, { images: false })
+    const imageless = entityMetadata(gallery, undefined, { images: false, details: true })
       .entity_payload as Record<string, any>;
     expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
   });
@@ -426,6 +423,12 @@ describe("Work Object flexpane", () => {
         url: FILE_PAGE,
         external_ref: { id: "default/gh/acme/app/pull/12/after!2epng", type: "file" },
       },
+    });
+    // The side panel names the repo owner as creator, which the card leaves out.
+    expect(slack.calls[0]!.body.metadata.entity_payload.fields.created_by.user).toEqual({
+      text: "acme",
+      url: "https://github.com/acme",
+      icon: { url: "https://avatars.githubusercontent.com/acme", alt_text: "acme" },
     });
     // The side panel ends with size and type, which the card leaves out.
     const keys = slack.calls[0]!.body.metadata.entity_payload.custom_fields.map(
