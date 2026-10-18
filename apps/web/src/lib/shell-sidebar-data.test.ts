@@ -180,6 +180,7 @@ describe("adminNavSections", () => {
       "/admin",
       "/admin/clients",
       "/admin/metrics",
+      "/admin/classifier",
       "/admin/users",
       "/admin/oauth",
       "/admin/email",

@@ -296,11 +296,11 @@ export async function listWorkspaceRepos(
   };
 }
 
-function invalidCursor(): ValidationError {
+export function invalidCursor(): ValidationError {
   return new ValidationError("cursor is not valid for this query", { code: "invalid_cursor" });
 }
 
-function encodeCursorEnvelope(body: Record<string, unknown>): string {
+export function encodeCursorEnvelope(body: Record<string, unknown>): string {
   return b64urlEncode(new TextEncoder().encode(JSON.stringify(body)));
 }
 
@@ -309,7 +309,7 @@ function encodeCursorEnvelope(body: Record<string, unknown>): string {
  * input (bad base64url, bad UTF-8, non-object JSON, wrong version, unparseable
  * `u`) is a 400 `invalid_cursor`; each decoder checks its own fields.
  */
-function parseCursorEnvelope(raw: string): Record<string, unknown> & { u: string } {
+export function parseCursorEnvelope(raw: string): Record<string, unknown> & { u: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(

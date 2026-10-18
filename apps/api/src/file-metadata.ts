@@ -8,6 +8,7 @@
  * server/allowlist-controlled.
  */
 
+import { CLASSIFIER_SAFETY_FIELDS } from "./classifier-admin-wire";
 import { InternalError, ValidationError } from "@uploads/errors";
 import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import type { FileTypeClass } from "@uploads/comment-render/scope";
@@ -65,7 +66,7 @@ export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const
  * The four internal safety flags. Each stored answer also has
  * `ai.<field>.confidence`.
  */
-export const SAFETY_FLAG_FIELDS = ["rating", "content", "secret", "pii"] as const;
+export const SAFETY_FLAG_FIELDS = CLASSIFIER_SAFETY_FIELDS;
 
 /**
  * The eight internal safety-flag rows. This is the lifetime rule.

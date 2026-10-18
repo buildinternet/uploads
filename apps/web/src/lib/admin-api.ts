@@ -28,6 +28,12 @@ import type {
   OrgMember,
 } from "@uploads/api/admin-ui";
 import { trimOrigin } from "./api-client";
+import type {
+  ClassifierAdminWindow,
+  ClassifierFlaggedPage,
+  ClassifierOverview,
+  ClassifierSafetyField,
+} from "@uploads/api/classifier-admin-wire";
 
 export type {
   AdminClientActivity,
@@ -41,6 +47,16 @@ export type {
   OrgInvite,
   OrgMember,
 };
+export type * from "@uploads/api/classifier-admin-wire";
+
+/** Filters for `/admin-ui/classifier/flagged`. Empty values are omitted. */
+export interface FlaggedFilters {
+  field: ClassifierSafetyField | "";
+  highOnly: boolean;
+  workspace: string;
+  cursor?: string;
+  limit?: number;
+}
 
 /** Pull `{ error: { message } }` out of a non-OK body, falling back to status. */
 async function failure(res: Response, fallback: string): Promise<Error> {
@@ -75,6 +91,8 @@ export interface AdminApi {
   getInviteLinks(workspace: string): Promise<OpenEnrollment[]>;
   createInviteLink(workspace: string, body: { label?: string; scopes: string[] }): Promise<string>;
   revokeInviteLink(workspace: string, id: string): Promise<void>;
+  getClassifierOverview(days: ClassifierAdminWindow, fresh?: boolean): Promise<ClassifierOverview>;
+  listClassifierFlagged(params: FlaggedFilters): Promise<ClassifierFlaggedPage>;
 }
 
 export function makeAdminApi(apiOrigin: string): AdminApi {
@@ -104,6 +122,24 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
   }
 
   return {
+    getClassifierOverview(days, fresh = false) {
+      return get<ClassifierOverview>(
+        `${base}/admin-ui/classifier/overview?days=${days}${fresh ? "&fresh=1" : ""}`,
+        "load classifier overview failed",
+      );
+    },
+    listClassifierFlagged({ field, highOnly, workspace, cursor, limit }) {
+      const params = new URLSearchParams();
+      if (field) params.set("field", field);
+      if (highOnly) params.set("confidence", "high");
+      if (workspace) params.set("workspace", workspace);
+      if (cursor) params.set("cursor", cursor);
+      if (limit) params.set("limit", String(limit));
+      return get<ClassifierFlaggedPage>(
+        `${base}/admin-ui/classifier/flagged?${params}`,
+        "load flagged uploads failed",
+      );
+    },
     async listWorkspaces() {
       const { workspaces } = await get<{ workspaces: AdminWorkspaceSummary[] }>(
         `${base}/admin-ui/workspaces`,

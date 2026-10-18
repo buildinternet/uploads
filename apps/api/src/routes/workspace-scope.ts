@@ -5,6 +5,7 @@
  * Dual-auth (session or bearer), `files:read`, tight read limiter: each
  * request fans out into one D1 scope query per row for thumbnails.
  */
+import { parseLimit } from "../query-params";
 import { afterResponse } from "../after-response";
 import { ValidationError } from "@uploads/errors";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
@@ -59,17 +60,6 @@ function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<Du
   return requireScope(scope) as unknown as MiddlewareHandler<DualAuthVars>;
 }
 const heavyRead = heavyReadRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
-
-function parseLimit(raw: string | undefined, fallback: number, max: number): number {
-  if (raw === undefined) return fallback;
-  const limit = Number(raw);
-  if (!Number.isInteger(limit) || limit < 1 || limit > max) {
-    throw new ValidationError(`limit must be an integer between 1 and ${max}.`, {
-      code: "invalid_limit",
-    });
-  }
-  return limit;
-}
 
 function parseState(raw: string | undefined): PrState | undefined {
   if (raw === undefined || raw === "") return undefined;

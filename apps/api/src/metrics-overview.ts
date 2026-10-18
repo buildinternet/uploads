@@ -9,6 +9,7 @@
  * that governs `ws:` keys does not apply here.
  */
 
+import { ADMIN_METRIC_WINDOWS } from "./classifier-admin-wire";
 import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
 import { fillDaySeries } from "./day-series";
@@ -34,7 +35,7 @@ import {
 export const OVERVIEW_CACHE_TTL = 600;
 
 /** Windows the UI offers. Anything else is rejected, so the cache stays small. */
-export const ALLOWED_WINDOWS = [7, 30, 90] as const;
+export const ALLOWED_WINDOWS = ADMIN_METRIC_WINDOWS;
 
 export interface SignupPoint {
   day: string;
@@ -242,27 +243,43 @@ export async function buildOverview(
   };
 }
 
-/** Cached read. Cache failures fall through to a live build, never a 500. */
-export async function cachedOverview(
+/**
+ * KV read-through for operator rollups. Cache failures fall through to a
+ * live build, never a 500. `fresh` skips the read but still refreshes the
+ * entry.
+ */
+export async function cachedKvJson<T>(
+  env: Env,
+  key: string,
+  ttl: number,
+  fresh: boolean,
+  build: () => Promise<T>,
+): Promise<T> {
+  if (!fresh) {
+    try {
+      const hit = await env.REGISTRY.get(key);
+      if (hit) return JSON.parse(hit) as T;
+    } catch {
+      // fall through to a live build
+    }
+  }
+  const value = await build();
+  try {
+    await env.REGISTRY.put(key, JSON.stringify(value), { expirationTtl: ttl });
+  } catch {
+    // caching is an optimization, never a requirement
+  }
+  return value;
+}
+
+/** Cached read of the adoption overview. */
+export function cachedOverview(
   env: Env,
   days: number,
   fresh: boolean,
   now = new Date(),
 ): Promise<MetricsOverview> {
-  const key = overviewCacheKey(days);
-  if (!fresh) {
-    try {
-      const hit = await env.REGISTRY.get(key);
-      if (hit) return JSON.parse(hit) as MetricsOverview;
-    } catch {
-      // fall through to a live build
-    }
-  }
-  const overview = await buildOverview(env, days, now);
-  try {
-    await env.REGISTRY.put(key, JSON.stringify(overview), { expirationTtl: OVERVIEW_CACHE_TTL });
-  } catch {
-    // caching is an optimization, never a requirement
-  }
-  return overview;
+  return cachedKvJson(env, overviewCacheKey(days), OVERVIEW_CACHE_TTL, fresh, () =>
+    buildOverview(env, days, now),
+  );
 }
