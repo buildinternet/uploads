@@ -5,7 +5,10 @@ import { me } from "./me";
 import { slackTicketHash } from "./me-slack";
 import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
 
-const MIGRATION = "migrations/20261018170000_slack_user_links.sql";
+const MIGRATION = [
+  "migrations/20261018160000_slack_installations.sql",
+  "migrations/20261018170000_slack_user_links.sql",
+];
 const ALICE = { id: "u-alice", email: "alice@example.com", name: "Alice", role: "user" };
 const BOB = { id: "u-bob", email: "bob@example.com", name: "Bob", role: "user" };
 
@@ -196,8 +199,21 @@ describe("/me/slack/links", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { links: Record<string, unknown>[] };
     expect(body.links).toEqual([
-      { teamId: "T0123ABC", slackUserId: "U0AAA111", linkedAt: expect.any(String) },
+      { teamId: "T0123ABC", teamName: null, slackUserId: "U0AAA111", linkedAt: expect.any(String) },
     ]);
+  });
+
+  it("names the Slack workspace when the app's install row has it", async () => {
+    await link(ALICE, "aliceticketaliceticket01", "U0AAA111");
+    sqlite.db
+      .prepare(
+        `INSERT INTO slack_installations (team_id, team_name, app_id, installed_at, updated_at)
+         VALUES ('T0123ABC', 'Acme', 'A1', '2026-10-18', '2026-10-18')`,
+      )
+      .run();
+    const res = await app().request("/me/slack/links", {}, env(ALICE));
+    const body = (await res.json()) as { links: Record<string, unknown>[] };
+    expect(body.links[0]).toMatchObject({ teamName: "Acme" });
   });
 
   it("deletes the session user's own link", async () => {

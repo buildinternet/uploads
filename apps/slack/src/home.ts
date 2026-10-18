@@ -13,6 +13,8 @@ import { slackDisplayName, viewsPublish, type Block } from "./slack/api";
 export const DISCONNECT_ACTION = "uploads_disconnect";
 export const CONNECT_ACTION = "uploads_connect";
 
+const SETTINGS_URL = "https://uploads.sh/account/profile#slack";
+
 /**
  * The linked state names no uploads.sh account on purpose: if someone was
  * tricked into connecting another person's Slack user to their account
@@ -46,7 +48,12 @@ export function linkedHome(linkedAt: string): Block[] {
     },
     {
       type: "context",
-      elements: [{ type: "mrkdwn", text: "Link previews work for everyone, connected or not." }],
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `Held-upload messages arrive in this app's Messages tab. Turn them off in <${SETTINGS_URL}|uploads.sh notification settings>. Link previews work for everyone, connected or not.`,
+        },
+      ],
     },
   ];
 }
@@ -58,7 +65,7 @@ export function unlinkedHome(connectUrl: string): Block[] {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "Connect your uploads.sh account so the app knows who you are in this workspace.",
+        text: "Connect your uploads.sh account to get a message here when one of your uploads is held for review, and approve it from Slack.",
       },
       accessory: {
         type: "button",

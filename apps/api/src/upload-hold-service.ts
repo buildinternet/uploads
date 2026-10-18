@@ -3,7 +3,9 @@
  * calls `applyUploadHold` after it stores a decision; the approve route
  * calls `approveUpload`. Both re-sync the managed PR comment when the file
  * is a PR or issue attachment, so a held image leaves the comment, and an
- * approved one returns to it, without waiting for the next upload.
+ * approved one returns to it, without waiting for the next upload. A new
+ * hold also DMs the people who can approve it in Slack
+ * (`slack-hold-notify.ts`).
  */
 
 import { ServiceUnavailableError } from "@uploads/errors";
@@ -16,6 +18,7 @@ import {
 } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
 import { moveToHeld, restoreFromHeld } from "./held-storage";
+import { notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
 import {
@@ -73,7 +76,10 @@ export async function applyUploadHold(
       return false;
     });
     console.log({ event: "upload_held", workspace: workspaceName, reason, moved });
-    await resyncAttachmentComment(env, ws, workspaceName, key, existing);
+    await Promise.all([
+      resyncAttachmentComment(env, ws, workspaceName, key, existing),
+      notifySlackOfHold(env, workspaceName, key, reason, existing),
+    ]);
     return true;
   } catch (err) {
     console.error({ event: "upload_hold_failed", workspace: workspaceName, err });

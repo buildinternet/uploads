@@ -1,8 +1,14 @@
 # @uploads/slack
 
-The uploads.sh Slack app. Today it does one thing: when someone posts an
-uploads.sh share link (`/f/…`, `/g/…`, `/c/…`) in Slack, it replaces the link
-with a preview:
+The uploads.sh Slack app. It does two things:
+
+1. When someone posts an uploads.sh share link (`/f/…`, `/g/…`, `/c/…`) in
+   Slack, it adds a preview (below).
+2. When an upload is held for review, it DMs the people who can approve it,
+   with **Approve** and **Keep held** buttons
+   ([Held-upload messages](#held-upload-messages)).
+
+A preview shows:
 
 - **File** (`/f/…`): filename, the PR or issue it's attached to, the image
   (or a video's poster frame), then type, size, page path, and upload time.
@@ -36,8 +42,9 @@ The public endpoints are the only source of preview data, the same ones the
 share pages render from. They never sign URLs and return 404 for private,
 held, missing, and expired objects; a 404 means no preview, and collection
 items marked missing or withheld are skipped. The worker has no storage or
-KV bindings, and its only D1 access is the `slack_installations` table
-(sealed bot tokens). It never reads upload data directly, so a preview can
+KV bindings. Its D1 access is limited to the Slack tables:
+`slack_installations` (sealed bot tokens), `slack_link_tickets`, and
+`slack_user_links`. It never reads upload data directly, so a preview can
 never show more than the public share page.
 
 If Slack rejects the call because it can't fetch an image, the worker retries
@@ -59,9 +66,13 @@ Anyone can add the app to their Slack workspace from
 4. `app_uninstalled` and `tokens_revoked` events clear the stored token.
 
 Each event looks up its team's token (`botTokenFor` in `src/config.ts`).
-The original Build Internet install still uses the `SLACK_BOT_TOKEN`
-secret, for `SLACK_TEAM_ID` only, until it reinstalls through the flow
-above. Org-wide (Enterprise Grid) installs are refused for now.
+The D1 install row is the only token source; a team without one gets no
+previews or messages. Org-wide (Enterprise Grid) installs are refused for
+now.
+
+Adding a scope means every workspace has to approve it again: open
+`/slack/install` and press **Allow**. Until then, calls that need the new
+scope fail for that team and are logged.
 
 For another workspace to install, the app needs public distribution
 turned on under **Manage Distribution** in the app settings.
@@ -69,7 +80,8 @@ turned on under **Manage Distribution** in the app settings.
 ## Connecting Slack users to uploads.sh accounts
 
 Each Slack user can link their uploads.sh account from the app's Home tab.
-Notifications and agent search will use the link to know who is asking.
+Held-upload messages use the link to know who to message and who pressed
+**Approve**.
 
 1. `app_home_opened` renders the Home tab (`src/home.ts`). An unlinked user
    gets a **Connect uploads.sh** button whose URL carries a fresh ticket:
@@ -88,6 +100,43 @@ Notifications and agent search will use the link to know who is asking.
 
 Link previews don't depend on any of this; they work for everyone.
 
+A link never adds anyone to an uploads.sh workspace, so it never uses a
+seat. Free-plan member caps apply only when someone joins a workspace.
+
+Signed-in users see and remove their links under **Slack** on
+`/account/profile`, which reads `GET /me/slack/links` (with each Slack
+workspace's name from `slack_installations`).
+
+## Held-upload messages
+
+When the classifier holds an upload (`apps/api/src/upload-hold-service.ts`),
+uploads-api picks who to tell (`apps/api/src/slack-hold-notify.ts`):
+
+- the uploader (`gh.uploader-id`), when the upload has one and they are
+  still a member of the workspace;
+- otherwise the workspace's admins and owners.
+
+Each must have a Slack link and the `notify_slack_holds` preference on
+(**Slack** on `/account/profile`; default on). For every link, uploads-api
+calls `POST /slack/internal/hold` over its `SLACK` service binding, and this
+worker opens a DM (`conversations.open`) and posts the message
+(`chat.postMessage`), built in `src/holds.ts`. The message names the file,
+the workspace, and the reason, and links to the signed-in `/f/` page.
+
+The buttons come back to `POST /slack/interactivity`:
+
+- **Approve** calls uploads-api's `POST /internal/slack/approve` over the
+  `API` binding (host `api.internal`). The API maps the presser's Slack user
+  to their uploads.sh account through `slack_user_links`, requires that
+  account to be a member of the workspace, and runs the same
+  `approveUpload` as `uploads approve`. A refusal or failure answers only
+  the presser and leaves the buttons in place.
+- **Keep held** changes nothing.
+
+On success either button rewrites the DM through the payload's
+`response_url` (Slack's `hooks.slack.com` only), so it can't be pressed
+twice. Messages arrive in the app's Messages tab, which is read-only.
+
 ## Configuration
 
 | Name                   | Kind   | Purpose                                                                   |
@@ -95,10 +144,8 @@ Link previews don't depend on any of this; they work for everyone.
 | `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.       |
 | `SLACK_CLIENT_SECRET`  | secret | OAuth client secret. Unset: `/slack/install` answers 503.                 |
 | `SLACK_TOKENS_KEY`     | secret | 16+ character master key that seals bot tokens and signs OAuth state.     |
-| `SLACK_BOT_TOKEN`      | secret | Legacy `xoxb-` token, used only for `SLACK_TEAM_ID`.                      |
 | `SLACK_CLIENT_ID`      | var    | The app's public OAuth client id.                                         |
 | `SLACK_APP_ID`         | var    | The app's id, for the "Open Slack" link after install.                    |
-| `SLACK_TEAM_ID`        | var    | The team the legacy token belongs to.                                     |
 | `SLACK_ORIGIN`         | var    | This worker's origin; the OAuth redirect URI is built from it.            |
 | `WEB_ORIGIN`           | var    | The only origin whose share links unfurl.                                 |
 | `API_ORIGIN`           | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound. |
@@ -114,11 +161,23 @@ to reinstall. There is no key ring yet.
 
 ## Setting up the Slack app
 
-`manifest.json` is the app definition: bot scopes `links:read`,
-`links:write`, and `users:read` (the Slack name on the connect page), unfurl domain `uploads.sh`, the OAuth redirect URL, and the
-`link_shared`, `app_home_opened`, `app_uninstalled`, and `tokens_revoked`
-events pointed at `https://agents.uploads.sh/slack/events`, the Home tab, and
-interactivity at `https://agents.uploads.sh/slack/interactivity`. The app is installed in the Build
+`manifest.json` is the app definition: the bot scopes below, unfurl domain
+`uploads.sh`, the OAuth redirect URL, the `link_shared`,
+`app_home_opened`, `app_uninstalled`, and `tokens_revoked` events pointed at
+`https://agents.uploads.sh/slack/events`, the Home tab, a read-only Messages
+tab (where held-upload DMs land), and interactivity at
+`https://agents.uploads.sh/slack/interactivity`.
+
+| Scope         | Why                                                                   |
+| ------------- | --------------------------------------------------------------------- |
+| `links:read`  | See uploads.sh links in messages (the URL only) to preview them.      |
+| `links:write` | Add the preview.                                                      |
+| `users:read`  | Show the connecting user's Slack name on the uploads.sh confirm page. |
+| `chat:write`  | Send held-upload DMs and update them after a button press.            |
+| `im:write`    | Open the DM between the app and a connected user.                     |
+
+The manifest has no field for scope reasons. Slack's app settings ask for
+one per scope; paste the "Why" column there. The app is installed in the Build
 Internet workspace (app `A0CA0AWAJCD`, recorded in `.slack/apps.json`).
 
 `apps/slack` is a Slack CLI project: `.slack/hooks.json` points the CLI's
@@ -131,10 +190,9 @@ slack manifest diff      # project manifest vs. live app settings
 slack manifest sync      # push manifest.json to the app
 ```
 
-The CLI doesn't print the bot token or signing secret. Copy them from the
-app's settings page (`slack app settings`): **Basic Information** → Signing
-Secret, and **OAuth & Permissions** → Bot User OAuth Token. Then set them as
-worker secrets (above) and deploy:
+The CLI doesn't print the signing secret or client secret. Copy them from
+the app's settings page (`slack app settings`, **Basic Information**). Then
+set them as worker secrets (above) and deploy:
 
 ```bash
 pnpm run deploy:slack
@@ -144,8 +202,11 @@ Slack sends a `url_verification` challenge to the event URL, so the signing
 secret must be set before Slack can verify it. If the URL shows as unverified,
 press **Retry** under **Event Subscriptions** once the secret is in place.
 
-The worker is not part of `pnpm run deploy` or Workers Builds yet. Add it once
-the app is installed.
+`pnpm run deploy` deploys this worker after the api, web, and mcp workers.
+Workers Builds deploys each worker from its own directory on push to
+`main`; the `uploads-slack` worker needs a build connected in the Cloudflare
+dashboard (root directory `apps/slack`, deploy command
+`pnpm run deploy`) like the others.
 
 `icon.png` (1024×1024, rendered from `apps/web/public/favicon.svg` on a full
 square) is the app icon. The manifest can't set an icon, so upload it under
@@ -170,10 +231,12 @@ The worker is laid out so the next features slot in without reshaping it:
   and the event to `manifest.json`.
 - **Slash commands** (for example, an agent search command): a new
   `POST /slack/commands` route in `src/index.ts` that reuses `readSignedBody`.
-- **Notifications** (for example, a flag or PII hold): uploads-api calls a
-  `POST /slack/internal/*` route on this worker over a service binding, and
-  the worker posts with a `chat.postMessage` wrapper in `src/slack/api.ts`.
-  Internal routes must not be reachable from the public route.
-- **Acting as a linked user** (search, notifications): look up
-  `slack_user_links` for the event's team and user, then call uploads-api
-  for that user.
+- **Notifications**: follow held-upload messages. uploads-api calls a
+  `POST /slack/internal/*` route on this worker over its `SLACK` binding
+  (host `slack.internal`), and the worker posts with `chatPostMessage` in
+  `src/slack/api.ts`. Internal routes check the host, so the public route
+  can't reach them.
+- **Acting as a linked user**: follow **Approve**. Call an uploads-api
+  `/internal/slack/*` route over the `API` binding (host `api.internal`)
+  with the Slack team and user from the signed payload; the API resolves
+  `slack_user_links` and checks membership itself.

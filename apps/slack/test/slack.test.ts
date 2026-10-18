@@ -1,12 +1,35 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { database, SqliteD1 } from "../../api/test/helpers/sqlite-d1";
 import { createApp } from "../src/index";
 import type { SlackEnv } from "../src/config";
+import { saveInstall } from "../src/installs";
 import { formatBytes, parseShareUrl } from "../src/share";
 import { signSlackRequest, verifySlackSignature } from "../src/slack/signature";
 import { escapeMrkdwn, previewBlocks } from "../src/unfurl";
 
 const SECRET = "test-signing-secret";
 const TOKEN = "xoxb-test";
+const TOKENS_KEY = "test-tokens-key-0123456789";
+
+// Every event resolves its bot token from the team's install row, so each
+// test starts with team T123 installed.
+let sqlite: SqliteD1;
+beforeEach(async () => {
+  sqlite = new SqliteD1("migrations/20261018160000_slack_installations.sql");
+  await saveInstall(database(sqlite), TOKENS_KEY, {
+    teamId: "T123",
+    teamName: "Acme",
+    enterpriseId: null,
+    appId: "A1",
+    botUserId: "UBOT",
+    botToken: TOKEN,
+    scopes: "links:read,links:write",
+    installedBySlackUserId: "U1",
+  });
+});
+afterEach(() => {
+  sqlite.close();
+});
 const WEB = "https://uploads.sh";
 
 function nowTs(): string {
@@ -64,9 +87,9 @@ function env(overrides: Partial<SlackEnv> = {}): SlackEnv {
   return {
     WEB_ORIGIN: WEB,
     API_ORIGIN: "https://api.uploads.sh",
-    SLACK_TEAM_ID: "T123",
     SLACK_SIGNING_SECRET: SECRET,
-    SLACK_BOT_TOKEN: TOKEN,
+    SLACK_TOKENS_KEY: TOKENS_KEY,
+    DB: database(sqlite),
     ...overrides,
   };
 }
@@ -311,13 +334,13 @@ describe("POST /slack/events", () => {
     expect(slack.fetch).not.toHaveBeenCalled();
   });
 
-  it("ignores events from a team other than the pinned one", async () => {
+  it("ignores events from a team that hasn't installed the app", async () => {
     const api = fakeApi(FILE_FIXTURES);
     const slack = fakeSlack();
     const { ctx, settle } = executionCtx();
     await createApp({ slackFetch: slack.fetch }).fetch(
-      await signedRequest(linkShared([FILE_PAGE])),
-      env({ API: api.fetcher, SLACK_TEAM_ID: "T999" }),
+      await signedRequest({ ...linkShared([FILE_PAGE]), team_id: "T999" }),
+      env({ API: api.fetcher }),
       ctx,
     );
     await settle();

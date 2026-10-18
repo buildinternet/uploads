@@ -153,21 +153,29 @@ export const meSlack = new Hono<SessionVars>()
     });
   })
 
-  // The signed-in user's own links.
+  // The signed-in user's own links, with each Slack workspace's name
+  // (account settings lists them).
   .get("/links", async (c) => {
     const user = sessionUser(c);
     const { results } = await dbFor(c.env)
       .prepare(
-        `SELECT team_id, slack_user_id, linked_at
-           FROM slack_user_links
-          WHERE user_id = ?
-          ORDER BY linked_at DESC`,
+        `SELECT l.team_id, l.slack_user_id, l.linked_at, i.team_name
+           FROM slack_user_links l
+           LEFT JOIN slack_installations i ON i.team_id = l.team_id
+          WHERE l.user_id = ?
+          ORDER BY l.linked_at DESC`,
       )
       .bind(user.id)
-      .all<{ team_id: string; slack_user_id: string; linked_at: string }>();
+      .all<{
+        team_id: string;
+        slack_user_id: string;
+        linked_at: string;
+        team_name: string | null;
+      }>();
     return c.json({
       links: results.map((r) => ({
         teamId: r.team_id,
+        teamName: r.team_name,
         slackUserId: r.slack_user_id,
         linkedAt: r.linked_at,
       })),

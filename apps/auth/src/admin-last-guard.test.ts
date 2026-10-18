@@ -58,6 +58,7 @@ async function seedUser(
     stripeCustomerId: overrides.stripeCustomerId ?? null,
     notifyMemberJoin: overrides.notifyMemberJoin ?? true,
     notifyUsageLimits: overrides.notifyUsageLimits ?? true,
+    notifySlackHolds: true,
     notifyWeeklyDigest: overrides.notifyWeeklyDigest ?? false,
     notifyWeeklyWorkspaceDigest: overrides.notifyWeeklyWorkspaceDigest ?? false,
   };

@@ -67,8 +67,7 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
     });
   },
 
-  // Uninstalls and token revocations drop the stored token. The legacy
-  // SLACK_BOT_TOKEN secret is not touched; remove it by hand.
+  // Uninstalls and token revocations drop the stored token.
   async app_uninstalled(_event, ctx) {
     if (!ctx.env.DB) return;
     await revokeInstall(ctx.env.DB, ctx.teamId);

@@ -16,10 +16,6 @@
     // The Slack app's public identifiers (not secrets).
     "SLACK_APP_ID": "A0CA0AWAJCD",
     "SLACK_CLIENT_ID": "12373944164736.12340370358421",
-    // The team the legacy SLACK_BOT_TOKEN secret belongs to (Build Internet).
-    // Used only until that team reinstalls through /slack/install; every
-    // other team's token comes from the slack_installations table.
-    "SLACK_TEAM_ID": "T0CAZTS4UMN",
   },
   // Served as a path on the agent subdomain instead of a hostname of its own.
   // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same
@@ -63,5 +59,4 @@
   //   SLACK_SIGNING_SECRET  verifies every inbound request (fail closed: 503 when unset)
   //   SLACK_CLIENT_SECRET   OAuth client secret for /slack/install (installs answer 503 when unset)
   //   SLACK_TOKENS_KEY      master key that seals bot tokens in D1 and signs OAuth state (16+ chars)
-  //   SLACK_BOT_TOKEN       legacy xoxb- token for SLACK_TEAM_ID only
 }

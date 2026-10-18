@@ -252,12 +252,12 @@ describe("installs and token lookup", () => {
     expect(await installedBotToken(e.DB!, KEY, "T1")).toBe("xoxb-two");
   });
 
-  it("falls back to the legacy token only for its own team, and prefers an install", async () => {
-    const e = env({ SLACK_BOT_TOKEN: "xoxb-legacy", SLACK_TEAM_ID: "T1" });
-    expect(await botTokenFor(e, "T1")).toBe("xoxb-legacy");
-    expect(await botTokenFor(e, "T2")).toBeNull();
+  it("finds a token only for a team with an install", async () => {
+    const e = env();
+    expect(await botTokenFor(e, "T1")).toBeNull();
     await saveInstall(e.DB!, KEY, record);
     expect(await botTokenFor(e, "T1")).toBe("xoxb-one");
+    expect(await botTokenFor(e, "T2")).toBeNull();
   });
 
   it("app_uninstalled and tokens_revoked events revoke the install", async () => {

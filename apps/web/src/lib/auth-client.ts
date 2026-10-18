@@ -64,6 +64,8 @@ export interface SessionUser {
   notifyMemberJoin?: boolean | null;
   /** Per-user pref: email me when a workspace I administer nears its usage limit. */
   notifyUsageLimits?: boolean | null;
+  /** Per-user pref: message me in Slack when an upload is held for review. */
+  notifySlackHolds?: boolean | null;
 }
 
 export type { DigestWorkspacePreference };
@@ -333,6 +335,25 @@ export async function updateNotifyUsageLimits(origin: string, value: boolean): P
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notifyUsageLimits: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write the "message me in Slack when an upload is held" preference via
+ * Better Auth's update-user endpoint. Same contract as
+ * `updateNotifyUsageLimits`.
+ */
+export async function updateNotifySlackHolds(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifySlackHolds: value }),
     });
     return res.ok;
   } catch {

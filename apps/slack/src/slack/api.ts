@@ -1,7 +1,7 @@
 /**
  * Minimal Slack Web API client: plain fetch, no SDK. Each method this app
  * calls gets a typed wrapper here so features never build Slack requests by
- * hand. Add `chat.postMessage` here when flag notifications land.
+ * hand.
  */
 
 export const SLACK_API_ORIGIN = "https://slack.com/api";
@@ -92,4 +92,71 @@ export function viewsPublish(
   options: SlackApiOptions,
 ): Promise<SlackApiResult> {
   return call("views.publish", { user_id: userId, view }, options);
+}
+
+interface ConversationsOpenResult extends SlackApiResult {
+  channel?: { id?: string };
+}
+
+/**
+ * Opens (or finds) the app's DM with one user and returns its channel id,
+ * or null when the call fails (for example, an install from before
+ * `im:write`). https://docs.slack.dev/reference/methods/conversations.open
+ */
+export async function openDm(userId: string, options: SlackApiOptions): Promise<string | null> {
+  const result = (await call(
+    "conversations.open",
+    { users: userId },
+    options,
+  )) as ConversationsOpenResult;
+  return result.ok ? (result.channel?.id ?? null) : null;
+}
+
+/** `chat.postMessage` (needs `chat:write`): https://docs.slack.dev/reference/methods/chat.postMessage */
+export function chatPostMessage(
+  message: { channel: string; text: string; blocks: Block[] },
+  options: SlackApiOptions,
+): Promise<SlackApiResult> {
+  return call(
+    "chat.postMessage",
+    { ...message, unfurl_links: false, unfurl_media: false },
+    options,
+  );
+}
+
+/**
+ * Replies to a button press through the payload's `response_url`: replaces
+ * the message the button sat on, or (`replace: false`) adds a reply only
+ * the presser sees and leaves the buttons in place. Only Slack's own hooks
+ * host is accepted, so a payload can't point this worker at another server.
+ * https://docs.slack.dev/interactivity/handling-user-interaction#message_responses
+ */
+export async function respondToAction(
+  responseUrl: string,
+  message: { text: string; blocks: Block[] },
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+  replace = true,
+): Promise<boolean> {
+  let url: URL;
+  try {
+    url = new URL(responseUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.hostname !== "hooks.slack.com") return false;
+  try {
+    const response = await fetchImpl(url.href, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(
+        replace
+          ? { ...message, replace_original: true }
+          : { ...message, replace_original: false, response_type: "ephemeral" },
+      ),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
