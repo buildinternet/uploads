@@ -9,11 +9,12 @@
 
 export interface SlackEnv {
   WEB_ORIGIN?: string;
+  API_ORIGIN?: string;
   SLACK_TEAM_ID?: string;
   SLACK_SIGNING_SECRET?: string;
   SLACK_BOT_TOKEN?: string;
-  /** uploads-web over a service binding. Absent in local dev. */
-  WEB?: Fetcher;
+  /** uploads-api over a service binding, for its public read endpoints. Absent in local dev. */
+  API?: Fetcher;
 }
 
 /** The bot token for `teamId`, or null when this install doesn't cover that team. */

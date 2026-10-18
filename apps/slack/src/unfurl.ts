@@ -1,73 +1,28 @@
 /**
  * Link unfurling: turns uploads.sh share links (`/f/…`, `/g/…`, `/c/…`) into
- * Slack previews.
+ * Slack previews. share.ts decides what a link is and what may be shown;
+ * this module renders that as Block Kit and calls chat.unfurl.
  *
- * The preview data comes from uploads-web's public oEmbed endpoint, not from
- * the API or storage directly. That endpoint already decides what a stranger
- * may see: private, held, missing, and expired objects all come back 404, and
- * a 404 here means no unfurl. This worker holds no storage credentials and
- * never resolves a private object, so an unfurl can't show more than the
- * share page itself would.
+ * Layout follows the convention GitHub, Linear, and Loom unfurls use: a bold
+ * title, a second line for what it belongs to, then either one full-width
+ * image (a file) or a small thumbnail beside the title (a collection), and a
+ * muted context line of facts.
  */
+import { resolvePreview, type Preview, type PreviewLink, type ShareDeps } from "./share";
 import { chatUnfurl, type Block, type UnfurlTarget } from "./slack/api";
 import type { LinkSharedEvent } from "./slack/types";
 
-const UNFURL_USER_AGENT = "uploads-slack (+https://uploads.sh; unfurl)";
 /** Slack sends at most a handful of links per event; this bounds the fan-out regardless. */
 const MAX_LINKS_PER_EVENT = 5;
-const OEMBED_TIMEOUT_MS = 5_000;
 const TITLE_MAX = 150;
+const SUBTITLE_MAX = 200;
 /** chat.unfurl errors that mean Slack couldn't use an image block. */
 const IMAGE_ERRORS = new Set(["invalid_blocks", "downloading_image_failed", "invalid_unfurls"]);
 
-/** The oEmbed fields this module reads. See apps/web/src/lib/oembed.ts for the producer. */
-export interface OEmbed {
-  type: "photo" | "video" | "link" | "rich";
-  title?: string;
-  url?: string;
-  thumbnail_url?: string;
-}
-
-export interface UnfurlDeps {
-  /** Origin of uploads-web; only links on this origin unfurl. */
-  webOrigin: string;
-  /** Reaches uploads-web: the WEB service binding, or global fetch in dev. */
-  webFetch: typeof globalThis.fetch;
+export interface UnfurlDeps extends ShareDeps {
   /** Reaches slack.com. */
   slackFetch?: typeof globalThis.fetch;
   botToken: string;
-}
-
-/** True when `url` is on the configured web origin (scheme included). */
-export function isUnfurlableUrl(url: string, webOrigin: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.origin === new URL(webOrigin).origin;
-  } catch {
-    return false;
-  }
-}
-
-/** Looks up oEmbed for a share link. Null on 404, error, or timeout. */
-export async function fetchOEmbed(
-  pageUrl: string,
-  deps: Pick<UnfurlDeps, "webOrigin" | "webFetch">,
-): Promise<OEmbed | null> {
-  const endpoint = new URL("/oembed", deps.webOrigin);
-  endpoint.searchParams.set("url", pageUrl);
-  endpoint.searchParams.set("format", "json");
-  try {
-    const response = await deps.webFetch(endpoint.href, {
-      headers: { Accept: "application/json", "User-Agent": UNFURL_USER_AGENT },
-      signal: AbortSignal.timeout(OEMBED_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    const body = (await response.json()) as Partial<OEmbed> | null;
-    if (!body || typeof body !== "object" || typeof body.type !== "string") return null;
-    return body as OEmbed;
-  } catch {
-    return null;
-  }
 }
 
 /** Escapes text for Slack mrkdwn: https://api.slack.com/reference/surfaces/formatting#escaping */
@@ -75,77 +30,65 @@ export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function clampTitle(title: string | undefined, fallback: string): string {
-  const value = (title ?? "").trim() || fallback;
-  return value.length > TITLE_MAX ? `${value.slice(0, TITLE_MAX - 1)}…` : value;
+function clamp(value: string, max: number): string {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
 }
 
-function isHttpsUrl(value: string | undefined): value is string {
-  if (!value) return false;
+function link(url: string, label: string): string {
+  return `<${url}|${escapeMrkdwn(label)}>`;
+}
+
+/** Slack's image blocks take PNG, JPEG, GIF, and WebP; an SVG or other type fails the whole chat.unfurl call. */
+function isSlackImage(value: string): boolean {
   try {
-    return new URL(value).protocol === "https:";
+    const url = new URL(value);
+    if (url.protocol !== "https:") return false;
+    return !/\.(svg|svgz|avif|heic|heif|tiff?|bmp|ico)$/.test(url.pathname.toLowerCase());
   } catch {
     return false;
   }
 }
 
-/** Slack's image blocks take PNG, JPEG, and GIF; an SVG or other type fails the whole chat.unfurl call. */
-function isSlackImage(value: string | undefined): value is string {
-  if (!isHttpsUrl(value)) return false;
-  const path = new URL(value).pathname.toLowerCase();
-  return !/\.(svg|svgz|avif|heic|heif|tiff?|bmp|ico)$/.test(path);
+function subtitleText(parts: PreviewLink[]): string {
+  return parts
+    .map((part) => {
+      const label = clamp(part.text, SUBTITLE_MAX);
+      return part.url ? link(part.url, label) : escapeMrkdwn(label);
+    })
+    .join(" · ");
 }
 
-function fallbackTitle(pageUrl: string): string {
-  try {
-    const last = new URL(pageUrl).pathname.replace(/\/+$/, "").split("/").pop();
-    return last ? decodeURIComponent(last) : "uploads.sh";
-  } catch {
-    return "uploads.sh";
-  }
+/** Slack date token: renders in the viewer's timezone as "2 hours ago". */
+function slackDate(iso: string): string {
+  const seconds = Math.floor(Date.parse(iso) / 1000);
+  return `<!date^${seconds}^{ago}|${escapeMrkdwn(iso.slice(0, 10))}>`;
 }
 
-/** The image shown full width: a photo itself, or a video's poster frame. */
-function largeImage(oembed: OEmbed): string | undefined {
-  if (oembed.type === "photo" && isSlackImage(oembed.url)) return oembed.url;
-  if (oembed.type === "video" && isSlackImage(oembed.thumbnail_url)) return oembed.thumbnail_url;
-  return undefined;
-}
-
-/**
- * Block Kit for one link. Images show inline; videos show their poster frame
- * (Slack's video block needs the extra `links.embed:write` scope, so it is
- * left for later); everything else is a titled link with a thumbnail when
- * the oEmbed has one.
- */
-export function unfurlBlocks(
-  pageUrl: string,
-  oembed: OEmbed,
-  options: { images?: boolean } = {},
-): Block[] {
+/** Block Kit for one preview. `images: false` is the text-only fallback. */
+export function previewBlocks(preview: Preview, options: { images?: boolean } = {}): Block[] {
   const images = options.images ?? true;
-  const title = clampTitle(oembed.title, fallbackTitle(pageUrl));
-  const titleLine = `*<${pageUrl}|${escapeMrkdwn(title)}>*`;
+  const title = clamp(preview.title, TITLE_MAX);
+  let text = `*${link(preview.url, title)}*${preview.isVideo ? " · video" : ""}`;
+  if (preview.subtitle?.length) text += `\n${subtitleText(preview.subtitle)}`;
+
+  const image = images && preview.image && isSlackImage(preview.image.url) ? preview.image : null;
+  const section: Block = { type: "section", text: { type: "mrkdwn", text } };
+  if (image?.size === "thumb") {
+    section.accessory = { type: "image", image_url: image.url, alt_text: image.alt || title };
+  }
+
+  const facts = preview.facts.map((fact) =>
+    "date" in fact ? slackDate(fact.date) : escapeMrkdwn(fact.text),
+  );
   const context: Block = {
     type: "context",
-    elements: [{ type: "mrkdwn", text: "uploads.sh" }],
+    elements: [{ type: "mrkdwn", text: ["uploads.sh", ...facts].join(" · ") }],
   };
 
-  const image = images ? largeImage(oembed) : undefined;
-  if (image) {
-    const label = oembed.type === "video" ? `${titleLine} · video` : titleLine;
-    return [
-      { type: "section", text: { type: "mrkdwn", text: label } },
-      { type: "image", image_url: image, alt_text: title },
-      context,
-    ];
-  }
-
-  const section: Block = { type: "section", text: { type: "mrkdwn", text: titleLine } };
-  if (images && isSlackImage(oembed.thumbnail_url)) {
-    section.accessory = { type: "image", image_url: oembed.thumbnail_url, alt_text: title };
-  }
-  return [section, context];
+  return image?.size === "large"
+    ? [section, { type: "image", image_url: image.url, alt_text: image.alt || title }, context]
+    : [section, context];
 }
 
 function unfurlTarget(event: LinkSharedEvent): UnfurlTarget {
@@ -160,33 +103,28 @@ export type UnfurlOutcome =
   | { status: "skipped"; reason: "no_links" }
   | { status: "failed"; urls: string[]; error: string };
 
-/** Handles a `link_shared` event: look up each link, then one `chat.unfurl` for all that resolved. */
+/** Handles a `link_shared` event: resolve each link, then one `chat.unfurl` for all that resolved. */
 export async function handleLinkShared(
   event: LinkSharedEvent,
   deps: UnfurlDeps,
 ): Promise<UnfurlOutcome> {
-  const urls = [...new Set((event.links ?? []).map((link) => link.url))]
-    .filter((url) => isUnfurlableUrl(url, deps.webOrigin))
-    .slice(0, MAX_LINKS_PER_EVENT);
-
-  const resolved = await Promise.all(
-    urls.map(async (url) => {
-      const oembed = await fetchOEmbed(url, deps);
-      return oembed ? ([url, oembed] as const) : null;
-    }),
+  const urls = [...new Set((event.links ?? []).map((entry) => entry.url))].slice(
+    0,
+    MAX_LINKS_PER_EVENT,
   );
-  const found = resolved.filter((entry) => entry !== null);
-  const unfurledUrls = found.map(([url]) => url);
+  const resolved = await Promise.all(urls.map((url) => resolvePreview(url, deps)));
+  const previews = resolved.filter((preview) => preview !== null);
+  const unfurledUrls = previews.map((preview) => preview.url);
   if (unfurledUrls.length === 0) return { status: "skipped", reason: "no_links" };
 
   const build = (images: boolean) =>
     Object.fromEntries(
-      found.map(([url, oembed]) => [url, { blocks: unfurlBlocks(url, oembed, { images }) }]),
+      previews.map((preview) => [preview.url, { blocks: previewBlocks(preview, { images }) }]),
     );
   const api = { token: deps.botToken, fetch: deps.slackFetch };
   let result = await chatUnfurl(unfurlTarget(event), build(true), api);
   // Slack fetches every image before accepting the call, and one image it
-  // can't fetch rejects the whole batch. Retry once as plain titled links.
+  // can't fetch rejects the whole batch. Retry once without images.
   if (!result.ok && result.error && IMAGE_ERRORS.has(result.error)) {
     result = await chatUnfurl(unfurlTarget(event), build(false), api);
   }

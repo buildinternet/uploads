@@ -5,10 +5,11 @@
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    // The only origin whose links this app unfurls. Must match the origin
-    // uploads-web answers /oembed on, because that endpoint rejects page URLs
-    // from any other origin (no open proxy).
+    // The only origin whose share links this app unfurls.
     "WEB_ORIGIN": "https://uploads.sh",
+    // Public API origin. Requests go over the API binding when it's bound;
+    // this is the host they're addressed to, and the plain-fetch target in dev.
+    "API_ORIGIN": "https://api.uploads.sh",
     // The Slack team (workspace) the bot token belongs to: Build Internet.
     // Events from any other team are ignored. Blank accepts any team.
     "SLACK_TEAM_ID": "T0CAZTS4UMN",
@@ -32,13 +33,14 @@
     },
   },
   "upload_source_maps": true,
-  // Public oEmbed lookups go to uploads-web over a service binding: no edge
+  // Preview data comes from uploads-api's public read endpoints
+  // (/public/files|feeds|galleries) over a service binding: no edge
   // subrequest, and immune to WAF rules on the public origin (see #998).
   // Without the binding (local dev) the worker falls back to fetch().
   "services": [
     {
-      "binding": "WEB",
-      "service": "uploads-web",
+      "binding": "API",
+      "service": "uploads-api",
     },
   ],
   // Secrets, set with `wrangler secret put <NAME> --config apps/slack/wrangler.jsonc`:

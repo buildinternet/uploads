@@ -18,10 +18,10 @@ export interface HandlerContext {
 
 type EventHandler = (event: SlackEvent, ctx: HandlerContext) => Promise<void>;
 
-function webFetchFor(env: SlackEnv): typeof globalThis.fetch {
-  const web = env.WEB;
-  if (!web) return globalThis.fetch;
-  return web.fetch.bind(web) as unknown as typeof globalThis.fetch;
+function apiFetchFor(env: SlackEnv): typeof globalThis.fetch {
+  const api = env.API;
+  if (!api) return globalThis.fetch;
+  return api.fetch.bind(api) as unknown as typeof globalThis.fetch;
 }
 
 const EVENT_HANDLERS: Record<string, EventHandler> = {
@@ -33,7 +33,8 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
     }
     const outcome = await handleLinkShared(event as LinkSharedEvent, {
       webOrigin: ctx.env.WEB_ORIGIN || "https://uploads.sh",
-      webFetch: webFetchFor(ctx.env),
+      apiOrigin: ctx.env.API_ORIGIN || "https://api.uploads.sh",
+      apiFetch: apiFetchFor(ctx.env),
       slackFetch: ctx.slackFetch,
       botToken,
     });

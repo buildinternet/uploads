@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/index";
 import type { SlackEnv } from "../src/config";
+import { formatBytes, parseShareUrl } from "../src/share";
 import { signSlackRequest, verifySlackSignature } from "../src/slack/signature";
-import { escapeMrkdwn, isUnfurlableUrl, unfurlBlocks } from "../src/unfurl";
+import { escapeMrkdwn, previewBlocks } from "../src/unfurl";
 
 const SECRET = "test-signing-secret";
 const TOKEN = "xoxb-test";
@@ -25,21 +26,20 @@ function executionCtx() {
   };
 }
 
-type OEmbedFixtures = Record<string, { status: number; body?: unknown }>;
-
-/** Fake uploads-web: answers /oembed?url=… from fixtures keyed by page URL. */
-function fakeWeb(fixtures: OEmbedFixtures) {
+/** Fake uploads-api: answers public read paths (pathname + search) from fixtures; anything else 404s. */
+function fakeApi(fixtures: Record<string, unknown>) {
   const calls: string[] = [];
   const fetcher = {
     fetch: vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(typeof input === "string" ? input : input.toString());
-      calls.push(url.href);
-      const page = url.searchParams.get("url") ?? "";
-      const hit = fixtures[page] ?? { status: 404, body: { error: "not_found" } };
-      return new Response(JSON.stringify(hit.body ?? {}), {
-        status: hit.status,
-        headers: { "Content-Type": "application/json" },
-      });
+      calls.push(url.pathname + url.search);
+      const body = fixtures[url.pathname + url.search] ?? fixtures[url.pathname];
+      return body === undefined
+        ? new Response(JSON.stringify({ error: "not_found" }), { status: 404 })
+        : new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
     }),
   } as unknown as Fetcher;
   return { fetcher, calls };
@@ -63,6 +63,7 @@ function fakeSlack(responses: Array<{ ok: boolean; error?: string }> = [{ ok: tr
 function env(overrides: Partial<SlackEnv> = {}): SlackEnv {
   return {
     WEB_ORIGIN: WEB,
+    API_ORIGIN: "https://api.uploads.sh",
     SLACK_TEAM_ID: "",
     SLACK_SIGNING_SECRET: SECRET,
     SLACK_BOT_TOKEN: TOKEN,
@@ -100,18 +101,118 @@ function linkShared(urls: string[], extra: Record<string, unknown> = {}) {
   };
 }
 
-const PHOTO_PAGE = "https://uploads.sh/f/acme/screenshots/after.png";
-const PHOTO = {
-  status: 200,
-  body: {
-    version: "1.0",
-    type: "photo",
-    title: "after.png",
-    url: "https://storage.uploads.sh/acme/screenshots/after.png",
-    width: 1200,
-    height: 1200,
+type Blocks = Array<Record<string, any>>;
+
+/** Runs one link_shared event through the app and returns the blocks sent for `url`. */
+async function unfurl(url: string, fixtures: Record<string, unknown>, extra = {}) {
+  const api = fakeApi(fixtures);
+  const slack = fakeSlack();
+  const app = createApp({ slackFetch: slack.fetch });
+  const { ctx, settle } = executionCtx();
+  const res = await app.fetch(
+    await signedRequest(linkShared([url], extra)),
+    env({ API: api.fetcher }),
+    ctx,
+  );
+  expect(res.status).toBe(200);
+  await settle();
+  const unfurls = slack.bodies[0]?.unfurls as Record<string, { blocks: Blocks }> | undefined;
+  return { api, slack, blocks: unfurls?.[url]?.blocks };
+}
+
+const FILE_PAGE = "https://uploads.sh/f/default/gh/acme/app/pull/12/after.png";
+const FILE = {
+  workspace: "default",
+  key: "gh/acme/app/pull/12/after.png",
+  url: "https://storage.uploads.sh/default/gh/acme/app/pull/12/after.png",
+  size: 138352,
+  contentType: "image/png",
+  uploaded: "2026-10-18T00:17:35.847Z",
+  metadata: { path: "/settings", "gh.repo": "acme/app" },
+  github: {
+    repo: "acme/app",
+    kind: "pull",
+    number: 12,
+    url: "https://github.com/acme/app/pull/12",
+    title: "Settings <redesign>",
   },
 };
+const FILE_FIXTURES = { "/public/files/default/gh/acme/app/pull/12/after.png": FILE };
+
+const FEED_ID = "feed_ziLKxuD-uleBj_1teOm5yw";
+const FEED_ITEM = {
+  id: "item1",
+  filename: "after.png",
+  status: "available",
+  url: "https://storage.uploads.sh/default/gh/acme/app/pull/12/after.png",
+  contentType: "image/png",
+  size: 1000,
+  uploaded: "2026-10-18T00:17:35.847Z",
+  path: "/settings",
+  state: "after",
+};
+const FEED_FIXTURES = {
+  [`/public/feeds/${FEED_ID}?limit=1`]: {
+    id: FEED_ID,
+    title: "acme/app#12",
+    repo: "acme/app",
+    number: 12,
+    kind: "pull",
+    updatedAt: "2026-10-17T00:00:00.000Z",
+    items: [FEED_ITEM],
+    github: { title: "Settings redesign", state: "merged" },
+  },
+  [`/public/feeds/${FEED_ID}/items/item1`]: {
+    feed: { id: FEED_ID, title: "acme/app#12", repo: "acme/app", number: 12, kind: "pull" },
+    item: FEED_ITEM,
+    index: 0,
+    total: 7,
+  },
+};
+
+const GALLERY_ID = "gal_abcdefghijklmnopqrstuv";
+const GALLERY_FIXTURES = {
+  [`/public/galleries/${GALLERY_ID}`]: {
+    id: GALLERY_ID,
+    title: "Release shots",
+    description: "Everything in v2",
+    coverItemId: "b",
+    updatedAt: "2026-10-18T00:00:00.000Z",
+    items: [
+      {
+        id: "a",
+        filename: "one.png",
+        status: "available",
+        url: "https://storage.uploads.sh/a.png",
+        contentType: "image/png",
+        size: 1,
+        position: 0,
+      },
+      {
+        id: "b",
+        filename: "two.png",
+        status: "available",
+        url: "https://storage.uploads.sh/b.png",
+        contentType: "image/png",
+        size: 1,
+        position: 1,
+        caption: "The new header",
+      },
+      {
+        id: "c",
+        filename: "gone.png",
+        status: "withheld",
+        url: null,
+        contentType: null,
+        size: null,
+        position: 2,
+      },
+    ],
+  },
+};
+
+const contextText = (blocks: Blocks) => blocks.at(-1)!.elements[0].text as string;
+const sectionText = (blocks: Blocks) => blocks[0]!.text.text as string;
 
 describe("verifySlackSignature", () => {
   it("accepts a body signed with the secret", async () => {
@@ -144,9 +245,8 @@ describe("verifySlackSignature", () => {
 
 describe("POST /slack/events", () => {
   it("answers url_verification with the challenge", async () => {
-    const app = createApp();
     const { ctx } = executionCtx();
-    const res = await app.fetch(
+    const res = await createApp().fetch(
       await signedRequest({ type: "url_verification", challenge: "abc123" }),
       env(),
       ctx,
@@ -155,31 +255,22 @@ describe("POST /slack/events", () => {
     expect(await res.json()).toEqual({ challenge: "abc123" });
   });
 
-  it("rejects an unsigned or badly signed request", async () => {
+  it("rejects badly signed and stale requests", async () => {
     const app = createApp();
     const { ctx } = executionCtx();
-    const bad = await app.fetch(
-      await signedRequest({ type: "url_verification", challenge: "x" }, { secret: "nope" }),
-      env(),
-      ctx,
+    const payload = { type: "url_verification", challenge: "x" };
+    expect(
+      (await app.fetch(await signedRequest(payload, { secret: "nope" }), env(), ctx)).status,
+    ).toBe(401);
+    const stale = String(Math.floor(Date.now() / 1000) - 3600);
+    expect((await app.fetch(await signedRequest(payload, { ts: stale }), env(), ctx)).status).toBe(
+      401,
     );
-    expect(bad.status).toBe(401);
-
-    const stale = await app.fetch(
-      await signedRequest(
-        { type: "url_verification", challenge: "x" },
-        { ts: String(Math.floor(Date.now() / 1000) - 3600) },
-      ),
-      env(),
-      ctx,
-    );
-    expect(stale.status).toBe(401);
   });
 
   it("fails closed when the signing secret is unset", async () => {
-    const app = createApp();
     const { ctx } = executionCtx();
-    const res = await app.fetch(
+    const res = await createApp().fetch(
       await signedRequest({ type: "url_verification", challenge: "x" }),
       env({ SLACK_SIGNING_SECRET: "" }),
       ctx,
@@ -187,121 +278,73 @@ describe("POST /slack/events", () => {
     expect(res.status).toBe(503);
   });
 
-  it("unfurls a public image link with chat.unfurl", async () => {
-    const web = fakeWeb({ [PHOTO_PAGE]: PHOTO });
-    const slack = fakeSlack();
-    const app = createApp({ slackFetch: slack.fetch });
-    const { ctx, settle } = executionCtx();
-
-    const res = await app.fetch(
-      await signedRequest(linkShared([PHOTO_PAGE])),
-      env({ WEB: web.fetcher }),
-      ctx,
-    );
-    expect(res.status).toBe(200);
-    await settle();
-
-    expect(web.calls).toHaveLength(1);
-    const lookup = new URL(web.calls[0]!);
-    expect(lookup.origin + lookup.pathname).toBe("https://uploads.sh/oembed");
-    expect(lookup.searchParams.get("url")).toBe(PHOTO_PAGE);
-
-    expect(slack.bodies).toHaveLength(1);
-    expect(slack.headers[0]!.get("Authorization")).toBe(`Bearer ${TOKEN}`);
-    const body = slack.bodies[0]!;
-    expect(body.channel).toBe("C123");
-    expect(body.ts).toBe("1700000000.000100");
-    const blocks = (body.unfurls as Record<string, { blocks: Array<Record<string, unknown>> }>)[
-      PHOTO_PAGE
-    ]!.blocks;
-    expect(blocks.map((b) => b.type)).toEqual(["section", "image", "context"]);
-    expect(blocks[1]).toMatchObject({
-      image_url: "https://storage.uploads.sh/acme/screenshots/after.png",
-      alt_text: "after.png",
-    });
-  });
-
   it("uses unfurl_id and source when Slack sends them", async () => {
-    const web = fakeWeb({ [PHOTO_PAGE]: PHOTO });
-    const slack = fakeSlack();
-    const app = createApp({ slackFetch: slack.fetch });
-    const { ctx, settle } = executionCtx();
-    await app.fetch(
-      await signedRequest(
-        linkShared([PHOTO_PAGE], { unfurl_id: "U.abc", source: "composer", channel: "COMPOSER" }),
-      ),
-      env({ WEB: web.fetcher }),
-      ctx,
-    );
-    await settle();
+    const { slack } = await unfurl(FILE_PAGE, FILE_FIXTURES, {
+      unfurl_id: "U.abc",
+      source: "composer",
+      channel: "COMPOSER",
+    });
+    expect(slack.headers[0]!.get("Authorization")).toBe(`Bearer ${TOKEN}`);
     expect(slack.bodies[0]).toMatchObject({ unfurl_id: "U.abc", source: "composer" });
     expect(slack.bodies[0]).not.toHaveProperty("channel");
   });
 
-  it("skips links the oEmbed endpoint won't resolve (private, held, missing)", async () => {
-    const web = fakeWeb({});
-    const slack = fakeSlack();
-    const app = createApp({ slackFetch: slack.fetch });
-    const { ctx, settle } = executionCtx();
-    await app.fetch(
-      await signedRequest(linkShared(["https://uploads.sh/f/acme/private.png"])),
-      env({ WEB: web.fetcher }),
-      ctx,
-    );
-    await settle();
-    expect(web.calls).toHaveLength(1);
+  it("skips links the public API won't resolve (private, held, missing)", async () => {
+    const { api, slack } = await unfurl("https://uploads.sh/f/acme/private.png", {});
+    expect(api.calls).toEqual(["/public/files/acme/private.png"]);
     expect(slack.fetch).not.toHaveBeenCalled();
   });
 
-  it("never looks up links on other origins", async () => {
-    const web = fakeWeb({});
+  it("never looks up links on other origins or non-share paths", async () => {
+    const api = fakeApi({});
     const slack = fakeSlack();
-    const app = createApp({ slackFetch: slack.fetch });
     const { ctx, settle } = executionCtx();
-    await app.fetch(
-      await signedRequest(linkShared(["https://evil.example/f/acme/x.png"])),
-      env({ WEB: web.fetcher }),
+    await createApp({ slackFetch: slack.fetch }).fetch(
+      await signedRequest(
+        linkShared(["https://evil.example/f/acme/x.png", "https://uploads.sh/pricing"]),
+      ),
+      env({ API: api.fetcher }),
       ctx,
     );
     await settle();
-    expect(web.calls).toHaveLength(0);
+    expect(api.calls).toHaveLength(0);
     expect(slack.fetch).not.toHaveBeenCalled();
   });
 
   it("ignores events from a team other than the pinned one", async () => {
-    const web = fakeWeb({ [PHOTO_PAGE]: PHOTO });
+    const api = fakeApi(FILE_FIXTURES);
     const slack = fakeSlack();
-    const app = createApp({ slackFetch: slack.fetch });
     const { ctx, settle } = executionCtx();
-    await app.fetch(
-      await signedRequest(linkShared([PHOTO_PAGE])),
-      env({ WEB: web.fetcher, SLACK_TEAM_ID: "T999" }),
+    await createApp({ slackFetch: slack.fetch }).fetch(
+      await signedRequest(linkShared([FILE_PAGE])),
+      env({ API: api.fetcher, SLACK_TEAM_ID: "T999" }),
       ctx,
     );
     await settle();
-    expect(web.calls).toHaveLength(0);
+    expect(api.calls).toHaveLength(0);
     expect(slack.fetch).not.toHaveBeenCalled();
   });
 
-  it("retries as text-only previews when Slack can't fetch an image", async () => {
-    const web = fakeWeb({ [PHOTO_PAGE]: PHOTO });
+  it("retries without images when Slack can't fetch one", async () => {
+    const api = fakeApi(FILE_FIXTURES);
     const slack = fakeSlack([{ ok: false, error: "invalid_blocks" }, { ok: true }]);
-    const app = createApp({ slackFetch: slack.fetch });
     const { ctx, settle } = executionCtx();
-    await app.fetch(await signedRequest(linkShared([PHOTO_PAGE])), env({ WEB: web.fetcher }), ctx);
+    await createApp({ slackFetch: slack.fetch }).fetch(
+      await signedRequest(linkShared([FILE_PAGE])),
+      env({ API: api.fetcher }),
+      ctx,
+    );
     await settle();
     expect(slack.bodies).toHaveLength(2);
-    const retry = (slack.bodies[1]!.unfurls as Record<string, { blocks: Array<{ type: string }> }>)[
-      PHOTO_PAGE
-    ]!.blocks;
+    const retry = (slack.bodies[1]!.unfurls as Record<string, { blocks: Blocks }>)[FILE_PAGE]!
+      .blocks;
     expect(retry.map((b) => b.type)).toEqual(["section", "context"]);
   });
 
   it("acks event types it doesn't handle without doing anything", async () => {
     const slack = fakeSlack();
-    const app = createApp({ slackFetch: slack.fetch });
     const { ctx, settle } = executionCtx();
-    const res = await app.fetch(
+    const res = await createApp({ slackFetch: slack.fetch }).fetch(
       await signedRequest({
         type: "event_callback",
         team_id: "T1",
@@ -316,49 +359,128 @@ describe("POST /slack/events", () => {
   });
 });
 
-describe("unfurlBlocks", () => {
-  it("shows a video's poster frame and labels it", () => {
-    const blocks = unfurlBlocks("https://uploads.sh/f/acme/demo.mp4", {
-      type: "video",
-      title: "demo.mp4",
-      thumbnail_url: "https://uploads.sh/cdn-cgi/image/width=1200/poster.jpg",
-    });
-    expect(blocks.map((b) => b.type)).toEqual(["section", "image", "context"]);
-    expect((blocks[0]!.text as { text: string }).text).toContain("· video");
+describe("previews", () => {
+  it("file: title, linked PR, full image, and facts", async () => {
+    const { blocks } = await unfurl(FILE_PAGE, FILE_FIXTURES);
+    expect(blocks!.map((b) => b.type)).toEqual(["section", "image", "context"]);
+    expect(sectionText(blocks!)).toBe(
+      `*<${FILE_PAGE}|after.png>*\n<https://github.com/acme/app/pull/12|acme/app#12> · Settings &lt;redesign&gt;`,
+    );
+    expect(blocks![1]).toMatchObject({ image_url: FILE.url, alt_text: "after.png" });
+    expect(contextText(blocks!)).toBe(
+      "uploads.sh · PNG · 138 kB · /settings · <!date^1792282655^{ago}|2026-10-18>",
+    );
   });
 
-  it("renders a link with a thumbnail accessory, and drops SVG images", () => {
-    const gallery = unfurlBlocks("https://uploads.sh/g/gal_x", {
-      type: "link",
-      title: "Release shots",
-      thumbnail_url: "https://storage.uploads.sh/a/cover.png",
+  it("file: video shows its poster frame and is labelled", async () => {
+    const page = "https://uploads.sh/f/acme/demo.mp4";
+    const { blocks } = await unfurl(page, {
+      "/public/files/acme/demo.mp4": {
+        key: "demo.mp4",
+        url: "https://storage.uploads.sh/acme/demo.mp4",
+        size: 5_400_000,
+        contentType: "video/mp4",
+        uploaded: null,
+        posterUrl: "https://storage.uploads.sh/acme/demo.poster.jpg",
+      },
     });
-    expect(gallery.map((b) => b.type)).toEqual(["section", "context"]);
-    expect(gallery[0]!.accessory).toMatchObject({ type: "image" });
-
-    const svg = unfurlBlocks("https://uploads.sh/f/acme/logo.svg", {
-      type: "photo",
-      title: "logo.svg",
-      url: "https://storage.uploads.sh/acme/logo.svg",
+    expect(sectionText(blocks!)).toBe(`*<${page}|demo.mp4>* · video`);
+    expect(blocks![1]).toMatchObject({
+      image_url: "https://storage.uploads.sh/acme/demo.poster.jpg",
     });
-    expect(svg.map((b) => b.type)).toEqual(["section", "context"]);
+    expect(contextText(blocks!)).toBe("uploads.sh · MP4 · 5.4 MB");
   });
 
-  it("escapes mrkdwn control characters in titles", () => {
+  it("feed: PR title, repo and state, latest thumbnail, count", async () => {
+    const page = `https://uploads.sh/c/${FEED_ID}`;
+    const { blocks, api } = await unfurl(page, FEED_FIXTURES);
+    expect(api.calls).toEqual([
+      `/public/feeds/${FEED_ID}?limit=1`,
+      `/public/feeds/${FEED_ID}/items/item1`,
+    ]);
+    expect(blocks!.map((b) => b.type)).toEqual(["section", "context"]);
+    expect(sectionText(blocks!)).toBe(
+      `*<${page}|acme/app#12: Settings redesign>*\n<https://github.com/acme/app/pull/12|acme/app> · Merged`,
+    );
+    expect(blocks![0]!.accessory).toMatchObject({ type: "image", image_url: FEED_ITEM.url });
+    expect(contextText(blocks!)).toMatch(
+      /^uploads\.sh · 7 files · <!date\^\d+\^\{ago\}\|2026-10-18>$/,
+    );
+  });
+
+  it("feed item: image, link to its feed, and position", async () => {
+    const page = `https://uploads.sh/c/${FEED_ID}/item1`;
+    const { blocks } = await unfurl(page, FEED_FIXTURES);
+    expect(blocks!.map((b) => b.type)).toEqual(["section", "image", "context"]);
+    expect(sectionText(blocks!)).toBe(
+      `*<${page}|after.png>*\n<https://uploads.sh/c/${FEED_ID}|acme/app#12>`,
+    );
+    expect(contextText(blocks!)).toMatch(/^uploads\.sh · 1 of 7 · \/settings · <!date/);
+  });
+
+  it("gallery: description, cover thumbnail, and visible item count", async () => {
+    const page = `https://uploads.sh/g/${GALLERY_ID}`;
+    const { blocks } = await unfurl(page, GALLERY_FIXTURES);
+    expect(sectionText(blocks!)).toBe(`*<${page}|Release shots>*\nEverything in v2`);
+    expect(blocks![0]!.accessory).toMatchObject({ image_url: "https://storage.uploads.sh/b.png" });
+    expect(contextText(blocks!)).toMatch(/^uploads\.sh · 2 items · <!date/);
+  });
+
+  it("gallery item: caption as title; withheld items never unfurl", async () => {
+    const page = `https://uploads.sh/g/${GALLERY_ID}/b`;
+    const { blocks } = await unfurl(page, GALLERY_FIXTURES);
+    expect(sectionText(blocks!)).toBe(
+      `*<${page}|The new header>*\n<https://uploads.sh/g/${GALLERY_ID}|Release shots>`,
+    );
+    expect(contextText(blocks!)).toBe("uploads.sh · 2 of 2");
+
+    const withheld = await unfurl(`https://uploads.sh/g/${GALLERY_ID}/c`, GALLERY_FIXTURES);
+    expect(withheld.slack.fetch).not.toHaveBeenCalled();
+  });
+
+  it("drops images Slack can't render, and escapes mrkdwn", () => {
+    const blocks = previewBlocks({
+      url: "https://uploads.sh/f/acme/logo.svg",
+      title: "<!here> logo",
+      image: { url: "https://storage.uploads.sh/acme/logo.svg", alt: "logo", size: "large" },
+      facts: [{ text: "SVG" }],
+    });
+    expect(blocks.map((b) => b.type)).toEqual(["section", "context"]);
+    expect(sectionText(blocks)).toContain("&lt;!here&gt; logo");
     expect(escapeMrkdwn("a <b> & c")).toBe("a &lt;b&gt; &amp; c");
-    const blocks = unfurlBlocks("https://uploads.sh/f/acme/x.png", {
-      type: "link",
-      title: "<!here>",
-    });
-    expect((blocks[0]!.text as { text: string }).text).toContain("&lt;!here&gt;");
   });
 });
 
-describe("isUnfurlableUrl", () => {
-  it("matches only the configured web origin", () => {
-    expect(isUnfurlableUrl("https://uploads.sh/f/a/b.png", WEB)).toBe(true);
-    expect(isUnfurlableUrl("http://uploads.sh/f/a/b.png", WEB)).toBe(false);
-    expect(isUnfurlableUrl("https://storage.uploads.sh/a/b.png", WEB)).toBe(false);
-    expect(isUnfurlableUrl("not a url", WEB)).toBe(false);
+describe("parseShareUrl", () => {
+  it("recognizes share routes on the web origin only", () => {
+    expect(parseShareUrl("https://uploads.sh/f/acme/a/b.png", WEB)).toEqual({
+      kind: "file",
+      workspace: "acme",
+      key: "a/b.png",
+    });
+    expect(parseShareUrl(`https://uploads.sh/feed/${FEED_ID}/x1`, WEB)).toEqual({
+      kind: "feed",
+      id: FEED_ID,
+      itemId: "x1",
+    });
+    expect(parseShareUrl(`https://uploads.sh/g/${GALLERY_ID}`, WEB)).toEqual({
+      kind: "gallery",
+      id: GALLERY_ID,
+      itemId: undefined,
+    });
+    expect(parseShareUrl("http://uploads.sh/f/acme/b.png", WEB)).toBeNull();
+    expect(parseShareUrl("https://storage.uploads.sh/acme/b.png", WEB)).toBeNull();
+    expect(parseShareUrl("https://uploads.sh/f/acme/../secret", WEB)).toBeNull();
+    expect(parseShareUrl("https://uploads.sh/g/not-a-gallery", WEB)).toBeNull();
+    expect(parseShareUrl("not a url", WEB)).toBeNull();
+  });
+});
+
+describe("formatBytes", () => {
+  it("uses decimal units", () => {
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(138352)).toBe("138 kB");
+    expect(formatBytes(5_400_000)).toBe("5.4 MB");
+    expect(formatBytes(null)).toBeNull();
   });
 });
