@@ -115,7 +115,7 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghAttachmentKey(pr, "my shot (1).png")).toBe(
-      "gh/buildinternet/uploads/pull/123/my-shot--1-.png",
+      "gh/buildinternet/uploads/pull/123/my-shot-1.png",
     );
   });
 });
@@ -136,7 +136,7 @@ describe("ghBranchKeyPrefix / ghBranchAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghBranchAttachmentKey("o/r", "main", "my shot (1).png")).toBe(
-      "gh/o/r/branch/main/my-shot--1-.png",
+      "gh/o/r/branch/main/my-shot-1.png",
     );
   });
 });
@@ -165,7 +165,7 @@ describe("ghPrivateKeyPrefix / ghPrivateAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghPrivateAttachmentKey(PREFIX_ID, pr, "my shot (1).png")).toBe(
-      `gh/private/${PREFIX_ID}/pull/12/my-shot--1-.png`,
+      `gh/private/${PREFIX_ID}/pull/12/my-shot-1.png`,
     );
   });
   it("throws when prefixId fails the 32-lowercase-hex shape", () => {
@@ -191,7 +191,7 @@ describe("ghPrivateBranchKeyPrefix / ghPrivateBranchAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghPrivateBranchAttachmentKey(PREFIX_ID, "my shot (1).png")).toBe(
-      `gh/private/${PREFIX_ID}/branch/my-shot--1-.png`,
+      `gh/private/${PREFIX_ID}/branch/my-shot-1.png`,
     );
   });
   it("throws when prefixId fails the 32-lowercase-hex shape", () => {

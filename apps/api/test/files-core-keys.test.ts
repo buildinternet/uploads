@@ -17,6 +17,6 @@ describe("governUploadKey", () => {
   });
 
   it("sanitizes basename characters", () => {
-    expect(sanitizeKeyBasename("my shot!!.png")).toBe("my-shot-.png");
+    expect(sanitizeKeyBasename("my shot!!.png")).toBe("my-shot.png");
   });
 });

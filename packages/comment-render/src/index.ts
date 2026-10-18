@@ -20,6 +20,31 @@ export function sanitizeKeySegment(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "-");
 }
 
+/** Runs of anything but `[A-Za-z0-9_-]` → one `-`, then trim edge dashes. */
+function slugPart(s: string): string {
+  return s
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * URL-friendly filename for the last segment of a NEW object key. Only the
+ * final extension keeps its dot; interior dots, spaces, and other special
+ * characters collapse to single dashes (`127.0.0.1 admin!!.webp` →
+ * `127-0-0-1-admin.webp`). Idempotent, so re-sanitizing a key's basename is
+ * safe. Existing keys are never rewritten — this only shapes what new
+ * uploads are written under. Unlike `sanitizeKeySegment` (repo/branch
+ * segments, dots kept), this is for filenames only.
+ */
+export function sanitizeFilename(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const hasExt = dot > 0 && dot < name.length - 1;
+  const stem = slugPart(hasExt ? name.slice(0, dot) : name) || "file";
+  const ext = hasExt ? slugPart(name.slice(dot + 1)) : "";
+  return ext ? `${stem}.${ext}` : stem;
+}
+
 export function ghKeyPrefix(target: GhTarget): string {
   const [owner, name] = target.repo.split("/");
   return `gh/${sanitizeKeySegment(owner)}/${sanitizeKeySegment(name)}/${target.kind}/${target.num}/`;
@@ -53,13 +78,13 @@ export function ghPrivateKeyPrefix(prefixId: string, target: GhTarget): string {
   return `${GH_PRIVATE_ROOT}${prefixId}/${target.kind}/${target.num}/`;
 }
 
-/** Private-repo attachment key: `ghPrivateKeyPrefix` + the sanitized filename. */
+/** Private-repo attachment key: `ghPrivateKeyPrefix` + `sanitizeFilename(filename)`. */
 export function ghPrivateAttachmentKey(
   prefixId: string,
   target: GhTarget,
   filename: string,
 ): string {
-  return `${ghPrivateKeyPrefix(prefixId, target)}${sanitizeKeySegment(filename)}`;
+  return `${ghPrivateKeyPrefix(prefixId, target)}${sanitizeFilename(filename)}`;
 }
 
 /**
@@ -72,9 +97,9 @@ export function ghPrivateBranchKeyPrefix(prefixId: string): string {
   return `${GH_PRIVATE_ROOT}${prefixId}/branch/`;
 }
 
-/** Private-repo branch-staged attachment key: `ghPrivateBranchKeyPrefix` + the sanitized filename. */
+/** Private-repo branch-staged attachment key: `ghPrivateBranchKeyPrefix` + `sanitizeFilename(filename)`. */
 export function ghPrivateBranchAttachmentKey(prefixId: string, filename: string): string {
-  return `${ghPrivateBranchKeyPrefix(prefixId)}${sanitizeKeySegment(filename)}`;
+  return `${ghPrivateBranchKeyPrefix(prefixId)}${sanitizeFilename(filename)}`;
 }
 
 /**

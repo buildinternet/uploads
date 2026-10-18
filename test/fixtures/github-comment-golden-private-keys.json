@@ -11,7 +11,7 @@
       "target": { "repo": "o/r", "kind": "issues", "num": 7 },
       "filename": "my shot (1).png",
       "expectedPrefix": "gh/private/0123456789abcdef0123456789abcdef/issues/7/",
-      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/issues/7/my-shot--1-.png"
+      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/issues/7/my-shot-1.png"
     }
   ],
   "branchCases": [
@@ -23,7 +23,7 @@
     {
       "filename": "my shot (1).png",
       "expectedPrefix": "gh/private/0123456789abcdef0123456789abcdef/branch/",
-      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/branch/my-shot--1-.png"
+      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/branch/my-shot-1.png"
     }
   ],
   "parseCases": [

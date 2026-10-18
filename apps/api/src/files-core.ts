@@ -7,6 +7,7 @@
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { createStorage, type Files, type StoredFile } from "@uploads/storage";
+import { sanitizeFilename } from "@uploads/comment-render";
 import { activeContentAllowed, activeContentAllowedForCopy } from "./active-content";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
@@ -141,10 +142,9 @@ export function badKey(key: string): boolean {
   );
 }
 
-/** Sanitize a bare basename for object keys. */
+/** Sanitize a bare basename for object keys — see `sanitizeFilename`. */
 export function sanitizeKeyBasename(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return cleaned || "file";
+  return sanitizeFilename(name);
 }
 
 /** Short url-safe id for auto-prefix paths (`f/<id>/…`). */

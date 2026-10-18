@@ -5,6 +5,7 @@ import {
   ghPrivateAttachmentKey,
   ghPrivateBranchAttachmentKey,
   parseGhPrivateKey,
+  sanitizeFilename,
   type GhTarget,
   type GhTargetKind,
 } from "./comment-render.generated.js";
@@ -29,6 +30,7 @@ export {
   ghPrivateBranchKeyPrefix,
   ghPrivateKeyPrefix,
   parseGhPrivateKey,
+  sanitizeFilename,
   type AttachmentDensity,
   type AttachmentItem,
   type CommentRenderOptions,
@@ -179,7 +181,7 @@ export function parseGhKey(key: string): GhTarget | undefined {
  */
 export function ghAttachmentKey(target: GhTarget, filename: string): string {
   const [owner, name] = target.repo.split("/");
-  return `gh/${sanitizeKeySegment(owner)}/${sanitizeKeySegment(name)}/${target.kind}/${target.num}/${sanitizeKeySegment(filename)}`;
+  return `gh/${sanitizeKeySegment(owner)}/${sanitizeKeySegment(name)}/${target.kind}/${target.num}/${sanitizeFilename(filename)}`;
 }
 
 /**
@@ -193,9 +195,9 @@ export function ghBranchKeyPrefix(repo: string, branch: string): string {
   return `gh/${sanitizeKeySegment(owner)}/${sanitizeKeySegment(name)}/branch/${sanitizeKeySegment(branch)}/`;
 }
 
-/** Branch-staged attachment key: `ghBranchKeyPrefix` + the sanitized filename. */
+/** Branch-staged attachment key: `ghBranchKeyPrefix` + `sanitizeFilename(filename)`. */
 export function ghBranchAttachmentKey(repo: string, branch: string, filename: string): string {
-  return `${ghBranchKeyPrefix(repo, branch)}${sanitizeKeySegment(filename)}`;
+  return `${ghBranchKeyPrefix(repo, branch)}${sanitizeFilename(filename)}`;
 }
 
 /**
