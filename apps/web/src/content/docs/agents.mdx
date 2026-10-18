@@ -226,8 +226,9 @@ about is left off.
 | `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
 | `ai.tags`       | Older uploads only. The current labeler does not write tags.                                                                                          |
 | `ai.summary`    | Older uploads only. The current labeler does not write a summary.                                                                                     |
-| `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. No image writes `skipped`.                                          |
+| `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. No image writes `skipped`. A failed call writes `failed`.                                          |
 | `ai.skip`       | `small`, `unsupported`, `resize_failed`, or `resize_timeout`. Paired with `ai.classifier=skipped`. No model call, and no kind, surface, screen, or safety value. |
+| `ai.error`      | `timeout`, `provider_error`, or `no_answer`. Paired with `ai.classifier=failed`. The model call ran and no label was stored.                               |
 
 The same call also records four internal flags. They are not chips. They do not appear on the public file page, in a gallery, in a feed, in an embed, or in a pull request comment. They do not change who can view the file.
 

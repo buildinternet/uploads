@@ -720,7 +720,8 @@ targeting context), a server-mediated put may later write `ai.kind`
 and `ai.classifier=v5` (`v6` when the image was resized for Jev, `v4` when a
 Luna try is on, `skipped` when the model does not see an image). `ai.skip`
 is `small`, `unsupported`, `resize_failed`, or `resize_timeout`. A skip
-writes no kind, surface, screen, or safety value. The same call may also
+writes no kind, surface, screen, or safety value. A failed call writes
+`ai.classifier=failed` and `ai.error` (`timeout|provider_error|no_answer`). The same call may also
 write internal `ai.rating`
 (`safe|suggestive|explicit`), `ai.content`
 (`none|sexual|violence|gore|drugs|hate|self_harm|other`), `ai.secret`

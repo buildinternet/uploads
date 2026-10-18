@@ -300,7 +300,7 @@ describe("file metadata persistence against SQLite", () => {
       }
     });
 
-    it("keeps safety flags and still replaces other metadata, including other ai.* keys", async () => {
+    it("keeps classifier rows and still replaces client metadata", async () => {
       const sqlite = new SqliteD1(MIGRATION);
       try {
         const db = database(sqlite);
@@ -324,7 +324,7 @@ describe("file metadata persistence against SQLite", () => {
           "f/one.png",
           { path: "/settings" },
           {
-            keepSafetyFlags: true,
+            keepClassifierRows: true,
           },
         );
 
@@ -332,8 +332,8 @@ describe("file metadata persistence against SQLite", () => {
         expect(stored.path).toBe("/settings");
         expect(stored.app).toBeUndefined();
         expect(stored.page).toBeUndefined();
-        expect(stored["ai.kind"]).toBeUndefined();
-        expect(stored["ai.classifier"]).toBeUndefined();
+        expect(stored["ai.kind"]).toBe("screenshot");
+        expect(stored["ai.classifier"]).toBe("v5");
         expect(stored["ai.rating"]).toBe("explicit");
         expect(stored["ai.rating.confidence"]).toBe("high");
         expect(stored["ai.content"]).toBe("sexual");
