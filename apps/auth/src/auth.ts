@@ -1191,6 +1191,12 @@ function buildAuth(
           input: true,
           defaultValue: true,
         },
+        notifySlackHolds: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: true,
+        },
       },
     },
     session: {

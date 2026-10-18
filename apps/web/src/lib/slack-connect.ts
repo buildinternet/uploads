@@ -75,3 +75,65 @@ export function connectSlackTicket(
 ): Promise<SlackTicketResult> {
   return call(apiOrigin, ticket, "POST", opts);
 }
+
+/** One Slack account linked to the signed-in uploads.sh account. */
+export interface SlackLink {
+  teamId: string;
+  /** The Slack workspace's name, when the app's install recorded one. */
+  teamName: string | null;
+  slackUserId: string;
+  linkedAt: string;
+}
+
+function parseLinks(body: unknown): SlackLink[] | null {
+  const raw = (body as { links?: unknown } | null)?.links;
+  if (!Array.isArray(raw)) return null;
+  const out: SlackLink[] = [];
+  for (const item of raw) {
+    const r = item as Record<string, unknown> | null;
+    if (
+      !r ||
+      typeof r.teamId !== "string" ||
+      typeof r.slackUserId !== "string" ||
+      typeof r.linkedAt !== "string"
+    ) {
+      return null;
+    }
+    out.push({
+      teamId: r.teamId,
+      teamName: typeof r.teamName === "string" && r.teamName ? r.teamName : null,
+      slackUserId: r.slackUserId,
+      linkedAt: r.linkedAt,
+    });
+  }
+  return out;
+}
+
+/** The signed-in user's Slack links, or null when the request fails. */
+export async function listSlackLinks(
+  apiOrigin: string,
+  opts?: FetchWithTimeoutOptions,
+): Promise<SlackLink[] | null> {
+  const result = await fetchWithTimeout(
+    `${apiOrigin.replace(/\/$/, "")}/me/slack/links`,
+    { credentials: "include", cache: "no-store" },
+    opts,
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  return parseLinks(await result.response.json().catch(() => null));
+}
+
+/** Removes one Slack link. True when it's gone (including already gone). */
+export async function unlinkSlack(
+  apiOrigin: string,
+  link: Pick<SlackLink, "teamId" | "slackUserId">,
+  opts?: FetchWithTimeoutOptions,
+): Promise<boolean> {
+  const result = await fetchWithTimeout(
+    `${apiOrigin.replace(/\/$/, "")}/me/slack/links/${encodeURIComponent(link.teamId)}/${encodeURIComponent(link.slackUserId)}`,
+    { method: "DELETE", credentials: "include", cache: "no-store" },
+    opts,
+  );
+  if (result.kind === "unavailable") return false;
+  return result.response.ok || result.response.status === 404;
+}

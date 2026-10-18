@@ -14,6 +14,7 @@
  * moves it into the right rail, above Tip and Quick actions.
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { SLACK_INSTALL_URL } from "../../../../lib/account-profile-ui";
 import { GITHUB_APP_INSTALL_URL } from "../../../../lib/github-app";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
 
@@ -302,6 +303,28 @@ const tip = {
           >
         </div>
       </form>
+    </div>
+
+    <div class="settings-section" id="slack-section">
+      <h2>Slack</h2>
+      <p class="settings-note muted">
+        Previews for uploads.sh links posted in Slack, and a direct message when an upload is held
+        for review, with buttons to approve it or keep it held.
+      </p>
+      <div
+        class="flex flex-wrap items-center justify-between gap-4 mt-4 mb-1 rounded-[var(--radius-sm)] border border-border bg-card px-3.5 py-3"
+      >
+        <p class="m-0 max-w-[44ch] text-[13px] leading-[1.55] text-body [text-wrap:pretty]">
+          Add the app to your Slack workspace, then connect your account from its Home tab. Your
+          connections and Slack notification setting are in <a href="/account/profile#slack"
+            >account settings</a
+          >.
+        </p>
+        <a
+          class="flex-none rounded-[var(--radius-sm)] border border-border bg-background px-[13px] py-[7px] font-semibold text-[13px] text-foreground no-underline whitespace-nowrap hover:border-primary hover:text-primary focus-visible:border-primary focus-visible:text-primary focus-visible:outline-none"
+          href={SLACK_INSTALL_URL}>Add to Slack →</a
+        >
+      </div>
     </div>
 
     <div class="settings-section" id="poster-section" hidden>

@@ -1,8 +1,8 @@
 ---
 title: Slack
-description: Add the uploads.sh Slack app to show previews for uploads.sh file, gallery, and live-link URLs, and connect your Slack account to uploads.sh.
+description: Add the uploads.sh Slack app to show previews for uploads.sh file, gallery, and live-link URLs, and get a Slack message you can approve from when an upload is held for review.
 heading: Slack
-tagline: "Previews for uploads.sh links posted in Slack."
+tagline: "Previews for uploads.sh links, and held-upload alerts you can approve from Slack."
 navLabel: Slack
 navSlug: slack
 navOrder: 12
@@ -11,6 +11,7 @@ toc:
   - { id: what-it-does, label: What it does }
   - { id: install, label: Add it to Slack }
   - { id: connect, label: Connect your account }
+  - { id: held-uploads, label: Held-upload messages }
   - { id: privacy, label: What a preview shows }
 ---
 
@@ -25,6 +26,9 @@ The uploads.sh Slack app turns uploads.sh links into previews. With it in your w
 - A [live link](/docs/feeds) shows the pull request title and state, the latest screenshot, and
   how many files it holds.
 - A [gallery](/docs/galleries) link shows its title, description, and cover image.
+
+Connect your account, and the app also messages you when an upload is
+[held for review](/docs/agents#held-uploads). You can approve it from the message.
 
 </section>
 
@@ -46,9 +50,19 @@ Anyone who can install apps in a Slack workspace can add it:
   </a>
 </p>
 
-Slack asks for three permissions: to see uploads.sh links in messages, to add previews to
-them, and to read people's names so the connect page can show whose Slack account it links.
-The app can't read messages or files. Post an uploads.sh link to see a preview.
+Slack asks for these permissions:
+
+| Permission    | What the app does with it                                                    |
+| ------------- | ---------------------------------------------------------------------------- |
+| `links:read`  | Sees uploads.sh links in messages. It reads only the link, not the message. |
+| `links:write` | Adds the preview to an uploads.sh link.                                      |
+| `users:read`  | Reads your Slack name, so the connect page shows whose account it links.    |
+| `chat:write`  | Sends you held-upload messages and updates them after you press a button.   |
+| `im:write`    | Opens the direct message between you and the app.                           |
+
+The app can't read your messages or files. Post an uploads.sh link to see a preview.
+
+You can also find **Add to Slack** under **Settings** in each workspace on uploads.sh.
 
 </section>
 
@@ -61,7 +75,35 @@ asked. The page names the Slack account it's about to connect; confirm only if i
 link ties your Slack account in that workspace to your uploads.sh account.
 
 Previews work without connecting. The link is for features that act on your behalf. To undo it,
-press **Disconnect** on the same Home tab.
+press **Disconnect** on the same Home tab, or under **Slack** in
+[account settings](/account/profile#slack).
+
+Connecting doesn't add you to a workspace and doesn't use a seat. It only records which
+uploads.sh account is yours. On the free plan, the member limit still applies when someone joins
+a workspace, and connecting Slack doesn't change it.
+
+</section>
+
+<section id="held-uploads">
+
+## Held-upload messages <a class="anchor" href="#held-uploads" aria-label="Link to this section">#</a>
+
+When an upload is [held for review](/docs/agents#held-uploads) because it may show a secret or
+personal information, the app sends a direct message. It names the file, the workspace, and why
+the file is held, and it has two buttons:
+
+- **Approve** puts the file back at its public link, the same as `uploads approve`. It acts as
+  your connected uploads.sh account, so you must be a member of the workspace.
+- **Keep held** leaves the file held. You can still approve it later from the CLI.
+
+Who gets the message:
+
+- The person who uploaded the file, when uploads.sh knows who that is.
+- Otherwise, the workspace's admins and owners.
+
+Each person must have connected Slack. To stop these messages, turn off **Message me in Slack when
+an upload is held for review** under **Slack** in [account settings](/account/profile#slack).
+Messages arrive in the app's **Messages** tab in Slack.
 
 </section>
 

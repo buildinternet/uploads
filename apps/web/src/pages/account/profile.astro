@@ -75,6 +75,26 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
 
+    <div class="settings-section" id="slack">
+      <h2>Slack</h2>
+      <label class="notify-row">
+        <input
+          type="checkbox"
+          id="notify-slack-holds"
+          checked={initial.user?.notifySlackHolds ?? true}
+        />
+        <span>Message me in Slack when an upload is held for review.</span>
+      </label>
+      <p class="muted settings-note">
+        You get the message for your own uploads. When an upload has no known uploader, workspace
+        admins get it. It needs a connected Slack account.
+      </p>
+      <div id="slack-links" class="slack-links" aria-busy="true">
+        <p class="muted settings-note">Loading Slack connections…</p>
+      </div>
+      <p id="slack-status" class="muted settings-note" role="status" aria-live="polite"></p>
+    </div>
+
     <div class="settings-section">
       <h2>Sign-in methods</h2>
       <div id="accounts-status" class="muted detail-status" hidden></div>
@@ -179,6 +199,16 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
     .notify-row input {
       margin: 0;
     }
+    .slack-links {
+      margin-top: 12px;
+    }
+    .slack-empty__actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      margin: 10px 0 0;
+    }
     .weekly-digest {
       display: grid;
       gap: 12px;
@@ -209,8 +239,10 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
     import {
       renderSessionsHtml,
       renderSignInMethodsHtml,
+      renderSlackLinksHtml,
       renderWeeklyDigestHtml,
     } from "../../lib/account-profile-ui";
+    import { listSlackLinks, unlinkSlack } from "../../lib/slack-connect";
     import {
       getAccountInfo,
       getSession,
@@ -221,6 +253,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       revokeSession,
       updateDigestPreference,
       updateNotifyMemberJoin,
+      updateNotifySlackHolds,
       updateNotifyUsageLimits,
       type AuthSession,
     } from "../../lib/auth-client";
@@ -494,6 +527,56 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
       wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
 
+      const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
+        .__UPLOADS_API_ORIGIN__;
+      const slackToggle = document.getElementById("notify-slack-holds") as HTMLInputElement | null;
+      const slackLinks = document.getElementById("slack-links");
+      const slackStatus = document.getElementById("slack-status");
+      function setSlackStatus(message: string): void {
+        if (slackStatus) slackStatus.textContent = message;
+      }
+      slackToggle?.addEventListener("change", () => {
+        void (async () => {
+          const desired = slackToggle.checked;
+          slackToggle.disabled = true;
+          setSlackStatus("Saving…");
+          const ok = await updateNotifySlackHolds(authOrigin, desired);
+          if (!ok) {
+            slackToggle.checked = !desired;
+            setSlackStatus("Couldn’t save — try again.");
+          } else {
+            setSlackStatus(desired ? "Slack messages on." : "Slack messages off.");
+          }
+          slackToggle.disabled = false;
+        })();
+      });
+      async function loadSlackLinks(): Promise<void> {
+        if (!slackLinks) return;
+        const links = await listSlackLinks(apiOrigin);
+        slackLinks.innerHTML = renderSlackLinksHtml(links);
+        slackLinks.setAttribute("aria-busy", "false");
+      }
+      slackLinks?.addEventListener("click", (event) => {
+        const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(
+          "[data-slack-unlink]",
+        );
+        const teamId = button?.dataset.teamId;
+        const slackUserId = button?.dataset.slackUserId;
+        if (!button || !teamId || !slackUserId) return;
+        void (async () => {
+          button.disabled = true;
+          setSlackStatus("Disconnecting…");
+          const ok = await unlinkSlack(apiOrigin, { teamId, slackUserId });
+          if (!ok) {
+            button.disabled = false;
+            setSlackStatus("Couldn’t disconnect — try again.");
+            return;
+          }
+          setSlackStatus("Disconnected.");
+          await loadSlackLinks();
+        })();
+      });
+
       const digestList = document.getElementById("weekly-digest-list");
       async function loadWeeklyDigests(): Promise<void> {
         if (!digestList) return;
@@ -540,6 +623,10 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         if (usageToggle && typeof user.notifyUsageLimits === "boolean") {
           usageToggle.checked = user.notifyUsageLimits;
         }
+        if (slackToggle && typeof user.notifySlackHolds === "boolean") {
+          slackToggle.checked = user.notifySlackHolds;
+        }
+        void loadSlackLinks();
         void loadWeeklyDigests();
         void loadAccounts();
         void loadSessions();

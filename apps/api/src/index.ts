@@ -48,6 +48,7 @@ import { githubLink } from "./routes/github-link";
 import { githubHealth } from "./routes/github-health";
 import { githubActivity } from "./routes/github-activity";
 import { internalBilling } from "./routes/internal-billing";
+import { internalSlack } from "./routes/internal-slack";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 import { ROBOTS_TXT } from "./robots";
 
@@ -245,6 +246,9 @@ export const app = new Hono<WorkspaceVars>()
   // /v1 and the workspaceAuth guard entirely — same "brings its own auth"
   // treatment as /v1/github/webhook above. See routes/internal-billing.ts.
   .route("/internal/billing", internalBilling)
+  // uploads-slack's Approve button on a held-upload DM. Service-binding only
+  // (host api.internal); see routes/internal-slack.ts.
+  .route("/internal/slack", internalSlack)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 

@@ -66,6 +66,12 @@ export const user = sqliteTable("user", {
   notifyUsageLimits: integer("notify_usage_limits", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
+  /** Per-user pref: message me in Slack when an upload is held for review
+   * (apps/api/src/slack-hold-notify.ts). Default on; inert until the user
+   * connects Slack. Same additionalField mechanism as notifyMemberJoin. */
+  notifySlackHolds: integer("notify_slack_holds", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => true),
   /**
    * Retired account-wide weekly digest flags (#1108). Live preferences are
    * on `member`. These columns stay so that release can still read them

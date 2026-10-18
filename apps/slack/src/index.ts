@@ -8,17 +8,26 @@
  *   - GET  /slack/oauth/callback
  *   - POST /slack/events     Events API (link_shared, app_home_opened,
  *                            app_uninstalled, tokens_revoked; see events.ts)
- *   - POST /slack/interactivity  Home tab buttons (Disconnect; see home.ts)
+ *   - POST /slack/interactivity  buttons: Disconnect on the Home tab
+ *                            (home.ts), Approve / Keep held on a held-upload
+ *                            DM (holds.ts)
  *   - POST /slack/commands   slash commands, e.g. an agent search command
  *   - POST /slack/internal/* service-binding-only calls from uploads-api
  *                            (host slack.internal): Home refresh after a
- *                            connect today; flag and PII notifications later
+ *                            connect, and held-upload DMs
  * Every public Slack-facing route verifies the request signature first.
  */
 import { Hono, type Context } from "hono";
 import { botTokenFor, type SlackEnv } from "./config";
 import { dispatchEvent } from "./events";
 import { DISCONNECT_ACTION, disconnect, publishHome } from "./home";
+import {
+  HOLD_APPROVE_ACTION,
+  HOLD_KEEP_ACTION,
+  handleHoldAction,
+  parseHoldNotice,
+  sendHoldNotice,
+} from "./holds";
 import { handleCallback, handleInstall } from "./oauth";
 import { verifySlackSignature } from "./slack/signature";
 import type { BlockActionsPayload, EventsApiPayload } from "./slack/types";
@@ -91,8 +100,8 @@ export function createApp(options: AppOptions = {}) {
         }
         return c.body(null, 200);
       })
-      // Interactivity: Home tab buttons. Connect is a URL button, so only
-      // Disconnect needs handling; everything else is acked and ignored.
+      // Interactivity. Connect is a URL button, so it needs no handling;
+      // Disconnect, Approve, and Keep held do. Anything else is acked and ignored.
       .post("/slack/interactivity", async (c) => {
         const body = await readSignedBody(c);
         if (body instanceof Response) return body;
@@ -107,6 +116,27 @@ export function createApp(options: AppOptions = {}) {
         const wantsDisconnect =
           payload?.type === "block_actions" &&
           payload.actions?.some((action) => action.action_id === DISCONNECT_ACTION);
+        const holdAction =
+          payload?.type === "block_actions"
+            ? payload.actions?.find(
+                (action) =>
+                  action.action_id === HOLD_APPROVE_ACTION || action.action_id === HOLD_KEEP_ACTION,
+              )
+            : undefined;
+        if (holdAction && teamId && slackUserId) {
+          c.executionCtx.waitUntil(
+            handleHoldAction(
+              {
+                actionId: holdAction.action_id,
+                value: holdAction.value,
+                teamId,
+                slackUserId,
+                responseUrl: payload?.response_url,
+              },
+              { env: c.env, slackFetch: options.slackFetch },
+            ).catch((err) => console.error("slack.interactivity: hold action threw", err)),
+          );
+        }
         if (wantsDisconnect && teamId && slackUserId) {
           c.executionCtx.waitUntil(
             (async () => {
@@ -153,6 +183,23 @@ export function createApp(options: AppOptions = {}) {
           slackFetch: options.slackFetch,
         });
         return c.body(null, 204);
+      })
+      // Service-binding only (uploads-api, when an upload is held): DM one
+      // person about it. Same host guard as /slack/internal/home.
+      .post("/slack/internal/hold", async (c) => {
+        if (new URL(c.req.url).hostname !== INTERNAL_HOST) {
+          return c.json({ error: "not_found" }, 404);
+        }
+        let input: unknown = null;
+        try {
+          input = await c.req.json();
+        } catch {
+          return c.json({ error: "invalid_json" }, 400);
+        }
+        const notice = parseHoldNotice(input, c.env.WEB_ORIGIN || "https://uploads.sh");
+        if (!notice) return c.json({ error: "invalid_notice" }, 400);
+        const sent = await sendHoldNotice(notice, { env: c.env, slackFetch: options.slackFetch });
+        return sent ? c.body(null, 204) : c.json({ error: "not_delivered" }, 502);
       })
       .notFound((c) => c.json({ error: "not_found" }, 404))
   );

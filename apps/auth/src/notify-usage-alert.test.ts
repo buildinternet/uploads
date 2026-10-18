@@ -46,6 +46,7 @@ describe("notifyAdminsOfUsageAlert", () => {
       stripeCustomerId: null,
       notifyMemberJoin: over.notifyMemberJoin ?? true,
       notifyUsageLimits: over.notifyUsageLimits ?? true,
+      notifySlackHolds: true,
       notifyWeeklyDigest: over.notifyWeeklyDigest ?? false,
       notifyWeeklyWorkspaceDigest: over.notifyWeeklyWorkspaceDigest ?? false,
     };

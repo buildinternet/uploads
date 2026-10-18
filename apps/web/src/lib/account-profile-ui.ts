@@ -18,6 +18,7 @@ import {
   type SessionUser,
 } from "./auth-client";
 import { githubMarkSvg } from "./brand-icons";
+import type { SlackLink } from "./slack-connect";
 import { deviceLabel, formatSessionTime, isCliUserAgent } from "./session-device";
 import { escapeHtml } from "./workspace-ui";
 
@@ -207,6 +208,45 @@ export function renderSignInMethodsHtml(
           </li>`;
     })
     .join("");
+}
+
+/** Where "Add to Slack" starts the app's OAuth install (apps/slack). */
+export const SLACK_INSTALL_URL = "https://agents.uploads.sh/slack/install";
+
+/**
+ * The Slack section's body on /account/profile: one row per connected Slack
+ * account with a Disconnect button, or, with none, how to connect. `null`
+ * (the links request failed) gets a retry-later line.
+ */
+export function renderSlackLinksHtml(links: SlackLink[] | null): string {
+  if (links === null) {
+    return `<p class="muted settings-note">Couldn’t load your Slack connections.</p>`;
+  }
+  if (links.length === 0) {
+    return `<div class="slack-empty">
+      <p class="settings-note">Get a Slack message when an upload is held for review, and approve it without leaving Slack. Add the uploads.sh app to your Slack workspace, then press <strong>Connect uploads.sh</strong> on the app’s <strong>Home</strong> tab.</p>
+      <p class="slack-empty__actions">
+        <a class="text-btn text-btn--boxed" href="${SLACK_INSTALL_URL}">Add to Slack</a>
+        <a class="text-btn" href="/docs/slack">How it works</a>
+      </p>
+    </div>`;
+  }
+  return `<ul class="detail-list" id="slack-links-list">${links
+    .map(
+      (link) => `<li>
+            <div class="detail-main">
+              <div class="detail-title">
+                <span>${escapeHtml(link.teamName ?? "Slack workspace")}</span>
+                <span class="ul-badge ul-badge--ok">Connected</span>
+              </div>
+              <div class="detail-meta">Connected ${escapeHtml(formatSessionTime(link.linkedAt))}</div>
+            </div>
+            <div class="detail-action">
+              <button type="button" class="text-btn text-btn--boxed" data-slack-unlink data-team-id="${escapeHtml(link.teamId)}" data-slack-user-id="${escapeHtml(link.slackUserId)}">Disconnect</button>
+            </div>
+          </li>`,
+    )
+    .join("")}</ul>`;
 }
 
 /**

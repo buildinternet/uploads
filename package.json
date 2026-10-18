@@ -20,7 +20,7 @@
     "build": "pnpm --filter @uploads/web build",
     "build:cli": "pnpm --filter @buildinternet/uploads run build",
     "render:demos": "pnpm --filter @uploads/demos render",
-    "deploy": "pnpm run deploy:api && pnpm run deploy:web && pnpm run deploy:mcp",
+    "deploy": "pnpm run deploy:api && pnpm run deploy:web && pnpm run deploy:mcp && pnpm run deploy:slack",
     "deploy:api": "pnpm --filter @uploads/api run deploy",
     "deploy:web": "pnpm --filter @uploads/web run deploy",
     "deploy:mcp": "pnpm --filter @uploads/mcp run deploy",

@@ -49,5 +49,7 @@ export interface BlockActionsPayload {
   type: "block_actions";
   team?: { id: string } | null;
   user?: { id: string; team_id?: string };
-  actions?: Array<{ action_id: string }>;
+  actions?: Array<{ action_id: string; value?: string }>;
+  /** Where to send a reply that replaces the message the button was on. */
+  response_url?: string;
 }
