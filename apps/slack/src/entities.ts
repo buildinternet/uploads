@@ -23,6 +23,7 @@ import {
   resolvePagerPage,
   resolvePreview,
   type EntityField,
+  type EntityItemRef,
   type PagerPage,
   type Preview,
   type ShareDeps,
@@ -32,6 +33,10 @@ import { entityPresentDetails, type SlackApiOptions } from "./slack/api";
 /** Flexpane pager buttons; the value is the item id to show. */
 export const PAGE_PREV_ACTION = "uploads_wo_page_prev";
 export const PAGE_NEXT_ACTION = "uploads_wo_page_next";
+/** URL buttons in the overflow menu; Slack opens the URL, so the press needs no handling. */
+export const OPEN_LINK_ACTION = "uploads_wo_open";
+/** Slack allows up to five overflow actions. */
+const MAX_OVERFLOW = 5;
 
 const TITLE_MAX = 150;
 const FIELD_MAX = 300;
@@ -105,6 +110,29 @@ function ownerField(owner: string | undefined, withImages: boolean): Json | null
         ? { icon: { url: `https://avatars.githubusercontent.com/${owner}`, alt_text: owner } }
         : {}),
     },
+  };
+}
+
+/** A collection's items as `entity_ref`s, so each opens as its own Work Object. */
+function itemsField(items: EntityItemRef[] | undefined, label: string, withImages: boolean) {
+  if (!items?.length) return null;
+  return {
+    key: "items_list",
+    label,
+    type: "array",
+    item_type: "slack#/types/entity_ref",
+    value: items.map((item) => ({
+      type: "slack#/types/entity_ref",
+      entity_ref: {
+        entity_url: item.url,
+        external_ref: item.ref,
+        title: clamp(item.title, TITLE_MAX),
+        display_type: item.displayType,
+        ...(withImages && item.image && isSlackImage(item.image)
+          ? { icon: { url: item.image, alt_text: clamp(item.title, 100) } }
+          : {}),
+      },
+    })),
   };
 }
 
@@ -244,11 +272,26 @@ export function entityMetadata(
     withImages ? entity.strip : undefined,
     entity.ref.type === "feed" ? "Latest" : "Items",
   );
+  // The side panel lists the collection's items, each a link to its own
+  // Work Object; the card keeps the strip instead.
+  const itemList = pager
+    ? itemsField(entity.items, entity.ref.type === "feed" ? "Latest files" : "Items", withImages)
+    : null;
   const customFields = [
     ...(pager?.fields ?? []),
     ...(thumbnails && !pager ? [thumbnails] : []),
+    ...(itemList ? [itemList] : []),
     ...entity.fields.map(customField),
   ];
+  const overflow = (entity.links ?? []).slice(0, MAX_OVERFLOW).map((link, index) => ({
+    text: link.text,
+    action_id: `${OPEN_LINK_ACTION}_${index}`,
+    url: link.url,
+  }));
+  const actions = {
+    ...(pager?.actions.length ? { primary_actions: pager.actions } : {}),
+    ...(overflow.length ? { overflow_actions: overflow } : {}),
+  };
   const fullSize =
     entity.type === "file" || pager ? fullSizePreview(image, options.fullSizeHosts ?? []) : null;
   const payload: Json = {
@@ -260,7 +303,7 @@ export function entityMetadata(
     },
     fields,
     ...(customFields.length ? { custom_fields: customFields } : {}),
-    ...(pager?.actions.length ? { actions: { primary_actions: pager.actions } } : {}),
+    ...(Object.keys(actions).length ? { actions } : {}),
   };
 
   return {
