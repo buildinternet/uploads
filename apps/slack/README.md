@@ -61,7 +61,7 @@ the worker retries with the blocks alone.
 
 | Link                     | Entity type    | Card shows                                        |
 | ------------------------ | -------------- | ------------------------------------------------- |
-| File (`/f/…`)            | `file`         | Image or poster, creator, date, PR or issue, path |
+| File (`/f/…`)            | `file`         | Image or poster, date, PR or issue, page path     |
 | Change feed (`/c/…`)     | `content_item` | Latest screenshot, PR or issue, state, file count |
 | Gallery (`/g/…`)         | `content_item` | Cover, description, item count                    |
 | One feed or gallery item | `file`         | The item, a link to its feed or gallery           |
@@ -115,7 +115,8 @@ conversations that mention it. Slack only accepts ids matching
 A file's size and content type only appear at the end of its side panel;
 the card leaves them out so the PR and page path lead.
 
-The card's creator is the repo owner's GitHub account. Galleries and files
+The side panel's creator is the repo owner's GitHub account (the card
+leaves it out, since it's often the same org for every link). Galleries and files
 with no repo show uploads.sh instead, since the public API has no uploader.
 
 Turning it on:
