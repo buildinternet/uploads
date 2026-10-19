@@ -7,6 +7,8 @@
 //
 // `syncKey` links every group on the page that shares the key: picking "MCP"
 // in one switches the others, and the choice is remembered per browser.
+// `agent-runtime` groups also honor `?agent=<slug>` (e.g. `?agent=codex`,
+// `?agent=claude-code`), which wins over the remembered choice and is saved.
 //
 // Usage (MDX):
 //   <Tabs syncKey="annotate">
@@ -106,6 +108,13 @@ const panels = rendered.replace(
   // Registered once per session; the element re-upgrades itself after a
   // ClientRouter swap because custom-element definitions are global.
   const STORAGE_PREFIX = "uploads:docs-tabs:";
+  // Sync groups that a URL can preselect, keyed by syncKey.
+  const QUERY_PARAMS: Record<string, string> = { "agent-runtime": "agent" };
+  const slug = (label: string) =>
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-");
 
   class UploadsTabs extends HTMLElement {
     connectedCallback(): void {
@@ -114,7 +123,19 @@ const panels = rendered.replace(
       if (tabs.length === 0) return;
 
       const syncKey = this.dataset.syncKey;
-      if (syncKey) {
+      const queryParam = syncKey ? QUERY_PARAMS[syncKey] : undefined;
+      const requested = queryParam && new URLSearchParams(location.search).get(queryParam);
+      const requestedIndex = requested
+        ? tabs.findIndex((tab) => slug(tab.textContent ?? "") === requested.toLowerCase())
+        : -1;
+      if (syncKey && requestedIndex >= 0) {
+        this.select(tabs, panels, requestedIndex);
+        try {
+          localStorage.setItem(STORAGE_PREFIX + syncKey, tabs[requestedIndex].textContent!.trim());
+        } catch {
+          // Persistence is a nicety, not a requirement.
+        }
+      } else if (syncKey) {
         let remembered: string | null = null;
         try {
           remembered = localStorage.getItem(STORAGE_PREFIX + syncKey);
