@@ -71,7 +71,7 @@ import {
   getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
-import type { ClassifierConfidenceBucket } from "./classifier-admin-wire";
+import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./classifier-admin-wire";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
@@ -386,6 +386,17 @@ const CLASSIFIER_FIELDS: Record<
     instructions:
       "Does this file show a credential that grants access to a system? Pick `none` for a masked or empty secret field, and for a username, a display name, or an email. Do not treat personal data as a secret; that is a different question.",
     criteria: SECRET_CRITERIA,
+  },
+  // Yes/no, so several kinds of credential on one screen cannot split the
+  // answer below the floor the way the typed `secret` question can. Not
+  // stored on its own: `parseJevAnswers` folds it into `ai.secret`.
+  credential: {
+    instructions:
+      "Does this file show at least one credential that grants access to a system, such as an API key, password, private key, token, or a URL with a password in it? Pick `no` for a masked or empty secret field, and for a username, a display name, or an email.",
+    criteria: {
+      yes: "At least one credential that grants access is readable in the file.",
+      no: "No readable credential that grants access.",
+    },
   },
   pii: {
     instructions:
@@ -988,8 +999,38 @@ export function parseJevAnswers(
     }
   }
 
+  applyCredentialAnswer(meta, answers.credential, minConfidence);
+
   if (Object.keys(meta).length === 0) return null;
   return { meta, confidences };
+}
+
+/**
+ * The yes/no `credential` answer decides whether `ai.secret` is set and how
+ * confident it is; the typed `secret` answer only names the kind, falling
+ * back to `other` when it is unsure or says `none`. A missing or unsure
+ * credential answer leaves the typed answer as it was.
+ */
+function applyCredentialAnswer(
+  meta: Record<string, string>,
+  answer: unknown,
+  minConfidence: number,
+): void {
+  delete meta["ai.credential"];
+  if (!isPlainObject(answer)) return;
+  const { choice, confidence } = answer;
+  if (typeof choice !== "string" || typeof confidence !== "number") return;
+  if (!Number.isFinite(confidence) || confidence < minConfidence) return;
+  const normalized = choice.trim().toLowerCase();
+  if (normalized !== "yes" && normalized !== "no") return;
+  const typed = meta["ai.secret"];
+  meta["ai.secret"] =
+    normalized === "no"
+      ? CLASSIFIER_CLEAN_VALUES.secret
+      : typed && typed !== CLASSIFIER_CLEAN_VALUES.secret
+        ? typed
+        : "other";
+  meta["ai.secret.confidence"] = confidenceBucket(confidence);
 }
 
 /** A direct Decisions body, or one wrapped a level down. */

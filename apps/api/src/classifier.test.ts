@@ -437,7 +437,16 @@ describe("formatDecisionState", () => {
 });
 
 describe("buildDecideRequest", () => {
-  const QUESTION_IDS = ["kind", "surface", "screen", "rating", "content", "secret", "pii"];
+  const QUESTION_IDS = [
+    "kind",
+    "surface",
+    "screen",
+    "rating",
+    "content",
+    "secret",
+    "credential",
+    "pii",
+  ];
 
   it("asks Jev Latest every closed question in one request", () => {
     const bytes = pngOf(400, 256);
@@ -453,9 +462,9 @@ describe("buildDecideRequest", () => {
       expect(options).toBeGreaterThanOrEqual(2);
       expect(options).toBeLessThanOrEqual(255);
     }
-    // TypeSafe documents no question-count cap (token budget only). Seven
+    // TypeSafe documents no question-count cap (token budget only). Eight
     // short choices stay far inside that budget and inside the 255-option cap.
-    expect(QUESTION_IDS.length).toBe(7);
+    expect(QUESTION_IDS.length).toBe(8);
     expect(Object.keys(req.questions.screen.criteria).length).toBeLessThanOrEqual(255);
   });
 
@@ -543,6 +552,7 @@ describe("openRouterDecisionsRun", () => {
       "rating",
       "content",
       "secret",
+      "credential",
       "pii",
     ]);
     const state = call.body.state as unknown[];
@@ -677,6 +687,31 @@ describe("parseJevAnswers", () => {
     expect(parseJevAnswers({ answers: { kind: "screenshot" } })).toBeNull();
     expect(parseJevAnswers({ answers: { kind: { choice: "photo" } } })).toBeNull();
     expect(parseJevAnswers({ answers: { kind: answer("photo", Number.NaN) } })).toBeNull();
+  });
+
+  it("holds on the yes/no credential answer when the typed answer splits", () => {
+    // Several kinds of credential split the typed answer under the floor.
+    expect(
+      parseJevAnswers({
+        answers: { secret: answer("api_key", 0.4), credential: answer("yes", 0.93) },
+      })?.meta,
+    ).toEqual({ "ai.secret": "other", "ai.secret.confidence": "high" });
+    expect(
+      parseJevAnswers({
+        answers: { secret: answer("token", 0.8), credential: answer("yes", 0.75) },
+      })?.meta,
+    ).toEqual({ "ai.secret": "token", "ai.secret.confidence": "medium" });
+    expect(
+      parseJevAnswers({
+        answers: { secret: answer("api_key", 0.6), credential: answer("no", 0.9) },
+      })?.meta,
+    ).toEqual({ "ai.secret": "none", "ai.secret.confidence": "high" });
+    // An unsure credential answer leaves the typed answer alone.
+    expect(
+      parseJevAnswers({
+        answers: { secret: answer("password", 0.95), credential: answer("yes", 0.3) },
+      })?.meta,
+    ).toEqual({ "ai.secret": "password", "ai.secret.confidence": "high" });
   });
 
   it("writes safety flags and confidence buckets without mixing secret and pii", () => {
