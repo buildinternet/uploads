@@ -1249,7 +1249,7 @@ called without that image.
 ```
 
 Jev accepts PNG and JPEG only, and only inside its pixel window: each side
-from 256 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A PNG or
+from 280 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A PNG or
 JPEG that already sits in that window, and is under 512 KiB, is sent as its
 original bytes (`ai.classifier=v5`).
 
@@ -1271,7 +1271,7 @@ are:
   the byte floor.
 - `unsupported`. The file cannot be sent as an image this provider accepts,
   and a resize is not the way there. That includes a text file, an SVG, a
-  Jev image below the 256 px window (it is not upscaled), an extreme aspect
+  Jev image below the 280 px window (it is not upscaled), an extreme aspect
   ratio, and a Luna file that is a GIF, AVIF, SVG, or over 512 KiB.
 - `resize_failed`. Jev needed a resize and did not get an image. A missing
   `IMAGES` binding, an input over the binding's 20 MB ceiling, a transform

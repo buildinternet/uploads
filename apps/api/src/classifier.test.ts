@@ -312,7 +312,7 @@ describe("trivialImageSkip", () => {
     expect(trivialImageSkip("image/png", atLeast(pngOf(32, 400), floor))).toBe(
       CLASSIFIER_SKIP_SMALL,
     );
-    expect(trivialImageSkip("image/png", atLeast(pngOf(400, 256), floor - 1))).toBe(
+    expect(trivialImageSkip("image/png", atLeast(pngOf(400, 280), floor - 1))).toBe(
       CLASSIFIER_SKIP_SMALL,
     );
     expect(
@@ -339,16 +339,18 @@ describe("trivialImageSkip", () => {
 
 describe("jevAcceptsDimensions", () => {
   it("accepts the inclusive pixel window", () => {
-    expect(jevAcceptsDimensions(400, 256)).toBe(true);
+    expect(jevAcceptsDimensions(400, 280)).toBe(true);
     expect(jevAcceptsDimensions(1440, 900)).toBe(true);
     expect(jevAcceptsDimensions(280, 280)).toBe(true);
-    expect(JEV_MIN_IMAGE_EDGE * JEV_MIN_IMAGE_EDGE).toBeLessThan(JEV_MIN_IMAGE_PIXELS);
+    expect(JEV_MIN_IMAGE_EDGE * JEV_MIN_IMAGE_EDGE).toBe(JEV_MIN_IMAGE_PIXELS);
     expect(jevAcceptsDimensions(JEV_MAX_IMAGE_EDGE, JEV_MAX_IMAGE_EDGE)).toBe(true);
     expect(JEV_MAX_IMAGE_EDGE * JEV_MAX_IMAGE_EDGE).toBe(JEV_MAX_IMAGE_PIXELS);
   });
 
   it("rejects an edge or a pixel count outside the window", () => {
-    expect(jevAcceptsDimensions(JEV_MIN_IMAGE_EDGE, JEV_MIN_IMAGE_EDGE)).toBe(false);
+    expect(jevAcceptsDimensions(JEV_MIN_IMAGE_EDGE - 1, 900)).toBe(false);
+    // Jev 1.14 answers "Invalid image dimensions" for a 270 px side.
+    expect(jevAcceptsDimensions(1200, 260)).toBe(false);
     expect(jevAcceptsDimensions(100, 100)).toBe(false);
     expect(jevAcceptsDimensions(JEV_MAX_IMAGE_EDGE + 1, 900)).toBe(false);
     expect(jevAcceptsDimensions(1600, 900)).toBe(false);
@@ -357,7 +359,7 @@ describe("jevAcceptsDimensions", () => {
 
 describe("buildDecisionImage", () => {
   it("sends a fitting PNG or JPEG to Jev as an image_url data URL", () => {
-    const png = pngOf(400, 256);
+    const png = pngOf(400, 280);
     const pngImage = buildDecisionImage("jev", "image/png", png).image;
     expect(pngImage?.type).toBe("image_url");
     expect(pngImage?.image_url.url.startsWith("data:image/png;base64,")).toBe(true);
@@ -372,7 +374,7 @@ describe("buildDecisionImage", () => {
   });
 
   it("keeps a high byte in the data URL", () => {
-    const bytes = new Uint8Array(pngOf(400, 256));
+    const bytes = new Uint8Array(pngOf(400, 280));
     bytes[10] = 0xff;
     const image = buildDecisionImage("jev", "image/png", bytes).image;
     const b64 = image!.image_url.url.slice("data:image/png;base64,".length);
@@ -386,7 +388,7 @@ describe("buildDecisionImage", () => {
     expect(buildDecisionImage("jev", "image/webp", webp640x480()).note).toBe(
       "image skipped: jev accepts png and jpeg",
     );
-    expect(buildDecisionImage("jev", "image/gif", pngOf(400, 256)).image).toBeUndefined();
+    expect(buildDecisionImage("jev", "image/gif", pngOf(400, 280)).image).toBeUndefined();
     const svg = new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
     expect(buildDecisionImage("jev", "image/svg+xml", svg).image).toBeUndefined();
     expect(buildDecisionImage("jev", "image/png", new Uint8Array()).image).toBeUndefined();
@@ -403,7 +405,7 @@ describe("buildDecisionImage", () => {
     expect(buildDecisionImage("luna", "image/png", wide).image?.type).toBe("image_url");
     const webp = buildDecisionImage("luna", "image/webp", webp640x480()).image;
     expect(webp?.image_url.url.startsWith("data:image/webp;base64,")).toBe(true);
-    expect(buildDecisionImage("luna", "image/gif", pngOf(400, 256)).note).toBe(
+    expect(buildDecisionImage("luna", "image/gif", pngOf(400, 280)).note).toBe(
       "image skipped: luna accepts png, jpeg, and webp",
     );
   });
@@ -421,7 +423,7 @@ describe("formatDecisionState", () => {
         content_type: "image/png",
         byte_size: 4,
         image_width: 400,
-        image_height: 256,
+        image_height: 280,
         aspect: "landscape",
         note: "image skipped: outside jev pixel limits",
       },
@@ -449,7 +451,7 @@ describe("buildDecideRequest", () => {
   ];
 
   it("asks Jev Latest every closed question in one request", () => {
-    const bytes = pngOf(400, 256);
+    const bytes = pngOf(400, 280);
     const image = buildDecisionImage("jev", "image/png", bytes).image;
     const req = buildDecideRequest(buildClassifierState("a.png", "image/png", bytes), "jev", image);
     expect(req.stage).toBe("decide");
@@ -484,7 +486,7 @@ describe("buildDecideRequest", () => {
 
   it("selects the Luna model without changing the questions", () => {
     const req = buildDecideRequest(
-      buildClassifierState("a.png", "image/png", pngOf(400, 256)),
+      buildClassifierState("a.png", "image/png", pngOf(400, 280)),
       "luna",
     );
     expect(req.model).toBe(CLASSIFIER_LUNA_MODEL);
@@ -503,7 +505,7 @@ describe("openRouterDecisionsRun", () => {
       content_type: "image/png",
       byte_size: 4,
       image_width: 400,
-      image_height: 256,
+      image_height: 280,
       aspect: "landscape",
     },
     "jev",
@@ -783,7 +785,7 @@ describe("jevScaleDownFit", () => {
   it("fits the longest side inside the window and does not upscale", () => {
     expect(jevScaleDownFit(2880, 1800)).toEqual({ width: 1568, height: 980 });
     expect(jevScaleDownFit(1600, 900)).toEqual({ width: 1568, height: 882 });
-    expect(jevScaleDownFit(400, 256)).toEqual({ width: 400, height: 256 });
+    expect(jevScaleDownFit(400, 280)).toEqual({ width: 400, height: 280 });
     expect(jevScaleDownFit(100, 100)).toBeUndefined();
     expect(jevScaleDownFit(8000, 100)).toBeUndefined();
     expect(jevUnfittableNote(100, 100)).toBe("image skipped: below jev pixel limits");
@@ -831,7 +833,7 @@ function recordingTransform(
 
 describe("prepareClassifierImage", () => {
   it("sends a fitting PNG through unchanged", async () => {
-    const png = pngOf(400, 256);
+    const png = pngOf(400, 280);
     const { transform, calls } = recordingTransform(() => {
       throw new Error("should not resize");
     });
@@ -923,7 +925,7 @@ describe("prepareClassifierImage", () => {
     const webp = await prepareClassifierImage("luna", "image/webp", webp640x480(), transform);
     expect(webp.image?.image_url.url.startsWith("data:image/webp;base64,")).toBe(true);
     expect(calls).toHaveLength(0);
-    const gif = await prepareClassifierImage("luna", "image/gif", pngOf(400, 256), transform);
+    const gif = await prepareClassifierImage("luna", "image/gif", pngOf(400, 280), transform);
     expect(gif.image).toBeUndefined();
     expect(gif.skip).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
   });

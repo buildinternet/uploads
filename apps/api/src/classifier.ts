@@ -143,7 +143,7 @@ export const CLASSIFIER_SKIP_RESIZE_TIMEOUT = "resize_timeout";
 
 /**
  * Either known edge below this skips the model. 64 px is a common icon
- * size and is well under Jev's 256 px minimum, so the pixels cannot be a
+ * size and is well under Jev's 280 px minimum, so the pixels cannot be a
  * screenshot Jev could read. The edge is exclusive: 64 px still classifies
  * when the file is also large enough.
  */
@@ -241,11 +241,13 @@ export const CLASSIFIER_TIMEOUT_MS = 8_000;
 export const CLASSIFIER_RESIZE_TIMEOUT_MS = 8_000;
 
 /**
- * Jev image window, inclusive, from the OpenRouter multimodal Decisions
- * guide. An image outside it is not sent. A copy that can be scaled down
- * into the window is resized first. Anything else is a skip.
+ * Jev image window, inclusive. An image outside it is not sent. A copy
+ * that can be scaled down into the window is resized first. Anything else
+ * is a skip. The guide said 256 px per side, but Jev 1.14 rejects a 270 px
+ * side ("Invalid image dimensions") and accepts 280, which matches the
+ * 78,400 (280²) pixel floor.
  */
-export const JEV_MIN_IMAGE_EDGE = 256;
+export const JEV_MIN_IMAGE_EDGE = 280;
 export const JEV_MAX_IMAGE_EDGE = 1_568;
 export const JEV_MIN_IMAGE_PIXELS = 78_400;
 export const JEV_MAX_IMAGE_PIXELS = 2_458_624;
