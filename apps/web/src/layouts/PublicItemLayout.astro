@@ -1,6 +1,7 @@
 ---
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
 import Footer from "../components/Footer.astro";
 import ViewTransitions from "../components/ViewTransitions.astro";
 
@@ -27,14 +28,17 @@ const { title, canonical, description } = Astro.props;
     <main class="shell">
       <nav class="top" aria-label="Site" transition:persist="public-item-header">
         <Brand />
-        <button
-          type="button"
-          class="public sharelink"
-          data-copy={canonical}
-          data-public-copy-button
-          data-viewer-share
-          title="Copy link — anyone with this link can view this page">Public link</button
-        >
+        <div class="nav-end">
+          <ThemeToggle />
+          <button
+            type="button"
+            class="public sharelink"
+            data-copy={canonical}
+            data-public-copy-button
+            data-viewer-share
+            title="Copy link — anyone with this link can view this page">Public link</button
+          >
+        </div>
       </nav>
       <slot />
     </main>
@@ -81,6 +85,11 @@ const { title, canonical, description } = Astro.props;
     margin-bottom: 32px;
     font: var(--text-meta) var(--mono);
     letter-spacing: 0.02em;
+  }
+  .nav-end {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
   }
   .public {
     color: var(--muted);

@@ -7,6 +7,7 @@ export const prerender = false;
 
 import { env } from "cloudflare:workers";
 import BaseHead from "../../components/BaseHead.astro";
+import ThemeToggle from "../../components/ThemeToggle.astro";
 import "@uploads/ui/theme.css";
 
 // import.meta.env.DEV keeps the page reachable under `astro dev`, where
@@ -22,6 +23,7 @@ if (!import.meta.env.DEV && env.ENVIRONMENT === "production") {
     <title>UI kit · dev</title>
   </head>
   <body class="bg-background text-foreground">
+    <ThemeToggle floating />
     {
       /* Manual createRoot mount — `client:*` islands are banned in this codebase
         (they 404 fetching the Fast-Refresh bootstrap under `astro dev` with the

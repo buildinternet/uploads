@@ -2,6 +2,7 @@
 import { serverTimingDisabled, type TimingEnv } from "@uploads/observability";
 import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
+import ThemeToggle from "../../../components/ThemeToggle.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import FileDetails from "../../../components/FileDetails.astro";
 import Footer from "../../../components/Footer.astro";
@@ -193,6 +194,11 @@ if (timingsEnabled)
         margin-bottom: 32px;
         font: var(--text-meta) var(--mono);
         letter-spacing: 0.02em;
+      }
+      .nav-end {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
       }
       .public {
         color: var(--muted);
@@ -471,21 +477,24 @@ if (timingsEnabled)
     <main class="shell">
       <nav class="top">
         <Brand />
-        {
-          file ? (
-            <button
-              type="button"
-              class="public sharelink"
-              data-copy={canonical}
-              data-public-copy-button
-              title="Copy link — anyone with this link can view this page"
-            >
-              Public link
-            </button>
-          ) : (
-            <span class="public">public file</span>
-          )
-        }
+        <div class="nav-end">
+          <ThemeToggle />
+          {
+            file ? (
+              <button
+                type="button"
+                class="public sharelink"
+                data-copy={canonical}
+                data-public-copy-button
+                title="Copy link — anyone with this link can view this page"
+              >
+                Public link
+              </button>
+            ) : (
+              <span class="public">public file</span>
+            )
+          }
+        </div>
       </nav>
       {
         file ? (

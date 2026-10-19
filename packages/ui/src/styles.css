@@ -34,7 +34,9 @@
   font-display: swap;
 }
 
-/* ── Tokens ────────────────────────────────────────────────────────────── */
+/* ── Tokens ──────────────────────────────────────────────────────────────
+   Keep this block identical to tokens.css. styles.css is byte-copied to dist,
+   so it cannot @import the token file. */
 :root {
   color-scheme: dark;
   --bg: #0a0a0b;
@@ -46,6 +48,8 @@
   --accent: #c27eff;
   --green: #8fae62;
   --red: #d98a9c;
+  --surface-muted: #17171a;
+  --surface-hover: #1a1a1e;
   --sans:
     "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif; /* @kind font */
@@ -111,6 +115,25 @@
   --width-content: 720px; /* reading/marketing pages: landing, docs, guides, legal */
   --width-shell: 960px; /* signed-in shells: account, admin */
   --width-viewer: 1080px; /* media viewers: /f, /g */
+}
+
+/* Same light override as tokens.css. See the note on that block. */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f2ec;
+  --panel: #fbfaf6;
+  --line: #e3e0d6;
+  --fg: #1c1c19;
+  --body: #3f3f39;
+  --muted: #65655d;
+  --accent: #7a3aad;
+  --green: #3f6b28;
+  --red: #a33d56;
+  --surface-muted: #ebe8df;
+  --surface-hover: #e3dfd4;
+  --leading-body: 1.55;
+  --tracking-body: 0;
+  --tracking-ui: 0;
 }
 
 /* ── Brand ─────────────────────────────────────────────────────────────── */
@@ -298,6 +321,7 @@
  * (#8a8a83), not a live `var()` — the SVG renders as an external resource
  * with its own document scope, so it can't resolve the host page's custom
  * properties; baking in the value keeps it in the same idiom instead.
+ * The light-mode rule below bakes in that palette's muted hex (#65655d).
  */
 .ul-select {
   appearance: none;
@@ -314,6 +338,9 @@
   padding: 10px 34px 10px 12px;
   font: var(--text-ui) / var(--leading-ui) var(--sans);
   width: 100%;
+}
+html[data-theme="light"] .ul-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.75 4.5L6 7.75L9.25 4.5' stroke='%2365655d' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .ul-select:focus-visible {
   border-color: var(--accent);

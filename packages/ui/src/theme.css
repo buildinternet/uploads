@@ -9,10 +9,11 @@
  * preflight resets (margin/border/font resets on headings, buttons, tables,
  * etc.) can shift the look of anything not yet migrated to Tailwind classes.
  *
- * Single dark theme by construction (tokens.css sets color-scheme: dark), so
- * unlike the probe there is no `:root`/`.dark` variable-swap block and no
- * `@custom-variant dark` — every shadcn semantic color is defined directly
- * in `@theme inline`, fed by the brand tokens in tokens.css.
+ * Dark is the :root palette in tokens.css. Light mode overrides those custom
+ * properties under `html[data-theme="light"]`. Semantic colors below point at
+ * the properties (including --surface-muted / --surface-hover), so utilities
+ * follow the active appearance. There is no `.dark` class — `dark:` variants
+ * on generated components stay inactive on purpose.
  */
 
 @import "./tokens.css";
@@ -60,8 +61,8 @@
   --color-primary-foreground: var(--bg);
   --color-secondary: var(--panel);
   --color-secondary-foreground: var(--fg);
-  --color-muted: #17171a;
-  --color-accent: #1a1a1e;
+  --color-muted: var(--surface-muted);
+  --color-accent: var(--surface-hover);
   --color-accent-foreground: var(--fg);
   --color-destructive: var(--red);
   --color-border: var(--line);
@@ -75,7 +76,7 @@
   --color-sidebar-foreground: var(--fg);
   --color-sidebar-primary: var(--accent);
   --color-sidebar-primary-foreground: var(--bg);
-  --color-sidebar-accent: #1a1a1e;
+  --color-sidebar-accent: var(--surface-hover);
   --color-sidebar-accent-foreground: var(--fg);
   --color-sidebar-border: var(--line);
   --color-sidebar-ring: var(--accent);

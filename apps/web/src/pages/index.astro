@@ -94,6 +94,22 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         --panel: #1b1722;
         --line: #342c40;
         --accent: #c6a1f5;
+        /* Chrome that does not follow the tokens above. Light mode overrides
+           this same set; the terminal illustration pins its own. */
+        --link-line: #79638f;
+        --code: #d2b5ef;
+        --inset: #19151f;
+        --edge: #5b486e;
+        --cmd-hover: #76558d;
+        --chip-line: #534160;
+        --chip-hover: #30243d;
+        --ok: #a8d7ae;
+        --compat: #c6bfce;
+        --cta-bg: #241d2d;
+        --cta-line: #5b486e;
+        --cta-inset: #3b2f48;
+        --cta-shadow: #0b090f;
+        --cta-hover: #30263b;
         margin: 0;
         min-height: 100dvh;
         background: var(--bg);
@@ -110,7 +126,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       main a {
         color: var(--fg);
-        text-decoration-color: #79638f;
+        text-decoration-color: var(--link-line);
         text-underline-offset: 4px;
       }
       main a:hover {
@@ -200,15 +216,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: #23182f;
       }
       main .cta-secondary {
-        background: #241d2d;
+        background: var(--cta-bg);
         color: var(--fg);
-        border-color: #5b486e;
+        border-color: var(--cta-line);
         box-shadow:
-          inset 0 2px 0 #3b2f48,
-          0 3px 0 #0b090f;
+          inset 0 2px 0 var(--cta-inset),
+          0 3px 0 var(--cta-shadow);
       }
       main .cta-secondary:hover {
-        background: #30263b;
+        background: var(--cta-hover);
         color: var(--fg);
       }
       main :is(.cta-solid, .cta-secondary):active {
@@ -239,7 +255,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         gap: 18px 32px;
         padding: 22px 0;
         border-block: 1px solid var(--line);
-        color: #c6bfce;
+        color: var(--compat);
         font-size: 14px;
       }
       .compatibility .label {
@@ -261,11 +277,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         max-width: 640px;
         margin-bottom: 28px;
       }
+      /* Terminal illustration — stays on the homepage's dark palette in both
+         appearances, so its text tokens don't inherit the page. */
       .example-screen {
         background: #19151f;
-        border: 1px solid var(--line);
+        border: 1px solid #342c40;
         border-radius: 7px;
         overflow: hidden;
+        color: #f3eee7;
+        --fg: #f3eee7;
+        --body: #b7b2bd;
+        --muted: #9a92a6;
+        --accent: #c6a1f5;
+        --line: #342c40;
       }
       .line {
         white-space: pre-wrap;
@@ -327,7 +351,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .feature code,
       .sect-lede code {
         font: 0.85em var(--mono);
-        color: #d2b5ef;
+        color: var(--code);
         white-space: nowrap;
         font-variant-ligatures: none;
         font-feature-settings:
@@ -350,12 +374,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         max-width: 760px;
       }
       .faq-list details {
-        background: #19151f;
+        background: var(--inset);
         border: 1px solid var(--line);
         border-radius: 7px;
       }
       .faq-list details[open] {
-        border-color: #5b486e;
+        border-color: var(--edge);
       }
       .faq-list summary {
         cursor: pointer;
@@ -397,7 +421,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .faq-a code {
         font: 0.85em var(--mono);
-        color: #d2b5ef;
+        color: var(--code);
         font-variant-ligatures: none;
         font-feature-settings:
           "calt" 0,
@@ -418,7 +442,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         grid-template-columns: 1fr auto;
         align-items: center;
         gap: 10px;
-        background: #1b1722;
+        background: var(--panel);
         border: 1px solid var(--line);
         padding: 12px 14px;
         border-radius: 4px;
@@ -428,7 +452,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         cursor: pointer;
       }
       .cmdrow:has(button[data-copy]):hover {
-        border-color: #76558d;
+        border-color: var(--cmd-hover);
       }
       .cmdrow .tag {
         color: var(--muted);
@@ -453,7 +477,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .agent-byline button {
         color: var(--accent);
         background: transparent;
-        border: 1px solid #534160;
+        border: 1px solid var(--chip-line);
         border-radius: 3px;
         padding: 6px 9px;
         font: 11px / 1.4 var(--mono);
@@ -461,12 +485,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .cmdrow button:hover,
       .agent-byline button:hover {
-        background: #30243d;
+        background: var(--chip-hover);
       }
       .cmdrow button.done,
       .agent-byline button.done {
-        color: #a8d7ae;
-        border-color: #a8d7ae;
+        color: var(--ok);
+        border-color: var(--ok);
       }
       .prompt-note {
         font-size: 12px;
@@ -492,6 +516,31 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         font-feature-settings:
           "calt" 0,
           "liga" 0;
+      }
+      /* Same chrome tokens as `body`, on the light paper. The terminal
+         illustration above pins its own colors and does not inherit these. */
+      html[data-theme="light"] body {
+        --bg: #f7f4ef;
+        --fg: #1c1722;
+        --body: #4a4454;
+        --muted: #6c6576;
+        --panel: #fffdfb;
+        --line: #e4dce8;
+        --accent: #6e349f;
+        --link-line: #b89ad0;
+        --code: #6e349f;
+        --inset: var(--panel);
+        --edge: #c9b6dc;
+        --cmd-hover: #b89ad0;
+        --chip-line: #d5c6e4;
+        --chip-hover: #f3eef8;
+        --ok: #2a6e34;
+        --compat: var(--body);
+        --cta-bg: var(--panel);
+        --cta-line: #d9cce4;
+        --cta-inset: #fff;
+        --cta-shadow: #c9bdd6;
+        --cta-hover: #f3eef8;
       }
       @media (max-width: 900px) {
         main {

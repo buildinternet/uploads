@@ -22,6 +22,7 @@
 import { formatStars, githubStarCount } from "../lib/github-stars";
 import AuthIndicator from "./AuthIndicator.astro";
 import Brand from "./Brand.astro";
+import ThemeToggle from "./ThemeToggle.astro";
 
 interface Props {
   /** Render the sign-in CTA / avatar menu (requires the auth origin). */
@@ -110,6 +111,7 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
         <span class="star-cta__label">Star on GitHub</span>
         {stars === null ? null : <span class="count">{formatStars(stars)}</span>}
       </a>
+      <ThemeToggle />
       {
         // `authOrigin` can legitimately be `""` (same-origin, #731 phase B) —
         // check for the prop's absence explicitly rather than truthiness, or
