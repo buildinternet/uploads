@@ -12,10 +12,15 @@
  * THREAD_MAX messages, with `channels:history` / `groups:history`), so a
  * follow-up like "just the mobile ones" builds on the last answer. Without
  * those scopes it answers the mention alone.
+ *
+ * Each mention is one `invoke_agent` trace span (tracing.ts). Its
+ * conversation id is the Slack thread, so a thread's mentions group together
+ * in the Agents dashboard, and its agent id is the Slack team.
  */
 import { answerQuestion, DEFAULT_AGENT_MODEL, openRouterComplete } from "./agent";
 import { fileBlock, isFullMember, searchViaApi } from "./commands";
 import { botTokenFor, type SlackEnv } from "./config";
+import { inSpan } from "./tracing";
 import {
   chatPostMessage,
   conversationsReplies,
@@ -31,6 +36,8 @@ const THREAD_MAX = 20;
 /** Characters kept from each context message. */
 const CONTEXT_CHARS = 500;
 const WORKING_REACTION = "eyes";
+/** `gen_ai.agent.name` on the mention agent's spans. */
+const AGENT_NAME = "uploads.sh Slack";
 
 /** The mention text without the app's own @-name, with Slack's escapes undone. */
 export function questionText(text: string, botUserId?: string): string {
@@ -85,25 +92,46 @@ export async function handleMention(
   }
 
   const model = await agentModel(ctx.env);
+  const identity = {
+    "gen_ai.agent.name": AGENT_NAME,
+    "gen_ai.agent.id": ctx.teamId,
+    "gen_ai.conversation.id": `${ctx.teamId}:${event.channel}:${threadTs}`,
+  };
   const target = { channel: event.channel, timestamp: event.ts, name: WORKING_REACTION };
   await reactionsAdd(target, slack);
   try {
     const context = event.thread_ts ? await threadContext(event, ctx.env.SLACK_APP_ID, slack) : [];
-    const answer = await answerQuestion(
-      { question: questionText(event.text ?? "", ctx.botUserId), context },
-      {
-        complete: openRouterComplete({
-          apiKey,
-          model,
-          fetch: ctx.modelFetch,
-        }),
-        search: (term, labels) =>
-          searchViaApi(ctx.env, ctx.teamId, term, {
-            ...(Object.keys(labels).length ? { labels } : {}),
-            limit: 10,
+    const invoke = {
+      ...identity,
+      "gen_ai.operation.name": "invoke_agent",
+      "gen_ai.request.model": model,
+    };
+    const answer = await inSpan(`invoke_agent ${AGENT_NAME}`, invoke, async (span) => {
+      const result = await answerQuestion(
+        { question: questionText(event.text ?? "", ctx.botUserId), context },
+        {
+          complete: openRouterComplete({
+            apiKey,
+            model,
+            fetch: ctx.modelFetch,
+            identity,
           }),
-      },
-    );
+          search: (term, labels) =>
+            searchViaApi(ctx.env, ctx.teamId, term, {
+              ...(Object.keys(labels).length ? { labels } : {}),
+              limit: 10,
+            }),
+        },
+      );
+      span.setAttributes({
+        "gen_ai.usage.input_tokens": result.usage.inputTokens,
+        "gen_ai.usage.output_tokens": result.usage.outputTokens,
+        "openrouter.cost_usd": result.usage.costUsd,
+        "uploads.answered": result.answered,
+        "uploads.files": result.files.length,
+      });
+      return result;
+    });
     const webOrigin = ctx.env.WEB_ORIGIN || "https://uploads.sh";
     const showWorkspace = new Set(answer.files.map((f) => f.workspace)).size > 1;
     const blocks: Block[] = [
@@ -115,6 +143,10 @@ export async function handleMention(
       model,
       answered: answer.answered,
       files: answer.files.length,
+      calls: answer.usage.calls,
+      input_tokens: answer.usage.inputTokens,
+      output_tokens: answer.usage.outputTokens,
+      cost_usd: answer.usage.costUsd,
       posted: posted.ok,
       error: posted.error,
     });
