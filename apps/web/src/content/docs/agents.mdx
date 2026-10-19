@@ -236,7 +236,7 @@ The same call also records four internal flags. They are not chips. They do not 
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ai.rating`             | `safe` `suggestive` `explicit`                                                                                                                  |
 | `ai.content`            | `none` `sexual` `violence` `gore` `drugs` `hate` `self_harm` `other`                                                                            |
-| `ai.secret`             | `none` `api_key` `password` `private_key` `token` `connection_string` `other`. A credential that grants access. A name or an email is not one. |
+| `ai.secret`             | `none` `api_key` `password` `private_key` `token` `connection_string` `other`. A credential that grants access. A name or an email is not one. Its confidence answers "does this show at least one credential?", so several credentials on one screen don't lower it. |
 | `ai.pii`                | `none` `contact` `identity_document` `financial` `other`. A signed-in name or email in a header stays `none`.                                   |
 | `ai.rating.confidence`  | `high` at 0.85 or above. `medium` from 0.70 up to 0.85. `low` from 0.50 up to 0.70.                                                             |
 | `ai.content.confidence` | Same buckets as `ai.rating.confidence`.                                                                                                         |

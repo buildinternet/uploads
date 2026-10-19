@@ -223,6 +223,7 @@ describe("classifier on upload", () => {
       "rating",
       "content",
       "secret",
+      "credential",
       "pii",
     ]);
     expect(stateText(call)).toContain("filename: pic.png");
@@ -1059,6 +1060,7 @@ describe("safety flags", () => {
       "rating",
       "content",
       "secret",
+      "credential",
       "pii",
     ]);
     expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
