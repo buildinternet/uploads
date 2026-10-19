@@ -491,7 +491,7 @@ if (timingsEnabled)
         <Brand />
         <div class="nav-end">
           <ThemeToggle />
-          {!file && <span class="public">public file</span>}
+          {!file && result.status !== "auth_required" && <span class="public">public file</span>}
         </div>
       </nav>
       {
@@ -770,6 +770,7 @@ if (timingsEnabled)
           if (!item) return false;
           document.getElementById("auth-required").hidden = true;
           document.getElementById("held-state").hidden = false;
+          document.title = "Held for review · uploads.sh";
           if (typeof item.reason === "string" && item.reason.startsWith("secret")) {
             document.getElementById("held-reason").textContent = "a credential";
           } else if (typeof item.reason === "string" && item.reason.startsWith("pii")) {
