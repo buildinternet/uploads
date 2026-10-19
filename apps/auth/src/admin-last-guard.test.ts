@@ -59,6 +59,7 @@ async function seedUser(
     notifyMemberJoin: overrides.notifyMemberJoin ?? true,
     notifyUsageLimits: overrides.notifyUsageLimits ?? true,
     notifySlackHolds: true,
+    notifyEmailHolds: false,
     notifyWeeklyDigest: overrides.notifyWeeklyDigest ?? false,
     notifyWeeklyWorkspaceDigest: overrides.notifyWeeklyWorkspaceDigest ?? false,
   };

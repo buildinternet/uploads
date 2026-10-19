@@ -14,6 +14,7 @@ export {
   renderOrgInvitationEmail,
 } from "./invites";
 export { renderWelcomeEmail } from "./welcome";
+export { renderUploadHeldEmail } from "./holds";
 export { renderAbuseReportEmail, type AbuseReportEmailInput } from "./abuse";
 export {
   renderUsageAlertEmail,
