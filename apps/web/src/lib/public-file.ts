@@ -117,6 +117,8 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 /**
  * File-page CSP. Inline script for Copy-as / Report; `connect-src` includes
  * the API origin for `/v1/abuse` and the auth_required session probe.
+ * `img-src blob:` lets a member's held-file preview show the bytes the page
+ * fetched with their session (an object URL this page made itself).
  *
  * `apiOrigin` is either an absolute origin or the same-origin `"/api"` prefix
  * (#731 phase D, `resolveSignedInOrigins`'s `SAME_ORIGIN_API_BASE`) — the
@@ -127,7 +129,7 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 export function publicFileCsp(apiOrigin: string): string {
   return [
     "default-src 'none'",
-    "img-src https: data:",
+    "img-src https: data: blob:",
     "media-src https:",
     "font-src 'self'",
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,

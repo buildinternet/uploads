@@ -802,6 +802,15 @@ export interface AttachmentsCommentResult {
   count: number;
   /** Who posted the comment: the GitHub App bot, or the local `gh` fallback. */
   via: "bot" | "gh";
+  /** Files on the PR or issue held for review, when any. */
+  held?: number;
+}
+
+/** Human-mode line for files the comment counts as held for review; empty when none. */
+export function heldNote(comment: Pick<AttachmentsCommentResult, "held">): string {
+  const n = comment.held ?? 0;
+  if (n === 0) return "";
+  return `>> ${n} file${n === 1 ? " is" : "s are"} held for review: check, then run uploads approve\n`;
 }
 
 /** Human-mode suffix noting who posted the managed comment. */
@@ -850,7 +859,14 @@ export async function syncAttachmentsComment(
   }
 
   if (bot) {
-    if (bot.posted) return { action: bot.action, count: bot.count, via: "bot" };
+    if (bot.posted) {
+      return {
+        action: bot.action,
+        count: bot.count,
+        via: "bot",
+        ...(bot.held ? { held: bot.held } : {}),
+      };
+    }
     if (bot.reason === "not_authorized") {
       throw new GithubCommentAuthorizationError(
         `${bot.message ?? `${target.repo} is not authorized for this workspace.`}\n` +
@@ -1099,7 +1115,7 @@ export async function syncAttachmentsComment(
   const { action } = upsertAttachmentsComment(target, body, run, marker, {
     createIfMissing: count > 0 && !skipLoneAdoptionCreate,
   });
-  return { action, count, via: "gh" };
+  return { action, count, via: "gh", ...(heldCount > 0 ? { held: heldCount } : {}) };
 }
 
 // --- attach ---
@@ -2052,7 +2068,7 @@ export async function runAttach(
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
-        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
       );
     if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
@@ -2273,7 +2289,7 @@ async function runAttachPromoteOnly(
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
-        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
       );
   }
   return 0;
@@ -3093,14 +3109,7 @@ export async function approveHeldFiles(opts: {
   }
 
   const target = opts.target!;
-  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
-    repo: target.repo,
-    target: { kind: target.kind, num: target.num },
-  });
-  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
-    ghPrivateKeyPrefix(id, target),
-  );
-  const held = await listHeldUnder(opts.client, prefixes);
+  const held = await listHeldFiles(opts.client, { target });
   const files: ApproveFile[] = [];
   for (const { key, reason } of held) {
     if (opts.all && !dryRun) {
@@ -3111,6 +3120,23 @@ export async function approveHeldFiles(opts: {
     }
   }
   return { dryRun, repo: target.repo, number: target.num, files };
+}
+
+/** Held files on a PR or issue, or under `prefix` (all of them by default). */
+export async function listHeldFiles(
+  client: UploadsClient,
+  opts: { target?: GhTarget; prefix?: string },
+): Promise<{ key: string; reason: string }[]> {
+  const { target } = opts;
+  if (!target) return listHeldUnder(client, [opts.prefix ?? ""]);
+  const ghPrefix = await resolveGhPrefixSafe(client, {
+    repo: target.repo,
+    target: { kind: target.kind, num: target.num },
+  });
+  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
+    ghPrivateKeyPrefix(id, target),
+  );
+  return listHeldUnder(client, prefixes);
 }
 
 /**
@@ -3666,7 +3692,7 @@ export async function runPut(
       );
       if (logHuman)
         process.stderr.write(
-          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
         );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
@@ -4606,7 +4632,7 @@ export async function runComment(
     } else {
       line = `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`;
     }
-    process.stderr.write(line);
+    process.stderr.write(line + heldNote(result));
   }
   return 0;
 }

@@ -282,7 +282,7 @@
   {
     "name": "put",
     "title": "Upload file",
-    "description": "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
+    "description": "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
     "access": "destructive",
     "scopes": [
       "files:write"
@@ -409,6 +409,7 @@
       "provenance",
       "metadata",
       "visibility",
+      "holdCheck",
       "file",
       "uploads",
       "failures",
@@ -629,7 +630,7 @@
   {
     "name": "comment",
     "title": "Sync attachments comment",
-    "description": "Refresh the managed attachments comment on a GitHub PR or issue without re-uploading. Use after deleting media. Requires `repo` and exactly one of `pr`/`issue`.",
+    "description": "Refresh the managed attachments comment on a GitHub PR or issue without re-uploading. Use after deleting media. Requires `repo` and exactly one of `pr`/`issue`. `held` counts files there held for review; see `list_held`.",
     "access": "destructive",
     "scopes": [
       "files:read"
@@ -662,7 +663,8 @@
       "required",
       "action",
       "count",
-      "commentUrl"
+      "commentUrl",
+      "held"
     ]
   },
   {
@@ -737,6 +739,82 @@
     ],
     "returns": [
       "metadata"
+    ]
+  },
+  {
+    "name": "list_held",
+    "title": "List held files",
+    "description": "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`) and `area`, an approximate box around the flagged content as fractions of the image (null when unknown).",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Held files on this pull request."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Held files on this issue."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Only keys under this prefix."
+      }
+    ],
+    "returns": [
+      "items"
+    ]
+  },
+  {
+    "name": "approve",
+    "title": "Approve held files",
+    "description": "Release uploads held for review (see `list_held`): pass `keys`, or `pr`/`issue` + `repo` to approve every held file there. The file returns at the same URL and the managed PR comment re-syncs. Check the file first: if it shows a real credential, rotate it and delete the file instead of approving. Same as `uploads approve`.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "keys",
+        "type": "string[]",
+        "required": false,
+        "description": "Held keys to approve."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Approve every held file on this pull request."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Approve every held file on this issue."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      }
+    ],
+    "returns": [
+      "files"
     ]
   },
   {

@@ -45,6 +45,7 @@ export const commentResultSchema: JsonSchema = objectSchema(
     action: { type: "string", enum: ["skipped", "created", "updated"] },
     count: { type: "number" },
     commentUrl: { type: "string" },
+    held: { type: "number" },
   },
   ["posted"],
 );
@@ -104,6 +105,7 @@ const putObjectFields: Record<string, JsonSchema> = {
   provenance: stringMap,
   metadata: stringMap,
   visibility: { type: "string" },
+  holdCheck: { type: "string", enum: ["pending"] },
 };
 
 /** Hosted `PostCommentResult` or stdio `AttachmentsCommentResult` (`via`/`action`). */
@@ -127,6 +129,7 @@ const putCommentSchema: JsonSchema = objectSchema({
   count: { type: "number" },
   commentUrl: { type: "string" },
   via: { type: "string", enum: ["bot", "gh"] },
+  held: { type: "number" },
 });
 
 const putExtras: Record<string, JsonSchema> = {
@@ -224,6 +227,48 @@ export const unstageResultSchema: JsonSchema = objectSchema(
 );
 
 export const metadataResultSchema: JsonSchema = objectSchema({ metadata: stringMap }, ["metadata"]);
+
+const holdAreaSchema: JsonSchema = {
+  type: ["object", "null"],
+  properties: {
+    top: { type: "number" },
+    left: { type: "number" },
+    bottom: { type: "number" },
+    right: { type: "number" },
+  },
+};
+
+/** Hosted + stdio `list_held`. `area` is hosted-only (fractions of the image). */
+export const listHeldResultSchema: JsonSchema = objectSchema(
+  {
+    items: {
+      type: "array",
+      items: objectSchema(
+        { key: { type: "string" }, reason: { type: "string" }, area: holdAreaSchema },
+        ["key", "reason"],
+      ),
+    },
+  },
+  ["items"],
+);
+
+/** Hosted + stdio `approve`. */
+export const approveResultSchema: JsonSchema = objectSchema(
+  {
+    files: {
+      type: "array",
+      items: objectSchema(
+        {
+          key: { type: "string" },
+          action: { type: "string", enum: ["approved", "not_held"] },
+          reason: { type: "string" },
+        },
+        ["key", "action"],
+      ),
+    },
+  },
+  ["files"],
+);
 
 export const findFilesResultSchema: JsonSchema = objectSchema(
   {
@@ -565,6 +610,8 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   comment: commentResultSchema,
   promote: promoteToolResultSchema,
   get_metadata: metadataResultSchema,
+  list_held: listHeldResultSchema,
+  approve: approveResultSchema,
   set_metadata: metadataResultSchema,
   find_files: findFilesResultSchema,
   list_metadata_keys: metadataFacetsResultSchema,
@@ -603,8 +650,11 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
     kind: { type: "string" },
     num: { type: "number" },
     via: { type: "string", enum: ["bot", "gh"] },
+    held: { type: "number" },
   }),
   get_metadata: metadataResultSchema,
+  list_held: listHeldResultSchema,
+  approve: approveResultSchema,
   set_metadata: metadataResultSchema,
   find_files: findFilesResultSchema,
   list_metadata_keys: metadataFacetsResultSchema,

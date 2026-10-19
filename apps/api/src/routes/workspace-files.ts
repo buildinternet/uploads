@@ -47,11 +47,22 @@ import {
   listObjects,
   setObjectVisibility,
 } from "../files-core";
-import { approveUpload } from "../upload-hold-service";
+import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service";
 import { listHeldKeys } from "../upload-hold-read";
-import { HOLD_MOVED_KEY, storedHoldReason } from "../upload-hold";
+import {
+  HOLD_APPROVED,
+  HOLD_AREA_KEY,
+  HOLD_AT_KEY,
+  HOLD_BY_KEY,
+  HOLD_META_KEY,
+  HOLD_MOVED_KEY,
+  HOLD_PENDING,
+  parseHoldArea,
+  storedHoldReason,
+} from "../upload-hold";
 import { readHeld } from "../held-storage";
 import {
+  getFileMetadata,
   getMetadataForKeys,
   getObjectUpdatedAt,
   groupObjectsByPath,
@@ -443,7 +454,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     const prefix = c.req.query("prefix") ?? "";
     const keys = (await listHeldKeys(c.env, name)).filter((key) => key.startsWith(prefix));
     const meta = await getMetadataForKeys(dbFor(c.env), name, keys, {
-      metaKeys: [HOLD_MOVED_KEY, "ai.secret", "ai.pii"],
+      metaKeys: [HOLD_MOVED_KEY, HOLD_AREA_KEY, "ai.secret", "ai.pii"],
     });
     return c.json({
       items: keys.map((key) => {
@@ -452,6 +463,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           key,
           reason: storedHoldReason(row),
           moved: row[HOLD_MOVED_KEY] === "1",
+          // Where to look, as fractions of the image; null when unknown.
+          area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
         };
       }),
     });
@@ -488,10 +501,44 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       const workspaceName = c.req.param("workspace");
       const key = c.req.query("key") ?? "";
       if (badKey(key)) throw new NotFoundError();
-      const result = await approveUpload(c.env, record, workspaceName, key);
+      const by = await approverLabel(c.env, c.get("uploaderIdentity"));
+      const result = await approveUpload(c.env, record, workspaceName, key, by);
       return c.json({ key, ...result });
     },
   )
+
+  // Hold an approved file again (`holdAgain`), for a member who approved
+  // it by mistake. A file that is not approved answers 200 with
+  // `held: false`.
+  .post(
+    "/:workspace/files/hold",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    async (c) => {
+      const key = c.req.query("key") ?? "";
+      if (badKey(key)) throw new NotFoundError();
+      const result = await holdAgain(c.env, c.get("workspace"), c.req.param("workspace"), key);
+      return c.json({ key, ...result });
+    },
+  )
+
+  // A file's hold state for members: held, approved (with who and when),
+  // or never held. Feeds the file page's Reviewed note; the public API
+  // strips every `ai.*` row, so this is the only place it shows.
+  .get("/:workspace/files/review", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const key = c.req.query("key") ?? "";
+    if (badKey(key)) throw new NotFoundError();
+    const meta = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
+    const hold = meta[HOLD_META_KEY];
+    return c.json({
+      key,
+      hold: hold === HOLD_PENDING || hold === HOLD_APPROVED ? hold : null,
+      reason: hold ? storedHoldReason(meta) : null,
+      by: hold === HOLD_APPROVED ? (meta[HOLD_BY_KEY] ?? null) : null,
+      at: hold === HOLD_APPROVED ? (meta[HOLD_AT_KEY] ?? null) : null,
+    });
+  })
 
   // files-sdk's folder-aware browser gateway (issue #613 final phase, moved
   // verbatim from `routes/me.ts`). Session-member-gated only — see

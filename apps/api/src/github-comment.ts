@@ -64,7 +64,7 @@ export async function gatherCommentBody(
   workspaceName: string,
   target: GhTarget,
   opts: { headBranch?: string; shadow?: boolean } = {},
-): Promise<{ body: string; count: number }> {
+): Promise<{ body: string; count: number; heldCount: number }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
   // to workspace-defaults/auto only (see resolveRepoCommentOptions).
@@ -96,6 +96,7 @@ export async function gatherCommentBody(
       heldCount,
     }),
     count,
+    heldCount,
   };
 }
 

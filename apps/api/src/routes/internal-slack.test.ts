@@ -6,6 +6,7 @@ import { database, SqliteD1 } from "../../test/helpers/sqlite-d1";
 const approveUpload = vi.fn();
 vi.mock("../upload-hold-service", () => ({
   approveUpload: (...a: unknown[]) => approveUpload(...a),
+  memberName: async () => "Member",
 }));
 vi.mock("../workspace", async (orig) => ({
   ...(await orig<typeof import("../workspace")>()),
@@ -126,6 +127,7 @@ describe("POST /internal/slack/approve", () => {
       expect.objectContaining({ name: "acme" }),
       "acme",
       "shots/a.png",
+      "Member",
     );
   });
 

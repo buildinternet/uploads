@@ -170,7 +170,14 @@ export type PostCommentResult =
       required: string[];
     }
   | { posted: true; action: "skipped"; count: 0 }
-  | { posted: true; action: "created" | "updated"; count: number; commentUrl: string };
+  | {
+      posted: true;
+      action: "created" | "updated";
+      count: number;
+      commentUrl: string;
+      /** Files on this PR or issue held for review (`upload-hold.ts`), when any. */
+      held?: number;
+    };
 
 /**
  * Gather + upsert the managed comment for `target` on behalf of
@@ -267,5 +274,6 @@ export async function postManagedComment(
     action: result.action,
     count: gathered.count,
     commentUrl: result.commentUrl,
+    ...(gathered.heldCount > 0 ? { held: gathered.heldCount } : {}),
   };
 }

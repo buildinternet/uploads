@@ -260,9 +260,10 @@ binding and posts the results to the command's `response_url`. Only
 the person who ran it sees them. The API matches the term against each file's
 path (name and folders), sorts matches by upload time, drops anything the
 public share page wouldn't show (private or held), and returns the newest
-five. Each result shows its folder, date, and a thumbnail for images.
-**Share** (`uploads_search_share`) posts that file to the channel through the
-same `response_url` with `response_type: in_channel`.
+five. Each result shows its last two folders, date, and a thumbnail for
+images. A **Share a file to the channel** menu (`uploads_search_share`) under
+the results posts the picked file to the channel through the same
+`response_url` (`response_type: in_channel`), as the card its link unfurls to.
 
 ## Configuration
 

@@ -62,6 +62,14 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
           />
           <span>A workspace I administer nears its usage limit</span>
         </label>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-email-holds"
+            checked={initial.user?.notifyEmailHolds ?? false}
+          />
+          <span>An upload is held for review</span>
+        </label>
       </div>
       <div class="notify-group">
         <h3 class="notify-group__title">Weekly digests</h3>
@@ -316,6 +324,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       listSessions,
       revokeSession,
       updateDigestPreference,
+      updateNotifyEmailHolds,
       updateNotifyMemberJoin,
       updateNotifySlackHolds,
       updateNotifyUsageLimits,
@@ -563,6 +572,9 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
       const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
       const usageToggle = document.getElementById("notify-usage-limits") as HTMLInputElement | null;
+      const holdEmailToggle = document.getElementById(
+        "notify-email-holds",
+      ) as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
@@ -590,6 +602,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       }
       wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
       wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
+      wireNotifyToggle(holdEmailToggle, updateNotifyEmailHolds);
 
       const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
         .__UPLOADS_API_ORIGIN__;
@@ -686,6 +699,9 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         }
         if (usageToggle && typeof user.notifyUsageLimits === "boolean") {
           usageToggle.checked = user.notifyUsageLimits;
+        }
+        if (holdEmailToggle && typeof user.notifyEmailHolds === "boolean") {
+          holdEmailToggle.checked = user.notifyEmailHolds;
         }
         if (slackToggle && typeof user.notifySlackHolds === "boolean") {
           slackToggle.checked = user.notifySlackHolds;

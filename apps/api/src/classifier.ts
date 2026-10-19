@@ -71,10 +71,18 @@ import {
   getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
-import type { ClassifierConfidenceBucket } from "./classifier-admin-wire";
+import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./classifier-admin-wire";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
+import {
+  HOLD_AREA_KEY,
+  formatHoldArea,
+  holdReason,
+  padHoldArea,
+  type HoldArea,
+  type HoldReason,
+} from "./upload-hold";
 
 /** Flagship flag. Default `false`; evaluation errors are treated as off. */
 export const CLASSIFIER_FLAG = "llm-file-classifier";
@@ -143,7 +151,7 @@ export const CLASSIFIER_SKIP_RESIZE_TIMEOUT = "resize_timeout";
 
 /**
  * Either known edge below this skips the model. 64 px is a common icon
- * size and is well under Jev's 256 px minimum, so the pixels cannot be a
+ * size and is well under Jev's 280 px minimum, so the pixels cannot be a
  * screenshot Jev could read. The edge is exclusive: 64 px still classifies
  * when the file is also large enough.
  */
@@ -241,11 +249,13 @@ export const CLASSIFIER_TIMEOUT_MS = 8_000;
 export const CLASSIFIER_RESIZE_TIMEOUT_MS = 8_000;
 
 /**
- * Jev image window, inclusive, from the OpenRouter multimodal Decisions
- * guide. An image outside it is not sent. A copy that can be scaled down
- * into the window is resized first. Anything else is a skip.
+ * Jev image window, inclusive. An image outside it is not sent. A copy
+ * that can be scaled down into the window is resized first. Anything else
+ * is a skip. The guide said 256 px per side, but Jev 1.14 rejects a 270 px
+ * side ("Invalid image dimensions") and accepts 280, which matches the
+ * 78,400 (280²) pixel floor.
  */
-export const JEV_MIN_IMAGE_EDGE = 256;
+export const JEV_MIN_IMAGE_EDGE = 280;
 export const JEV_MAX_IMAGE_EDGE = 1_568;
 export const JEV_MIN_IMAGE_PIXELS = 78_400;
 export const JEV_MAX_IMAGE_PIXELS = 2_458_624;
@@ -387,6 +397,17 @@ const CLASSIFIER_FIELDS: Record<
       "Does this file show a credential that grants access to a system? Pick `none` for a masked or empty secret field, and for a username, a display name, or an email. Do not treat personal data as a secret; that is a different question.",
     criteria: SECRET_CRITERIA,
   },
+  // Yes/no, so several kinds of credential on one screen cannot split the
+  // answer below the floor the way the typed `secret` question can. Not
+  // stored on its own: `parseJevAnswers` folds it into `ai.secret`.
+  credential: {
+    instructions:
+      "Does this file show at least one credential that grants access to a system, such as an API key, password, private key, token, or a URL with a password in it? Pick `no` for a masked or empty secret field, and for a username, a display name, or an email.",
+    criteria: {
+      yes: "At least one credential that grants access is readable in the file.",
+      no: "No readable credential that grants access.",
+    },
+  },
   pii: {
     instructions:
       "Does this file show personal data about a person? Pick `none` for a normal product screenshot, including one that shows the signed-in user's own name or email only in the header, nav, or account menu. An empty email field is `none`. Do not treat an API key, password, or other access credential as personal data; that is a different question.",
@@ -411,6 +432,21 @@ export interface JevChoiceQuestion {
 }
 
 /**
+ * A Decisions box question: one region, as fractions of the image. Jev 1.14
+ * only, behind TypeSafe's experimental images header
+ * (`DECISIONS_DANGER_ZONE_HEADER`). It always returns a box, even for
+ * something absent, so only ask it when another answer says the target is
+ * there.
+ */
+export interface JevBoxQuestion {
+  type: "box";
+  instructions: string;
+}
+
+/** Header TypeSafe requires on a request with a box question. */
+export const DECISIONS_DANGER_ZONE_HEADER = "TypeSafe-Danger-Zone-Images";
+
+/**
  * Image part for the Decisions `state` array. This is the Chat Completions
  * shape. `{ type: "input_image", image_url: "data:..." }` is not an image
  * input on this API.
@@ -426,7 +462,7 @@ export interface ClassifierDecideRequest {
   model: string;
   state: ClassifierState;
   image?: DecisionImagePart;
-  questions: Record<string, JevChoiceQuestion>;
+  questions: Record<string, JevChoiceQuestion | JevBoxQuestion>;
 }
 
 export type ClassifierRequest = ClassifierDecideRequest;
@@ -988,8 +1024,38 @@ export function parseJevAnswers(
     }
   }
 
+  applyCredentialAnswer(meta, answers.credential, minConfidence);
+
   if (Object.keys(meta).length === 0) return null;
   return { meta, confidences };
+}
+
+/**
+ * The yes/no `credential` answer decides whether `ai.secret` is set and how
+ * confident it is; the typed `secret` answer only names the kind, falling
+ * back to `other` when it is unsure or says `none`. A missing or unsure
+ * credential answer leaves the typed answer as it was.
+ */
+function applyCredentialAnswer(
+  meta: Record<string, string>,
+  answer: unknown,
+  minConfidence: number,
+): void {
+  delete meta["ai.credential"];
+  if (!isPlainObject(answer)) return;
+  const { choice, confidence } = answer;
+  if (typeof choice !== "string" || typeof confidence !== "number") return;
+  if (!Number.isFinite(confidence) || confidence < minConfidence) return;
+  const normalized = choice.trim().toLowerCase();
+  if (normalized !== "yes" && normalized !== "no") return;
+  const typed = meta["ai.secret"];
+  meta["ai.secret"] =
+    normalized === "no"
+      ? CLASSIFIER_CLEAN_VALUES.secret
+      : typed && typed !== CLASSIFIER_CLEAN_VALUES.secret
+        ? typed
+        : "other";
+  meta["ai.secret.confidence"] = confidenceBucket(confidence);
 }
 
 /** A direct Decisions body, or one wrapped a level down. */
@@ -1041,6 +1107,9 @@ export function openRouterDecisionsRun(env: Env): ClassifierRun {
         "Content-Type": "application/json",
         "HTTP-Referer": "https://uploads.sh",
         "X-Title": "uploads",
+        ...(Object.values(req.questions).some((q) => q.type === "box")
+          ? { [DECISIONS_DANGER_ZONE_HEADER]: "true" }
+          : {}),
       },
       body: JSON.stringify({
         model: req.model,
@@ -1178,9 +1247,91 @@ async function decideImage(
     provider,
     model: request.model,
     resized: prepared.resized,
-    confidences: decided?.confidences ?? {},
+    // Workers Logs masks a field named `secret`, so every key gets a suffix.
+    confidences: Object.fromEntries(
+      Object.entries(decided?.confidences ?? {}).map(([field, value]) => [`${field}_conf`, value]),
+    ),
   });
   return meta;
+}
+
+/** Box instructions per hold reason: one region around everything flagged. */
+export const HOLD_AREA_INSTRUCTIONS: Record<HoldReason, string> = {
+  secret:
+    "The area of the image that shows credentials: one region around every visible secret value.",
+  pii: "The area of the image that shows personal information: one region around every visible identity document, card, or account detail.",
+};
+
+/**
+ * One Jev box call for a file that was just held: where the flagged content
+ * is, padded (`padHoldArea`). The hold already decided the content is
+ * there, which is the presence check a box question needs. `undefined`
+ * when the answer has no usable box.
+ */
+export async function locateHoldArea(
+  run: ClassifierRun,
+  state: ClassifierState,
+  image: DecisionImagePart,
+  reason: HoldReason,
+  signal?: AbortSignal,
+): Promise<{ area: HoldArea; confidence?: number } | undefined> {
+  const result = await run(
+    {
+      stage: "decide",
+      model: CLASSIFIER_JEV_MODEL,
+      state,
+      image,
+      questions: { area: { type: "box", instructions: HOLD_AREA_INSTRUCTIONS[reason] } },
+    },
+    { signal },
+  );
+  const answer = findJevAnswers(result)?.area;
+  if (!isPlainObject(answer)) return undefined;
+  const area = padHoldArea(answer.box);
+  if (!area) return undefined;
+  const confidence =
+    typeof answer.confidence === "number" && Number.isFinite(answer.confidence)
+      ? answer.confidence
+      : undefined;
+  return { area, confidence };
+}
+
+/**
+ * Store `ai.hold.area` for a new hold. Best-effort with its own timeout:
+ * the hold is already in place, so a failed or slow box only means the
+ * file page has no highlight.
+ */
+async function storeHoldArea(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  run: ClassifierRun,
+  state: ClassifierState,
+  image: DecisionImagePart,
+  reason: HoldReason,
+  timeoutMs: number,
+): Promise<void> {
+  const controller = new AbortController();
+  try {
+    const located = await withDeadline(
+      locateHoldArea(run, state, image, reason, controller.signal),
+      timeoutMs,
+      () => controller.abort(),
+      "hold area timed out",
+    );
+    console.log({
+      event: "classifier_hold_area",
+      reason,
+      found: !!located,
+      area_conf: located?.confidence,
+    });
+    if (!located) return;
+    await setServerFileMetadata(dbFor(env), workspaceName, key, {
+      [HOLD_AREA_KEY]: formatHoldArea(located.area),
+    });
+  } catch (err) {
+    console.error({ event: "classifier_hold_area_failed", workspace: workspaceName, err });
+  }
 }
 
 export async function classifyAndStore(
@@ -1267,9 +1418,16 @@ export async function classifyAndStore(
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.
     const { applyUploadHold } = await import("./upload-hold-service");
-    await applyUploadHold(env, ws, workspaceName, key, stored, {
+    const placed = await applyUploadHold(env, ws, workspaceName, key, stored, {
       enforce: deps?.enforceHold === true,
     });
+    const reason = placed ? holdReason(stored) : undefined;
+    // Box questions need Jev 1.14, and Luna's image may be one Jev rejects.
+    if (reason && provider === "jev") {
+      const state = buildClassifierState(key, contentType, bytes);
+      if (prepared.note) state.note = prepared.note;
+      await storeHoldArea(env, workspaceName, key, run, state, prepared.image, reason, timeoutMs);
+    }
     return stored;
   } catch (err) {
     console.error({ event: "classifier_failed", workspace: workspaceName, key, err });
@@ -1280,7 +1438,7 @@ export async function classifyAndStore(
 /**
  * Fire-and-forget after a successful put. REST passes `executionCtx.waitUntil`
  * so the isolate stays alive; callers without a ctx (MCP/ingest/tests) skip
- * rather than block the upload.
+ * rather than block the upload. Returns whether the work was scheduled.
  */
 export function scheduleFileClassification(
   env: Env,
@@ -1291,18 +1449,20 @@ export function scheduleFileClassification(
   contentType: string,
   waitUntil?: ClassifierWaitUntil,
   opts: { enforceHold?: boolean } = {},
-): void {
-  if (!waitUntil) return;
+): boolean {
+  if (!waitUntil) return false;
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
-  if (!env.OPENROUTER_API_KEY?.trim()) return;
-  if (ws.llmClassifierEnabled === false) return;
-  if (ws.classifyUploads === false) return;
+  if (!env.OPENROUTER_API_KEY?.trim()) return false;
+  if (ws.llmClassifierEnabled === false) return false;
+  if (ws.classifyUploads === false) return false;
   const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType, {
     enforceHold: opts.enforceHold,
   });
   try {
     waitUntil(work);
+    return true;
   } catch {
     // no executionCtx — drop the work rather than fail the upload
+    return false;
   }
 }

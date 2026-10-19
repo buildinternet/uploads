@@ -199,7 +199,7 @@ describe("resultsMessage", () => {
     expect(msg.text).toBe("No public files match “x”.");
   });
 
-  it("shows each result's folder, date and thumbnail, with a Share button", () => {
+  it("shows each result's folder, date and thumbnail, and one Share menu", () => {
     const msg = resultsMessage(
       "sunny",
       {
@@ -207,32 +207,38 @@ describe("resultsMessage", () => {
         results: [
           {
             workspace: "acme",
-            key: "sunny/plan.webp",
-            imageUrl: "https://storage.uploads.sh/acme/sunny/plan.webp",
+            key: "screenshots/sunny/pr-1/plan.webp",
+            imageUrl: "https://storage.uploads.sh/acme/plan.webp",
             uploaded: 1_792_281_600_000,
           },
-          { workspace: "acme", key: "sunny/plan.svg", imageUrl: "https://x.test/plan.svg" },
+          { workspace: "acme", key: "plan.svg", imageUrl: "https://x.test/plan.svg" },
+          { workspace: "acme", key: `${"x".repeat(150)}/long.png` },
         ],
         truncated: false,
       },
       "https://uploads.sh",
     );
-    const [, first, firstActions, second] = msg.blocks as Array<Record<string, any>>;
+    const [heading, first, second, , divider, actions] = msg.blocks as Array<Record<string, any>>;
+    expect(heading!.text.text).toBe("*3 newest files matching “sunny”*");
     expect(first!.text.text).toBe(
-      "*<https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>*\n`sunny`  ·  <!date^1792281600^{date_short_pretty}|2026-10-18>",
+      "<https://uploads.sh/f/acme/screenshots/sunny/pr-1/plan.webp|*plan.webp*>\nsunny/pr-1 · <!date^1792281600^{date_short_pretty}|2026-10-18>",
     );
     expect(first!.accessory).toEqual({
       type: "image",
-      image_url: "https://storage.uploads.sh/acme/sunny/plan.webp",
+      image_url: "https://storage.uploads.sh/acme/plan.webp",
       alt_text: "plan.webp",
-    });
-    expect(JSON.parse(firstActions!.elements[0].value)).toEqual({
-      w: "acme",
-      k: "sunny/plan.webp",
-      i: "https://storage.uploads.sh/acme/sunny/plan.webp",
     });
     // Slack can't draw an SVG, so no thumbnail rather than a failed reply.
     expect(second!.accessory).toBeUndefined();
+    expect(second!.text.text).toBe("<https://uploads.sh/f/acme/plan.svg|*plan.svg*>");
+    expect(divider!.type).toBe("divider");
+    const menu = actions!.elements[0];
+    expect(menu).toMatchObject({ type: "static_select", action_id: SHARE_ACTION });
+    // The path too long for an option value is left out of the menu.
+    expect(menu.options.map((o: { value: string }) => o.value)).toEqual([
+      "acme/screenshots/sunny/pr-1/plan.webp",
+      "acme/plan.svg",
+    ]);
   });
 
   it("names the workspace only when results span several", () => {
@@ -249,8 +255,8 @@ describe("resultsMessage", () => {
       "https://uploads.sh",
     );
     expect(msg.text).toContain("(from the first matches)");
-    expect(JSON.stringify(msg.blocks)).toContain("`b`  ·  two");
-    expect(JSON.stringify(msg.blocks)).not.toContain("·  one");
+    expect(JSON.stringify(msg.blocks)).toContain("b · two");
+    expect(JSON.stringify(msg.blocks)).not.toContain("· one");
   });
 
   it("encodes share page paths", () => {
@@ -260,9 +266,27 @@ describe("resultsMessage", () => {
   });
 });
 
-describe("Share on a search result", () => {
-  async function press(value: string) {
-    const env = await setup();
+describe("Share a file", () => {
+  /** uploads-api's public file endpoint, answering for `public` keys only. */
+  function publicApi(publicKeys: string[]) {
+    return {
+      fetch: vi.fn(async (input: RequestInfo | URL) => {
+        const path = decodeURIComponent(new URL(String(input)).pathname);
+        const key = path.replace(/^\/public\/files\/acme\//, "");
+        if (!publicKeys.includes(key)) return new Response("{}", { status: 404 });
+        return Response.json({
+          key,
+          contentType: "image/webp",
+          size: 1024,
+          url: `https://storage.uploads.sh/acme/${key}`,
+          uploaded: "2026-10-14T00:00:00Z",
+        });
+      }),
+    } as unknown as Fetcher;
+  }
+
+  async function pick(value: string, api: Fetcher) {
+    const env = await setup({ API: api });
     const slack = fakeSlack(MEMBER);
     const body = new URLSearchParams({
       payload: JSON.stringify({
@@ -270,7 +294,7 @@ describe("Share on a search result", () => {
         team: { id: "T1" },
         user: { id: "U0ALICE" },
         response_url: RESPONSE_URL,
-        actions: [{ action_id: SHARE_ACTION, value }],
+        actions: [{ action_id: SHARE_ACTION, selected_option: { value } }],
       }),
     }).toString();
     const timestamp = String(Math.floor(Date.now() / 1000));
@@ -293,31 +317,31 @@ describe("Share on a search result", () => {
     return slack.responses;
   }
 
-  it("posts the file to the channel with its picture", async () => {
-    const responses = await press(
-      JSON.stringify({ w: "acme", k: "sunny/plan.webp", i: "https://storage.uploads.sh/p.webp" }),
-    );
+  it("posts the file's card to the channel", async () => {
+    const responses = await pick("acme/sunny/plan.webp", publicApi(["sunny/plan.webp"]));
+    expect(responses).toHaveLength(1);
+    expect(responses[0]).toMatchObject({
+      response_type: "in_channel",
+      text: "<@U0ALICE> shared <https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>",
+    });
+    const blocks = JSON.stringify(responses[0]!.blocks);
+    expect(blocks).toContain("<@U0ALICE> shared");
+    expect(blocks).toContain("https://storage.uploads.sh/acme/sunny/plan.webp");
+  });
+
+  it("tells only the presser when the file isn't public anymore", async () => {
+    const responses = await pick("acme/sunny/plan.webp", publicApi([]));
     expect(responses).toEqual([
-      {
-        text: "<@U0ALICE> shared <https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>",
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: "<@U0ALICE> shared <https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>",
-            },
-          },
-          { type: "image", image_url: "https://storage.uploads.sh/p.webp", alt_text: "plan.webp" },
-        ],
-        replace_original: false,
-        response_type: "in_channel",
-      },
+      expect.objectContaining({
+        response_type: "ephemeral",
+        text: "That file isn't public anymore, so it wasn't shared.",
+      }),
     ]);
   });
 
   it("ignores a value it didn't write", async () => {
-    expect(await press("not json")).toEqual([]);
-    expect(await press(JSON.stringify({ w: "Acme!", k: "a.png" }))).toEqual([]);
+    const api = publicApi(["a.png"]);
+    expect(await pick("Acme!/a.png", api)).toEqual([]);
+    expect(await pick("no-slash", api)).toEqual([]);
   });
 });

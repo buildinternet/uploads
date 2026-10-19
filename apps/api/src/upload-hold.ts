@@ -27,6 +27,69 @@ export const HOLD_APPROVED = "approved";
 export const HOLD_MOVED_KEY = "ai.hold.moved";
 
 /**
+ * Where the flagged content sits, so a reviewer knows where to look:
+ * `top,bottom,left,right` as fractions of the image (0 to 1, origin top
+ * left), padded. Written after the hold by `locateHoldArea` in
+ * `classifier.ts`. A pointer, not a redaction: it can be off or miss part
+ * of the content. Absent when the model gave no usable box.
+ */
+export const HOLD_AREA_KEY = "ai.hold.area";
+
+/**
+ * Who released a hold and when, for the members-only Reviewed note on the
+ * file page. `by` is a display label captured at approval (a member's
+ * name, or a service token's label); `at` is an ISO timestamp. Cleared
+ * when a file is held again.
+ */
+export const HOLD_BY_KEY = "ai.hold.by";
+export const HOLD_AT_KEY = "ai.hold.at";
+
+export interface HoldArea {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/** Fraction added to each side of a model box, clamped to the image. */
+export const HOLD_AREA_PAD = 0.03;
+
+/**
+ * A model box padded by `HOLD_AREA_PAD` and clamped to the image, or
+ * `undefined` when an edge is missing, not finite, or out of order.
+ */
+export function padHoldArea(box: unknown): HoldArea | undefined {
+  if (!box || typeof box !== "object") return undefined;
+  const { top, bottom, left, right } = box as Record<string, unknown>;
+  const edges = [top, bottom, left, right];
+  if (!edges.every((edge) => typeof edge === "number" && Number.isFinite(edge))) return undefined;
+  const [t, b, l, r] = edges as number[];
+  if (t >= b || l >= r) return undefined;
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  return {
+    top: clamp(t - HOLD_AREA_PAD),
+    bottom: clamp(b + HOLD_AREA_PAD),
+    left: clamp(l - HOLD_AREA_PAD),
+    right: clamp(r + HOLD_AREA_PAD),
+  };
+}
+
+export function formatHoldArea(area: HoldArea): string {
+  return [area.top, area.bottom, area.left, area.right].map((n) => n.toFixed(3)).join(",");
+}
+
+/** The stored `ai.hold.area` row, or `undefined` when absent or malformed. */
+export function parseHoldArea(value: string | undefined): HoldArea | undefined {
+  if (!value) return undefined;
+  const parts = value.split(",").map(Number);
+  if (parts.length !== 4) return undefined;
+  if (!parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 1)) return undefined;
+  const [top, bottom, left, right] = parts;
+  if (top >= bottom || left >= right) return undefined;
+  return { top, bottom, left, right };
+}
+
+/**
  * `ai.pii` values that hold a file. `contact` is left out: product
  * screenshots show forms and directories all the time, and a held
  * screenshot breaks a PR comment.

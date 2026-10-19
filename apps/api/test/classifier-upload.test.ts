@@ -17,6 +17,8 @@ import {
   CLASSIFIER_SKIPPED,
   CLASSIFIER_VERSION,
   type ClassifierResizeRequest,
+  DECISIONS_DANGER_ZONE_HEADER,
+  HOLD_AREA_INSTRUCTIONS,
   OPENROUTER_DECISIONS_URL,
   classifyAndStore,
 } from "../src/classifier";
@@ -79,7 +81,7 @@ function atLeast(bytes: Uint8Array, min = CLASSIFIER_SKIP_MIN_BYTES): Uint8Array
 const CLASSIFIABLE_PNG = atLeast(PNG);
 
 /** Inside Jev's window, so the model sees the original bytes. */
-const FITTING_PNG = atLeast(pngOf(400, 256));
+const FITTING_PNG = atLeast(pngOf(400, 280));
 
 interface DecisionCall {
   url: string;
@@ -223,6 +225,7 @@ describe("classifier on upload", () => {
       "rating",
       "content",
       "secret",
+      "credential",
       "pii",
     ]);
     expect(stateText(call)).toContain("filename: pic.png");
@@ -230,7 +233,7 @@ describe("classifier on upload", () => {
   });
 
   it("sends a fitting PNG as an image_url part and skips Workers AI", async () => {
-    const png = atLeast(pngOf(400, 256));
+    const png = atLeast(pngOf(400, 280));
     const { env, ws, calls } = makeClassifierEnv();
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", png, "image/png");
     expect(written?.["ai.classifier"]).toBe("v5");
@@ -320,6 +323,20 @@ describe("classifier on upload", () => {
     const { env, ws, calls } = makeClassifierEnv();
     await putObject(env, ws, "images/pic.png", PNG, WORKSPACE);
     expect(calls).toHaveLength(0);
+  });
+
+  it("marks the put holdCheck pending only when a hold could follow", async () => {
+    const harness = makeClassifierEnv();
+    expect((await putFlagged(harness, FITTING_PNG, { enforceHold: true })).holdCheck).toBe(
+      "pending",
+    );
+    // A client that cannot approve is never held.
+    expect((await putFlagged(harness, FITTING_PNG, { replace: true })).holdCheck).toBeUndefined();
+    // No classification without waitUntil.
+    const plain = await putObject(harness.env, harness.ws, "images/pic.png", PNG, WORKSPACE, {
+      enforceHold: true,
+    });
+    expect(plain.holdCheck).toBeUndefined();
   });
 
   it("writes nothing when the OpenRouter key is missing", async () => {
@@ -486,7 +503,7 @@ describe("classifyAndStore", () => {
       ws,
       WORKSPACE,
       "images/pic.png",
-      atLeast(pngOf(400, 256)),
+      atLeast(pngOf(400, 280)),
       "image/png",
     );
     expect(written?.["ai.classifier"]).toBe("v5");
@@ -1007,7 +1024,7 @@ describe("safety flags", () => {
         pii: jevAnswer("none", 0.55),
       },
     }));
-    const png = atLeast(pngOf(400, 256));
+    const png = atLeast(pngOf(400, 280));
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/leak.png", png, "image/png");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.body.model).toBe(CLASSIFIER_JEV_MODEL);
@@ -1059,6 +1076,7 @@ describe("safety flags", () => {
       "rating",
       "content",
       "secret",
+      "credential",
       "pii",
     ]);
     expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
@@ -1080,7 +1098,7 @@ describe("safety flags", () => {
         },
       };
     });
-    const png = atLeast(pngOf(400, 256));
+    const png = atLeast(pngOf(400, 280));
     const key = "images/flagged.png";
     await classifyAndStore(env, ws, WORKSPACE, key, png, "image/png");
     const written = await classifyAndStore(env, ws, WORKSPACE, key, png, "image/png");
@@ -1104,7 +1122,7 @@ describe("safety flags", () => {
       if (calls === 1) return FLAGGED;
       throw new Error("provider down");
     });
-    const png = atLeast(pngOf(400, 256));
+    const png = atLeast(pngOf(400, 280));
     const first = await putFlagged(harness, png);
     const second = await putFlagged(harness, png, {
       replace: true,
@@ -1138,7 +1156,7 @@ describe("safety flags", () => {
         if (calls === 1) return FLAGGED;
         throw new Error("provider down");
       });
-      const first = await putFlagged(harness, atLeast(pngOf(400, 256)));
+      const first = await putFlagged(harness, atLeast(pngOf(400, 280)));
       await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true, metadata });
 
       const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(
@@ -1160,7 +1178,7 @@ describe("safety flags", () => {
       if (calls === 1) return FLAGGED;
       return { ...DECIDED, answers: { kind: jevAnswer("photo") } };
     });
-    const first = await putFlagged(harness, atLeast(pngOf(400, 256)));
+    const first = await putFlagged(harness, atLeast(pngOf(400, 280)));
     await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
 
     const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
@@ -1177,7 +1195,7 @@ describe("safety flags", () => {
       if (calls === 1) throw new Error("provider down");
       return DECIDED;
     });
-    const png = atLeast(pngOf(400, 256));
+    const png = atLeast(pngOf(400, 280));
     const first = await putFlagged(harness, png);
     expect(
       (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key)?.[
@@ -1193,8 +1211,8 @@ describe("safety flags", () => {
   });
 
   it("removes safety flags when different bytes fail to reclassify, with or without metadata headers", async () => {
-    const png = atLeast(pngOf(400, 256));
-    const changed = atLeast(pngOf(500, 256));
+    const png = atLeast(pngOf(400, 280));
+    const changed = atLeast(pngOf(500, 280));
 
     let headerCalls = 0;
     const withHeaders = makeClassifierEnv(() => {
@@ -1247,8 +1265,8 @@ describe("safety flags", () => {
         },
       };
     });
-    await putFlagged(harness, atLeast(pngOf(400, 256)));
-    await putFlagged(harness, atLeast(pngOf(500, 256)), {
+    await putFlagged(harness, atLeast(pngOf(400, 280)));
+    await putFlagged(harness, atLeast(pngOf(500, 280)), {
       replace: true,
       metadata: { path: "/redacted" },
     });
@@ -1265,7 +1283,7 @@ describe("safety flags", () => {
   });
 
   it("leaves safety flags cleared when new bytes are skipped", async () => {
-    const png = atLeast(pngOf(400, 256));
+    const png = atLeast(pngOf(400, 280));
     const skipped = atLeast(pngOf(100, 100));
 
     const withHeaders = makeClassifierEnv(() => FLAGGED);
@@ -1321,6 +1339,49 @@ describe("held uploads", () => {
       enforceHold: true,
     });
     expect(await holdOf(env)).toBe("pending");
+  });
+
+  it("stores where the flagged content is from a box call", async () => {
+    let call = 0;
+    const { env, ws, calls } = makeClassifierEnv(() =>
+      call++ === 0
+        ? FLAGGED
+        : {
+            answers: {
+              area: {
+                type: "box",
+                box: { top: 0.2, bottom: 0.4, left: 0.1, right: 0.9 },
+                confidence: 0.43,
+              },
+            },
+          },
+    );
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
+    expect(await holdOf(env)).toBe("pending");
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers[DECISIONS_DANGER_ZONE_HEADER]).toBeUndefined();
+    expect(calls[1].headers[DECISIONS_DANGER_ZONE_HEADER]).toBe("true");
+    expect(calls[1].body.questions).toEqual({
+      area: { type: "box", instructions: HOLD_AREA_INSTRUCTIONS.secret },
+    });
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.hold.area"]).toBe("0.170,0.430,0.070,0.930");
+  });
+
+  it("keeps the hold when the box call fails", async () => {
+    let call = 0;
+    const { env, ws } = makeClassifierEnv(() => {
+      if (call++ === 0) return FLAGGED;
+      throw new Error("box unavailable");
+    });
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
+    expect(await holdOf(env)).toBe("pending");
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.hold.area"]).toBeUndefined();
   });
 
   it("holds a file with high-confidence financial data", async () => {

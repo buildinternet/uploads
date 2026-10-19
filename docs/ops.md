@@ -1249,7 +1249,7 @@ called without that image.
 ```
 
 Jev accepts PNG and JPEG only, and only inside its pixel window: each side
-from 256 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A PNG or
+from 280 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A PNG or
 JPEG that already sits in that window, and is under 512 KiB, is sent as its
 original bytes (`ai.classifier=v5`).
 
@@ -1271,7 +1271,7 @@ are:
   the byte floor.
 - `unsupported`. The file cannot be sent as an image this provider accepts,
   and a resize is not the way there. That includes a text file, an SVG, a
-  Jev image below the 256 px window (it is not upscaled), an extreme aspect
+  Jev image below the 280 px window (it is not upscaled), an extreme aspect
   ratio, and a Luna file that is a GIF, AVIF, SVG, or over 512 KiB.
 - `resize_failed`. Jev needed a resize and did not get an image. A missing
   `IMAGES` binding, an input over the binding's 20 MB ceiling, a transform
@@ -1400,6 +1400,18 @@ held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
 lists held keys (a moved one is absent from `list`), and
 `…/files/held/download?key=` streams the held copy to a member. Private
 prefix rotation does not move held copies.
+
+A new hold on the Jev path makes one more Decisions call: a Jev 1.14 box
+question for the one region around everything flagged
+(`locateHoldArea`, `classifier.ts`). It sends the
+`TypeSafe-Danger-Zone-Images: true` header, which box questions need, and
+has its own `CLASSIFIER_TIMEOUT_MS`. The box, padded by 3 % and clamped, is
+stored as `ai.hold.area` (`top,bottom,left,right` fractions) and returned
+as `area` by `…/files/held`. The `/f/` page outlines it on the held
+preview. It points a reviewer at the right place. It is not a redaction:
+boxes can be off or miss part of the content. A failed or empty box call
+logs `classifier_hold_area` or `classifier_hold_area_failed` and leaves
+the hold as it is.
 
 `POST /v1/workspaces/:workspace/files/approve?key=` writes
 `ai.hold=approved` and re-syncs the comment (`upload_approved`). `ai.hold`

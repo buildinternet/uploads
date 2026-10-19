@@ -60,6 +60,14 @@
     "title": "Get metadata"
   },
   {
+    "name": "list_held",
+    "title": "List held files"
+  },
+  {
+    "name": "approve",
+    "title": "Approve held files"
+  },
+  {
     "name": "set_metadata",
     "title": "Set metadata"
   },

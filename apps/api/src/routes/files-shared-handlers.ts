@@ -32,7 +32,7 @@ import { withUploaderTags } from "../uploader-identity";
 import { putObjectIdempotently } from "../upload-idempotency";
 import { sanitizeVisibility } from "../visibility";
 import { parseCliUserAgent } from "../client-activity";
-import { clientCanApprove } from "../upload-hold";
+import { clientCanApprove, isHeld } from "../upload-hold";
 import type { WorkspaceVars } from "../workspace";
 import { dbFor, primaryDbFor } from "../db-session";
 
@@ -330,13 +330,16 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   // Two-lane storage: a key uploaded before a storage switch still resolves,
   // from whichever lane actually holds it.
   const lane = await resolveObjectLane(c.env, ws, key);
-  if (!lane) throw new NotFoundError();
 
   const metadataParam = c.req.query("metadata");
   if (metadataParam === "1" || metadataParam === "true") {
     const metadata = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
+    // A held file's bytes may have left the public bucket; its rows (and
+    // `ai.hold`) still answer, so an agent can see why it is missing.
+    if (!lane && !isHeld(metadata)) throw new NotFoundError();
     return c.json({ metadata });
   }
+  if (!lane) throw new NotFoundError();
 
   const meta = await lane.store.head(key);
   const urls = objectPublicUrls(c.env, lane.config, key);

@@ -140,7 +140,14 @@ async function resolvePublicObject(
   if (!record) throw new NotFoundError();
 
   const lane = await measure("file_storage", () => resolveObjectLaneWithHead(env, record, key));
-  if (!lane) throw new NotFoundError();
+  if (!lane) {
+    // A moved hold has no public object. Answer like a private file so a
+    // signed-in member's file page can show the hold and Approve.
+    if (await isKeyHeld(env, workspace, key)) {
+      throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+    }
+    throw new NotFoundError();
+  }
 
   // Phase 1 is public-workspace-only: resolving the public URL doubles as the
   // visibility gate. A lane without a public base URL cannot be wrapped here

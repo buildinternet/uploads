@@ -20,6 +20,7 @@ import {
   warnNearMissMeta,
   syncAttachmentsComment,
   commentViaSuffix,
+  heldNote,
   type AttachmentsCommentResult,
   uploadPreparedImage,
   type CliContext,
@@ -737,7 +738,7 @@ export async function runScreenshot(
       );
       if (logHuman)
         process.stderr.write(
-          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
         );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);

@@ -17,6 +17,8 @@ import {
   buildDoctorReport,
   ghListPrefixes,
   ghMergedList,
+  approveHeldFiles,
+  listHeldFiles,
   makeGhTarget,
   mergeStagingMeta,
   resolveAutoPrTarget,
@@ -508,7 +510,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file, or http://localhost on this machine, instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
+        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file, or http://localhost on this machine, instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. `holdCheck: pending` means the classifier may still hold the file for review (it decides after the upload); `comment.held` counts files on the PR or issue held for review; see `list_held`. All uploads are public. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1732,6 +1734,58 @@ export function createUploadsMcpTools(opts: {
       },
     },
     {
+      name: "list_held",
+      title: "List held files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` for one PR or issue, or `prefix`. Each item has a `reason` such as `secret: api_key`. Same as `uploads approve --pr <n>`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...ghTargetProps("Held files on"),
+          prefix: { type: "string", description: "Only keys under this prefix." },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+        examples: [{ pr: 12 }],
+      },
+      async handler(args) {
+        const target = ghTargetFromArgs(args, run);
+        const { client } = await clientFor(args);
+        return {
+          items: await listHeldFiles(client, { target, prefix: optString(args, "prefix") }),
+        };
+      },
+    },
+    {
+      name: "approve",
+      title: "Approve held files",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Release uploads held for review (see `list_held`): pass `keys`, or `pr`/`issue` to approve every held file there. The file returns at the same URL and the managed PR comment re-syncs. Check the file first: if it shows a real credential, rotate it and delete the file instead of approving. Same as `uploads approve`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          keys: { type: "array", items: { type: "string" }, description: "Held keys to approve." },
+          ...ghTargetProps("Approve every held file on"),
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+        examples: [{ keys: ["gh/acme/web/pull/12/settings.png"] }, { pr: 12 }],
+      },
+      async handler(args) {
+        const keys = optStringArray(args, "keys");
+        const target = ghTargetFromArgs(args, run);
+        if (keys?.length && target) usage("pass keys or pr/issue, not both");
+        if (!keys?.length && !target) usage("approve requires keys or pr/issue");
+        const { client } = await clientFor(args);
+        const { files } = await approveHeldFiles({ client, keys, target, all: Boolean(target) });
+        return { files };
+      },
+    },
+    {
       name: "set_metadata",
       title: "Set metadata",
       annotations: mcpWritePublic,
@@ -1916,7 +1970,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth. Edits its own prior comment in place and never touches other comments.",
+        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth. Edits its own prior comment in place and never touches other comments. `held` counts files there held for review; see `list_held`.",
       inputSchema: {
         type: "object",
         properties: {

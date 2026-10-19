@@ -7,6 +7,7 @@ import type { UploadsClient } from "../src/client.js";
 import {
   GithubCommentAuthorizationError,
   runComment,
+  heldNote,
   syncAttachmentsComment,
   type CliContext,
 } from "../src/commands.js";
@@ -148,8 +149,31 @@ describe("runComment", () => {
     expect(create!.input).toContain("after.png");
     expect(create!.input).not.toContain("settings-token");
     expect(create!.input).toContain(
-      "🔒 1 file is held for review · approve with <code>uploads approve --pr 5</code>",
+      "🔒 1 file is held for your review · approve with <code>uploads approve --pr 5</code>",
     );
+  });
+
+  it("carries the held count from the bot and the gh fallback", async () => {
+    const target = { repo: "o/r", kind: "pull" as const, num: 5 };
+    const bot = fakeClient({
+      upsertGithubComment: async () => ({ posted: true, action: "updated", count: 2, held: 1 }),
+    });
+    const fromBot = await syncAttachmentsComment(bot, target, ghRunner().run);
+    expect(fromBot).toEqual({ action: "updated", count: 2, via: "bot", held: 1 });
+    expect(heldNote(fromBot)).toBe(
+      ">> 1 file is held for review: check, then run uploads approve\n",
+    );
+    expect(heldNote({})).toBe("");
+
+    const client = listClient([
+      {
+        key: "gh/o/r/pull/5/settings-token.png",
+        url: "https://x.test/gh/o/r/pull/5/settings-token.png",
+        metadata: { "ai.hold": "pending" },
+      } as { key: string; url: string | null },
+    ]);
+    const viaGh = await syncAttachmentsComment(client, target, ghRunner().run);
+    expect(viaGh).toMatchObject({ via: "gh", held: 1 });
   });
 
   it("does not append the gh-author note when the bot posts successfully", async () => {
