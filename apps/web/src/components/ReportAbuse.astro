@@ -162,8 +162,11 @@ const REASONS = [
 
 <style>
   .report {
-    margin-top: 4px;
     min-width: 0;
+  }
+  /* Full row when the form is open inside a flex footer (file page). */
+  .report:has(.report-form:not([hidden])) {
+    flex-basis: 100%;
   }
   .report-toggle {
     appearance: none;
@@ -173,15 +176,11 @@ const REASONS = [
     margin: 0;
     color: var(--muted);
     font: var(--text-micro) var(--sans);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent);
     cursor: pointer;
   }
   .report-toggle:hover,
   .report-toggle:focus-visible {
     color: var(--fg);
-    text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
     outline: none;
   }
   .report-form {

@@ -397,6 +397,14 @@ if (timingsEnabled)
           padding-top: 24px;
         }
       }
+      /* Delete + Report share one quiet row (ReportAbuse widens itself when open). */
+      .rail-foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 8px 18px;
+        margin-top: -8px;
+      }
       .danger-zone {
         position: relative;
         font: var(--text-micro) var(--sans);
@@ -409,8 +417,6 @@ if (timingsEnabled)
         cursor: pointer;
         font: inherit;
         color: var(--muted);
-        text-decoration: underline;
-        text-underline-offset: 3px;
       }
       .delete-link:hover,
       .delete-link:focus-visible {
@@ -582,39 +588,41 @@ if (timingsEnabled)
                 uploaded={file.uploaded}
                 modified={file.modified}
               />
-              <div class="danger-zone" id="delete-zone" hidden>
-                <button type="button" class="delete-link" id="delete-open">
-                  Delete file…
-                </button>
-                <div
-                  class="delete-pop"
-                  id="delete-pop"
-                  role="alertdialog"
-                  aria-label={`Delete ${filename}`}
-                  hidden
-                >
-                  <p class="delete-pop__text">
-                    Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
-                    will break.
-                  </p>
-                  {gh && (
-                    <p class="delete-pop__text delete-pop__gh">
-                      This file is attached to {ghRef}. The managed comment will keep a broken link
-                      until its next sync.
-                    </p>
-                  )}
-                  <p class="delete-pop__error" id="delete-error" hidden />
-                  <button type="button" class="delete-pop__btn" id="delete-step">
-                    Delete file
+              <div class="rail-foot">
+                <div class="danger-zone" id="delete-zone" hidden>
+                  <button type="button" class="delete-link" id="delete-open">
+                    Delete file…
                   </button>
+                  <div
+                    class="delete-pop"
+                    id="delete-pop"
+                    role="alertdialog"
+                    aria-label={`Delete ${filename}`}
+                    hidden
+                  >
+                    <p class="delete-pop__text">
+                      Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
+                      will break.
+                    </p>
+                    {gh && (
+                      <p class="delete-pop__text delete-pop__gh">
+                        This file is attached to {ghRef}. The managed comment will keep a broken
+                        link until its next sync.
+                      </p>
+                    )}
+                    <p class="delete-pop__error" id="delete-error" hidden />
+                    <button type="button" class="delete-pop__btn" id="delete-step">
+                      Delete file
+                    </button>
+                  </div>
                 </div>
+                <ReportAbuse
+                  apiOrigin={browserApiOrigin}
+                  pageUrl={canonical}
+                  workspace={workspace}
+                  objectKey={key}
+                />
               </div>
-              <ReportAbuse
-                apiOrigin={browserApiOrigin}
-                pageUrl={canonical}
-                workspace={workspace}
-                objectKey={key}
-              />
             </MediaStage>
             <section class="error" id="deleted-state" hidden>
               <code>file.deleted</code>
