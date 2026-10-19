@@ -1178,7 +1178,10 @@ async function decideImage(
     provider,
     model: request.model,
     resized: prepared.resized,
-    confidences: decided?.confidences ?? {},
+    // Workers Logs masks a field named `secret`, so every key gets a suffix.
+    confidences: Object.fromEntries(
+      Object.entries(decided?.confidences ?? {}).map(([field, value]) => [`${field}_conf`, value]),
+    ),
   });
   return meta;
 }
