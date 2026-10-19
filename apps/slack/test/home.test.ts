@@ -11,6 +11,7 @@ const SECRET = "test-signing-secret";
 const MIGRATIONS = [
   "migrations/20261018160000_slack_installations.sql",
   "migrations/20261018170000_slack_user_links.sql",
+  "migrations/20261018190000_slack_workspace_bindings.sql",
 ];
 
 let sqlite: SqliteD1 | null = null;
@@ -165,6 +166,37 @@ describe("Home tab", () => {
     const slack = fakeSlack();
     await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
     expect(JSON.stringify(slack.views[0]!.view.blocks)).not.toContain("uploads_update_permissions");
+  });
+
+  it("tells everyone how to turn on search when no workspace is bound", async () => {
+    const env = await setup();
+    const slack = fakeSlack();
+    await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
+    const last = slack.views[0]!.view.blocks.at(-1)!;
+    expect(last.text.text).toContain("Settings → Slack");
+    expect(last.accessory).toMatchObject({ url: "https://uploads.sh/account/workspaces" });
+  });
+
+  it("shows the search command and its workspaces once one is bound", async () => {
+    const env = await setup();
+    sqlite!.db
+      .prepare(
+        "INSERT INTO slack_workspace_bindings (team_id, workspace, bound_by_user_id, created_at) VALUES ('T1', 'acme', 'user_1', '2026-10-18')",
+      )
+      .run();
+    const slack = fakeSlack();
+    await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
+    const last = slack.views[0]!.view.blocks.at(-1)!;
+    expect(last.text.text).toContain("`/uploads search <filename>`");
+    expect(last.text.text).toContain("*acme*");
+    expect(last.accessory).toBeUndefined();
+  });
+
+  it("leaves search out while the commands scope is missing", async () => {
+    const env = await setup("chat:write,im:write,links:read,links:write,users:read");
+    const slack = fakeSlack();
+    await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
+    expect(JSON.stringify(slack.views[0]!.view.blocks)).not.toContain("*Search*");
   });
 
   it("ignores the Messages tab", async () => {

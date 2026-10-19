@@ -325,12 +325,13 @@ const tip = {
           href={SLACK_INSTALL_URL}>Add to Slack →</a
         >
       </div>
-      <div id="slack-search" hidden>
+      <div id="slack-search">
         <h3 class="mt-5 mb-1 font-semibold text-[13px] text-foreground">Search from Slack</h3>
         <p class="settings-note muted">
           Lets full members of a Slack workspace run <code>/uploads search &lt;filename&gt;</code>
           to find this workspace’s public files. Guests and people from other organizations can’t.
         </p>
+        <p id="slack-search-message" class="settings-note muted" hidden></p>
         <p id="slack-search-empty" class="settings-note muted" hidden>
           Connect your account from the app’s Home tab in Slack, and that Slack workspace shows up
           here.
@@ -1182,9 +1183,7 @@ const tip = {
     });
 
     onAstroPageLoad(() => {
-      const blockEl = document.getElementById("slack-search");
-      if (!blockEl) return;
-      const block = blockEl;
+      if (!document.getElementById("slack-search")) return;
 
       const page = "workspace slack search";
       const visit = getPageVisit();
@@ -1200,6 +1199,7 @@ const tip = {
       );
       const listEl = requireElement<HTMLElement>("#slack-search-teams", page);
       const emptyEl = requireElement<HTMLElement>("#slack-search-empty", page);
+      const messageEl = requireElement<HTMLElement>("#slack-search-message", page);
       const statusEl = requireElement<HTMLElement>("#slack-search-status", page);
 
       function render(teams: SlackSearchTeam[]): void {
@@ -1234,10 +1234,19 @@ const tip = {
       async function load(): Promise<void> {
         const teams = await listSlackSearchTeams(apiOrigin, workspaceName);
         if (!stillHere()) return;
-        // Null for non-admins (403) and outages alike: the block stays hidden.
-        if (!teams) return;
-        render(teams);
-        block.hidden = false;
+        const message =
+          teams === "forbidden"
+            ? "Only workspace admins and owners can turn this on."
+            : teams === null
+              ? "Couldn’t load your Slack workspaces. Reload the page to try again."
+              : "";
+        messageEl.textContent = message;
+        messageEl.hidden = !message;
+        if (Array.isArray(teams)) render(teams);
+        else {
+          emptyEl.hidden = true;
+          listEl.innerHTML = "";
+        }
       }
 
       listEl.addEventListener("click", (event) => {
