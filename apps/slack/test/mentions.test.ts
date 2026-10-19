@@ -150,6 +150,10 @@ describe("answerQuestion", () => {
       type: "function",
       function: { name: "reply" },
     });
+    expect(model.requests[1]!.messages.at(-1)).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("don't list, name, date or number the files"),
+    });
     expect(answer.files).toEqual([SETTINGS.results[0]]);
   });
 
@@ -197,6 +201,32 @@ describe("answerQuestion", () => {
       },
     );
     expect(answer.files).toEqual([SETTINGS.results[0]]);
+  });
+
+  it("treats copies uploaded either side of midnight as one image", async () => {
+    const first = { ...SETTINGS.results[0]!, uploaded: Date.parse("2026-10-07T23:50:00Z") };
+    const copy = {
+      ...first,
+      key: "pull/12/settings-slack.png",
+      uploaded: first.uploaded + 20 * 60_000,
+    };
+    const older = { ...first, key: "old/settings-slack.png", uploaded: Date.parse("2026-09-01") };
+    const model = scripted([
+      { content: null, tool_calls: [call("c1", "search_files", { screen: "settings" })] },
+      { content: null, tool_calls: [call("c2", "look_at_files", { ids: ["f1", "f2", "f3"] })] },
+      {
+        content: null,
+        tool_calls: [call("c3", "reply", { text: "Two.", file_ids: ["f1", "f2", "f3"] })],
+      },
+    ]);
+    const answer = await answerQuestion(
+      { question: "settings?", context: [] },
+      {
+        complete: model.complete,
+        search: async () => ({ ...SETTINGS, results: [first, copy, older] }),
+      },
+    );
+    expect(answer.files).toEqual([first, older]);
   });
 
   it("hides an OpenRouter account failure behind the generic reply", async () => {
@@ -432,9 +462,11 @@ describe("app_mention", () => {
     });
     expect(spans[2]!.attributes["gen_ai.tool.call.arguments"]).toContain('"surface":"mobile"');
     expect(model.bodies[0]!.usage).toEqual({ include: true });
-    const blocks = posted.blocks as { text?: { text: string } }[];
-    expect(blocks).toHaveLength(2);
-    expect(blocks[1]!.text!.text).toContain("https://uploads.sh/f/acme/shots/account.png");
+    // A single image shows full width, with its link under it.
+    const blocks = posted.blocks as Record<string, any>[];
+    expect(blocks.map((b) => b.type)).toEqual(["section", "image", "context"]);
+    expect(blocks[1]!.image_url).toBe("https://storage.uploads.sh/acme/shots/account.png");
+    expect(blocks[2]!.elements[0].text).toContain("https://uploads.sh/f/acme/shots/account.png");
   });
 
   it("runs the model an operator picked under Admin → Models", async () => {

@@ -289,7 +289,8 @@ Models (`platform_settings.slack_agent_model`, read on each mention), with
 - `reply` ends the loop with a short mrkdwn answer and the files to show.
   The first time it names images the model hasn't looked at, the reply is
   sent back once with "look first". Copies of one image in two folders
-  (same workspace, filename and upload day) show once.
+  (same workspace and filename, uploaded within a day) show once. Answers
+  with one or two files show each image full width; more show as a list.
 
 Each Slack team gets a plan's `slackAnswersPerDay` answers per UTC day
 (`packages/billing/src/plans.ts`: free 10, Pro 60), taking the highest plan
