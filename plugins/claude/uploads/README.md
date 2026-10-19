@@ -134,8 +134,9 @@ looks up the PR's head branch:
   report what is waiting.
 
 On the Desktop app, the pane also runs `uploads delete` when you remove an
-attachment, `uploads feed create` when you copy the feed link, and `gh pr view`
-to find the branch's open PR. Thumbnails are fetched with `curl` from
+attachment, `uploads approve` when you approve a held file, `uploads feed
+create` when you copy the feed link, and `gh pr view` to find the branch's
+open PR. Thumbnails are fetched with `curl` from
 `storage.uploads.sh`, resized by Cloudflare's image transform, and kept in
 the mod's session state.
 
@@ -151,6 +152,7 @@ the commands in this table, each written here as fixed text.
 | `uploads attach --promote --pr <n> --repo <owner/repo> --from-branch <branch> --json` | After `gh pr create`, when this workspace should attach the files           | PR number, repository, and branch to the uploads.sh API, which posts the PR comment                                                                                  |
 | `uploads feed create --repo <owner/repo> --pr <n>`                                    | You press **Copy link** in the pane                                         | Repository and PR number to the uploads.sh API. The CLI prints the feed URL back to the mod                                                                          |
 | `uploads delete <key>`                                                                | You press **Remove** in the pane                                            | The file's key to the uploads.sh API                                                                                                                                 |
+| `uploads approve <key...>`                                                            | You press **Approve** on a held file in the pane                            | The held files' keys to the uploads.sh API, which releases them                                                                                                      |
 | `gh pr view --json number,url,state`                                                  | With the staged read, to find the open PR for the current branch            | The current branch, through your local `gh` login, to the GitHub API                                                                                                 |
 | `gh pr view <n> --repo <owner/repo> --json headRefName -q .headRefName`               | After `gh pr create`, to learn the PR's head branch                         | The PR number and repository to the GitHub API                                                                                                                       |
 | `sh -c 'curl -sfL --max-time 15 "$1" \| base64' sh <url>`                             | Drawing a thumbnail or a large preview on the Desktop app                   | An HTTPS GET to `storage.uploads.sh`. For an image on that host, `<url>` is Cloudflare's image transform (`/cdn-cgi/image/...`). The JPEG stays in the mod's session |

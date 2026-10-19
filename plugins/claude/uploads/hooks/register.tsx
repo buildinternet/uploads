@@ -49,6 +49,8 @@ type RawFile = {
   stagedAt?: unknown;
   /** `gh.branch`, when the CLI includes it. Older CLIs omit the field. */
   branch?: unknown;
+  /** True while the file is held for review. Older CLIs omit the field. */
+  held?: unknown;
 };
 type Role = "before" | "after";
 
@@ -65,6 +67,7 @@ const fileRef = (file: RawFile): FileRef => ({
   src: typeof file.url === "string" ? file.url : null,
   size: typeof file.size === "number" ? file.size : null,
   stagedAt: typeof file.stagedAt === "string" ? file.stagedAt : null,
+  held: file.held === true,
 });
 
 /** A file's before/after role and the key its other half shares, or null for neither. */
@@ -218,13 +221,18 @@ const parseStaged = (stdout: string): Staged | null => {
  * What `uploads attach --promote --json` promoted and skipped, or null when it
  * printed nothing usable (the server call failed, or the output isn't JSON).
  */
-const parsePromotion = (stdout: string | null): { promoted: number; skipped: number } | null => {
+const parsePromotion = (
+  stdout: string | null,
+): { promoted: number; skipped: number; held: number } | null => {
   try {
-    const promotion = JSON.parse(stdout ?? "")?.promotion;
+    const doc = JSON.parse(stdout ?? "");
+    const promotion = doc?.promotion;
     if (!Array.isArray(promotion?.promoted) || !Array.isArray(promotion?.skipped)) {
       return null;
     }
-    return { promoted: promotion.promoted.length, skipped: promotion.skipped.length };
+    // The synced comment counts the PR's files held for review.
+    const held = typeof doc.comment?.held === "number" ? doc.comment.held : 0;
+    return { promoted: promotion.promoted.length, skipped: promotion.skipped.length, held };
   } catch {
     return null;
   }
@@ -289,10 +297,20 @@ const MARK = (() => {
 
 const attachments = (n: number) => (n === 1 ? "1 attachment" : `${n} attachments`);
 
+/** How many staged files are held for review. */
+const heldIn = (rows: readonly BandRow[] | undefined): number =>
+  (Array.isArray(rows) ? rows : []).flatMap(filesOf).filter((f) => f.held).length;
+
 type Line = { text: string; warn: boolean };
 
 /** What the staged attachments are waiting for, by the repo's link to a workspace. */
 const headline = (view: Staged): Line => {
+  const line = waitingFor(view);
+  const held = heldIn(view.rows);
+  return held > 0 ? { text: `${line.text} · ${held} held for review`, warn: true } : line;
+};
+
+const waitingFor = (view: Staged): Line => {
   const n = attachments(view.count);
   if (view.binding === "other") {
     return { text: `${n} won't attach: repo linked to another workspace`, warn: true };
@@ -372,8 +390,9 @@ async function fetchUri(
   return body && body.length <= 120_000 ? `data:image/jpeg;base64,${body}` : null;
 }
 
+// A held file's bytes are private, so there is no thumbnail to fetch.
 const imageFiles = (rows: readonly BandRow[]): FileRef[] =>
-  rows.flatMap(filesOf).filter((f) => !!f.src && IMAGE_EXT.test(f.name));
+  rows.flatMap(filesOf).filter((f) => !!f.src && !f.held && IMAGE_EXT.test(f.name));
 
 // Fetches thumbnails not yet cached; a failure is remembered as "" (drawn as a file card).
 async function loadThumbs($: EngineInterface, rows: readonly BandRow[]): Promise<void> {
@@ -428,7 +447,8 @@ const MARK_SVG = (() => {
 
 // `uri`: a data URI to draw; null while loading; "" when there is no inline
 // preview (not an image, or the thumbnail failed), drawn as a file card.
-type Slot = { uri: string | null; chip: string | null; ext: string };
+// `held` draws the held card in place of any preview.
+type Slot = { uri: string | null; chip: string | null; ext: string; held?: boolean };
 
 const extOf = (name: string): string => {
   const dot = name.lastIndexOf(".");
@@ -454,6 +474,22 @@ const fileCard = (x: number, w: number, height: number, ext: string, path: strin
   return `<path d="${path}" fill="#8881"/>${glyph}${label}`;
 };
 
+// A held file: a padlock in the warning colour, with HELD under it.
+const heldCard = (x: number, w: number, height: number, path: string): string => {
+  const small = height < 40;
+  const s = small ? height * 0.42 : Math.min(height * 0.3, w * 0.25);
+  const cx = x + w / 2;
+  const top = small ? height / 2 - s / 2 : height / 2 - s * 0.9;
+  const bodyY = top + s * 0.42;
+  const lock =
+    `<path d="M${cx - s * 0.26},${bodyY} v${-s * 0.14} a${s * 0.26},${s * 0.26} 0 0 1 ${s * 0.52},0 v${s * 0.14}" fill="none" stroke="${WARN}" stroke-width="${small ? 1.2 : 1.8}"/>` +
+    `<rect x="${cx - s * 0.4}" y="${bodyY}" width="${s * 0.8}" height="${s * 0.58}" rx="${s * 0.1}" fill="${WARN}"/>`;
+  const label = small
+    ? ""
+    : `<text x="${cx}" y="${bodyY + s * 0.58 + 18}" text-anchor="middle" font-size="12" font-weight="600" letter-spacing="0.5" font-family="system-ui,-apple-system,sans-serif" fill="${WARN}">HELD</text>`;
+  return `<path d="${path}" fill="${WARN}1a"/>${lock}${label}`;
+};
+
 // Images side by side with a hairline gap, each clipped to a rounded frame, so a
 // pair reads as one card. A chip names each half when `chips` is set.
 const tileSvg = (slots: readonly Slot[], w: number, height: number, chips: boolean): string => {
@@ -473,8 +509,9 @@ const tileSvg = (slots: readonly Slot[], w: number, height: number, chips: boole
           : `V${height} `) +
         `H${x + (left ? r : 0)} ` +
         (left ? `A${r},${r} 0 0 1 ${x},${height - r} V${r} A${r},${r} 0 0 1 ${x + r},0 Z` : `V0 Z`);
-      const img =
-        s.uri === ""
+      const img = s.held
+        ? heldCard(x, w, height, path)
+        : s.uri === ""
           ? fileCard(x, w, height, s.ext, path)
           : s.uri
             ? `<image href="${esc(s.uri)}" x="${x}" y="0" width="${w}" height="${height}" preserveAspectRatio="xMidYMin slice" clip-path="url(#k${i})"/>`
@@ -495,9 +532,10 @@ const roleName = (row: BandRow, file: FileRef): "Before" | "After" | null =>
 
 const slotsOf = (row: BandRow, t: Record<string, string>): Slot[] =>
   filesOf(row).map((f) => ({
-    uri: !f.src || !IMAGE_EXT.test(f.name) ? "" : (t[f.src] ?? null),
+    uri: f.held || !f.src || !IMAGE_EXT.test(f.name) ? "" : (t[f.src] ?? null),
     chip: roleName(row, f),
     ext: extOf(f.name),
+    held: f.held,
   }));
 
 const labelOf = (row: BandRow): string => (row.kind === "file" ? row.file.name : row.label);
@@ -573,6 +611,21 @@ async function removeRow($: EngineInterface, row: BandRow): Promise<void> {
     await run($, ["uploads", "delete", file.key], 30_000);
   }
   await refreshBand($);
+}
+
+// Approves the row's held files, then redraws the pane with them released.
+async function approveRow($: EngineInterface, row: BandRow): Promise<void> {
+  const keys = filesOf(row)
+    .filter((f) => f.held)
+    .map((f) => f.key);
+  const ok = (await run($, ["uploads", "approve", ...keys], 30_000)) !== null;
+  $.ui.toast(ok ? `Approved ${labelOf(row)}` : `Couldn't approve ${labelOf(row)}`);
+  await refreshBand($);
+  const view = await read($, staged);
+  const fresh = view?.rows.find((r) => labelOf(r) === labelOf(row));
+  if (fresh) {
+    await update($, preview, () => fresh);
+  }
 }
 
 async function copyText(
@@ -822,6 +875,13 @@ export const register: Register = (on, options) => {
           context: `uploads: added ${moved} for ${head} to ${pr}; ${result.skipped} ${result.skipped === 1 ? "was" : "were"} skipped. Run \`${command}\` to retry them.`,
           record: { count: result.promoted, via: "cli" },
         };
+      } else if (result.held > 0) {
+        const held = `${result.held} ${result.held === 1 ? "is" : "are"} held for review`;
+        outcome = {
+          toast: `uploads: added ${attachments(result.promoted)} to ${pr}; ${held}`,
+          context: `uploads: added ${attachments(result.promoted)} for ${head} to ${pr}'s attachments comment, and ${held}: uploads.sh thinks ${result.held === 1 ? "it shows" : "they show"} a secret or personal data. Don't re-upload. Ask the user to check; \`uploads approve --pr ${target.pr}\` lists them, and \`--all\` approves. If one shows a real credential, it should be rotated and the file deleted instead.`,
+          record: { count: result.promoted, via: "cli" },
+        };
       } else {
         outcome = {
           toast: `uploads: added ${attachments(result.promoted)} to ${pr}`,
@@ -953,6 +1013,7 @@ export const register: Register = (on, options) => {
               <Text dimColor>{"  · "}</Text>
               {fileLink(row.file, row.file.name)}
               <Text dimColor> {formatSize(row.file.size)}</Text>
+              {row.file.held && <Text color={WARN}> held for review</Text>}
             </Box>
           ) : (
             <Box key={`pair-${i}`}>
@@ -995,6 +1056,14 @@ export const register: Register = (on, options) => {
               onPress={() => void showGrid($)}
             />
             <Box flexDirection="row" alignItems="center" gap={1}>
+              {filesOf(chosen).some((f) => f.held) && (
+                <Button
+                  key="approve"
+                  label="Approve"
+                  variant="primary"
+                  onPress={() => void approveRow($, chosen)}
+                />
+              )}
               <Button
                 key="copy-row"
                 label="Copy markdown"
@@ -1012,6 +1081,34 @@ export const register: Register = (on, options) => {
           </Box>
           <Text bold>{labelOf(chosen)}</Text>
           {filesOf(chosen).map((f) => {
+            if (f.held) {
+              return (
+                <Box key={f.key} flexDirection="column" gap={1}>
+                  {desktop && (
+                    <Svg
+                      source={tileSvg(
+                        [{ uri: "", chip: null, ext: extOf(f.name), held: true }],
+                        480,
+                        200,
+                        false,
+                      )}
+                      alt={`${f.name}, held for review`}
+                    />
+                  )}
+                  <Text color={WARN}>
+                    {f.name} is held for review: uploads.sh thinks it shows a secret or personal
+                    data.
+                  </Text>
+                  <Box flexDirection="row" alignItems="center" gap={1}>
+                    <Text dimColor>
+                      Check it before you approve. If it shows a real credential, rotate it and
+                      remove the file.
+                    </Text>
+                    {f.url ? <Link href={f.url} label="Review on uploads.sh" /> : null}
+                  </Box>
+                </Box>
+              );
+            }
             const link = f.url ? <Link href={f.url} label="Open on uploads.sh" /> : null;
             const previewable = !!f.src && IMAGE_EXT.test(f.name) && small[f.src] !== "";
             if (!previewable) {
