@@ -294,9 +294,10 @@ Models (`platform_settings.slack_agent_model`, read on each mention), with
 Each Slack team gets `DAILY_MENTIONS` (50) answers per UTC day, counted in
 D1 `slack_agent_usage` before the model runs; past that the mention gets a
 "used today's questions" reply and no model call. If the count can't be
-read, the mention goes ahead. A model call that OpenRouter refuses with
-401, 402 or 403 (bad key, out of credits) gets "a problem on our side"; other
-failures get "try again in a minute"; anything that throws still gets a
+read, the mention goes ahead. Any failed model call gets the same "can't
+answer questions right now" reply, so people never learn that our OpenRouter
+key or credits are the problem; the log line's `model_error` says `account`
+(401, 402, 403) or `unavailable`. Anything that throws still gets a
 "something went wrong" reply in the thread.
 
 Events run in `waitUntil`, so the loop stops starting steps after 20 seconds

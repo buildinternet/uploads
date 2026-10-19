@@ -199,14 +199,15 @@ describe("answerQuestion", () => {
     expect(answer.files).toEqual([SETTINGS.results[0]]);
   });
 
-  it("says the problem is on our side when OpenRouter refuses the account", async () => {
+  it("hides an OpenRouter account failure behind the generic reply", async () => {
     const model = scripted([{ error: "account" }]);
     const answer = await answerQuestion(
       { question: "settings?", context: [] },
       { complete: model.complete, search: async () => SETTINGS },
     );
     expect(answer).toMatchObject({ answered: false, error: "account", files: [] });
-    expect(answer.text).toContain("problem on our side");
+    expect(answer.text).toContain("can't answer questions right now");
+    expect(answer.text).not.toMatch(/credit|billing|account|our side/i);
   });
 
   it("says so when search isn't on for the Slack workspace", async () => {
@@ -512,7 +513,7 @@ describe("app_mention", () => {
     expect(row?.mentions).toBe(1);
   });
 
-  it("replies with the account problem when OpenRouter is out of credits", async () => {
+  it("gives the generic reply when OpenRouter is out of credits", async () => {
     const { env } = await setup();
     const slack = fakeSlack(MEMBER);
     const modelFetch = vi.fn(
@@ -520,7 +521,7 @@ describe("app_mention", () => {
     ) as unknown as typeof globalThis.fetch;
     await mention(env, slack.fetch, modelFetch, { ts: "6.1", text: "<@UBOT> settings?" });
     const posted = slack.calls.find((c) => c.method === "chat.postMessage")!.body;
-    expect(String(posted.text)).toContain("problem on our side");
+    expect(String(posted.text)).toContain("can't answer questions right now");
     expect(slack.calls.at(-1)!.method).toBe("reactions.remove");
   });
 
