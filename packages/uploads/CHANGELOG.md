@@ -1,5 +1,14 @@
 # @buildinternet/uploads
 
+## 0.59.2
+
+### Patch Changes
+
+- 29339cf: New upload keys keep only the final extension dot: interior dots, spaces, and other special characters in a filename collapse to single dashes (`127.0.0.1-admin.webp` → `127-0-0-1-admin.webp`). Existing keys and URLs are unchanged.
+- f41a9bd: The PR comment line for held uploads now reads "1 file is held for your review".
+- ef79a6e: A put that the classifier may still hold now returns `holdCheck: "pending"`, and comment syncs report `held` with a CLI line when files on the PR or issue are held for review.
+- 30308c7: `uploads mcp` gains `list_held` and `approve` for uploads held for review, and `uploads meta get` (MCP `get_metadata`) now answers for a held file instead of returning Not found.
+
 ## 0.59.1
 
 ### Patch Changes
