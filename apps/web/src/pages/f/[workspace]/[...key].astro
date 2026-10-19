@@ -2,7 +2,7 @@
 import { serverTimingDisabled, type TimingEnv } from "@uploads/observability";
 import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
-import CopyAsControls from "../../../components/CopyAsControls.astro";
+import FileActions from "../../../components/FileActions.astro";
 import FileDetails from "../../../components/FileDetails.astro";
 import Footer from "../../../components/Footer.astro";
 import MediaStage from "../../../components/MediaStage.astro";
@@ -79,7 +79,7 @@ const ghAriaLabel = gh
   : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
-// Empty when there's no file — CopyAsControls hides itself when both are empty.
+// Empty when there's no file.
 const embedFormats = file
   ? buildEmbedFormats({
       canonical,
@@ -205,36 +205,18 @@ if (timingsEnabled)
         background: var(--panel);
       }
       /* Click-to-copy share pill — replaces the static "public file" label whenever there's a link to copy. */
-      button.public {
-        appearance: none;
-        -webkit-appearance: none;
-        cursor: pointer;
-        font-family: inherit;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      button.public:hover,
-      button.public:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
-         button.textContent on copy, which would otherwise destroy an inline <svg>. */
-      .sharelink::before {
-        content: "";
-        width: 11px;
-        height: 11px;
-        flex: none;
-        background: currentColor;
-        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-      }
+      /* Title on the left, FileActions on the right; actions wrap under on narrow screens. */
       .filehead {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px 24px;
         margin: 0 0 16px;
+        min-width: 0;
+      }
+      .filehead-text {
+        flex: 1 1 320px;
         min-width: 0;
       }
       .filetitle {
@@ -397,77 +379,60 @@ if (timingsEnabled)
           padding-top: 24px;
         }
       }
-      /* Delete + Report share one quiet row (ReportAbuse widens itself when open). */
-      .rail-foot {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: baseline;
-        gap: 8px 18px;
-        margin-top: -8px;
-      }
-      .danger-zone {
-        position: relative;
-        font: var(--text-micro) var(--sans);
-      }
-      .delete-link {
-        appearance: none;
-        background: none;
-        border: none;
-        padding: 0;
-        cursor: pointer;
-        font: inherit;
-        color: var(--muted);
-      }
-      .delete-link:hover,
-      .delete-link:focus-visible {
-        color: var(--red);
-        outline: none;
-      }
-      .delete-pop {
-        position: absolute;
-        bottom: calc(100% + 8px);
-        left: 0;
-        width: min(260px, 80vw);
-        padding: 12px;
-        background: var(--panel);
+      /* Report + Delete dialogs, opened from the header's ⋯ menu. */
+      dialog.sheet {
+        width: min(380px, calc(100vw - 32px));
+        box-sizing: border-box;
+        padding: 18px;
         border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
-        z-index: 3;
+        border-radius: var(--radius-lg);
+        background: var(--panel);
+        color: var(--fg);
+        font-family: var(--sans);
       }
-      .delete-pop__text {
+      dialog.sheet::backdrop {
+        background: rgb(0 0 0 / 0.55);
+      }
+      .delete-title {
+        margin: 0 0 8px;
+        font: 600 var(--text-ui) var(--sans);
+      }
+      .delete-text {
         margin: 0 0 10px;
         color: var(--body);
-        font-size: var(--text-micro);
+        font-size: var(--text-meta);
         line-height: 1.5;
         overflow-wrap: anywhere;
       }
-      .delete-pop__gh,
-      .delete-pop__error {
+      .delete-gh,
+      .delete-error {
         color: var(--muted);
         font-size: var(--text-micro);
       }
-      .delete-pop__error {
+      .delete-error {
         color: var(--red);
-        margin: 0 0 10px;
       }
-      .delete-pop__btn {
-        display: block;
-        width: 100%;
-        padding: 8px 10px;
+      .delete-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .delete-actions button {
+        padding: 8px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
         background: var(--bg);
-        color: var(--red);
-        font: var(--text-micro) var(--sans);
+        color: var(--fg);
+        font: var(--text-meta) var(--sans);
         cursor: pointer;
       }
-      .delete-pop__btn[data-armed] {
-        background: var(--red);
+      .delete-actions .delete-confirm {
         border-color: var(--red);
-        color: #fff;
+        background: var(--red);
+        color: var(--bg);
       }
-      .delete-pop__btn:disabled {
+      .delete-actions button:disabled {
         opacity: 0.6;
         cursor: default;
       }
@@ -477,69 +442,71 @@ if (timingsEnabled)
     <main class="shell">
       <nav class="top">
         <Brand />
-        {
-          file ? (
-            <button
-              type="button"
-              class="public sharelink"
-              data-copy={canonical}
-              data-public-copy-button
-              title="Copy link — anyone with this link can view this page"
-            >
-              Public link
-            </button>
-          ) : (
-            <span class="public">public file</span>
-          )
-        }
+        {!file && <span class="public">public file</span>}
       </nav>
       {
         file ? (
           <>
             <header class="filehead">
-              <h1 class="filetitle">{filename}</h1>
-              {gh && (
-                <a
-                  class="gh-byline"
-                  href={gh.url}
-                  rel="noopener noreferrer"
-                  aria-label={ghAriaLabel}
-                >
-                  {gh.avatarUrl && (
-                    <img
-                      class="gh-byline-avatar"
-                      src={gh.avatarUrl}
-                      alt=""
-                      width="16"
-                      height="16"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  )}
-                  <svg
-                    class="gh-byline-icon"
-                    viewBox="0 0 16 16"
-                    width="13"
-                    height="13"
-                    aria-hidden="true"
-                    focusable="false"
+              <div class="filehead-text">
+                <h1 class="filetitle">{filename}</h1>
+                {gh && (
+                  <a
+                    class="gh-byline"
+                    href={gh.url}
+                    rel="noopener noreferrer"
+                    aria-label={ghAriaLabel}
                   >
-                    <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
-                    <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
-                  </svg>
-                  {gh.title ? (
-                    <>
-                      <span class="gh-byline-title">{gh.title}</span>
-                      <span class="gh-byline-sep" aria-hidden="true">
-                        ·
-                      </span>
+                    {gh.avatarUrl && (
+                      <img
+                        class="gh-byline-avatar"
+                        src={gh.avatarUrl}
+                        alt=""
+                        width="16"
+                        height="16"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                    <svg
+                      class="gh-byline-icon"
+                      viewBox="0 0 16 16"
+                      width="13"
+                      height="13"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
+                      <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
+                    </svg>
+                    {gh.title ? (
+                      <>
+                        <span class="gh-byline-title">{gh.title}</span>
+                        <span class="gh-byline-sep" aria-hidden="true">
+                          ·
+                        </span>
+                        <span class="gh-byline-ref">{ghRef}</span>
+                      </>
+                    ) : (
                       <span class="gh-byline-ref">{ghRef}</span>
-                    </>
-                  ) : (
-                    <span class="gh-byline-ref">{ghRef}</span>
-                  )}
-                </a>
-              )}
+                    )}
+                  </a>
+                )}
+              </div>
+              <FileActions
+                formats={embedFormats}
+                canonical={canonical}
+                downloadUrl={downloadUrl}
+                originalUrl={file.url}
+              >
+                <div class="fa-sep" />
+                <button type="button" class="fa-item" id="report-open">
+                  Report a problem
+                </button>
+                <button type="button" class="fa-item fa-item--danger" id="delete-open" hidden>
+                  Delete file…
+                </button>
+              </FileActions>
             </header>
             <MediaStage
               kind={kind(file.contentType)}
@@ -553,11 +520,6 @@ if (timingsEnabled)
               downloadUrl={downloadUrl}
               textPreview={textPreview}
             >
-              <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                <a class="original" href={file.url} rel="noopener noreferrer">
-                  Open original ↗
-                </a>
-              </CopyAsControls>
               {railRows && (
                 <div>
                   <div class="rail-head">
@@ -588,42 +550,37 @@ if (timingsEnabled)
                 uploaded={file.uploaded}
                 modified={file.modified}
               />
-              <div class="rail-foot">
-                <div class="danger-zone" id="delete-zone" hidden>
-                  <button type="button" class="delete-link" id="delete-open">
-                    Delete file…
-                  </button>
-                  <div
-                    class="delete-pop"
-                    id="delete-pop"
-                    role="alertdialog"
-                    aria-label={`Delete ${filename}`}
-                    hidden
-                  >
-                    <p class="delete-pop__text">
-                      Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
-                      will break.
-                    </p>
-                    {gh && (
-                      <p class="delete-pop__text delete-pop__gh">
-                        This file is attached to {ghRef}. The managed comment will keep a broken
-                        link until its next sync.
-                      </p>
-                    )}
-                    <p class="delete-pop__error" id="delete-error" hidden />
-                    <button type="button" class="delete-pop__btn" id="delete-step">
-                      Delete file
-                    </button>
-                  </div>
-                </div>
-                <ReportAbuse
-                  apiOrigin={browserApiOrigin}
-                  pageUrl={canonical}
-                  workspace={workspace}
-                  objectKey={key}
-                />
-              </div>
             </MediaStage>
+            <dialog class="sheet" id="report-dialog" aria-label="Report a problem">
+              <ReportAbuse
+                apiOrigin={browserApiOrigin}
+                pageUrl={canonical}
+                workspace={workspace}
+                objectKey={key}
+              />
+            </dialog>
+            <dialog class="sheet" id="delete-pop" aria-label={`Delete ${filename}`}>
+              <h2 class="delete-title">Delete this file?</h2>
+              <p class="delete-text">
+                Permanently delete <strong>{filename}</strong> for everyone? Links and embeds will
+                break.
+              </p>
+              {gh && (
+                <p class="delete-text delete-gh">
+                  This file is attached to {ghRef}. The managed comment will keep a broken link
+                  until its next sync.
+                </p>
+              )}
+              <p class="delete-text delete-error" id="delete-error" hidden />
+              <div class="delete-actions">
+                <button type="button" id="delete-cancel">
+                  Cancel
+                </button>
+                <button type="button" class="delete-confirm" id="delete-step">
+                  Delete file
+                </button>
+              </div>
+            </dialog>
             <section class="error" id="deleted-state" hidden>
               <code>file.deleted</code>
               <h1>File deleted</h1>
@@ -719,12 +676,23 @@ if (timingsEnabled)
         if (checking) checking.hidden = true;
       })();
 
+      // Report a problem: the ⋯ menu item opens the report dialog.
+      (function () {
+        const openBtn = document.getElementById("report-open");
+        const dialog = document.getElementById("report-dialog");
+        if (!openBtn || !(dialog instanceof HTMLDialogElement)) return;
+        openBtn.addEventListener("click", function () {
+          dialog.showModal();
+        });
+      })();
+
       // Member-only delete control (spec 2026-07-30). Reveal is progressive
       // enhancement: the same /v1/workspaces/:name/files/file-url probe the unlisted
       // flow uses doubles as the membership check — 200 means member.
       (async function () {
-        const zone = document.getElementById("delete-zone");
-        if (!zone) return;
+        const openBtn = document.getElementById("delete-open");
+        const pop = document.getElementById("delete-pop");
+        if (!openBtn || !(pop instanceof HTMLDialogElement)) return;
         const endpoint = filesEndpoint(`/file-url?key=${encodeURIComponent(key)}`);
         try {
           const probe = await fetch(endpoint, {
@@ -736,60 +704,33 @@ if (timingsEnabled)
         } catch (e) {
           return;
         }
-        zone.hidden = false;
+        openBtn.hidden = false;
 
-        const pop = document.getElementById("delete-pop");
-        const openBtn = document.getElementById("delete-open");
         const stepBtn = document.getElementById("delete-step");
+        const cancelBtn = document.getElementById("delete-cancel");
         const errorEl = document.getElementById("delete-error");
-        let disarmTimer = null;
 
-        // Once a DELETE is in flight, close/Escape must not re-enable the
-        // button — a re-click would fire a second concurrent request.
+        // Once a DELETE is in flight, Cancel/Escape must not close the dialog
+        // or re-enable the button — a re-click would fire a second request.
         var deleteInFlight = false;
 
-        function reset() {
-          if (deleteInFlight) return;
-          pop.hidden = true;
-          stepBtn.textContent = "Delete file";
-          stepBtn.removeAttribute("data-armed");
-          stepBtn.disabled = false;
-          errorEl.hidden = true;
-          if (disarmTimer) clearTimeout(disarmTimer);
-        }
-
+        // The modal dialog is the confirmation step, so Delete deletes.
         openBtn.addEventListener("click", function () {
-          if (pop.hidden) {
-            pop.hidden = false;
-            stepBtn.focus();
-          } else {
-            reset();
-          }
+          errorEl.hidden = true;
+          pop.showModal();
+          cancelBtn.focus();
         });
-        document.addEventListener("click", function (event) {
-          if (!pop.hidden && !zone.contains(event.target)) reset();
+        cancelBtn.addEventListener("click", function () {
+          if (!deleteInFlight) pop.close();
         });
-        document.addEventListener("keydown", function (event) {
-          if (event.key === "Escape") reset();
+        pop.addEventListener("cancel", function (event) {
+          if (deleteInFlight) event.preventDefault();
         });
 
         stepBtn.addEventListener("click", async function () {
-          if (!stepBtn.hasAttribute("data-armed")) {
-            // First click arms; auto-disarm after DELETE_DISARM_MS. Twin of
-            // the React confirm in WorkspaceFileTable.tsx (this page ships no
-            // framework JS) — keep the timing and semantics in sync.
-            var DELETE_DISARM_MS = 5000;
-            stepBtn.setAttribute("data-armed", "");
-            stepBtn.textContent = "Confirm delete";
-            disarmTimer = setTimeout(function () {
-              stepBtn.removeAttribute("data-armed");
-              stepBtn.textContent = "Delete file";
-            }, DELETE_DISARM_MS);
-            return;
-          }
-          if (disarmTimer) clearTimeout(disarmTimer);
           deleteInFlight = true;
           stepBtn.disabled = true;
+          cancelBtn.disabled = true;
           try {
             // Canonical path-keyed dual-auth delete (session cookie or bearer).
             // Twin of deleteWorkspaceFile() in src/lib/api-client.ts — this
@@ -801,6 +742,7 @@ if (timingsEnabled)
             const response = await fetch(target, { method: "DELETE", credentials: "include" });
             if (!response.ok) throw new Error(String(response.status));
             // Swap the page to the deleted state.
+            pop.close();
             const figure = document.querySelector("[data-media-stage]");
             const head = document.querySelector(".filehead");
             if (figure) figure.remove();
@@ -812,8 +754,7 @@ if (timingsEnabled)
             errorEl.textContent = "Couldn't delete this file. Try again shortly.";
             errorEl.hidden = false;
             stepBtn.disabled = false;
-            stepBtn.removeAttribute("data-armed");
-            stepBtn.textContent = "Delete file";
+            cancelBtn.disabled = false;
           }
         });
       })();
