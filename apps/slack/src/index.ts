@@ -9,7 +9,7 @@
  *   - POST /slack/events     Events API (link_shared, entity_details_requested,
  *                            app_home_opened, app_uninstalled,
  *                            tokens_revoked; see events.ts)
- *   - POST /slack/interactivity  buttons: Disconnect on the Home tab, Share on a search result
+ *   - POST /slack/interactivity  buttons: Disconnect on the Home tab, the Share menu on search results
  *                            (home.ts), Approve / Keep held on a held-upload
  *                            DM (holds.ts), the pager in a Work Object
  *                            flexpane (entities.ts)
@@ -171,7 +171,11 @@ export function createApp(options: AppOptions = {}) {
         if (shareAction && slackUserId) {
           c.executionCtx.waitUntil(
             shareSearchResult(
-              { value: shareAction.value, slackUserId, responseUrl: payload?.response_url },
+              {
+                value: shareAction.selected_option?.value,
+                slackUserId,
+                responseUrl: payload?.response_url,
+              },
               { env: c.env, slackFetch: options.slackFetch },
             ).catch((err) => console.error("slack.interactivity: share threw", err)),
           );
