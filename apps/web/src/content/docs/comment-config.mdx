@@ -128,7 +128,8 @@ doesn't take effect until it lands on default.
 Each key resolves independently, in this order:
 
 1. **Repo config** — a value set in `.uploads.yml`.
-2. **Workspace default** — set on the workspace's [comment settings](/account) by a workspace admin.
+2. **Workspace default** — set by a workspace admin under the workspace's **Settings → GitHub** on
+   [uploads.sh](/account/workspaces).
 3. **Automatic behavior** — the built-in default when neither is set.
 
 A repo can set some keys and leave others out; the ones it leaves out fall through to the workspace
@@ -168,7 +169,8 @@ ends up honoring the same file.
 
 ## Preview before committing <a class="anchor" href="#preview" aria-label="Link to this section">#</a>
 
-The workspace's [comment settings](/account) page includes a live preview: pick a repo the workspace
+The workspace's **Settings → GitHub** page on [uploads.sh](/account/workspaces) includes a live
+preview: pick a repo the workspace
 is bound to and it renders the resolved comment body using the same code path the bot uses, with a
 badge on each setting showing whether it came from the repo config, the workspace default, or
 automatic behavior. Use it to check a change before committing `.uploads.yml`.

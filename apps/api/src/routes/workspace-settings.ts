@@ -70,8 +70,8 @@ import { usageWithLimits } from "../budget";
 import { previewFixtureItems } from "../comment-preview-fixtures";
 import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { getMetadataForKeys } from "../file-metadata";
 import { listObjects } from "../files-core";
+import { addCommentMetadata, dropHiddenAttachments } from "../github-comment";
 import { findRepoLink } from "../github-repo-links";
 import {
   attachmentsCommentBody,
@@ -1469,9 +1469,10 @@ export async function billingHandler(c: Context<SettingsVars>) {
  * probe another workspace's repo binding or `.uploads.yml` contents.
  *
  * Renders from a page of the workspace's own `gh/`-prefixed attachments
- * (first page only, mirrors gatherAttachments's url/pageUrl mapping and its
- * `path`/`state` D1 metadata read, so captions and before/after pairing
- * preview the way the production comment renders). `listObjects` pages in
+ * (first page only). It shares gatherAttachments's detach/hold filter and
+ * metadata read (`dropHiddenAttachments`, `addCommentMetadata`), so held
+ * files stay out and captions, pairing and video/PDF posters preview the way
+ * the production comment renders. `listObjects` pages in
  * lexicographic key order, not upload recency, so this is a representative
  * sample rather than the "most recent" uploads. An empty workspace falls
  * back to `previewFixtureItems` so the preview is never blank.
@@ -1518,27 +1519,16 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
     size: o.size,
     contentType: o.contentType,
   }));
+  items = await dropHiddenAttachments(c.env, name, items);
   let sample: "workspace" | "fixtures" = "workspace";
   if (items.length === 0) {
     items = previewFixtureItems(c.env);
     sample = "fixtures";
   } else if (resolved.metaPath || resolved.metaState) {
-    // Same narrow key set and skip condition as gatherAttachments — the
-    // preview must caption and pair exactly like the production comment.
-    const metaByKey = await getMetadataForKeys(
-      dbFor(c.env),
-      name,
-      items.map((item) => item.key),
-      { metaKeys: ["path", "state"] },
-    );
-    for (const item of items) {
-      const meta = metaByKey.get(item.key);
-      if (!meta) continue;
-      const { path, state } = meta;
-      if (path || state) {
-        item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
-      }
-    }
+    // Same reads and skip condition as gatherAttachments, so captions,
+    // before/after pairing and video/PDF posters preview the way the
+    // production comment renders.
+    await addCommentMetadata(c.env, record, name, items);
   }
 
   const body = attachmentsCommentBody(
