@@ -35,7 +35,7 @@ import { badKey } from "../files-core";
 import { memberWorkspaceOr404 } from "../org-workspaces";
 import { objectPublicUrls, resolveObjectLaneWithHead, storage } from "../storage";
 import { heldKeysAmong } from "../upload-hold-read";
-import { approveUpload } from "../upload-hold-service";
+import { approveUpload, memberName } from "../upload-hold-service";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 
@@ -105,7 +105,8 @@ export const internalSlack = new Hono<WorkspaceVars>()
     await memberWorkspaceOr404(c.env, link.user_id, workspace);
     const record = await loadWorkspaceRecord(c.env, workspace);
     if (!record) throw notFound();
-    const result = await approveUpload(c.env, record, workspace, key);
+    const by = await memberName(c.env, link.user_id);
+    const result = await approveUpload(c.env, record, workspace, key, by);
     console.log({ event: "upload_approved_from_slack", workspace, approved: result.approved });
     return c.json({ key, ...result });
   })

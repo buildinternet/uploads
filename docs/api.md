@@ -138,6 +138,8 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET /v1/workspaces/:workspace/files/file-url?key=`                             | Resolve a usable URL for a key: the workspace's public URL, else a short-lived signed URL, else an error                                                                                                                        |
 | `PATCH /v1/workspaces/:workspace/files/visibility?key=`                         | Set a file's `visibility` flag with `{ visibility: "public" \| "private" }`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/files/approve?key=`                             | Release a file held for review (a likely secret or personal data). A key that is not held returns `approved: false`                                                                                                             |
+| `POST /v1/workspaces/:workspace/files/hold?key=`                                | Hold an approved file for review again, for an approval made by mistake. Any other key returns `held: false`                                                                                                                    |
+| `GET /v1/workspaces/:workspace/files/review?key=`                               | A file's review state for members: `hold` (`pending`, `approved` or null), `reason`, and who approved it and when                                                                                                               |
 | `GET /v1/workspaces/:workspace/files/held?prefix=`                              | List files held for review, with the reason and whether the bytes moved to the held bucket                                                                                                                                      |
 | `GET /v1/workspaces/:workspace/files/held/download?key=`                        | Download a held file's held copy, for review before approval                                                                                                                                                                    |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
@@ -352,7 +354,11 @@ back to the same key (a BYO bucket's domain keeps serving). A moved file is
 absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held copy.
 `POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) writes
-`ai.hold=approved` and re-syncs the comment. `ai.hold` follows the same
+`ai.hold=approved`, `ai.hold.at`, and `ai.hold.by` (the member's name or
+the service token's label), then re-syncs the comment.
+`POST …/files/hold?key=` puts an approved file back under review and clears
+`ai.hold.by` and `ai.hold.at`. `GET …/files/review?key=` returns the hold
+state for members; the file page uses it for its Reviewed note. `ai.hold` follows the same
 lifetime as the other `ai.*` rows, and promote and attach copy it onto the
 new key. A workspace record with `holdFlaggedUploads: false` writes no
 holds.
