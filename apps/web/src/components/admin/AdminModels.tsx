@@ -44,6 +44,7 @@ function SlackAgentModel({ apiOrigin }: AdminModelsProps) {
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const current = setting.data;
   const byId = useMemo(
@@ -69,6 +70,20 @@ function SlackAgentModel({ apiOrigin }: AdminModelsProps) {
       setStatus(errMessage(err, "Save failed"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Skips the hour-long cache and asks OpenRouter for its current list. */
+  async function refresh() {
+    setRefreshing(true);
+    setStatus(null);
+    try {
+      options.setData(await api.listAgentModelOptions(true));
+      setStatus("Model list refreshed from OpenRouter.");
+    } catch (err) {
+      setStatus(errMessage(err, "Refresh failed"));
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -146,6 +161,14 @@ function SlackAgentModel({ apiOrigin }: AdminModelsProps) {
             Use {typed}
           </button>
         ) : null}
+        <button
+          type="button"
+          className={ADMIN_BTN}
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? "Refreshing…" : "Refresh list"}
+        </button>
         {status ? (
           <span className="text-(length:--text-micro) text-muted-foreground" role="status">
             {status}
