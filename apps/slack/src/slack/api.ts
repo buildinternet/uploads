@@ -149,8 +149,9 @@ export function chatPostMessage(
 
 /**
  * Replies to a button press through the payload's `response_url`: replaces
- * the message the button sat on, or (`replace: false`) adds a reply only
- * the presser sees and leaves the buttons in place. Only Slack's own hooks
+ * the message the button sat on, (`replace: false`) adds a reply only the
+ * presser sees and leaves the buttons in place, or (`"in_channel"`) posts a
+ * new message everyone in the channel sees. Only Slack's own hooks
  * host is accepted, so a payload can't point this worker at another server.
  * https://docs.slack.dev/interactivity/handling-user-interaction#message_responses
  */
@@ -158,7 +159,7 @@ export async function respondToAction(
   responseUrl: string,
   message: { text: string; blocks: Block[] },
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-  replace = true,
+  replace: boolean | "in_channel" = true,
 ): Promise<boolean> {
   let url: URL;
   try {
@@ -172,9 +173,11 @@ export async function respondToAction(
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify(
-        replace
-          ? { ...message, replace_original: true }
-          : { ...message, replace_original: false, response_type: "ephemeral" },
+        replace === "in_channel"
+          ? { ...message, replace_original: false, response_type: "in_channel" }
+          : replace
+            ? { ...message, replace_original: true }
+            : { ...message, replace_original: false, response_type: "ephemeral" },
       ),
       signal: AbortSignal.timeout(10_000),
     });

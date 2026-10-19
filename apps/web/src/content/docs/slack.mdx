@@ -53,14 +53,14 @@ Anyone who can install apps in a Slack workspace can add it:
 
 Slack asks for these permissions:
 
-| Permission    | What the app does with it                                                    |
-| ------------- | ---------------------------------------------------------------------------- |
+| Permission    | What the app does with it                                                   |
+| ------------- | --------------------------------------------------------------------------- |
 | `links:read`  | Sees uploads.sh links in messages. It reads only the link, not the message. |
-| `links:write` | Adds the preview to an uploads.sh link.                                      |
+| `links:write` | Adds the preview to an uploads.sh link.                                     |
 | `users:read`  | Reads your Slack name for the connect page, and checks who may search.      |
 | `chat:write`  | Sends you held-upload messages and updates them after you press a button.   |
 | `im:write`    | Opens the direct message between you and the app.                           |
-| `commands`    | Adds `/uploads search`.                                                      |
+| `commands`    | Adds `/uploads search`.                                                     |
 
 The app can't read your messages or files. Post an uploads.sh link to see a preview.
 
@@ -125,7 +125,8 @@ Find a workspace's public files by name without leaving Slack:
 /uploads search login
 ```
 
-The reply lists up to ten matching files, links to their pages, and only you can see it.
+The reply shows the five newest files whose name or folder matches, with a thumbnail for images.
+Only you can see it. Press **Share** on a result to post it to the channel for everyone.
 
 A workspace admin or owner turns search on. In uploads.sh, open the workspace's **Settings →
 Slack** page and switch on the Slack workspace under **Search from Slack**. It's listed once you've
@@ -146,8 +147,8 @@ A preview shows only what the public share page shows. The app reads the same pu
 the share pages use, so private, held, and deleted files get no preview.
 
 <div class="note">
-  Previews are visible to everyone in the channel. Post a link to a private file only where
-  you'd share the file itself.
+  Previews are visible to everyone in the channel. Post a link to a private file only where you'd
+  share the file itself.
 </div>
 
 </section>

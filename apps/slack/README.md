@@ -257,8 +257,12 @@ account (`/me/slack/workspaces/:name/teams/:teamId`).
 person is a full member (not a guest, a bot, or someone from another org),
 then calls uploads-api's `POST /internal/slack/search` over the `API`
 binding and posts the results to the command's `response_url`. Only
-the person who ran it sees them. The API searches each bound workspace and
-drops anything the public share page wouldn't show (private or held).
+the person who ran it sees them. The API matches the term against each file's
+path (name and folders), sorts matches by upload time, drops anything the
+public share page wouldn't show (private or held), and returns the newest
+five. Each result shows its folder, date, and a thumbnail for images.
+**Share** (`uploads_search_share`) posts that file to the channel through the
+same `response_url` with `response_type: in_channel`.
 
 ## Configuration
 

@@ -9,7 +9,7 @@
  *   - POST /slack/events     Events API (link_shared, entity_details_requested,
  *                            app_home_opened, app_uninstalled,
  *                            tokens_revoked; see events.ts)
- *   - POST /slack/interactivity  buttons: Disconnect on the Home tab
+ *   - POST /slack/interactivity  buttons: Disconnect on the Home tab, Share on a search result
  *                            (home.ts), Approve / Keep held on a held-upload
  *                            DM (holds.ts), the pager in a Work Object
  *                            flexpane (entities.ts)
@@ -20,7 +20,7 @@
  * Every public Slack-facing route verifies the request signature first.
  */
 import { Hono, type Context } from "hono";
-import { handleSlashCommand, parseSlashCommand } from "./commands";
+import { handleSlashCommand, parseSlashCommand, SHARE_ACTION, shareSearchResult } from "./commands";
 import { botTokenFor, type SlackEnv } from "./config";
 import { PAGE_NEXT_ACTION, PAGE_PREV_ACTION, presentDetails } from "./entities";
 import { dispatchEvent, shareDeps } from "./events";
@@ -105,7 +105,7 @@ export function createApp(options: AppOptions = {}) {
         return c.body(null, 200);
       })
       // Interactivity. Connect is a URL button, so it needs no handling;
-      // Disconnect, Approve, Keep held, and the flexpane pager do. Anything
+      // Disconnect, Approve, Keep held, Share, and the flexpane pager do. Anything
       // else is acked and ignored.
       .post("/slack/interactivity", async (c) => {
         const body = await readSignedBody(c);
@@ -162,6 +162,18 @@ export function createApp(options: AppOptions = {}) {
               },
               { env: c.env, slackFetch: options.slackFetch },
             ).catch((err) => console.error("slack.interactivity: hold action threw", err)),
+          );
+        }
+        const shareAction =
+          payload?.type === "block_actions"
+            ? payload.actions?.find((action) => action.action_id === SHARE_ACTION)
+            : undefined;
+        if (shareAction && slackUserId) {
+          c.executionCtx.waitUntil(
+            shareSearchResult(
+              { value: shareAction.value, slackUserId, responseUrl: payload?.response_url },
+              { env: c.env, slackFetch: options.slackFetch },
+            ).catch((err) => console.error("slack.interactivity: share threw", err)),
           );
         }
         if (wantsDisconnect && teamId && slackUserId) {

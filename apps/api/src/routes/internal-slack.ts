@@ -14,8 +14,8 @@
  *   member of a Slack workspace (uploads-slack has already checked the
  *   signature and that the person isn't a guest). Searches filenames in
  *   every uploads.sh workspace bound to that Slack team
- *   (`slack_workspace_bindings`, #1165) and returns only files the public
- *   share page would show: not private, not held.
+ *   (`slack_workspace_bindings`, #1165), newest first, and returns only files
+ *   the public share page would show: not private, not held.
  *
  * Guard: the binding addresses `api.internal`. Public traffic only reaches
  * this worker through the api.uploads.sh Custom Domain (or web's `/api`
@@ -30,10 +30,10 @@
 import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { dbFor } from "../db-session";
-import { searchFilesByNameAndMeta, SEARCH_NAME_MAX } from "../file-search";
+import { SEARCH_NAME_MAX } from "../file-search";
 import { badKey } from "../files-core";
 import { memberWorkspaceOr404 } from "../org-workspaces";
-import { objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
+import { objectPublicUrls, resolveObjectLaneWithHead, storage } from "../storage";
 import { heldKeysAmong } from "../upload-hold-read";
 import { approveUpload } from "../upload-hold-service";
 import { objectVisibility } from "../visibility";
@@ -47,12 +47,26 @@ const WORKSPACE = /^[a-z0-9-]{1,64}$/;
 
 /** Bound workspaces searched per command; more than this is unusual. */
 const SEARCH_MAX_WORKSPACES = 5;
-/** Matches returned per workspace, and overall. */
-const SEARCH_PAGE_SIZE = 10;
+/** Results returned overall: a handful, newest first. */
+const SEARCH_RESULTS = 5;
+/**
+ * Name matches gathered per workspace before sorting by upload time. The
+ * storage walk yields keys in name order, so this is how far "newest" can
+ * see; past it the reply says it only looked at the first matches.
+ */
+const SEARCH_SCAN_MAX = 200;
+/** Newest candidates per workspace checked for visibility (one HEAD each). */
+const SEARCH_CANDIDATES = 10;
+/** Derived posters and CLI reports; never listed (files-core's INTERNAL_KEY_PREFIX). */
+const INTERNAL_KEY_PREFIX = "_internal/";
 
 export interface SlackSearchResult {
   workspace: string;
   key: string;
+  /** Public URL to draw as a thumbnail; images only. */
+  imageUrl?: string;
+  /** Upload time (ms since epoch), when storage reports one. */
+  uploaded?: number;
 }
 
 function notFound(): NotFoundError {
@@ -118,35 +132,54 @@ export const internalSlack = new Hono<WorkspaceVars>()
       bound.map(async ({ workspace }): Promise<{ hits: SlackSearchResult[]; more: boolean }> => {
         const record = await loadWorkspaceRecord(c.env, workspace);
         if (!record) return { hits: [], more: false };
-        const { matches, truncated } = await searchFilesByNameAndMeta(c.env, record, workspace, {
-          nameTerm: term,
-          pageSize: SEARCH_PAGE_SIZE,
-        });
+        const store = await storage(c.env, record);
+        const found: { key: string; uploaded: number }[] = [];
+        for await (const file of store.search(term, {
+          match: "substring",
+          caseInsensitive: true,
+          maxResults: SEARCH_SCAN_MAX,
+        })) {
+          if (file.key.startsWith(INTERNAL_KEY_PREFIX)) continue;
+          found.push({ key: file.key, uploaded: file.lastModified ?? 0 });
+        }
+        found.sort((a, b) => b.uploaded - a.uploaded);
         const held = await heldKeysAmong(
           c.env,
           workspace,
-          matches.map((m) => m.key),
+          found.slice(0, SEARCH_CANDIDATES).map((m) => m.key),
         );
         // Same gate as the public share page: it must have a public URL and
-        // not be marked private. One HEAD per match, at most SEARCH_PAGE_SIZE.
+        // not be marked private. One HEAD per candidate.
         const visible = await Promise.all(
-          matches
+          found
+            .slice(0, SEARCH_CANDIDATES)
             .filter((m) => !held.has(m.key))
             .map(async (m) => {
               const lane = await resolveObjectLaneWithHead(c.env, record, m.key);
-              if (!lane || !objectPublicUrls(c.env, lane.config, m.key).url) return null;
-              if (objectVisibility(lane.head.metadata ?? undefined)) return null;
-              return { workspace, key: m.key };
+              if (!lane) return null;
+              const urls = objectPublicUrls(c.env, lane.config, m.key);
+              if (!urls.url || objectVisibility(lane.head.metadata ?? undefined)) return null;
+              const hit: SlackSearchResult = { workspace, key: m.key };
+              if (lane.head.type.startsWith("image/")) hit.imageUrl = urls.embedUrl ?? urls.url;
+              if (m.uploaded) hit.uploaded = m.uploaded;
+              return hit;
             }),
         );
-        return { hits: visible.filter((v): v is SlackSearchResult => v !== null), more: truncated };
+        return {
+          hits: visible.filter((v): v is SlackSearchResult => v !== null),
+          more: found.length >= SEARCH_SCAN_MAX,
+        };
       }),
     );
-    const all = perWorkspace.flatMap((p) => p.hits);
+    const all = perWorkspace
+      .flatMap((p) => p.hits)
+      .sort((a, b) => (b.uploaded ?? 0) - (a.uploaded ?? 0));
     console.log({ event: "slack_search", workspaces: bound.length, results: all.length });
     return c.json({
       bound: true,
-      results: all.slice(0, SEARCH_PAGE_SIZE),
-      truncated: all.length > SEARCH_PAGE_SIZE || perWorkspace.some((p) => p.more),
+      results: all.slice(0, SEARCH_RESULTS),
+      // Only the walk's cap makes "newest" uncertain; more visible matches
+      // than shown is the normal case and needs no note.
+      truncated: perWorkspace.some((p) => p.more),
     });
   });
