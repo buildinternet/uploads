@@ -13,6 +13,11 @@
  * follow-up like "just the mobile ones" builds on the last answer. Without
  * those scopes it answers the mention alone.
  *
+ * Every answer is a billed model run, so each Slack workspace gets
+ * DAILY_MENTIONS a UTC day (`slack_agent_usage`); past that it says so
+ * instead. When something fails, the thread still gets a reply saying what
+ * happened.
+ *
  * Each mention is one `invoke_agent` trace span (tracing.ts). Its
  * conversation id is the Slack thread, so a thread's mentions group together
  * in the Agents dashboard, and its agent id is the Slack team.
@@ -36,6 +41,8 @@ const THREAD_MAX = 20;
 /** Characters kept from each context message. */
 const CONTEXT_CHARS = 500;
 const WORKING_REACTION = "eyes";
+/** Answers per Slack workspace per UTC day. */
+export const DAILY_MENTIONS = 50;
 /** `gen_ai.agent.name` on the mention agent's spans. */
 const AGENT_NAME = "uploads.sh Slack";
 
@@ -88,6 +95,15 @@ export async function handleMention(
   if (!apiKey) {
     console.warn("slack.mention: OPENROUTER_API_KEY unset");
     await post("I can't answer questions here yet. `/uploads search <filename>` still works.");
+    return;
+  }
+
+  const used = await countMention(ctx.env, ctx.teamId, new Date());
+  if (used !== null && used > DAILY_MENTIONS) {
+    console.warn("slack.mention: daily limit reached", { team: ctx.teamId, used });
+    await post(
+      `This Slack workspace has used today's ${DAILY_MENTIONS} questions. I can answer again tomorrow (UTC). \`/uploads search <filename>\` still works.`,
+    );
     return;
   }
 
@@ -147,11 +163,42 @@ export async function handleMention(
       input_tokens: answer.usage.inputTokens,
       output_tokens: answer.usage.outputTokens,
       cost_usd: answer.usage.costUsd,
+      model_error: answer.error,
       posted: posted.ok,
       error: posted.error,
     });
+  } catch (err) {
+    console.error("slack.mention: failed", { team: ctx.teamId, err: String(err) });
+    await post(
+      "Something went wrong while I was looking. Try again, or use `/uploads search <filename>`.",
+    ).catch(() => {});
   } finally {
     await reactionsRemove(target, slack);
+  }
+}
+
+/**
+ * Adds this mention to the team's count for the day and returns the new
+ * count, or null when the count can't be read (then the mention goes ahead).
+ */
+export async function countMention(
+  env: SlackEnv,
+  teamId: string,
+  now: Date,
+): Promise<number | null> {
+  if (!env.DB) return null;
+  try {
+    const row = await env.DB.prepare(
+      `INSERT INTO slack_agent_usage (team_id, day, mentions) VALUES (?, ?, 1)
+       ON CONFLICT (team_id, day) DO UPDATE SET mentions = mentions + 1
+       RETURNING mentions`,
+    )
+      .bind(teamId, now.toISOString().slice(0, 10))
+      .first<{ mentions: number }>();
+    return row?.mentions ?? null;
+  } catch (err) {
+    console.error("slack.mention: usage count failed", { err: String(err) });
+    return null;
   }
 }
 

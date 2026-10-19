@@ -14,7 +14,7 @@ import type { SlackEnv } from "../src/config";
 import { createApp } from "../src/index";
 import { saveInstall } from "../src/installs";
 import { SLACK_AGENT_DEFAULT_MODEL } from "../../api/src/platform-settings";
-import { questionText } from "../src/mentions";
+import { DAILY_MENTIONS, questionText } from "../src/mentions";
 import { signSlackRequest } from "../src/slack/signature";
 import { spans } from "./cloudflare-workers-stub";
 
@@ -26,7 +26,9 @@ function call(id: string, name: string, args: Record<string, unknown>): ToolCall
 }
 
 /** A model that plays back `turns` in order and records each request. */
-function scripted(turns: ({ content: string | null; tool_calls?: ToolCall[] } | null)[]) {
+function scripted(
+  turns: ({ content: string | null; tool_calls?: ToolCall[] } | { error: "account" } | null)[],
+) {
   const requests: CompletionRequest[] = [];
   const complete: Complete = async (request) => {
     requests.push(structuredClone(request));
@@ -197,6 +199,16 @@ describe("answerQuestion", () => {
     expect(answer.files).toEqual([SETTINGS.results[0]]);
   });
 
+  it("says the problem is on our side when OpenRouter refuses the account", async () => {
+    const model = scripted([{ error: "account" }]);
+    const answer = await answerQuestion(
+      { question: "settings?", context: [] },
+      { complete: model.complete, search: async () => SETTINGS },
+    );
+    expect(answer).toMatchObject({ answered: false, error: "account", files: [] });
+    expect(answer.text).toContain("problem on our side");
+  });
+
   it("says so when search isn't on for the Slack workspace", async () => {
     const model = scripted([
       { content: null, tool_calls: [call("c1", "search_files", { query: "login" })] },
@@ -240,6 +252,7 @@ describe("app_mention", () => {
     sqlite = new SqliteD1([
       "migrations/20261018160000_slack_installations.sql",
       "migrations/20261019210000_platform_settings.sql",
+      "migrations/20261019230000_slack_agent_usage.sql",
     ]);
     const apiCalls: Record<string, unknown>[] = [];
     const env: SlackEnv = {
@@ -463,5 +476,65 @@ describe("app_mention", () => {
     await mention(env, slack.fetch, fakeModel().fetch, { ts: "3.1", text: "<@UBOT> hi" });
     const posted = slack.calls.find((c) => c.method === "chat.postMessage")!.body;
     expect(String(posted.text)).toContain("can't answer questions here yet");
+  });
+
+  it("stops answering a Slack workspace past its daily limit", async () => {
+    const { env } = await setup();
+    const today = new Date().toISOString().slice(0, 10);
+    await env
+      .DB!.prepare("INSERT INTO slack_agent_usage (team_id, day, mentions) VALUES (?, ?, ?)")
+      .bind("T1", today, DAILY_MENTIONS)
+      .run();
+    const slack = fakeSlack(MEMBER);
+    const model = fakeModel();
+    await mention(env, slack.fetch, model.fetch, { ts: "4.1", text: "<@UBOT> settings?" });
+    expect(model.bodies).toEqual([]);
+    const posted = slack.calls.find((c) => c.method === "chat.postMessage")!.body;
+    expect(String(posted.text)).toContain(`today's ${DAILY_MENTIONS} questions`);
+    // The refused mention still counts.
+    const row = await env
+      .DB!.prepare("SELECT mentions FROM slack_agent_usage WHERE team_id = ? AND day = ?")
+      .bind("T1", today)
+      .first<{ mentions: number }>();
+    expect(row?.mentions).toBe(DAILY_MENTIONS + 1);
+  });
+
+  it("counts each answered mention", async () => {
+    const { env } = await setup();
+    await mention(env, fakeSlack(MEMBER).fetch, fakeModel().fetch, {
+      ts: "5.1",
+      text: "<@UBOT> a",
+    });
+    const row = await env
+      .DB!.prepare("SELECT mentions FROM slack_agent_usage WHERE team_id = ?")
+      .bind("T1")
+      .first<{ mentions: number }>();
+    expect(row?.mentions).toBe(1);
+  });
+
+  it("replies with the account problem when OpenRouter is out of credits", async () => {
+    const { env } = await setup();
+    const slack = fakeSlack(MEMBER);
+    const modelFetch = vi.fn(
+      async () => new Response("{}", { status: 402 }),
+    ) as unknown as typeof globalThis.fetch;
+    await mention(env, slack.fetch, modelFetch, { ts: "6.1", text: "<@UBOT> settings?" });
+    const posted = slack.calls.find((c) => c.method === "chat.postMessage")!.body;
+    expect(String(posted.text)).toContain("problem on our side");
+    expect(slack.calls.at(-1)!.method).toBe("reactions.remove");
+  });
+
+  it("still replies in the thread when something throws", async () => {
+    const { env } = await setup();
+    const slack = fakeSlack(MEMBER);
+    // A malformed tool call from the provider.
+    const modelFetch = vi.fn(async () =>
+      Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: "c1" }] } }] }),
+    ) as unknown as typeof globalThis.fetch;
+    await mention(env, slack.fetch, modelFetch, { ts: "7.1", text: "<@UBOT> settings?" });
+    const posted = slack.calls.filter((c) => c.method === "chat.postMessage");
+    expect(posted).toHaveLength(1);
+    expect(String(posted[0]!.body.text)).toContain("Something went wrong");
+    expect(slack.calls.at(-1)!.method).toBe("reactions.remove");
   });
 });
