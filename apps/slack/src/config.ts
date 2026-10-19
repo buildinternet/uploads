@@ -30,7 +30,9 @@ export interface SlackEnv {
    * Empty: thumbnails only.
    */
   SLACK_FULL_SIZE_HOSTS?: string;
-  /** Shared D1 (uploads-production); holds slack_installations and slack_user_links. */
+  /** OpenRouter key for the mention agent (agent.ts). Unset: mentions get a "not yet" reply. */
+  OPENROUTER_API_KEY?: string;
+  /** Shared D1 (uploads-production); holds slack_installations, slack_user_links, and platform_settings. */
   DB?: D1Database;
   /**
    * uploads-api over a service binding: its public read endpoints, and the

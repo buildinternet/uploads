@@ -19,13 +19,21 @@ describe("scopes", () => {
 
   it("names what an older install is missing", () => {
     const old = parseScopes("links:read, links:write,users:read");
-    expect(missingScopes(old)).toEqual(["chat:write", "commands", "im:write"]);
+    expect(missingScopes(old)).toEqual([
+      "app_mentions:read",
+      "channels:history",
+      "chat:write",
+      "commands",
+      "groups:history",
+      "im:write",
+      "reactions:write",
+    ]);
     expect(canRun(old, "unfurl")).toBe(true);
     expect(canRun(old, "holds")).toBe(false);
     expect(canRun(old, "search")).toBe(false);
-    expect(missingFeaturesText(old)).toBe("held-upload messages and search");
+    expect(missingFeaturesText(old)).toBe("held-upload messages, search and answering mentions");
     expect(missingFeaturesText(parseScopes("links:read"))).toBe(
-      "link previews, connecting accounts, held-upload messages and search",
+      "link previews, connecting accounts, held-upload messages, search and answering mentions",
     );
     expect(missingFeaturesText(parseScopes(BOT_SCOPES.join(",")))).toBeNull();
   });

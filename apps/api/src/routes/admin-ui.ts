@@ -101,6 +101,14 @@ import { getPlan, resolveEffectiveLimits, type WorkspacePlanLimits } from "@uplo
 import { storageStatusResponse } from "./workspace-storage";
 import { listWorkspaceByobStatus } from "../workspace-byob";
 import { dbFor } from "../db-session";
+import { fetchAgentModelOptions } from "../openrouter-models";
+import {
+  getPlatformSetting,
+  OPENROUTER_MODEL_ID,
+  setPlatformSetting,
+  SLACK_AGENT_DEFAULT_MODEL,
+  SLACK_AGENT_MODEL_KEY,
+} from "../platform-settings";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -610,6 +618,19 @@ function parseWindowDays(raw: string | undefined): ClassifierAdminWindow {
   return days as ClassifierAdminWindow;
 }
 
+async function slackAgentModelResponse(env: Env) {
+  const stored = await getPlatformSetting(dbFor(env), SLACK_AGENT_MODEL_KEY);
+  return {
+    model: stored?.value ?? SLACK_AGENT_DEFAULT_MODEL,
+    defaultModel: SLACK_AGENT_DEFAULT_MODEL,
+    isDefault: !stored,
+    updatedBy: stored?.updatedBy ?? null,
+    updatedAt: stored?.updatedAt ?? null,
+  };
+}
+export type AdminSlackAgentModel = Awaited<ReturnType<typeof slackAgentModelResponse>>;
+export type { AgentModelOption } from "../openrouter-models";
+
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
 
@@ -702,6 +723,41 @@ export const adminUi = new Hono<SessionVars>()
         CLASSIFIER_CACHE_TTL,
         c.req.query("fresh") === "1",
         () => buildClassifierOverview(dbFor(c.env), days),
+      ),
+    );
+  })
+
+  // Admin → Models: which OpenRouter model the Slack mention agent runs.
+  // uploads-slack reads the same row on each mention (platform-settings.ts).
+  .get("/models/slack-agent", async (c) => {
+    return c.json(await slackAgentModelResponse(c.env));
+  })
+
+  .patch("/models/slack-agent", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { model?: unknown };
+    const model = typeof body.model === "string" ? body.model.trim() : body.model;
+    if (model !== null && (typeof model !== "string" || !OPENROUTER_MODEL_ID.test(model))) {
+      throw new ValidationError("model must be an OpenRouter model id like provider/model", {
+        code: "invalid_model",
+      });
+    }
+    const user = c.get("sessionUser");
+    const by = user?.name?.trim() || user?.email || "operator";
+    const value = model === SLACK_AGENT_DEFAULT_MODEL ? null : model;
+    await setPlatformSetting(dbFor(c.env), SLACK_AGENT_MODEL_KEY, value, by);
+    console.log({ event: "slack_agent_model_set", model: value ?? "default" });
+    return c.json(await slackAgentModelResponse(c.env));
+  })
+
+  // Models the agent can run (images + tools), with prices. Cached an hour.
+  .get("/models/agent-options", async (c) => {
+    return c.json(
+      await cachedKvJson(
+        c.env,
+        "admin:openrouter-agent-models:v1",
+        3600,
+        c.req.query("fresh") === "1",
+        () => fetchAgentModelOptions(),
       ),
     );
   })

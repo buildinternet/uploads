@@ -5,9 +5,9 @@
   },
   "display_information": {
     "name": "uploads.sh",
-    "description": "Previews for uploads.sh links, and a heads-up when an upload is held.",
+    "description": "Previews for uploads.sh links, answers when you mention it, and a heads-up when an upload is held.",
     "background_color": "#121214",
-    "long_description": "Shows a preview when someone posts an uploads.sh file, gallery, or change-feed link. Only public links get a preview: private, held, and deleted files never unfurl, so a preview can't show more than the share page itself.\n\nConnect your uploads.sh account from the app's Home tab, and the app messages you when one of your uploads is held for review because it may show a secret or personal information. Approve it, or keep it held, without leaving Slack.\n\nOnce a workspace admin on uploads.sh turns on search for your Slack workspace, run /uploads search <filename> to find its public files."
+    "long_description": "Shows a preview when someone posts an uploads.sh file, gallery, or change-feed link. Only public links get a preview: private, held, and deleted files never unfurl, so a preview can't show more than the share page itself.\n\nConnect your uploads.sh account from the app's Home tab, and the app messages you when one of your uploads is held for review because it may show a secret or personal information. Approve it, or keep it held, without leaving Slack.\n\nOnce a workspace admin on uploads.sh turns on search for your Slack workspace, run /uploads search <filename> to find its public files.\n\nMention @uploads.sh in a channel with a question like \"any recent screenshots from settings?\" and it answers in the thread with the files it finds. It reads only the thread it was mentioned in, and searches the same public files as /uploads search."
   },
   "features": {
     "app_home": {
@@ -37,7 +37,18 @@
   "oauth_config": {
     "redirect_urls": ["https://agents.uploads.sh/slack/oauth/callback"],
     "scopes": {
-      "bot": ["chat:write", "commands", "im:write", "links:read", "links:write", "users:read"]
+      "bot": [
+        "app_mentions:read",
+        "channels:history",
+        "chat:write",
+        "commands",
+        "groups:history",
+        "im:write",
+        "links:read",
+        "links:write",
+        "reactions:write",
+        "users:read"
+      ]
     }
   },
   "settings": {
@@ -45,6 +56,7 @@
       "request_url": "https://agents.uploads.sh/slack/events",
       "bot_events": [
         "app_home_opened",
+        "app_mention",
         "app_uninstalled",
         "entity_details_requested",
         "link_shared",

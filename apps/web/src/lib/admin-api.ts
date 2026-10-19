@@ -20,9 +20,11 @@ import type {
   AdminGithubLink,
   AdminLimitsResponse,
   AdminPlanResponse,
+  AdminSlackAgentModel,
   AdminStorageResponse,
   AdminTokenRow,
   AdminWorkspaceSummary,
+  AgentModelOption,
   OpenEnrollment,
   OrgInvite,
   OrgMember,
@@ -38,6 +40,8 @@ import type {
 } from "@uploads/api/classifier-admin-wire";
 
 export type {
+  AdminSlackAgentModel,
+  AgentModelOption,
   AdminClientActivity,
   AdminGithubLink,
   AdminLimitsResponse,
@@ -98,6 +102,10 @@ export interface AdminApi {
   getClassifierHolds(): Promise<ClassifierHoldsSummary>;
   /** One batch of the operator release; call again while `remaining` drops. */
   releaseClassifierHolds(workspace?: string): Promise<ClassifierHoldsReleaseResult>;
+  getSlackAgentModel(): Promise<AdminSlackAgentModel>;
+  /** `null` goes back to the default. */
+  saveSlackAgentModel(model: string | null): Promise<AdminSlackAgentModel>;
+  listAgentModelOptions(fresh?: boolean): Promise<AgentModelOption[]>;
 }
 
 export function makeAdminApi(apiOrigin: string): AdminApi {
@@ -157,6 +165,26 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
         "POST",
         "release held uploads failed",
         workspace ? { workspace } : {},
+      );
+    },
+    getSlackAgentModel() {
+      return get<AdminSlackAgentModel>(
+        `${base}/admin-ui/models/slack-agent`,
+        "load Slack model failed",
+      );
+    },
+    saveSlackAgentModel(model) {
+      return send<AdminSlackAgentModel>(
+        `${base}/admin-ui/models/slack-agent`,
+        "PATCH",
+        "save Slack model failed",
+        { model },
+      );
+    },
+    listAgentModelOptions(fresh = false) {
+      return get<AgentModelOption[]>(
+        `${base}/admin-ui/models/agent-options${fresh ? "?fresh=1" : ""}`,
+        "load models failed",
       );
     },
     async listWorkspaces() {

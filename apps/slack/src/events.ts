@@ -8,9 +8,11 @@
 import { botTokenFor, type SlackEnv } from "./config";
 import { parseHosts, presentDetails } from "./entities";
 import { publishHome } from "./home";
+import { handleMention } from "./mentions";
 import { revokeInstall } from "./installs";
 import type {
   AppHomeOpenedEvent,
+  AppMentionEvent,
   EntityDetailsRequestedEvent,
   EventCallbackPayload,
   LinkSharedEvent,
@@ -22,8 +24,12 @@ import { handleLinkShared } from "./unfurl";
 export interface HandlerContext {
   env: SlackEnv;
   teamId: string;
+  /** The app's own bot user in this workspace, from the payload's authorizations. */
+  botUserId?: string;
   /** Overridable for tests; defaults to global fetch. */
   slackFetch?: typeof globalThis.fetch;
+  /** Overrides the mention agent's model fetch (tests). */
+  modelFetch?: typeof globalThis.fetch;
 }
 
 type EventHandler = (event: SlackEvent, ctx: HandlerContext) => Promise<void>;
@@ -96,6 +102,11 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
     });
   },
 
+  // Someone @-mentioned the app: answer in the thread (mentions.ts).
+  async app_mention(event, ctx) {
+    await handleMention(event as AppMentionEvent, ctx);
+  },
+
   // Uninstalls and token revocations drop the stored token.
   async app_uninstalled(_event, ctx) {
     if (!ctx.env.DB) return;
@@ -118,5 +129,6 @@ export async function dispatchEvent(
 ): Promise<void> {
   const type = payload.event?.type;
   if (!type || !Object.hasOwn(EVENT_HANDLERS, type)) return;
-  await EVENT_HANDLERS[type]!(payload.event, { ...ctx, teamId: payload.team_id });
+  const botUserId = payload.authorizations?.find((a) => a.is_bot)?.user_id;
+  await EVENT_HANDLERS[type]!(payload.event, { ...ctx, teamId: payload.team_id, botUserId });
 }

@@ -55,6 +55,7 @@ beforeEach(() => {
     "migrations/20261018170000_slack_user_links.sql",
     "migrations/20261018160000_slack_installations.sql",
     "migrations/20261018190000_slack_workspace_bindings.sql",
+    "migrations/20260713210559_file_metadata.sql",
   ]);
   for (const id of ["u-alice", "u-bob"]) {
     sqlite.db
@@ -251,6 +252,79 @@ describe("POST /internal/slack/search", () => {
     sqlite.db.prepare("UPDATE slack_installations SET revoked_at = '2026-10-18'").run();
     const res = await search({ teamId: "T0TEAM1", term: "login" });
     expect(((await res.json()) as { bound: boolean }).bound).toBe(false);
+  });
+
+  function label(key: string, labels: Record<string, string>, at: string) {
+    for (const [name, value] of Object.entries(labels)) {
+      sqlite.db
+        .prepare(
+          "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run("acme", key, `ai.${name}`, value, at);
+    }
+  }
+
+  it("filters by AI labels from D1, newest first, and returns each hit's labels", async () => {
+    bind();
+    for (const key of ["s/a.png", "s/b.png", "s/c.png", "s/held.png", "s/mobile.png"])
+      objects.set(key, { private: false });
+    heldKeysAmong.mockResolvedValue(new Set(["s/held.png"]));
+    label(
+      "s/a.png",
+      { kind: "screenshot", screen: "settings", surface: "desktop" },
+      "2026-10-17T00:00:00Z",
+    );
+    label(
+      "s/b.png",
+      { kind: "screenshot", screen: "settings", surface: "desktop" },
+      "2026-10-19T00:00:00Z",
+    );
+    label(
+      "s/c.png",
+      { kind: "screenshot", screen: "login", surface: "desktop" },
+      "2026-10-19T00:00:00Z",
+    );
+    label("s/held.png", { kind: "screenshot", screen: "settings" }, "2026-10-19T01:00:00Z");
+    label(
+      "s/mobile.png",
+      { kind: "screenshot", screen: "settings", surface: "mobile" },
+      "2026-10-18T00:00:00Z",
+    );
+    // Another workspace's file never shows, even with matching labels.
+    sqlite.db
+      .prepare(
+        "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES ('other', 's/x.png', 'ai.screen', 'settings', '2026-10-20')",
+      )
+      .run();
+    const res = await search({
+      teamId: "T0TEAM1",
+      labels: { kind: "screenshot", screen: "settings" },
+    });
+    const body = (await res.json()) as { results: { key: string; labels?: unknown }[] };
+    expect(body.results.map((r) => r.key)).toEqual(["s/b.png", "s/mobile.png", "s/a.png"]);
+    expect(body.results[1]!.labels).toEqual({
+      kind: "screenshot",
+      screen: "settings",
+      surface: "mobile",
+    });
+    expect(walk).not.toHaveBeenCalled();
+
+    const narrowed = await search({
+      teamId: "T0TEAM1",
+      term: "MOB",
+      labels: { screen: "settings" },
+    });
+    const keys = ((await narrowed.json()) as { results: { key: string }[] }).results.map(
+      (r) => r.key,
+    );
+    expect(keys).toEqual(["s/mobile.png"]);
+  });
+
+  it("404s a label outside the classifier's values", async () => {
+    bind();
+    expect((await search({ teamId: "T0TEAM1", labels: { screen: "nope" } })).status).toBe(404);
+    expect((await search({ teamId: "T0TEAM1", labels: { rating: "safe" } })).status).toBe(404);
+    expect((await search({ teamId: "T0TEAM1", labels: {} })).status).toBe(404);
   });
 
   it("is unreachable on a public host and 404s bad shapes", async () => {

@@ -265,25 +265,55 @@ images. A **Share a file to the channel** menu (`uploads_search_share`) under
 the results posts the picked file to the channel through the same
 `response_url` (`response_type: in_channel`), as the card its link unfurls to.
 
+## Answering mentions
+
+`@uploads.sh <question>` in a channel gets one answer in that message's
+thread (`src/mentions.ts`, event `app_mention`). Same gate as search: a full
+member of a Slack workspace with a binding. The app adds 👀 while it works.
+In a thread it first reads up to 20 messages with `conversations.replies`
+(`channels:history` / `groups:history`), so a follow-up mention builds on
+its own last answer; its own messages are recognised by `app_id`.
+
+`src/agent.ts` is a short tool loop over OpenRouter chat completions
+(`OPENROUTER_API_KEY`). The model is an operator setting under Admin →
+Models (`platform_settings.slack_agent_model`, read on each mention), with
+`DEFAULT_AGENT_MODEL` when none is set:
+
+- `search_files` calls `POST /internal/slack/search` with an optional
+  filename term and `labels` (`kind`, `screen`, `surface`, the classifier's
+  `ai.*` display labels). With labels the API reads D1 instead of walking
+  storage, newest labelled first, and returns each hit's labels. It only
+  ever searches the workspaces bound to the Slack team.
+- `look_at_files` attaches up to four results as images, resized through
+  `/cdn-cgi/image/` on our own hosts, so the answer reflects what they show.
+- `reply` ends the loop with a short mrkdwn answer and the files to show.
+
+Events run in `waitUntil`, so the loop stops starting steps after 20 seconds
+and forces `reply`. If a model call fails, the answer falls back to the last
+search's files. Without `OPENROUTER_API_KEY`, mentions get a one-line "not
+yet" reply.
+
 ## Configuration
 
-| Name                    | Kind   | Purpose                                                                    |
-| ----------------------- | ------ | -------------------------------------------------------------------------- |
-| `SLACK_SIGNING_SECRET`  | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.        |
-| `SLACK_CLIENT_SECRET`   | secret | OAuth client secret. Unset: `/slack/install` answers 503.                  |
-| `SLACK_TOKENS_KEY`      | secret | 16+ character master key that seals bot tokens and signs OAuth state.      |
-| `SLACK_CLIENT_ID`       | var    | The app's public OAuth client id.                                          |
-| `SLACK_APP_ID`          | var    | The app's id, for the "Open Slack" link after install.                     |
-| `SLACK_ORIGIN`          | var    | This worker's origin; the OAuth redirect URI is built from it.             |
-| `WEB_ORIGIN`            | var    | The only origin whose share links unfurl.                                  |
-| `SLACK_WORK_OBJECTS`    | var    | `on` adds Work Object metadata to unfurls ([Work Objects](#work-objects)). |
-| `SLACK_FULL_SIZE_HOSTS` | var    | Image hosts Slack may open full size; each needs CORS for `app.slack.com`. |
-| `API_ORIGIN`            | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound.  |
+| Name                    | Kind   | Purpose                                                                             |
+| ----------------------- | ------ | ----------------------------------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET`  | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.                 |
+| `SLACK_CLIENT_SECRET`   | secret | OAuth client secret. Unset: `/slack/install` answers 503.                           |
+| `SLACK_TOKENS_KEY`      | secret | 16+ character master key that seals bot tokens and signs OAuth state.               |
+| `SLACK_CLIENT_ID`       | var    | The app's public OAuth client id.                                                   |
+| `SLACK_APP_ID`          | var    | The app's id, for the "Open Slack" link after install.                              |
+| `SLACK_ORIGIN`          | var    | This worker's origin; the OAuth redirect URI is built from it.                      |
+| `WEB_ORIGIN`            | var    | The only origin whose share links unfurl.                                           |
+| `SLACK_WORK_OBJECTS`    | var    | `on` adds Work Object metadata to unfurls ([Work Objects](#work-objects)).          |
+| `SLACK_FULL_SIZE_HOSTS` | var    | Image hosts Slack may open full size; each needs CORS for `app.slack.com`.          |
+| `API_ORIGIN`            | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound.           |
+| `OPENROUTER_API_KEY`    | secret | Model calls for [answering mentions](#answering-mentions); same key as uploads-api. |
 
 ```bash
 wrangler secret put SLACK_SIGNING_SECRET --config apps/slack/wrangler.jsonc
 wrangler secret put SLACK_CLIENT_SECRET --config apps/slack/wrangler.jsonc
 wrangler secret put SLACK_TOKENS_KEY --config apps/slack/wrangler.jsonc
+wrangler secret put OPENROUTER_API_KEY --config apps/slack/wrangler.jsonc
 ```
 
 Rotating `SLACK_TOKENS_KEY` makes stored tokens unreadable; teams then need

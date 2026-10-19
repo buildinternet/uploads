@@ -26,6 +26,18 @@ export const FEATURE_SCOPES = {
   holds: ["chat:write", "im:write"],
   /** `/uploads search`; users:read tells full members from guests. */
   search: ["commands", "users:read"],
+  /**
+   * Answering @-mentions in threads. The history scopes let it read the
+   * thread it was mentioned in; reactions:write shows 👀 while it works.
+   */
+  mentions: [
+    "app_mentions:read",
+    "channels:history",
+    "chat:write",
+    "groups:history",
+    "reactions:write",
+    "users:read",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 export type Feature = keyof typeof FEATURE_SCOPES;
@@ -65,6 +77,7 @@ export function missingFeaturesText(granted: Set<string>): string | null {
     connect: "connecting accounts",
     holds: "held-upload messages",
     search: "search",
+    mentions: "answering mentions",
   };
   const missing = (Object.keys(FEATURE_SCOPES) as Feature[])
     .filter((f) => !canRun(granted, f))
