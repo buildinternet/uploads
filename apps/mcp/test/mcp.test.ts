@@ -844,6 +844,7 @@ describe("mcp worker", () => {
       result: { tools: { name: string }[] };
     };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "approve",
       "changelog",
       "comment",
       "delete",
@@ -858,6 +859,7 @@ describe("mcp worker", () => {
       "get_metadata",
       "list",
       "list_activity",
+      "list_held",
       "list_metadata_keys",
       "list_repo_files",
       "promote",
@@ -1480,6 +1482,42 @@ describe("mcp worker", () => {
       key: "shots/missing.png",
     });
     expect(missing.isError).toBe(true);
+  });
+
+  it("list_held, get_metadata, and approve cover a held file", async () => {
+    const { env, metadata } = await makeEnv();
+    const key = "gh/acme/web/pull/12/env.png";
+    // A moved hold: rows only, no object in the bucket.
+    metadata.set(
+      `test-ws ${key}`,
+      new Map([
+        ["ai.hold", "pending"],
+        ["ai.secret", "api_key"],
+        ["ai.hold.area", "0.1,0.2,0.3,0.4"],
+      ]),
+    );
+    metadata.set(`test-ws other/held.png`, new Map([["ai.hold", "pending"]]));
+
+    const listed = await callTool(env, "list_held", { pr: 12, repo: "acme/web" });
+    expect(listed.isError).toBe(false);
+    expect(listed.structuredContent).toMatchObject({
+      items: [{ key, reason: "secret: api_key" }],
+    });
+
+    const meta = await callTool(env, "get_metadata", { key });
+    expect(meta.isError).toBe(false);
+    expect(meta.structuredContent).toMatchObject({ metadata: { "ai.hold": "pending" } });
+
+    const approved = await callTool(env, "approve", { keys: [key] });
+    expect(approved.isError).toBe(false);
+    expect(approved.structuredContent).toEqual({ files: [{ key, action: "approved" }] });
+    expect(metadata.get(`test-ws ${key}`)?.get("ai.hold")).toBe("approved");
+
+    const again = await callTool(env, "approve", { pr: 12, repo: "acme/web" });
+    expect(again.structuredContent).toEqual({ files: [] });
+
+    const neither = await callTool(env, "approve", {});
+    expect(neither.isError).toBe(true);
   });
 
   it("get_metadata enforces files:read scope", async () => {

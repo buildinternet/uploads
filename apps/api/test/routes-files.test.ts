@@ -1354,6 +1354,19 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
     expect(json.error.type).toBe("not_found");
   });
 
+  it("GET answers for a held file whose bytes left the bucket", async () => {
+    const { env, db } = await makeEnv();
+    await setServerFileMetadata(db as unknown as D1Database, "default", "screenshots/held.png", {
+      "ai.hold": "pending",
+      "ai.secret": "api_key",
+    });
+    const res = await getMeta(env, "screenshots/held.png");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      metadata: { "ai.hold": "pending", "ai.secret": "api_key" },
+    });
+  });
+
   it("PATCH set then GET round-trips the value", async () => {
     const { env } = await makeEnv();
     await putShot(env);

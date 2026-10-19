@@ -516,6 +516,8 @@ describe("tools/list", () => {
       "unstage",
       "delete",
       "get_metadata",
+      "list_held",
+      "approve",
       "set_metadata",
       "find_files",
       "list_metadata_keys",
@@ -1680,6 +1682,48 @@ describe("tools/call usage, reconcile, purge_expired (output schema drift)", () 
     const res = await rpc(server, "tools/call", { name: "purge_expired", arguments: {} });
     expect(res.result.isError).toBe(false);
     expect(res.result.structuredContent.reconcile.usage).toEqual(fullUsage);
+  });
+});
+
+describe("tools/call list_held, approve", () => {
+  it("lists held files under a prefix and approves keys", async () => {
+    const { factory } = fakeFactory();
+    const approved: string[] = [];
+    const server = serverWith({
+      factory: (config) => ({
+        ...factory(config),
+        listHeld: async (prefix?: string) =>
+          [{ key: "shots/env.png", reason: "secret: api_key", moved: true }].filter((f) =>
+            f.key.startsWith(prefix ?? ""),
+          ),
+        approve: async (key: string) => {
+          approved.push(key);
+          return { key, approved: true as const };
+        },
+      }),
+    }).server;
+
+    const listed = await rpc(server, "tools/call", {
+      name: "list_held",
+      arguments: { prefix: "shots/" },
+    });
+    expect(listed.result.isError).toBe(false);
+    expect(listed.result.structuredContent).toEqual({
+      items: [{ key: "shots/env.png", reason: "secret: api_key" }],
+    });
+
+    const res = await rpc(server, "tools/call", {
+      name: "approve",
+      arguments: { keys: ["shots/env.png"] },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent).toEqual({
+      files: [{ key: "shots/env.png", action: "approved" }],
+    });
+    expect(approved).toEqual(["shots/env.png"]);
+
+    const neither = await rpc(server, "tools/call", { name: "approve", arguments: {} });
+    expect(neither.result.isError).toBe(true);
   });
 });
 

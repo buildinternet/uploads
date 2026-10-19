@@ -3093,14 +3093,7 @@ export async function approveHeldFiles(opts: {
   }
 
   const target = opts.target!;
-  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
-    repo: target.repo,
-    target: { kind: target.kind, num: target.num },
-  });
-  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
-    ghPrivateKeyPrefix(id, target),
-  );
-  const held = await listHeldUnder(opts.client, prefixes);
+  const held = await listHeldFiles(opts.client, { target });
   const files: ApproveFile[] = [];
   for (const { key, reason } of held) {
     if (opts.all && !dryRun) {
@@ -3111,6 +3104,23 @@ export async function approveHeldFiles(opts: {
     }
   }
   return { dryRun, repo: target.repo, number: target.num, files };
+}
+
+/** Held files on a PR or issue, or under `prefix` (all of them by default). */
+export async function listHeldFiles(
+  client: UploadsClient,
+  opts: { target?: GhTarget; prefix?: string },
+): Promise<{ key: string; reason: string }[]> {
+  const { target } = opts;
+  if (!target) return listHeldUnder(client, [opts.prefix ?? ""]);
+  const ghPrefix = await resolveGhPrefixSafe(client, {
+    repo: target.repo,
+    target: { kind: target.kind, num: target.num },
+  });
+  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
+    ghPrivateKeyPrefix(id, target),
+  );
+  return listHeldUnder(client, prefixes);
 }
 
 /**

@@ -131,6 +131,10 @@ uploads approve --pr 123 --all    # approve every held file on the PR
 uploads approve gh/owner/name/pull/123/settings.png
 ```
 
+From MCP: `list_held` (pass `pr`/`issue`, plus `repo` on the hosted server)
+lists held files and why, and `approve` takes `keys` or a `pr`/`issue`.
+`get_metadata` still answers for a held file and shows `ai.hold=pending`.
+
 **Clear a branch: `uploads unstage`.** Marks files `gh.status=unstaged` so
 they drop out of `uploads staged`, auto-promotion, and the Claude plugin
 band. The object and its URL stay. Needs `files:write`, not `files:delete`.
