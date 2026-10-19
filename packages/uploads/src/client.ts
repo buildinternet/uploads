@@ -135,6 +135,11 @@ export interface PutResult {
   size: number;
   contentType: string;
   /**
+   * `pending` when the classifier may still hold this file for review. It
+   * decides after the response; `uploads approve --pr <n>` lists holds.
+   */
+  holdCheck?: "pending";
+  /**
    * True when the put overwrote an existing key, or (with dryRun) when a put
    * at this key would overwrite. Always set by the API for put/dry-run.
    */
@@ -385,7 +390,14 @@ export type GithubCommentDeclineReason =
   | "unavailable";
 
 export type GithubCommentResult =
-  | { posted: true; action: "created" | "updated" | "skipped"; count: number; commentUrl?: string }
+  | {
+      posted: true;
+      action: "created" | "updated" | "skipped";
+      count: number;
+      commentUrl?: string;
+      /** Files on the PR or issue held for review, when any. */
+      held?: number;
+    }
   | {
       posted: false;
       reason: GithubCommentDeclineReason;

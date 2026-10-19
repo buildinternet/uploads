@@ -45,6 +45,7 @@ export const commentResultSchema: JsonSchema = objectSchema(
     action: { type: "string", enum: ["skipped", "created", "updated"] },
     count: { type: "number" },
     commentUrl: { type: "string" },
+    held: { type: "number" },
   },
   ["posted"],
 );
@@ -104,6 +105,7 @@ const putObjectFields: Record<string, JsonSchema> = {
   provenance: stringMap,
   metadata: stringMap,
   visibility: { type: "string" },
+  holdCheck: { type: "string", enum: ["pending"] },
 };
 
 /** Hosted `PostCommentResult` or stdio `AttachmentsCommentResult` (`via`/`action`). */
@@ -127,6 +129,7 @@ const putCommentSchema: JsonSchema = objectSchema({
   count: { type: "number" },
   commentUrl: { type: "string" },
   via: { type: "string", enum: ["bot", "gh"] },
+  held: { type: "number" },
 });
 
 const putExtras: Record<string, JsonSchema> = {
@@ -647,6 +650,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
     kind: { type: "string" },
     num: { type: "number" },
     via: { type: "string", enum: ["bot", "gh"] },
+    held: { type: "number" },
   }),
   get_metadata: metadataResultSchema,
   list_held: listHeldResultSchema,
