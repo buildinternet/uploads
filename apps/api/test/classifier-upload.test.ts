@@ -17,6 +17,8 @@ import {
   CLASSIFIER_SKIPPED,
   CLASSIFIER_VERSION,
   type ClassifierResizeRequest,
+  DECISIONS_DANGER_ZONE_HEADER,
+  HOLD_AREA_INSTRUCTIONS,
   OPENROUTER_DECISIONS_URL,
   classifyAndStore,
 } from "../src/classifier";
@@ -1323,6 +1325,49 @@ describe("held uploads", () => {
       enforceHold: true,
     });
     expect(await holdOf(env)).toBe("pending");
+  });
+
+  it("stores where the flagged content is from a box call", async () => {
+    let call = 0;
+    const { env, ws, calls } = makeClassifierEnv(() =>
+      call++ === 0
+        ? FLAGGED
+        : {
+            answers: {
+              area: {
+                type: "box",
+                box: { top: 0.2, bottom: 0.4, left: 0.1, right: 0.9 },
+                confidence: 0.43,
+              },
+            },
+          },
+    );
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
+    expect(await holdOf(env)).toBe("pending");
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers[DECISIONS_DANGER_ZONE_HEADER]).toBeUndefined();
+    expect(calls[1].headers[DECISIONS_DANGER_ZONE_HEADER]).toBe("true");
+    expect(calls[1].body.questions).toEqual({
+      area: { type: "box", instructions: HOLD_AREA_INSTRUCTIONS.secret },
+    });
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.hold.area"]).toBe("0.170,0.430,0.070,0.930");
+  });
+
+  it("keeps the hold when the box call fails", async () => {
+    let call = 0;
+    const { env, ws } = makeClassifierEnv(() => {
+      if (call++ === 0) return FLAGGED;
+      throw new Error("box unavailable");
+    });
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
+    expect(await holdOf(env)).toBe("pending");
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.hold.area"]).toBeUndefined();
   });
 
   it("holds a file with high-confidence financial data", async () => {

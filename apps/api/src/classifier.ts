@@ -75,6 +75,14 @@ import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./clas
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
+import {
+  HOLD_AREA_KEY,
+  formatHoldArea,
+  holdReason,
+  padHoldArea,
+  type HoldArea,
+  type HoldReason,
+} from "./upload-hold";
 
 /** Flagship flag. Default `false`; evaluation errors are treated as off. */
 export const CLASSIFIER_FLAG = "llm-file-classifier";
@@ -424,6 +432,21 @@ export interface JevChoiceQuestion {
 }
 
 /**
+ * A Decisions box question: one region, as fractions of the image. Jev 1.14
+ * only, behind TypeSafe's experimental images header
+ * (`DECISIONS_DANGER_ZONE_HEADER`). It always returns a box, even for
+ * something absent, so only ask it when another answer says the target is
+ * there.
+ */
+export interface JevBoxQuestion {
+  type: "box";
+  instructions: string;
+}
+
+/** Header TypeSafe requires on a request with a box question. */
+export const DECISIONS_DANGER_ZONE_HEADER = "TypeSafe-Danger-Zone-Images";
+
+/**
  * Image part for the Decisions `state` array. This is the Chat Completions
  * shape. `{ type: "input_image", image_url: "data:..." }` is not an image
  * input on this API.
@@ -439,7 +462,7 @@ export interface ClassifierDecideRequest {
   model: string;
   state: ClassifierState;
   image?: DecisionImagePart;
-  questions: Record<string, JevChoiceQuestion>;
+  questions: Record<string, JevChoiceQuestion | JevBoxQuestion>;
 }
 
 export type ClassifierRequest = ClassifierDecideRequest;
@@ -1084,6 +1107,9 @@ export function openRouterDecisionsRun(env: Env): ClassifierRun {
         "Content-Type": "application/json",
         "HTTP-Referer": "https://uploads.sh",
         "X-Title": "uploads",
+        ...(Object.values(req.questions).some((q) => q.type === "box")
+          ? { [DECISIONS_DANGER_ZONE_HEADER]: "true" }
+          : {}),
       },
       body: JSON.stringify({
         model: req.model,
@@ -1229,6 +1255,85 @@ async function decideImage(
   return meta;
 }
 
+/** Box instructions per hold reason: one region around everything flagged. */
+export const HOLD_AREA_INSTRUCTIONS: Record<HoldReason, string> = {
+  secret:
+    "The area of the image that shows credentials: one region around every visible secret value.",
+  pii: "The area of the image that shows personal information: one region around every visible identity document, card, or account detail.",
+};
+
+/**
+ * One Jev box call for a file that was just held: where the flagged content
+ * is, padded (`padHoldArea`). The hold already decided the content is
+ * there, which is the presence check a box question needs. `undefined`
+ * when the answer has no usable box.
+ */
+export async function locateHoldArea(
+  run: ClassifierRun,
+  state: ClassifierState,
+  image: DecisionImagePart,
+  reason: HoldReason,
+  signal?: AbortSignal,
+): Promise<{ area: HoldArea; confidence?: number } | undefined> {
+  const result = await run(
+    {
+      stage: "decide",
+      model: CLASSIFIER_JEV_MODEL,
+      state,
+      image,
+      questions: { area: { type: "box", instructions: HOLD_AREA_INSTRUCTIONS[reason] } },
+    },
+    { signal },
+  );
+  const answer = findJevAnswers(result)?.area;
+  if (!isPlainObject(answer)) return undefined;
+  const area = padHoldArea(answer.box);
+  if (!area) return undefined;
+  const confidence =
+    typeof answer.confidence === "number" && Number.isFinite(answer.confidence)
+      ? answer.confidence
+      : undefined;
+  return { area, confidence };
+}
+
+/**
+ * Store `ai.hold.area` for a new hold. Best-effort with its own timeout:
+ * the hold is already in place, so a failed or slow box only means the
+ * file page has no highlight.
+ */
+async function storeHoldArea(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  run: ClassifierRun,
+  state: ClassifierState,
+  image: DecisionImagePart,
+  reason: HoldReason,
+  timeoutMs: number,
+): Promise<void> {
+  const controller = new AbortController();
+  try {
+    const located = await withDeadline(
+      locateHoldArea(run, state, image, reason, controller.signal),
+      timeoutMs,
+      () => controller.abort(),
+      "hold area timed out",
+    );
+    console.log({
+      event: "classifier_hold_area",
+      reason,
+      found: !!located,
+      area_conf: located?.confidence,
+    });
+    if (!located) return;
+    await setServerFileMetadata(dbFor(env), workspaceName, key, {
+      [HOLD_AREA_KEY]: formatHoldArea(located.area),
+    });
+  } catch (err) {
+    console.error({ event: "classifier_hold_area_failed", workspace: workspaceName, err });
+  }
+}
+
 export async function classifyAndStore(
   env: Env,
   ws: WorkspaceRecord,
@@ -1313,9 +1418,16 @@ export async function classifyAndStore(
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.
     const { applyUploadHold } = await import("./upload-hold-service");
-    await applyUploadHold(env, ws, workspaceName, key, stored, {
+    const placed = await applyUploadHold(env, ws, workspaceName, key, stored, {
       enforce: deps?.enforceHold === true,
     });
+    const reason = placed ? holdReason(stored) : undefined;
+    // Box questions need Jev 1.14, and Luna's image may be one Jev rejects.
+    if (reason && provider === "jev") {
+      const state = buildClassifierState(key, contentType, bytes);
+      if (prepared.note) state.note = prepared.note;
+      await storeHoldArea(env, workspaceName, key, run, state, prepared.image, reason, timeoutMs);
+    }
     return stored;
   } catch (err) {
     console.error({ event: "classifier_failed", workspace: workspaceName, key, err });

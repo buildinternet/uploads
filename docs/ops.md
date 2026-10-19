@@ -1401,6 +1401,18 @@ lists held keys (a moved one is absent from `list`), and
 `…/files/held/download?key=` streams the held copy to a member. Private
 prefix rotation does not move held copies.
 
+A new hold on the Jev path makes one more Decisions call: a Jev 1.14 box
+question for the one region around everything flagged
+(`locateHoldArea`, `classifier.ts`). It sends the
+`TypeSafe-Danger-Zone-Images: true` header, which box questions need, and
+has its own `CLASSIFIER_TIMEOUT_MS`. The box, padded by 3 % and clamped, is
+stored as `ai.hold.area` (`top,bottom,left,right` fractions) and returned
+as `area` by `…/files/held`. The `/f/` page outlines it on the held
+preview. It points a reviewer at the right place. It is not a redaction:
+boxes can be off or miss part of the content. A failed or empty box call
+logs `classifier_hold_area` or `classifier_hold_area_failed` and leaves
+the hold as it is.
+
 `POST /v1/workspaces/:workspace/files/approve?key=` writes
 `ai.hold=approved` and re-syncs the comment (`upload_approved`). `ai.hold`
 is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new

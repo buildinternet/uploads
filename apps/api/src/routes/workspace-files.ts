@@ -49,7 +49,7 @@ import {
 } from "../files-core";
 import { approveUpload } from "../upload-hold-service";
 import { listHeldKeys } from "../upload-hold-read";
-import { HOLD_MOVED_KEY, storedHoldReason } from "../upload-hold";
+import { HOLD_AREA_KEY, HOLD_MOVED_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
 import { readHeld } from "../held-storage";
 import {
   getMetadataForKeys,
@@ -443,7 +443,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     const prefix = c.req.query("prefix") ?? "";
     const keys = (await listHeldKeys(c.env, name)).filter((key) => key.startsWith(prefix));
     const meta = await getMetadataForKeys(dbFor(c.env), name, keys, {
-      metaKeys: [HOLD_MOVED_KEY, "ai.secret", "ai.pii"],
+      metaKeys: [HOLD_MOVED_KEY, HOLD_AREA_KEY, "ai.secret", "ai.pii"],
     });
     return c.json({
       items: keys.map((key) => {
@@ -452,6 +452,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           key,
           reason: storedHoldReason(row),
           moved: row[HOLD_MOVED_KEY] === "1",
+          // Where to look, as fractions of the image; null when unknown.
+          area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
         };
       }),
     });
