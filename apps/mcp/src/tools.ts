@@ -77,6 +77,7 @@ import {
 } from "@uploads/api/github-attach-service";
 import {
   getFileMetadata,
+  getMetadataForKeys,
   listFacets,
   META_MAX_KEYS,
   setFileMetadata,
@@ -132,6 +133,13 @@ import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
 import { purgeExpiredObjects } from "@uploads/api/retention";
 import { getWorkspaceUsage } from "@uploads/api/usage";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
+import { HOLD_AREA_KEY, isHeld, parseHoldArea, storedHoldReason } from "@uploads/api/upload-hold";
+import { listHeldKeys } from "@uploads/api/upload-hold-read";
+import {
+  approveUpload,
+  approverLabel,
+  attachmentTargetFor,
+} from "@uploads/api/upload-hold-service";
 import { activityReadTools } from "./activity-tools";
 
 export interface RemoteToolContext {
@@ -398,6 +406,36 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     const store = await storage(env, workspace);
     if (!(await store.exists(key))) throw new NotFoundError("object not found");
     return key;
+  }
+
+  /** Held files, optionally on one PR/issue or under one prefix (`list_held`, `approve`). */
+  async function heldFiles(target?: GhTarget, prefix = "") {
+    const keys = (await listHeldKeys(env, workspaceName)).filter((key) => key.startsWith(prefix));
+    const meta = await getMetadataForKeys(env.DB, workspaceName, keys, {
+      metaKeys: [HOLD_AREA_KEY, "ai.secret", "ai.pii", "gh.repo"],
+    });
+    return keys.flatMap((key) => {
+      const row = meta.get(key) ?? {};
+      if (target) {
+        // Private-prefix keys don't name their repo; `attachmentTargetFor` reads `gh.repo`.
+        const on = attachmentTargetFor(key, row);
+        if (
+          !on ||
+          on.repo !== target.repo.toLowerCase() ||
+          on.kind !== target.kind ||
+          on.num !== target.num
+        ) {
+          return [];
+        }
+      }
+      return [
+        {
+          key,
+          reason: storedHoldReason(row) ?? "flagged",
+          area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
+        },
+      ];
+    });
   }
 
   async function ownerGallery(id: string) {
@@ -1489,8 +1527,79 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
       async handler(args) {
         requireScope("files:read");
-        const key = await requireExistingObjectKey(args);
-        return { metadata: await getFileMetadata(env.DB, workspaceName, key) };
+        const key = requiredString(args, "key");
+        if (badKey(key)) usage("invalid key");
+        const metadata = await getFileMetadata(env.DB, workspaceName, key);
+        // A held file's bytes may have left the bucket; its rows still answer.
+        if (!isHeld(metadata) && !(await (await storage(env, workspace)).exists(key))) {
+          throw new NotFoundError("object not found");
+        }
+        return { metadata };
+      },
+    },
+    {
+      name: "list_held",
+      title: "List held files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`) and `area`, an approximate box around the flagged content as fractions of the image (null when unknown).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pr: { type: "number", description: "Held files on this pull request." },
+          issue: { type: "number", description: "Held files on this issue." },
+          repo: { type: "string", description: hostedRepoRequired },
+          prefix: { type: "string", description: "Only keys under this prefix." },
+        },
+        additionalProperties: false,
+        examples: [{ pr: 12, repo: "acme/web" }],
+      },
+      async handler(args) {
+        requireScope("files:read");
+        return { items: await heldFiles(ghTargetFromArgs(args), optString(args, "prefix")) };
+      },
+    },
+    {
+      name: "approve",
+      title: "Approve held files",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Release uploads held for review (see `list_held`): pass `keys`, or `pr`/`issue` + `repo` to approve every held file there. The file returns at the same URL and the managed PR comment re-syncs. Check the file first: if it shows a real credential, rotate it and delete the file instead of approving. Same as `uploads approve`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          keys: { type: "array", items: { type: "string" }, description: "Held keys to approve." },
+          pr: { type: "number", description: "Approve every held file on this pull request." },
+          issue: { type: "number", description: "Approve every held file on this issue." },
+          repo: { type: "string", description: hostedRepoRequired },
+        },
+        additionalProperties: false,
+        examples: [{ keys: ["gh/acme/web/pull/12/settings.png"] }, { pr: 12, repo: "acme/web" }],
+      },
+      async handler(args) {
+        requireScope("files:write");
+        const keys = optStringArray(args, "keys") ?? [];
+        const target = ghTargetFromArgs(args);
+        if (keys.length > 0 && target) usage("pass keys or pr/issue, not both");
+        if (keys.length === 0 && !target) usage("approve requires keys or pr/issue");
+        for (const key of keys) if (badKey(key)) usage(`invalid key: ${key}`);
+        await requireWriteBudget();
+        const toApprove = target
+          ? await heldFiles(target)
+          : keys.map((key) => ({ key, reason: undefined }));
+        const by = await approverLabel(env, ctx.uploaderIdentity);
+        const files = [];
+        for (const { key, reason } of toApprove) {
+          const result = await approveUpload(env, workspace, workspaceName, key, by);
+          files.push({
+            key,
+            action: result.approved ? "approved" : "not_held",
+            ...(reason ? { reason } : {}),
+          });
+        }
+        return { files };
       },
     },
     {

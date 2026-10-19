@@ -17,6 +17,8 @@ import {
   buildDoctorReport,
   ghListPrefixes,
   ghMergedList,
+  approveHeldFiles,
+  listHeldFiles,
   makeGhTarget,
   mergeStagingMeta,
   resolveAutoPrTarget,
@@ -1729,6 +1731,58 @@ export function createUploadsMcpTools(opts: {
         const key = optString(args, "key");
         if (!key) usage("key is required");
         return (await clientFor(args)).client.getMetadata(key);
+      },
+    },
+    {
+      name: "list_held",
+      title: "List held files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` for one PR or issue, or `prefix`. Each item has a `reason` such as `secret: api_key`. Same as `uploads approve --pr <n>`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...ghTargetProps("Held files on"),
+          prefix: { type: "string", description: "Only keys under this prefix." },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+        examples: [{ pr: 12 }],
+      },
+      async handler(args) {
+        const target = ghTargetFromArgs(args, run);
+        const { client } = await clientFor(args);
+        return {
+          items: await listHeldFiles(client, { target, prefix: optString(args, "prefix") }),
+        };
+      },
+    },
+    {
+      name: "approve",
+      title: "Approve held files",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Release uploads held for review (see `list_held`): pass `keys`, or `pr`/`issue` to approve every held file there. The file returns at the same URL and the managed PR comment re-syncs. Check the file first: if it shows a real credential, rotate it and delete the file instead of approving. Same as `uploads approve`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          keys: { type: "array", items: { type: "string" }, description: "Held keys to approve." },
+          ...ghTargetProps("Approve every held file on"),
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+        examples: [{ keys: ["gh/acme/web/pull/12/settings.png"] }, { pr: 12 }],
+      },
+      async handler(args) {
+        const keys = optStringArray(args, "keys");
+        const target = ghTargetFromArgs(args, run);
+        if (keys?.length && target) usage("pass keys or pr/issue, not both");
+        if (!keys?.length && !target) usage("approve requires keys or pr/issue");
+        const { client } = await clientFor(args);
+        const { files } = await approveHeldFiles({ client, keys, target, all: Boolean(target) });
+        return { files };
       },
     },
     {
