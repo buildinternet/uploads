@@ -4,6 +4,8 @@
  * video poster switches. Hidden until the admin-gated load lands; a member
  * who isn't an admin gets a note instead.
  */
+import SettingRow from "../../../../../components/settings/SettingRow.astro";
+import SettingSwitch from "../../../../../components/settings/SettingSwitch.astro";
 import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
 
@@ -26,69 +28,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         platform.
       </p>
       <div id="poster-error" class="ul-callout" data-state="error" role="alert" hidden></div>
-      <div class="ws-form max-w-none mt-2">
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+      <div class="setting-rows">
+        <SettingRow
+          label="PDF first-page previews"
+          description="A preview of the first page, shown in comments and on the file page."
         >
-          <div class="cs-row__info min-w-0">
-            <span class="cs-row__label font-semibold text-[13px] text-foreground"
-              >PDF first-page previews</span
-            >
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              A preview of the first page, shown in comments and on the file page.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="poster-pdf"
-              aria-checked="false"
-              aria-label="PDF first-page previews"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b-0 py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+          <SettingSwitch id="poster-pdf" label="PDF first-page previews" />
+        </SettingRow>
+        <SettingRow
+          label="Video posters"
+          description="A still frame from the video, shown in comments and on the file page."
         >
-          <div class="cs-row__info min-w-0">
-            <span class="cs-row__label font-semibold text-[13px] text-foreground"
-              >Video posters</span
-            >
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              A still frame from the video, shown in comments and on the file page.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="poster-video"
-              aria-checked="false"
-              aria-label="Video posters"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
+          <SettingSwitch id="poster-video" label="Video posters" />
+        </SettingRow>
       </div>
-      <p id="poster-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
   </section>
 
@@ -105,6 +58,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       patchWorkspacePosterSettings,
       type PosterSettings,
     } from "../../../../../lib/api-client";
+    import { setRowStatus } from "../../../../../lib/setting-row-status";
     import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
     onAstroPageLoad(() => {
       const sectionEl = document.getElementById("poster-section");
@@ -126,7 +80,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       const pdfToggle = requireElement<HTMLButtonElement>("#poster-pdf", page);
       const videoToggle = requireElement<HTMLButtonElement>("#poster-video", page);
-      const statusEl = requireElement<HTMLElement>("#poster-status", page);
       const errorEl = requireElement<HTMLElement>("#poster-error", page);
       const forbiddenEl = requireElement<HTMLElement>("#previews-forbidden", page);
 
@@ -160,7 +113,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           paintToggle(btn, desired);
           setBusy(true);
           showError(null);
-          statusEl.textContent = "Saving…";
+          setRowStatus(btn, "saving");
           void (async () => {
             const result = await patchWorkspacePosterSettings(apiOrigin, workspaceName, {
               [key]: desired,
@@ -169,11 +122,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             setBusy(false);
             if (result.kind === "ok") {
               paint(result.settings);
-              statusEl.textContent = "Saved.";
+              setRowStatus(btn, "saved");
               return;
             }
             paintToggle(btn, !desired);
-            statusEl.textContent = "";
+            setRowStatus(btn, "clear");
             showError(result.kind === "invalid" ? result.message : "Couldn’t save. Try again.");
           })();
         });
