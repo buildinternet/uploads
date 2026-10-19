@@ -275,13 +275,13 @@ paragraph reads as busy. Split them across sentences, or move asides (like an
 
 Reuse these classes — don't invent new ones without a strong reason (note any new
 class you add and why). Headings and their `#` anchors, the copy-button behavior,
-the table of contents, and section dividers are all handled by `DocsLayout`
+the table of contents, and section spacing are all handled by `DocsLayout`
 automatically; you don't wire them up per page.
 
 | Element                                                    | Use for                                                                                                                                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<section class="lead" id="…">`                            | The first section (no top divider under the page title).                                                                                                                                          |
-| `<section id="…">`                                         | Every subsequent section; gets a top divider automatically.                                                                                                                                       |
+| `<section class="lead" id="…">`                            | The first section (sits closer to the page title).                                                                                                                                                |
+| `<section id="…">`                                         | Every subsequent section; spaced from the one above automatically (no rule).                                                                                                                      |
 | `<h2>` with an `<a class="anchor" href="#id">#</a>` inside | Section heading. The anchor sits in the left gutter and appears on hover; the whole heading is click-to-anchor. Keep the markup pattern; the layout styles it.                                    |
 | `<h3>`                                                     | Sub-heading within a section (e.g. a card title, a labelled step).                                                                                                                                |
 | ` ```bash ` fence                                          | A copyable command. The `$ ` prompt is drawn by CSS — never type it. A trailing `# comment` is stripped from the copied text.                                                                     |

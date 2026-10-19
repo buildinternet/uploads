@@ -143,11 +143,9 @@ const fullTitle = `${title} · uploads.sh`;
         margin-bottom: 0;
       }
       .docs-nav-title {
-        font: var(--text-micro) var(--sans);
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
+        font: var(--weight-medium) var(--text-micro) var(--sans);
         color: var(--muted);
-        margin: 0 0 8px;
+        margin: 0 0 6px;
       }
       .docs-side ul,
       .docs-nav-m ul {
@@ -165,7 +163,9 @@ const fullTitle = `${title} · uploads.sh`;
         font: var(--text-meta)/1.5 var(--sans);
         color: var(--muted);
         text-decoration: none;
-        padding: 3px 0;
+        padding: 4px 8px;
+        margin: 0 -8px;
+        border-radius: 6px;
       }
       .docs-side a:hover,
       .docs-side a:focus-visible,
@@ -176,8 +176,9 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .docs-side a[aria-current="page"],
       .docs-nav-m .panel a[aria-current="page"] {
-        color: var(--accent);
-        font-weight: var(--weight-semibold);
+        color: var(--fg);
+        background: var(--surface-hover);
+        font-weight: var(--weight-medium);
       }
 
       /* mobile: the left nav collapses to a dropdown (hidden on wider screens) */
@@ -194,9 +195,7 @@ const fullTitle = `${title} · uploads.sh`;
         align-self: flex-start;
       }
       .docs-toc .head {
-        font: var(--text-micro) var(--sans);
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
+        font: var(--weight-medium) var(--text-micro) var(--sans);
         color: var(--muted);
         margin: 0 0 10px;
       }
@@ -305,13 +304,12 @@ const fullTitle = `${title} · uploads.sh`;
         outline: none;
       }
 
+      /* Sections are separated by space, not a rule. */
       .doc section h2 {
-        font-size: var(--text-h3);
+        font-size: 22px;
         font-weight: var(--weight-semibold);
-        letter-spacing: -0.01em;
-        margin: 40px 0 10px;
-        padding-top: 24px;
-        border-top: 1px solid var(--line);
+        letter-spacing: -0.02em;
+        margin: 56px 0 12px;
         scroll-margin-top: 24px;
         position: relative;
         cursor: pointer;
@@ -321,7 +319,7 @@ const fullTitle = `${title} · uploads.sh`;
       .doc section h2 .anchor {
         position: absolute;
         left: -1.05em;
-        top: 24px;
+        top: 0;
         color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-decoration: none;
         font-weight: var(--weight-regular);
@@ -334,14 +332,8 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--accent);
         background: none;
       }
-      /* the first section shouldn't add a rule directly under the page title */
       .doc section.lead h2 {
-        border-top: none;
-        padding-top: 0;
         margin-top: 22px;
-      }
-      .doc section.lead h2 .anchor {
-        top: 0;
       }
       .doc h3 {
         font: 600 var(--text-body)/1.4 var(--sans);
@@ -446,10 +438,10 @@ const fullTitle = `${title} · uploads.sh`;
       /* Inline code only — `:not(pre) >` keeps this off `pre > code`, where it
          would override Expressive Code's own block padding/background. */
       .doc :not(pre) > code {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 5px;
-        padding: 1px 6px;
+        color: inherit;
+        background: color-mix(in srgb, var(--fg) 7%, transparent);
+        border-radius: 4px;
+        padding: 2px 5px;
         font: var(--mono-optical) var(--mono);
       }
 
@@ -474,7 +466,7 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc .cmd .text::before {
         content: "$ ";
-        color: var(--accent);
+        color: var(--muted);
       }
       /* slash commands are typed into Claude Code, not a shell: no "$ " prompt —
          the command's own leading "/" stands in for it */
@@ -490,9 +482,9 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .cmd button {
         font: var(--text-micro) var(--sans);
         letter-spacing: 0.06em;
-        color: var(--accent);
+        color: var(--muted);
         background: none;
-        border: 1px solid var(--line);
+        border: 1px solid transparent;
         border-radius: 6px;
         padding: 5px 10px;
         cursor: pointer;
@@ -500,7 +492,8 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .cmd button:hover,
       .doc .cmd button:focus-visible {
         outline: none;
-        border-color: var(--accent);
+        color: var(--fg);
+        background: var(--surface-hover);
       }
       .doc .cmd button.done {
         color: var(--green);
@@ -542,7 +535,7 @@ const fullTitle = `${title} · uploads.sh`;
          written into the source, so the copy button still yields a clean command. */
       .doc .expressive-code pre[data-language="bash"] .ec-line .code::before {
         content: "$ ";
-        color: var(--accent);
+        color: var(--muted);
       }
       /* Terminal output was never copyable in the hand-rolled `.block` markup. */
       .doc .expressive-code figure:has(pre[data-language="ansi"]) .copy {
@@ -569,13 +562,16 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc .card:hover,
       .doc .card:focus-visible {
-        border-color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
         outline: none;
       }
       .doc .card h3 {
-        font: 600 var(--text-ui) var(--sans);
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font: var(--weight-medium) var(--text-ui) var(--sans);
         color: var(--fg);
-        margin: 0 0 4px;
+        margin: 0 0 6px;
       }
       .doc .card p {
         font-size: var(--text-meta);
@@ -583,6 +579,10 @@ const fullTitle = `${title} · uploads.sh`;
         margin: 0;
       }
       .doc .card .go {
+        color: var(--muted);
+      }
+      .doc .card:hover .go,
+      .doc .card:focus-visible .go {
         color: var(--accent);
       }
       @media (max-width: 560px) {
