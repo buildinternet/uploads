@@ -325,6 +325,20 @@ describe("classifier on upload", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("marks the put holdCheck pending only when a hold could follow", async () => {
+    const harness = makeClassifierEnv();
+    expect((await putFlagged(harness, FITTING_PNG, { enforceHold: true })).holdCheck).toBe(
+      "pending",
+    );
+    // A client that cannot approve is never held.
+    expect((await putFlagged(harness, FITTING_PNG, { replace: true })).holdCheck).toBeUndefined();
+    // No classification without waitUntil.
+    const plain = await putObject(harness.env, harness.ws, "images/pic.png", PNG, WORKSPACE, {
+      enforceHold: true,
+    });
+    expect(plain.holdCheck).toBeUndefined();
+  });
+
   it("writes nothing when the OpenRouter key is missing", async () => {
     const { env, ws, calls } = makeClassifierEnv(() => DECIDED, {}, { openRouterKey: "  " });
     const pending: Promise<unknown>[] = [];

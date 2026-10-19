@@ -69,6 +69,7 @@ import {
   posterKeyFor,
 } from "./poster";
 import { scheduleFileClassification, type ClassifierWaitUntil } from "./classifier";
+import { holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
 import {
   contentSha256Hex,
@@ -670,6 +671,8 @@ export async function putObject(
   contentType: string;
   /** True when this put overwrote an existing key (messaging only; no confirm). */
   replaced: boolean;
+  /** `pending` when the classifier may still hold this file (`upload-hold.ts`). */
+  holdCheck?: "pending";
   /**
    * The object's R2 provenance bag (`client`, `source-name`, `content-sha256`).
    * One bag, one name: `metadata` below always means the queryable tier.
@@ -1009,7 +1012,7 @@ export async function putObject(
 
   // Experimental: after durable storage + server metadata, never on the
   // critical path. Fail-open inside classifyAndStore.
-  scheduleFileClassification(
+  const classifying = scheduleFileClassification(
     env,
     ws,
     workspaceName,
@@ -1032,6 +1035,11 @@ export async function putObject(
     provenance,
     ...(storedMetadata ? { metadata: storedMetadata } : {}),
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
+    // The classifier may still hold this file (`upload-hold.ts`); it decides
+    // after this response, so a caller checks `list_held` / the PR comment.
+    ...(classifying && opts?.enforceHold && holdPolicyEnabled(ws)
+      ? { holdCheck: "pending" as const }
+      : {}),
   };
 }
 

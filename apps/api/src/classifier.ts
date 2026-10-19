@@ -1438,7 +1438,7 @@ export async function classifyAndStore(
 /**
  * Fire-and-forget after a successful put. REST passes `executionCtx.waitUntil`
  * so the isolate stays alive; callers without a ctx (MCP/ingest/tests) skip
- * rather than block the upload.
+ * rather than block the upload. Returns whether the work was scheduled.
  */
 export function scheduleFileClassification(
   env: Env,
@@ -1449,18 +1449,20 @@ export function scheduleFileClassification(
   contentType: string,
   waitUntil?: ClassifierWaitUntil,
   opts: { enforceHold?: boolean } = {},
-): void {
-  if (!waitUntil) return;
+): boolean {
+  if (!waitUntil) return false;
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
-  if (!env.OPENROUTER_API_KEY?.trim()) return;
-  if (ws.llmClassifierEnabled === false) return;
-  if (ws.classifyUploads === false) return;
+  if (!env.OPENROUTER_API_KEY?.trim()) return false;
+  if (ws.llmClassifierEnabled === false) return false;
+  if (ws.classifyUploads === false) return false;
   const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType, {
     enforceHold: opts.enforceHold,
   });
   try {
     waitUntil(work);
+    return true;
   } catch {
     // no executionCtx — drop the work rather than fail the upload
+    return false;
   }
 }
