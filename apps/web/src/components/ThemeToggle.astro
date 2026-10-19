@@ -1,0 +1,112 @@
+---
+/**
+ * Appearance control: Light, Dark, or Match system.
+ *
+ * The choice lives in localStorage (`uploads-theme`). BaseHead applies it
+ * on `documentElement` before paint; this control only writes that choice
+ * and reflects `data-theme-choice`. Visual selection is CSS keyed off that
+ * attribute, so the pressed option is correct on first paint.
+ *
+ * `floating` pins the control to the viewport corner for pages that have
+ * no site header (sign-in, invite, device, consent).
+ */
+interface Props {
+  floating?: boolean;
+}
+const { floating = false } = Astro.props;
+
+const BIND = `(function(){function sync(){var pick=document.documentElement.getAttribute("data-theme-choice")||"system";document.querySelectorAll("[data-theme-toggle]").forEach(function(group){group.querySelectorAll('input[name="uploads-theme"]').forEach(function(input){input.checked=input.value===pick;});});}function bind(group){if(group.dataset.bound==="1")return;group.dataset.bound="1";group.addEventListener("change",function(event){var input=event.target;if(!input||input.name!=="uploads-theme"||!input.checked)return;if(window.__uploadsSetTheme)window.__uploadsSetTheme(input.value);});}document.querySelectorAll("[data-theme-toggle]").forEach(bind);sync();if(!window.__uploadsThemeToggleBound){window.__uploadsThemeToggleBound=true;document.addEventListener("uploads:theme",sync);}})();`;
+---
+
+<div
+  class:list={["theme-toggle", { "theme-toggle--floating": floating }]}
+  data-theme-toggle
+  role="radiogroup"
+  aria-label="Appearance"
+>
+  <label class="theme-toggle__opt" data-value="light">
+    <input type="radio" name="uploads-theme" value="light" aria-label="Light" />
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.25"></circle>
+      <path
+        d="M8 1.6v1.4M8 13v1.4M1.6 8H3M13 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M3.3 12.7l1-1M11.7 4.3l1-1"
+      ></path>
+    </svg>
+  </label>
+  <label class="theme-toggle__opt" data-value="dark">
+    <input type="radio" name="uploads-theme" value="dark" aria-label="Dark" />
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M13.4 9.3A5.1 5.1 0 0 1 6.7 2.6 5.1 5.1 0 1 0 13.4 9.3z"></path>
+    </svg>
+  </label>
+  <label class="theme-toggle__opt" data-value="system">
+    <input type="radio" name="uploads-theme" value="system" aria-label="Match system" checked />
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2" y="2.75" width="12" height="8" rx="1"></rect>
+      <path d="M6 13.25h4M8 10.75v2.5"></path>
+    </svg>
+  </label>
+</div>
+
+<script is:inline data-astro-rerun set:html={BIND} />
+
+<style>
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    padding: 2px;
+    border: 1px solid var(--line, #232327);
+    border-radius: var(--radius-sm, 7px);
+    background: var(--bg, #0a0a0b);
+  }
+  .theme-toggle--floating {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 40;
+    background: var(--panel, #121214);
+  }
+  .theme-toggle__opt {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 24px;
+    border-radius: 4px;
+    color: var(--muted, #8a8a83);
+    cursor: pointer;
+  }
+  .theme-toggle__opt input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .theme-toggle__opt svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.25;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+  }
+  .theme-toggle__opt:hover {
+    color: var(--fg, #ececea);
+  }
+  html[data-theme-choice="light"] .theme-toggle [data-value="light"],
+  html[data-theme-choice="dark"] .theme-toggle [data-value="dark"],
+  html[data-theme-choice="system"] .theme-toggle [data-value="system"],
+  html:not([data-theme-choice]) .theme-toggle [data-value="system"] {
+    background: var(--surface-hover, #1a1a1e);
+    color: var(--fg, #ececea);
+  }
+  .theme-toggle__opt:has(:focus-visible) {
+    outline: 2px solid var(--accent, #c27eff);
+    outline-offset: 1px;
+  }
+</style>

@@ -412,7 +412,7 @@ const steps = ["Capture the change", "Upload while working", "Ready for review"]
     font-variant-ligatures: none;
   }
   p code {
-    color: #d2b5ef;
+    color: var(--code, #d2b5ef);
     white-space: nowrap;
     font-size: 11px;
   }
@@ -453,9 +453,15 @@ const steps = ["Capture the change", "Upload while working", "Ready for review"]
   }
   .terminal {
     min-width: 0;
-    border: 1px solid var(--line);
+    border: 1px solid #342c40;
     border-radius: 5px;
     background: #19151f;
+    color: #f3eee7;
+    --fg: #f3eee7;
+    --body: #b7b2bd;
+    --muted: #9a92a6;
+    --accent: #c6a1f5;
+    --line: #342c40;
   }
   .terminal-heading {
     border-bottom: 1px solid var(--line);
@@ -496,7 +502,7 @@ const steps = ["Capture the change", "Upload while working", "Ready for review"]
     border-radius: 3px;
   }
   .check {
-    color: #a8d7ae;
+    color: var(--ok, #a8d7ae);
     margin-left: auto;
   }
   .staging-note {

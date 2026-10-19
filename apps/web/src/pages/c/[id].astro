@@ -1,6 +1,7 @@
 ---
 import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
+import ThemeToggle from "../../components/ThemeToggle.astro";
 import Footer from "../../components/Footer.astro";
 import MediaFallback from "../../components/MediaFallback.astro";
 import PrLabel from "../../components/PrLabel.astro";
@@ -108,6 +109,11 @@ function itemDate(item: PublicFeedItem): string | null {
         margin-bottom: 40px;
         font: var(--text-meta) var(--sans);
         letter-spacing: 0.02em;
+      }
+      .nav-end {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
       }
       .public {
         color: var(--muted);
@@ -254,7 +260,13 @@ function itemDate(item: PublicFeedItem): string | null {
   </head>
   <body>
     <main class="shell">
-      <nav><Brand /><span class="public">live link</span></nav>
+      <nav>
+        <Brand />
+        <div class="nav-end">
+          <ThemeToggle />
+          <span class="public">live link</span>
+        </div>
+      </nav>
       {
         feed ? (
           <>
