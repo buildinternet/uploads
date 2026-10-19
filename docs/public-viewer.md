@@ -46,6 +46,13 @@ degrade.
    web Worker's `services`, set the switch to `files`, and deploy web.
 4. Move to `all` once file pages look right.
 
+Workers Builds: connect a separate project for `uploads-viewer` with root
+directory `apps/api`, no build command, deploy command `pnpm run deploy:viewer`,
+and non-production branch builds off. Watch `apps/api/src/**`,
+`apps/api/wrangler.viewer.jsonc`, `apps/api/package.json`, `pnpm-lock.yaml`
+and the packages the viewer links (`packages/{errors,observability,comment-render,billing,storage}/**`);
+exclude `apps/api/test/**` and `apps/api/migrations/**`.
+
 Service bindings always target the viewer's production deployment, so a web
 preview cannot test a branch viewer. Test branches against a separately named
 staging viewer with preview-tier resources, never production state.
