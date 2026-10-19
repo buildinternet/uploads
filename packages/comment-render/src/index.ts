@@ -739,7 +739,7 @@ function liveLinkLine(count: number, url: string): string {
 }
 
 /**
- * `🔒 1 file is held for review · approve with <code>uploads approve --pr 12</code> · why`.
+ * `🔒 1 file is held for your review · approve with <code>uploads approve --pr 12</code> · why`.
  * Uses the real target number when there is one, like the footer. The docs
  * link covers a CLI too old to have `approve` (the API route works there).
  */
@@ -748,7 +748,7 @@ function heldLine(count: number, target?: Pick<GhTarget, "kind" | "num">): strin
   const n =
     target && Number.isInteger(target.num) && target.num > 0 ? String(target.num) : "&lt;N&gt;";
   const subject = count === 1 ? "1 file is" : `${count} files are`;
-  return `🔒 ${subject} held for review · approve with <code>uploads approve ${flag} ${n}</code> · <a href="https://uploads.sh/docs/agents#held-uploads">why</a>`;
+  return `🔒 ${subject} held for your review · approve with <code>uploads approve ${flag} ${n}</code> · <a href="https://uploads.sh/docs/agents#held-uploads">why</a>`;
 }
 
 /**

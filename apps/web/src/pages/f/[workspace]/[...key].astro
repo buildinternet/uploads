@@ -362,6 +362,14 @@ if (timingsEnabled)
         color: var(--accent);
         outline: none;
       }
+      .error button.signin {
+        margin-left: 8px;
+        cursor: pointer;
+      }
+      .error button.signin:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
       .error .checking {
         display: block;
         margin-top: 14px;
@@ -600,17 +608,36 @@ if (timingsEnabled)
             </section>
           </>
         ) : result.status === "auth_required" ? (
-          <section class="error" id="auth-required">
-            <code>file.auth_required</code>
-            <h1>This file is unlisted</h1>
-            <p>Sign in to view this page if you're a member of this workspace.</p>
-            <a class="signin" id="signin-link" href="/login">
-              Sign in
-            </a>
-            <span class="checking" id="auth-checking" hidden>
-              Checking your session…
-            </span>
-          </section>
+          <>
+            <section class="error" id="auth-required">
+              <code>file.auth_required</code>
+              <h1>This file is unlisted</h1>
+              <p>Sign in to view this page if you're a member of this workspace.</p>
+              <a class="signin" id="signin-link" href="/login">
+                Sign in
+              </a>
+              <span class="checking" id="auth-checking" hidden>
+                Checking your session…
+              </span>
+            </section>
+            <section class="error" id="held-state" hidden>
+              <code>file.held</code>
+              <h1>Held for your review</h1>
+              <p>
+                It may show <span id="held-reason">a credential or personal information</span>.
+                Check it, then approve it to put it back at its link.
+              </p>
+              <a class="signin" id="held-download" hidden>
+                Download to check
+              </a>
+              <button type="button" class="signin" id="held-approve">
+                Approve
+              </button>
+              <span class="checking" id="held-error" hidden>
+                Couldn't approve this file. Try again shortly.
+              </span>
+            </section>
+          </>
         ) : (
           <section class="error">
             <>
@@ -662,6 +689,9 @@ if (timingsEnabled)
       (async function () {
         if (!authRequired) return;
         const checking = document.getElementById("auth-checking");
+        // A held file answers like a private one. Show a member the hold,
+        // with Approve, instead of redirecting to bytes that may be gone.
+        if (await showHeld()) return;
         try {
           const endpoint = filesEndpoint(`/file-url?key=${encodeURIComponent(key)}`);
           if (checking) checking.hidden = false;
@@ -684,6 +714,53 @@ if (timingsEnabled)
         }
         if (checking) checking.hidden = true;
       })();
+
+      async function showHeld() {
+        try {
+          const response = await fetch(filesEndpoint(`/held?prefix=${encodeURIComponent(key)}`), {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!response.ok) return false;
+          const body = await response.json();
+          const item = (body?.items ?? []).find((entry) => entry.key === key);
+          if (!item) return false;
+          document.getElementById("auth-required").hidden = true;
+          document.getElementById("held-state").hidden = false;
+          if (typeof item.reason === "string" && item.reason.startsWith("secret")) {
+            document.getElementById("held-reason").textContent = "a credential";
+          } else if (typeof item.reason === "string" && item.reason.startsWith("pii")) {
+            document.getElementById("held-reason").textContent = "personal information";
+          }
+          // A hold that never moved (your own bucket) has no held copy.
+          if (item.moved) {
+            const download = document.getElementById("held-download");
+            download.href = filesEndpoint(`/held/download?key=${encodeURIComponent(key)}`);
+            download.hidden = false;
+          }
+          const approve = document.getElementById("held-approve");
+          const error = document.getElementById("held-error");
+          approve.addEventListener("click", async function () {
+            approve.disabled = true;
+            error.hidden = true;
+            try {
+              const result = await fetch(filesEndpoint(`/approve?key=${encodeURIComponent(key)}`), {
+                method: "POST",
+                credentials: "include",
+              });
+              if (!result.ok) throw new Error(String(result.status));
+              window.location.reload();
+            } catch (e) {
+              approve.disabled = false;
+              error.hidden = false;
+            }
+          });
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
 
       // Report a problem: the ⋯ menu item opens the report dialog.
       (function () {
