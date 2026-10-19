@@ -40,6 +40,11 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Traces back the mention agent's spans (src/tracing.ts) in the
+    // Agents dashboard: model calls with token counts, and tool calls.
+    "traces": {
+      "enabled": true,
+    },
     "issues": {
       "enabled": true,
     },

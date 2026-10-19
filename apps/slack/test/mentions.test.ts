@@ -16,6 +16,7 @@ import { saveInstall } from "../src/installs";
 import { SLACK_AGENT_DEFAULT_MODEL } from "../../api/src/platform-settings";
 import { questionText } from "../src/mentions";
 import { signSlackRequest } from "../src/slack/signature";
+import { spans } from "./cloudflare-workers-stub";
 
 const KEY = "test-tokens-key-0123456789";
 const SECRET = "test-signing-secret";
@@ -74,7 +75,7 @@ describe("answerQuestion", () => {
       { complete: model.complete, search },
     );
     expect(search).toHaveBeenCalledWith("", { kind: "screenshot", screen: "settings" });
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       text: "Two from this week.",
       files: [SETTINGS.results[1]],
       answered: true,
@@ -169,7 +170,7 @@ describe("answerQuestion", () => {
       tool_call_id: "c2",
       content: "Not sent. Call look_at_files on f1 first, then reply.",
     });
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       text: "Slack settings.",
       files: [SETTINGS.results[0]],
       answered: true,
@@ -230,6 +231,7 @@ describe("lookUrl", () => {
 describe("app_mention", () => {
   let sqlite: SqliteD1 | null = null;
   afterEach(() => {
+    spans.length = 0;
     sqlite?.close();
     sqlite = null;
   });
@@ -306,7 +308,9 @@ describe("app_mention", () => {
       expect(String(input)).toBe(OPENROUTER_CHAT_URL);
       bodies.push(JSON.parse(String(init?.body)));
       return Response.json({
+        model: "anthropic/claude-haiku-5.5",
         choices: [{ message: { content: null, tool_calls: turns.shift() } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 50, cost: 0.0012 },
       });
     }) as unknown as typeof globalThis.fetch;
     return { fetch, bodies };
@@ -353,6 +357,7 @@ describe("app_mention", () => {
     const { env, apiCalls } = await setup();
     const slack = fakeSlack(MEMBER);
     const model = fakeModel();
+    spans.length = 0;
     const res = await mention(env, slack.fetch, model.fetch, {
       ts: "100.3",
       thread_ts: "100.1",
@@ -382,6 +387,33 @@ describe("app_mention", () => {
       thread_ts: "100.1",
       text: "One mobile settings screenshot.",
     });
+    // One invoke_agent span for the thread, with a chat span per model call
+    // and the tokens added up.
+    const conversation = "T1:C1:100.1";
+    const names = spans.map((sp) => sp.name);
+    expect(names).toEqual([
+      "invoke_agent uploads.sh Slack",
+      "chat anthropic/claude-haiku-5.5",
+      "execute_tool search_files",
+      "chat anthropic/claude-haiku-5.5",
+      "execute_tool look_at_files",
+      "chat anthropic/claude-haiku-5.5",
+    ]);
+    expect(spans[0]!.attributes).toMatchObject({
+      "gen_ai.operation.name": "invoke_agent",
+      "gen_ai.agent.id": "T1",
+      "gen_ai.conversation.id": conversation,
+      "gen_ai.usage.input_tokens": 3000,
+      "gen_ai.usage.output_tokens": 150,
+    });
+    expect(spans[1]!.attributes).toMatchObject({
+      "gen_ai.operation.name": "chat",
+      "gen_ai.conversation.id": conversation,
+      "gen_ai.response.model": "anthropic/claude-haiku-5.5",
+      "gen_ai.usage.input_tokens": 1000,
+    });
+    expect(spans[2]!.attributes["gen_ai.tool.call.arguments"]).toContain('"surface":"mobile"');
+    expect(model.bodies[0]!.usage).toEqual({ include: true });
     const blocks = posted.blocks as { text?: { text: string } }[];
     expect(blocks).toHaveLength(2);
     expect(blocks[1]!.text!.text).toContain("https://uploads.sh/f/acme/shots/account.png");

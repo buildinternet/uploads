@@ -18,8 +18,12 @@
  * `agentModel`). Events run in `waitUntil`,
  * which Workers stop about 30 seconds after the response, so the loop has a
  * deadline and is made to reply once it nears it.
+ *
+ * Each model call and tool runs in a trace span (tracing.ts), with token
+ * counts on the model calls.
  */
 import type { SearchResponse, SearchResult } from "./commands";
+import { inSpan, type SpanAttributes } from "./tracing";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const DEFAULT_AGENT_MODEL = "anthropic/claude-haiku-5.5";
@@ -174,10 +178,18 @@ export interface CompletionRequest {
   tool_choice: "auto" | { type: "function"; function: { name: "reply" } };
 }
 
+/** Tokens and cost one model call reported; OpenRouter's cost is in USD. */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
 /** One assistant turn, or null when the call failed. */
 export type Complete = (request: CompletionRequest) => Promise<{
   content: string | null;
   tool_calls?: ToolCall[];
+  usage?: Usage;
 } | null>;
 
 export type Search = (
@@ -190,42 +202,82 @@ export interface AgentAnswer {
   files: SearchResult[];
   /** False when the model couldn't finish and this is a fallback. */
   answered: boolean;
+  /** Totals across the model calls. */
+  usage: Usage & { calls: number };
 }
 
-/** OpenRouter chat completions, as a `Complete`. */
+/**
+ * OpenRouter chat completions, as a `Complete`. Each call is a `chat` span;
+ * `identity` is the agent's identity attributes, which the Agents dashboard
+ * wants on these spans as well as on `invoke_agent`.
+ */
 export function openRouterComplete(options: {
   apiKey: string;
   model: string;
   fetch?: typeof globalThis.fetch;
+  identity?: SpanAttributes;
 }): Complete {
   const doFetch = options.fetch ?? globalThis.fetch;
-  return async (request) => {
-    try {
-      const res = await doFetch(OPENROUTER_CHAT_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${options.apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://uploads.sh",
-          "X-Title": "uploads",
-        },
-        body: JSON.stringify({ model: options.model, max_tokens: 800, ...request }),
-        signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-      });
-      if (!res.ok) {
-        console.error("slack.agent: model call failed", { status: res.status });
+  const attributes = {
+    ...options.identity,
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openrouter",
+    "gen_ai.request.model": options.model,
+  };
+  return (request) =>
+    inSpan(`chat ${options.model}`, attributes, async (span) => {
+      try {
+        const res = await doFetch(OPENROUTER_CHAT_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${options.apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://uploads.sh",
+            "X-Title": "uploads",
+          },
+          body: JSON.stringify({
+            model: options.model,
+            max_tokens: 800,
+            usage: { include: true },
+            ...request,
+          }),
+          signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          span.setAttributes({ "error.type": String(res.status) });
+          console.error("slack.agent: model call failed", { status: res.status });
+          return null;
+        }
+        const json = (await res.json()) as {
+          model?: string;
+          choices?: {
+            finish_reason?: string;
+            message?: { content?: string | null; tool_calls?: ToolCall[] };
+          }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+        };
+        const usage: Usage = {
+          inputTokens: json.usage?.prompt_tokens ?? 0,
+          outputTokens: json.usage?.completion_tokens ?? 0,
+          costUsd: json.usage?.cost ?? 0,
+        };
+        span.setAttributes({
+          "gen_ai.response.model": json.model,
+          "gen_ai.response.finish_reasons": json.choices?.[0]?.finish_reason,
+          "gen_ai.usage.input_tokens": usage.inputTokens,
+          "gen_ai.usage.output_tokens": usage.outputTokens,
+          "openrouter.cost_usd": usage.costUsd,
+        });
+        const message = json.choices?.[0]?.message;
+        return message
+          ? { content: message.content ?? null, tool_calls: message.tool_calls, usage }
+          : null;
+      } catch (err) {
+        span.setAttributes({ "error.type": err instanceof Error ? err.name : "error" });
+        console.error("slack.agent: model call threw", { err: String(err) });
         return null;
       }
-      const json = (await res.json()) as {
-        choices?: { message?: { content?: string | null; tool_calls?: ToolCall[] } }[];
-      };
-      const message = json.choices?.[0]?.message;
-      return message ? { content: message.content ?? null, tool_calls: message.tool_calls } : null;
-    } catch (err) {
-      console.error("slack.agent: model call threw", { err: String(err) });
-      return null;
-    }
-  };
+    });
 }
 
 /** A smaller copy of an image on our own hosts; anything else as-is. */
@@ -299,6 +351,7 @@ export async function answerQuestion(
   let nudged = false;
   let lastResults: SearchResult[] = [];
   let notBound = false;
+  const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 };
 
   const userText = [
     input.context.length ? `Thread so far:\n${input.context.join("\n")}\n` : "",
@@ -315,11 +368,13 @@ export async function answerQuestion(
           text: "I couldn't finish looking through these, but here's what the search found.",
           files: distinct(lastResults).slice(0, REPLY_FILES_MAX),
           answered: false,
+          usage,
         }
       : {
           text: "I couldn't answer that just now. `/uploads search <filename>` still works in the meantime.",
           files: [],
           answered: false,
+          usage,
         };
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -330,11 +385,17 @@ export async function answerQuestion(
       tool_choice: mustReply ? { type: "function", function: { name: "reply" } } : "auto",
     });
     if (!turn) return fallback();
+    usage.calls++;
+    if (turn.usage) {
+      usage.inputTokens += turn.usage.inputTokens;
+      usage.outputTokens += turn.usage.outputTokens;
+      usage.costUsd += turn.usage.costUsd;
+    }
     const calls = turn.tool_calls ?? [];
     if (calls.length === 0) {
       // A plain answer with no tool call: take it as the reply, with no files.
       const text = turn.content?.trim();
-      return text ? { text, files: [], answered: true } : fallback();
+      return text ? { text, files: [], answered: true, usage } : fallback();
     }
     messages.push({ role: "assistant", content: turn.content, tool_calls: calls });
 
@@ -359,59 +420,71 @@ export async function answerQuestion(
         const files = distinct(
           ids.map((id) => found.get(id)).filter((r): r is SearchResult => r !== undefined),
         );
-        return text ? { text, files, answered: true } : fallback();
+        return text ? { text, files, answered: true, usage } : fallback();
       }
-      let result: string;
-      if (call.function.name === "search_files") {
-        const term = typeof args.query === "string" ? args.query.trim().slice(0, 128) : "";
-        const labels: Record<string, string> = {};
-        for (const [name, values] of [
-          ["kind", KINDS],
-          ["screen", SCREENS],
-          ["surface", SURFACES],
-        ] as const) {
-          const value = args[name];
-          if (typeof value === "string" && values.includes(value)) labels[name] = value;
-        }
-        if (!term && Object.keys(labels).length === 0) {
-          result = "Give at least one of query, kind, screen, or surface.";
-        } else {
-          const response = await deps.search(term, labels);
-          if (!response) {
-            result = "Search failed. Try again or reply with what you have.";
-          } else if (!response.bound) {
-            notBound = true;
-            result = "Search isn't turned on for this Slack workspace.";
-          } else {
-            lastResults = response.results;
-            const lines = response.results.map((r) => {
-              const ref = `${r.workspace}/${r.key}`;
-              let id = idFor.get(ref);
-              if (!id) {
-                id = `f${found.size + 1}`;
-                idFor.set(ref, id);
-                found.set(id, r);
+      const tool = call.function.name;
+      const result = await inSpan(
+        `execute_tool ${tool}`,
+        {
+          "gen_ai.operation.name": "execute_tool",
+          "gen_ai.tool.name": tool,
+          "gen_ai.tool.call.id": call.id,
+          "gen_ai.tool.call.arguments": call.function.arguments.slice(0, 500),
+        },
+        async (span): Promise<string> => {
+          if (tool === "search_files") {
+            const term = typeof args.query === "string" ? args.query.trim().slice(0, 128) : "";
+            const labels: Record<string, string> = {};
+            for (const [name, values] of [
+              ["kind", KINDS],
+              ["screen", SCREENS],
+              ["surface", SURFACES],
+            ] as const) {
+              const value = args[name];
+              if (typeof value === "string" && values.includes(value)) labels[name] = value;
+            }
+            if (!term && Object.keys(labels).length === 0) {
+              return "Give at least one of query, kind, screen, or surface.";
+            } else {
+              const response = await deps.search(term, labels);
+              if (!response) {
+                return "Search failed. Try again or reply with what you have.";
+              } else if (!response.bound) {
+                notBound = true;
+                return "Search isn't turned on for this Slack workspace.";
+              } else {
+                lastResults = response.results;
+                span.setAttributes({ "uploads.search.results": response.results.length });
+                const lines = response.results.map((r) => {
+                  const ref = `${r.workspace}/${r.key}`;
+                  let id = idFor.get(ref);
+                  if (!id) {
+                    id = `f${found.size + 1}`;
+                    idFor.set(ref, id);
+                    found.set(id, r);
+                  }
+                  return describe(id, r);
+                });
+                return lines.length ? lines.join("\n") : "No matches.";
               }
-              return describe(id, r);
-            });
-            result = lines.length ? lines.join("\n") : "No matches.";
+            }
+          } else if (tool === "look_at_files") {
+            const picked = stringList(args.ids, LOOK_MAX)
+              .map((id) => [id, found.get(id)] as const)
+              .filter((pair): pair is readonly [string, SearchResult] => !!pair[1]?.imageUrl);
+            for (const [id, r] of picked) {
+              seen.add(id);
+              images.push({ type: "text", text: `${id}: ${r.key}` });
+              images.push({ type: "image_url", image_url: { url: lookUrl(r.imageUrl!) } });
+            }
+            return picked.length
+              ? `Attached ${picked.map(([id]) => id).join(", ")} in the next message.`
+              : "None of those ids are image results.";
+          } else {
+            return `Unknown tool ${tool}.`;
           }
-        }
-      } else if (call.function.name === "look_at_files") {
-        const picked = stringList(args.ids, LOOK_MAX)
-          .map((id) => [id, found.get(id)] as const)
-          .filter((pair): pair is readonly [string, SearchResult] => !!pair[1]?.imageUrl);
-        for (const [id, r] of picked) {
-          seen.add(id);
-          images.push({ type: "text", text: `${id}: ${r.key}` });
-          images.push({ type: "image_url", image_url: { url: lookUrl(r.imageUrl!) } });
-        }
-        result = picked.length
-          ? `Attached ${picked.map(([id]) => id).join(", ")} in the next message.`
-          : "None of those ids are image results.";
-      } else {
-        result = `Unknown tool ${call.function.name}.`;
-      }
+        },
+      );
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
     if (notBound) {
@@ -419,6 +492,7 @@ export async function answerQuestion(
         text: "Search isn't on for this Slack workspace yet. A workspace admin on uploads.sh can turn it on under Settings → Slack.",
         files: [],
         answered: true,
+        usage,
       };
     }
     if (images.length) messages.push({ role: "user", content: images });

@@ -287,11 +287,29 @@ Models (`platform_settings.slack_agent_model`, read on each mention), with
 - `look_at_files` attaches up to four results as images, resized through
   `/cdn-cgi/image/` on our own hosts, so the answer reflects what they show.
 - `reply` ends the loop with a short mrkdwn answer and the files to show.
+  The first time it names images the model hasn't looked at, the reply is
+  sent back once with "look first". Copies of one image in two folders
+  (same workspace, filename and upload day) show once.
 
 Events run in `waitUntil`, so the loop stops starting steps after 20 seconds
 and forces `reply`. If a model call fails, the answer falls back to the last
 search's files. Without `OPENROUTER_API_KEY`, mentions get a one-line "not
 yet" reply.
+
+### Tracing
+
+`observability.traces` is on, and `src/tracing.ts` writes spans the
+Cloudflare dashboard's **Agents** tab reads (OpenTelemetry GenAI names):
+one `invoke_agent uploads.sh Slack` span per mention, a `chat <model>` span
+per model call, and an `execute_tool <tool>` span per tool call. The agent
+id is the Slack team and the conversation id is `team:channel:thread_ts`,
+so a thread's mentions group as one session. Model calls ask OpenRouter for
+usage (`usage.include`), so each `chat` span carries
+`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` and
+`openrouter.cost_usd`, and the `invoke_agent` span has the totals. The
+`slack.mention` log line repeats them. Tool spans record their arguments
+(search words and labels); spans never record the question, the thread, or
+image contents.
 
 ## Configuration
 
