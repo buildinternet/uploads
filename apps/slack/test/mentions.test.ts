@@ -14,7 +14,7 @@ import type { SlackEnv } from "../src/config";
 import { createApp } from "../src/index";
 import { saveInstall } from "../src/installs";
 import { SLACK_AGENT_DEFAULT_MODEL } from "../../api/src/platform-settings";
-import { DAILY_MENTIONS, questionText } from "../src/mentions";
+import { questionText } from "../src/mentions";
 import { signSlackRequest } from "../src/slack/signature";
 import { spans } from "./cloudflare-workers-stub";
 
@@ -249,7 +249,10 @@ describe("app_mention", () => {
     sqlite = null;
   });
 
-  async function setup(overrides: Partial<SlackEnv> = {}) {
+  /** What uploads-api's `/internal/slack/plan` answers. */
+  const FREE = { plan: "free", answersPerDay: 10 };
+
+  async function setup(overrides: Partial<SlackEnv> = {}, plan: object = FREE) {
     sqlite = new SqliteD1([
       "migrations/20261018160000_slack_installations.sql",
       "migrations/20261019210000_platform_settings.sql",
@@ -264,7 +267,8 @@ describe("app_mention", () => {
       OPENROUTER_API_KEY: "sk-or-test",
       DB: database(sqlite),
       API: {
-        fetch: vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).endsWith("/internal/slack/plan")) return Response.json(plan);
           apiCalls.push(JSON.parse(String(init?.body ?? "{}")));
           return Response.json(SETTINGS);
         }),
@@ -479,25 +483,58 @@ describe("app_mention", () => {
     expect(String(posted.text)).toContain("can't answer questions here yet");
   });
 
-  it("stops answering a Slack workspace past its daily limit", async () => {
+  it("stops answering a Slack workspace past its plan's daily limit", async () => {
     const { env } = await setup();
     const today = new Date().toISOString().slice(0, 10);
     await env
       .DB!.prepare("INSERT INTO slack_agent_usage (team_id, day, mentions) VALUES (?, ?, ?)")
-      .bind("T1", today, DAILY_MENTIONS)
+      .bind("T1", today, FREE.answersPerDay)
       .run();
     const slack = fakeSlack(MEMBER);
     const model = fakeModel();
     await mention(env, slack.fetch, model.fetch, { ts: "4.1", text: "<@UBOT> settings?" });
     expect(model.bodies).toEqual([]);
     const posted = slack.calls.find((c) => c.method === "chat.postMessage")!.body;
-    expect(String(posted.text)).toContain(`today's ${DAILY_MENTIONS} questions`);
+    expect(String(posted.text)).toContain("today's 10 questions. Pro workspaces get more.");
     // The refused mention still counts.
     const row = await env
       .DB!.prepare("SELECT mentions FROM slack_agent_usage WHERE team_id = ? AND day = ?")
       .bind("T1", today)
       .first<{ mentions: number }>();
-    expect(row?.mentions).toBe(DAILY_MENTIONS + 1);
+    expect(row?.mentions).toBe(FREE.answersPerDay + 1);
+  });
+
+  it("keeps answering past the free limit on Pro, and stops at Pro's", async () => {
+    const { env } = await setup({}, { plan: "pro", answersPerDay: 60 });
+    const today = new Date().toISOString().slice(0, 10);
+    await env
+      .DB!.prepare("INSERT INTO slack_agent_usage (team_id, day, mentions) VALUES (?, ?, ?)")
+      .bind("T1", today, 10)
+      .run();
+    const model = fakeModel();
+    await mention(env, fakeSlack(MEMBER).fetch, model.fetch, { ts: "4.2", text: "<@UBOT> a" });
+    expect(model.bodies.length).toBeGreaterThan(0);
+
+    await env
+      .DB!.prepare("UPDATE slack_agent_usage SET mentions = 60 WHERE team_id = ?")
+      .bind("T1")
+      .run();
+    const slack = fakeSlack(MEMBER);
+    await mention(env, slack.fetch, fakeModel().fetch, { ts: "4.3", text: "<@UBOT> b" });
+    const posted = slack.calls.find((c) => c.method === "chat.postMessage")!.body;
+    expect(String(posted.text)).toContain("today's 60 questions. I can answer");
+  });
+
+  it("answers when the plan can't be read", async () => {
+    const { env } = await setup({}, { nope: true });
+    const today = new Date().toISOString().slice(0, 10);
+    await env
+      .DB!.prepare("INSERT INTO slack_agent_usage (team_id, day, mentions) VALUES (?, ?, ?)")
+      .bind("T1", today, 500)
+      .run();
+    const model = fakeModel();
+    await mention(env, fakeSlack(MEMBER).fetch, model.fetch, { ts: "4.4", text: "<@UBOT> a" });
+    expect(model.bodies.length).toBeGreaterThan(0);
   });
 
   it("counts each answered mention", async () => {

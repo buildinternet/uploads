@@ -21,6 +21,11 @@
  *   from D1 instead of walking storage, and gets each hit's labels back.
  *   Only bound workspaces are ever searched, even though every hit is public.
  *
+ * - `POST /internal/slack/plan` — the mention agent's daily answer limit for
+ *   a Slack team: the highest plan among its bound workspaces (free when
+ *   none are bound), and that plan's `slackAnswersPerDay`. uploads-slack
+ *   counts the answers itself (`slack_agent_usage`).
+ *
  * Guard: the binding addresses `api.internal`. Public traffic only reaches
  * this worker through the api.uploads.sh Custom Domain (or web's `/api`
  * proxy, which keeps the public host), so a request whose URL host is
@@ -31,6 +36,7 @@
  * Every not-linked, not-a-member, or bad-shape case answers 404 with no
  * detail, so the route can't be used to probe links or memberships.
  */
+import { getPlan, PLANS, type PlanDefinition } from "@uploads/billing";
 import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { KIND_CRITERIA, SCREEN_CRITERIA, SURFACE_CRITERIA } from "../classifier";
@@ -140,6 +146,22 @@ function notFound(): NotFoundError {
   return new NotFoundError();
 }
 
+/** Workspaces bound to `teamId` while its install is live, by name. */
+async function boundWorkspaces(db: ReturnType<typeof dbFor>, teamId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT b.workspace
+         FROM slack_workspace_bindings b
+         INNER JOIN slack_installations i ON i.team_id = b.team_id
+        WHERE b.team_id = ? AND i.revoked_at IS NULL
+        ORDER BY b.workspace
+        LIMIT ?`,
+    )
+    .bind(teamId, SEARCH_MAX_WORKSPACES)
+    .all<{ workspace: string }>();
+  return results.map((r) => r.workspace);
+}
+
 export const internalSlack = new Hono<WorkspaceVars>()
   .use("*", async (c, next) => {
     if (new URL(c.req.url).hostname !== INTERNAL_API_HOST) throw notFound();
@@ -177,6 +199,22 @@ export const internalSlack = new Hono<WorkspaceVars>()
     console.log({ event: "upload_approved_from_slack", workspace, approved: result.approved });
     return c.json({ key, ...result });
   })
+  .post("/plan", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const teamId = typeof body?.teamId === "string" ? body.teamId : "";
+    if (!TEAM_ID.test(teamId)) throw notFound();
+    const bound = await boundWorkspaces(dbFor(c.env), teamId);
+    const records = await Promise.all(bound.map((ws) => loadWorkspaceRecord(c.env, ws)));
+    let best: PlanDefinition = getPlan(undefined);
+    for (const record of records) {
+      // Operator-provisioned records with no plan stamped keep the unlimited
+      // posture they have everywhere else (workspace-cap.ts), so they count as Pro.
+      const legacy = record && !record.plan && record.selfServe !== true;
+      const plan = legacy ? PLANS.pro : getPlan(record?.plan);
+      if (plan.slackAnswersPerDay > best.slackAnswersPerDay) best = plan;
+    }
+    return c.json({ plan: best.id, answersPerDay: best.slackAnswersPerDay });
+  })
   .post("/search", async (c) => {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const teamId = typeof body?.teamId === "string" ? body.teamId : "";
@@ -192,17 +230,7 @@ export const internalSlack = new Hono<WorkspaceVars>()
     }
     if (!term && !byLabels) throw notFound();
     const db = dbFor(c.env);
-    const { results: bound } = await db
-      .prepare(
-        `SELECT b.workspace
-           FROM slack_workspace_bindings b
-           INNER JOIN slack_installations i ON i.team_id = b.team_id
-          WHERE b.team_id = ? AND i.revoked_at IS NULL
-          ORDER BY b.workspace
-          LIMIT ?`,
-      )
-      .bind(teamId, SEARCH_MAX_WORKSPACES)
-      .all<{ workspace: string }>();
+    const bound = (await boundWorkspaces(db, teamId)).map((workspace) => ({ workspace }));
     if (bound.length === 0) return c.json({ bound: false, results: [], truncated: false });
     const candidates = Math.max(SEARCH_CANDIDATES, limit);
 

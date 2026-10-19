@@ -291,9 +291,12 @@ Models (`platform_settings.slack_agent_model`, read on each mention), with
   sent back once with "look first". Copies of one image in two folders
   (same workspace, filename and upload day) show once.
 
-Each Slack team gets `DAILY_MENTIONS` (50) answers per UTC day, counted in
-D1 `slack_agent_usage` before the model runs; past that the mention gets a
-"used today's questions" reply and no model call. If the count can't be
+Each Slack team gets a plan's `slackAnswersPerDay` answers per UTC day
+(`packages/billing/src/plans.ts`: free 10, Pro 60), taking the highest plan
+among its bound workspaces from uploads-api's `/internal/slack/plan`.
+Answers are counted in D1 `slack_agent_usage` before the model runs; past
+the limit the mention gets a "used today's questions" reply (free adds "Pro
+workspaces get more") and no model call. If the count or the plan can't be
 read, the mention goes ahead. Any failed model call gets the same "can't
 answer questions right now" reply, so people never learn that our OpenRouter
 key or credits are the problem; the log line's `model_error` says `account`

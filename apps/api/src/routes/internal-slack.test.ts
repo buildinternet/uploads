@@ -11,8 +11,11 @@ vi.mock("../upload-hold-service", () => ({
 vi.mock("../workspace", async (orig) => ({
   ...(await orig<typeof import("../workspace")>()),
   loadWorkspaceRecord: async (_env: unknown, name: string) =>
-    name === "acme" ? { provider: "r2", bucket: "b", name } : null,
+    name === "acme" ? { provider: "r2", bucket: "b", name } : (records.get(name) ?? null),
 }));
+
+/** Extra workspace records by name, beside acme. */
+const records = new Map<string, Record<string, unknown>>();
 
 /** What the storage walk yields for a name search: key + upload time. */
 const walk = vi.fn<(term: string) => { key: string; lastModified?: number }[]>(() => []);
@@ -158,6 +161,70 @@ describe("POST /internal/slack/approve", () => {
     expect((await approve({ ...GOOD, key: "" })).status).toBe(404);
     expect((await approve({ ...GOOD, workspace: "Acme!" })).status).toBe(404);
     expect(approveUpload).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /internal/slack/plan", () => {
+  function plan(teamId: string, host = "api.internal") {
+    return app().request(
+      `https://${host}/internal/slack/plan`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId }),
+      },
+      env(),
+    );
+  }
+
+  function bind(workspace: string, revoked = false) {
+    sqlite.db
+      .prepare(
+        `INSERT OR IGNORE INTO slack_installations (team_id, team_name, app_id, scopes, installed_at, updated_at, revoked_at)
+         VALUES ('T0TEAM1', 'Acme', 'A1', 'commands', '2026-10-18', '2026-10-18', ?)`,
+      )
+      .run(revoked ? "2026-10-19" : null);
+    sqlite.db
+      .prepare(
+        "INSERT INTO slack_workspace_bindings (team_id, workspace, bound_by_user_id, created_at) VALUES ('T0TEAM1', ?, 'u-alice', '2026-10-18')",
+      )
+      .run(workspace);
+  }
+
+  beforeEach(() => {
+    records.clear();
+    records.set("hobby", { name: "hobby", selfServe: true });
+    records.set("paid", { name: "paid", selfServe: true, plan: "pro" });
+  });
+
+  it("is free with nothing bound", async () => {
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "free", answersPerDay: 10 });
+  });
+
+  it("is free for a self-serve free workspace", async () => {
+    bind("hobby");
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "free", answersPerDay: 10 });
+  });
+
+  it("takes the highest plan among bound workspaces", async () => {
+    bind("hobby");
+    bind("paid");
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "pro", answersPerDay: 60 });
+  });
+
+  it("counts an operator-provisioned workspace with no plan as Pro", async () => {
+    bind("acme");
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "pro", answersPerDay: 60 });
+  });
+
+  it("ignores bindings once the install is revoked", async () => {
+    bind("paid", true);
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "free", answersPerDay: 10 });
+  });
+
+  it("404s off the internal host and on a bad team id", async () => {
+    expect((await plan("T0TEAM1", "api.uploads.sh")).status).toBe(404);
+    expect((await plan("nope")).status).toBe(404);
   });
 });
 
