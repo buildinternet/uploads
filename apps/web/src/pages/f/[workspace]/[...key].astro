@@ -404,6 +404,11 @@ if (timingsEnabled)
         color: var(--muted);
         font: var(--text-micro) var(--sans);
       }
+      /* The display rules above beat the UA's [hidden] rule. Keep hidden
+         status lines, links, and buttons hidden until the script shows them. */
+      [hidden] {
+        display: none !important;
+      }
       a {
         color: var(--fg);
         text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
