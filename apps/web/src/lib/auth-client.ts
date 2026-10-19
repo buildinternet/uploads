@@ -68,6 +68,8 @@ export interface SessionUser {
   notifySlackHolds?: boolean | null;
   /** Per-user pref: email me when an upload is held for review. Default off. */
   notifyEmailHolds?: boolean | null;
+  /** Per-user pref: email me product updates and announcements. Default on. */
+  notifyProductUpdates?: boolean | null;
 }
 
 export type { DigestWorkspacePreference };
@@ -374,6 +376,24 @@ export async function updateNotifyEmailHolds(origin: string, value: boolean): Pr
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notifyEmailHolds: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write the "email me product updates" preference. Same contract as
+ * `updateNotifyUsageLimits`.
+ */
+export async function updateNotifyProductUpdates(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyProductUpdates: value }),
     });
     return res.ok;
   } catch {

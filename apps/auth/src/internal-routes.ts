@@ -27,6 +27,7 @@ import {
 } from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
+import { sendCliUpgradeEmails, type CliUpgradeMessage } from "./notify-product-updates";
 import { sendWeeklyDigests, type DigestSendEnv } from "./notify-weekly-digest";
 import { signingSecret } from "./digest-token";
 import * as schema from "./schema";
@@ -212,6 +213,17 @@ function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
       unsubscribes,
     },
   ];
+}
+
+function parseCliUpgradeMessage(raw: unknown): CliUpgradeMessage[] {
+  if (!raw || typeof raw !== "object") return [];
+  const row = raw as Record<string, unknown>;
+  const userId = asText(row.userId, 80);
+  const to = asText(row.to, 320);
+  const minimumVersion = asText(row.minimumVersion, 64);
+  const currentVersion = asText(row.currentVersion, 64) || null;
+  if (!userId || !to.includes("@") || !minimumVersion) return [];
+  return [{ userId, to, currentVersion, minimumVersion }];
 }
 
 function errorJson(code: string, message: string) {
@@ -1263,6 +1275,25 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
     }
     const result = await sendWeeklyDigests(c.env as DigestSendEnv, secret, messages);
+    return c.json(result, 200);
+  })
+  // Product update campaign: the API worker picks who (opted in, on an old
+  // CLI, not yet emailed by this campaign) and records the sends we return.
+  .post("/product-updates/cli-upgrade/send", async (c) => {
+    const body = await c.req
+      .json<{ messages?: unknown }>()
+      .catch(() => ({}) as { messages?: unknown });
+    const messages = Array.isArray(body.messages)
+      ? body.messages.flatMap(parseCliUpgradeMessage)
+      : [];
+    if (messages.length === 0) {
+      return c.json({ sent: [], failed: [] }, 200);
+    }
+    const secret = await signingSecret(c.env);
+    if (!secret) {
+      return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
+    }
+    const result = await sendCliUpgradeEmails(c.env as DigestSendEnv, secret, messages);
     return c.json(result, 200);
   })
   // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller

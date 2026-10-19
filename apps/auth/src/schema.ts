@@ -78,6 +78,12 @@ export const user = sqliteTable("user", {
   notifyEmailHolds: integer("notify_email_holds", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => false),
+  /** Per-user pref: email me product updates and announcements. Default on;
+   * unticked at sign-up via src/product-updates.ts. Only operator-run
+   * campaigns send these (apps/api/src/cli-upgrade-campaign.ts). */
+  notifyProductUpdates: integer("notify_product_updates", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => true),
   /**
    * Retired account-wide weekly digest flags (#1108). Live preferences are
    * on `member`. These columns stay so that release can still read them

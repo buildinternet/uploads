@@ -10,6 +10,7 @@ import {
   renderOrgInvitationEmail,
   renderUsageAlertEmail,
   renderWelcomeEmail,
+  renderCliUpgradeEmail,
 } from "@uploads/email";
 import { ServiceUnavailableError, ValidationError } from "@uploads/errors";
 
@@ -21,6 +22,7 @@ export const EMAIL_PREVIEW_TYPES = [
   { id: "usage-limit-alert", label: "Admin: usage limit alert", category: "Auth" },
   { id: "welcome", label: "Welcome / next steps", category: "Auth" },
   { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
+  { id: "cli-upgrade", label: "Outdated CLI campaign", category: "Product updates" },
 ] as const;
 
 export type EmailPreviewType = (typeof EMAIL_PREVIEW_TYPES)[number]["id"];
@@ -118,6 +120,16 @@ function renderPreview(type: EmailPreviewType, origin: string) {
           workspaceName: "preview-workspace",
           link: `${origin}/invite?id=upi_preview#code=preview-example`,
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        }),
+      };
+    case "cli-upgrade":
+      return {
+        from: AUTH_FROM,
+        ...renderCliUpgradeEmail({
+          currentVersion: "0.58.2",
+          minimumVersion: "0.59.0",
+          unsubscribeUrl: `${origin}/account/profile`,
+          webOrigin: origin,
         }),
       };
   }

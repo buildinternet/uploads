@@ -165,6 +165,11 @@ export function unsubscribePage(ok: boolean, workspaceName?: string | null): str
   const body = ok
     ? `You won't get that weekly digest${where} anymore. You can turn it back on from Account, under Email notifications.`
     : "This unsubscribe link is invalid or expired. You can change the setting from Account, under Email notifications.";
+  return unsubscribeShell(title, body);
+}
+
+/** The bare confirmation page every unsubscribe link lands on. `body` is escaped HTML. */
+export function unsubscribeShell(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title></head>

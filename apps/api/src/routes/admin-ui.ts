@@ -24,6 +24,7 @@ import {
   resolvePreviewRecipient,
   sendEmailPreview,
 } from "../admin-email-preview";
+import { runCliUpgradeCampaign } from "../cli-upgrade-campaign";
 import {
   fetchBreakdown,
   fetchSlowOps,
@@ -1257,6 +1258,16 @@ export const adminUi = new Hono<SessionVars>()
     const to = resolvePreviewRecipient(c.get("sessionUser")?.email, body.to);
     const { subject } = await sendEmailPreview(c.env, type, to);
     return c.json({ ok: true, type, to, subject });
+  })
+
+  // Operator-run "update your CLI" campaign. Without `send: true` this only
+  // counts; with it, it emails the next batch (see ../cli-upgrade-campaign.ts).
+  .post("/campaigns/cli-upgrade", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      minimumVersion?: unknown;
+      send?: unknown;
+    };
+    return c.json(await runCliUpgradeCampaign(c.env, body));
   })
 
   // On-demand run of the hosted-host SVG/XML sandboxing-CSP probe (issue

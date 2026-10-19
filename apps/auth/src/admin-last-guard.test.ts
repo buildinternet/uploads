@@ -60,6 +60,7 @@ async function seedUser(
     notifyUsageLimits: overrides.notifyUsageLimits ?? true,
     notifySlackHolds: true,
     notifyEmailHolds: false,
+    notifyProductUpdates: true,
     notifyWeeklyDigest: overrides.notifyWeeklyDigest ?? false,
     notifyWeeklyWorkspaceDigest: overrides.notifyWeeklyWorkspaceDigest ?? false,
   };
