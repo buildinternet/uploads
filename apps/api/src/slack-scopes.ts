@@ -6,11 +6,15 @@
  * test loads this file directly.
  */
 export const API_SLACK_BOT_SCOPES: readonly string[] = [
+  "app_mentions:read",
+  "channels:history",
   "chat:write",
   "commands",
+  "groups:history",
   "im:write",
   "links:read",
   "links:write",
+  "reactions:write",
   "users:read",
 ];
 

@@ -4,6 +4,7 @@ import type { SlackEnv } from "../src/config";
 import { createApp } from "../src/index";
 import { saveInstall } from "../src/installs";
 import { ticketHash } from "../src/links";
+import { BOT_SCOPES } from "../src/scopes";
 import { signSlackRequest } from "../src/slack/signature";
 
 const KEY = "test-tokens-key-0123456789";
@@ -20,7 +21,7 @@ afterEach(() => {
   sqlite = null;
 });
 
-async function setup(scopes = "chat:write,commands,im:write,links:read,links:write,users:read") {
+async function setup(scopes = BOT_SCOPES.join(",")) {
   sqlite = new SqliteD1(MIGRATIONS);
   const env: SlackEnv = {
     WEB_ORIGIN: "https://uploads.sh",

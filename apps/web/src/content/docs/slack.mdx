@@ -2,7 +2,7 @@
 title: Slack
 description: Add the uploads.sh Slack app to show previews for uploads.sh file, gallery, and live-link URLs, and get a Slack message you can approve from when an upload is held for review.
 heading: Slack
-tagline: "Previews for uploads.sh links, and held-upload alerts you can approve from Slack."
+tagline: "Previews for uploads.sh links, answers in threads, and held-upload alerts you can approve from Slack."
 navLabel: Slack
 navSlug: slack
 navOrder: 12
@@ -13,6 +13,7 @@ toc:
   - { id: connect, label: Connect your account }
   - { id: held-uploads, label: Held-upload messages }
   - { id: search, label: Search from Slack }
+  - { id: ask, label: Ask in a thread }
   - { id: privacy, label: What a preview shows }
 ---
 
@@ -30,6 +31,9 @@ The uploads.sh Slack app turns uploads.sh links into previews. With it in your w
 
 Connect your account, and the app also messages you when an upload is
 [held for review](/docs/agents#held-uploads). You can approve it from the message.
+
+Once search is on, you can also [mention the app with a question](#ask) and it answers in the
+thread with the files it finds.
 
 </section>
 
@@ -53,16 +57,21 @@ Anyone who can install apps in a Slack workspace can add it:
 
 Slack asks for these permissions:
 
-| Permission    | What the app does with it                                                   |
-| ------------- | --------------------------------------------------------------------------- |
-| `links:read`  | Sees uploads.sh links in messages. It reads only the link, not the message. |
-| `links:write` | Adds the preview to an uploads.sh link.                                     |
-| `users:read`  | Reads your Slack name for the connect page, and checks who may search.      |
-| `chat:write`  | Sends you held-upload messages and updates them after you press a button.   |
-| `im:write`    | Opens the direct message between you and the app.                           |
-| `commands`    | Adds `/uploads search`.                                                     |
+| Permission          | What the app does with it                                                   |
+| ------------------- | --------------------------------------------------------------------------- |
+| `links:read`        | Sees uploads.sh links in messages. It reads only the link, not the message. |
+| `links:write`       | Adds the preview to an uploads.sh link.                                     |
+| `users:read`        | Reads your Slack name for the connect page, and checks who may search.      |
+| `chat:write`        | Sends held-upload messages and answers in threads.                          |
+| `im:write`          | Opens the direct message between you and the app.                           |
+| `commands`          | Adds `/uploads search`.                                                     |
+| `app_mentions:read` | Sees messages that mention the app.                                         |
+| `channels:history`  | Reads the thread the app was mentioned in, in public channels.              |
+| `groups:history`    | Reads the thread the app was mentioned in, in private channels.             |
+| `reactions:write`   | Adds 👀 to your message while it works on an answer.                        |
 
-The app can't read your messages or files. Post an uploads.sh link to see a preview.
+The app reads a thread only when someone mentions it there, and never reads your Slack files.
+Post an uploads.sh link to see a preview.
 
 You can also find **Add to Slack** under **Settings → Slack** in each workspace on uploads.sh.
 
@@ -137,6 +146,27 @@ Slack** page and switch on the Slack workspace under **Search from Slack**. It's
 - Guests and people from other organizations in shared channels can't.
 - Results include only files the public share page would show. Private and held files never
   appear.
+
+</section>
+
+<section id="ask">
+
+## Ask in a thread <a class="anchor" href="#ask" aria-label="Link to this section">#</a>
+
+Mention the app with a question, in a channel it's in:
+
+```
+@uploads.sh do we have any recent screenshots from settings?
+```
+
+It answers in the thread with a sentence or two and the files that fit. It searches by name and
+by what the [AI labels](/docs/agents#experimental-ai-tags) say a file shows (the kind of file, the screen,
+and the device), and looks at the images before it answers. Mention it again in the same thread
+to narrow the answer, for example `@uploads.sh just the mobile ones`.
+
+It follows the same rules as [search](#search): a workspace admin turns it on, only full members
+get an answer, and it finds only public files in the uploads.sh workspaces connected to that Slack
+workspace, never any other workspace.
 
 </section>
 

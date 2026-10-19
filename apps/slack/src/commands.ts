@@ -60,7 +60,7 @@ interface SlackUser {
 }
 
 /** Whether the person is a full member of `teamId`: not a guest, bot, or someone from another org. */
-async function isFullMember(
+export async function isFullMember(
   teamId: string,
   userId: string,
   token: string,
@@ -91,14 +91,16 @@ async function isFullMember(
   }
 }
 
-interface SearchResult {
+export interface SearchResult {
   workspace: string;
   key: string;
   imageUrl?: string;
   uploaded?: number;
+  /** Classifier labels (`kind`, `screen`, `surface`); label searches only. */
+  labels?: Record<string, string>;
 }
 
-interface SearchResponse {
+export interface SearchResponse {
   bound: boolean;
   results: SearchResult[];
   truncated: boolean;
@@ -106,14 +108,23 @@ interface SearchResponse {
 
 export const SHARE_ACTION = "uploads_search_share";
 
-async function searchViaApi(env: SlackEnv, teamId: string, term: string) {
+/**
+ * Searches the uploads.sh workspaces bound to `teamId`, and only those.
+ * `labels` filters by classifier labels; `limit` asks for up to 10.
+ */
+export async function searchViaApi(
+  env: SlackEnv,
+  teamId: string,
+  term: string,
+  options: { labels?: Record<string, string>; limit?: number } = {},
+) {
   // Only the service binding reaches the internal route (host api.internal).
   if (!env.API) return null;
   try {
     const res = await env.API.fetch("https://api.internal/internal/slack/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ teamId, term }),
+      body: JSON.stringify({ teamId, term, ...options }),
     });
     if (!res.ok) return null;
     return (await res.json()) as SearchResponse;
@@ -154,23 +165,9 @@ export function resultsMessage(
   const lines: string[] = [];
   const shareOptions: Block[] = [];
   for (const r of response.results) {
-    const url = sharePageUrl(webOrigin, r.workspace, r.key);
     const name = r.key.split("/").at(-1) || r.key;
-    const details = [
-      folderLabel(r.key),
-      multipleWorkspaces ? escapeMrkdwn(r.workspace) : null,
-      r.uploaded ? slackDate(r.uploaded) : null,
-    ].filter(Boolean);
-    const image = r.imageUrl && isSlackImage(r.imageUrl) ? r.imageUrl : null;
-    lines.push(`• <${url}|${escapeMrkdwn(name)}>`);
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `<${url}|*${escapeMrkdwn(name)}*>${details.length ? `\n${details.join(" · ")}` : ""}`,
-      },
-      ...(image ? { accessory: { type: "image", image_url: image, alt_text: name } } : {}),
-    });
+    lines.push(`• <${sharePageUrl(webOrigin, r.workspace, r.key)}|${escapeMrkdwn(name)}>`);
+    blocks.push(fileBlock(r, webOrigin, multipleWorkspaces));
     // An option's value holds at most 150 characters; a longer path can't be offered.
     const value = `${r.workspace}/${r.key}`;
     if (value.length <= OPTION_VALUE_MAX) {
@@ -197,6 +194,26 @@ export function resultsMessage(
     );
   }
   return { text: `${heading}\n${lines.join("\n")}`, blocks };
+}
+
+/** One result as a section: linked name, folder and date, and a thumbnail for images. */
+export function fileBlock(r: SearchResult, webOrigin: string, showWorkspace: boolean): Block {
+  const url = sharePageUrl(webOrigin, r.workspace, r.key);
+  const name = r.key.split("/").at(-1) || r.key;
+  const details = [
+    folderLabel(r.key),
+    showWorkspace ? escapeMrkdwn(r.workspace) : null,
+    r.uploaded ? slackDate(r.uploaded) : null,
+  ].filter(Boolean);
+  const image = r.imageUrl && isSlackImage(r.imageUrl) ? r.imageUrl : null;
+  return {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `<${url}|*${escapeMrkdwn(name)}*>${details.length ? `\n${details.join(" · ")}` : ""}`,
+    },
+    ...(image ? { accessory: { type: "image", image_url: image, alt_text: name } } : {}),
+  };
 }
 
 const OPTION_VALUE_MAX = 150;

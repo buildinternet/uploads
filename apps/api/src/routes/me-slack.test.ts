@@ -221,7 +221,15 @@ describe("/me/slack/links", () => {
     const body = (await res.json()) as { links: Record<string, unknown>[] };
     expect(body.links[0]).toMatchObject({
       teamName: "Acme",
-      missingScopes: ["chat:write", "commands", "im:write"],
+      missingScopes: [
+        "app_mentions:read",
+        "channels:history",
+        "chat:write",
+        "commands",
+        "groups:history",
+        "im:write",
+        "reactions:write",
+      ],
     });
   });
 

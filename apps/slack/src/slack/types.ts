@@ -10,6 +10,8 @@ export interface EventCallbackPayload<E extends SlackEvent = SlackEvent> {
   team_id: string;
   api_app_id?: string;
   event_id?: string;
+  /** Who the event is for; the bot's own user id is in here. */
+  authorizations?: Array<{ user_id?: string; is_bot?: boolean }>;
   event: E;
 }
 
@@ -29,6 +31,20 @@ export interface LinkSharedEvent extends SlackEvent {
   unfurl_id?: string;
   source?: "composer" | "conversations_history";
   links: Array<{ domain: string; url: string }>;
+}
+
+/** https://docs.slack.dev/reference/events/app_mention */
+export interface AppMentionEvent extends SlackEvent {
+  type: "app_mention";
+  user?: string;
+  text?: string;
+  ts: string;
+  channel: string;
+  /** Set when the mention is a reply inside a thread. */
+  thread_ts?: string;
+  bot_id?: string;
+  /** Edits and other subtypes aren't new questions. */
+  subtype?: string;
 }
 
 /** https://docs.slack.dev/reference/events/tokens_revoked */

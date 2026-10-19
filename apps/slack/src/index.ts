@@ -7,7 +7,7 @@
  *   - GET  /slack/install    "Add to Slack" (OAuth v2; see oauth.ts)
  *   - GET  /slack/oauth/callback
  *   - POST /slack/events     Events API (link_shared, entity_details_requested,
- *                            app_home_opened, app_uninstalled,
+ *                            app_home_opened, app_mention, app_uninstalled,
  *                            tokens_revoked; see events.ts)
  *   - POST /slack/interactivity  buttons: Disconnect on the Home tab, the Share menu on search results
  *                            (home.ts), Approve / Keep held on a held-upload
@@ -71,6 +71,8 @@ async function readSignedBody(c: Context<AppEnv>): Promise<string | Response> {
 export interface AppOptions {
   /** Overrides the fetch used for slack.com calls (tests). */
   slackFetch?: typeof globalThis.fetch;
+  /** Overrides the mention agent's model fetch (tests). */
+  modelFetch?: typeof globalThis.fetch;
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -97,7 +99,11 @@ export function createApp(options: AppOptions = {}) {
         if (payload.type === "event_callback") {
           // Ack now and work after: Slack retries any event not acked within 3s.
           c.executionCtx.waitUntil(
-            dispatchEvent(payload, { env: c.env, slackFetch: options.slackFetch }).catch((err) => {
+            dispatchEvent(payload, {
+              env: c.env,
+              slackFetch: options.slackFetch,
+              modelFetch: options.modelFetch,
+            }).catch((err) => {
               console.error("slack.events: handler threw", err);
             }),
           );

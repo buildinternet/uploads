@@ -137,7 +137,7 @@ export async function openDm(userId: string, options: SlackApiOptions): Promise<
 
 /** `chat.postMessage` (needs `chat:write`): https://docs.slack.dev/reference/methods/chat.postMessage */
 export function chatPostMessage(
-  message: { channel: string; text: string; blocks: Block[] },
+  message: { channel: string; text: string; blocks: Block[]; thread_ts?: string },
   options: SlackApiOptions,
 ): Promise<SlackApiResult> {
   return call(
@@ -185,4 +185,51 @@ export async function respondToAction(
   } catch {
     return false;
   }
+}
+
+/** `reactions.add` (needs `reactions:write`): https://docs.slack.dev/reference/methods/reactions.add */
+export function reactionsAdd(
+  target: { channel: string; timestamp: string; name: string },
+  options: SlackApiOptions,
+): Promise<SlackApiResult> {
+  return call("reactions.add", target, options);
+}
+
+/** `reactions.remove` (needs `reactions:write`): https://docs.slack.dev/reference/methods/reactions.remove */
+export function reactionsRemove(
+  target: { channel: string; timestamp: string; name: string },
+  options: SlackApiOptions,
+): Promise<SlackApiResult> {
+  return call("reactions.remove", target, options);
+}
+
+/** A message as `conversations.replies` returns it; only the fields this app reads. */
+export interface ThreadMessage {
+  ts?: string;
+  user?: string;
+  bot_id?: string;
+  app_id?: string;
+  text?: string;
+}
+
+interface ConversationsRepliesResult extends SlackApiResult {
+  messages?: ThreadMessage[];
+}
+
+/**
+ * The first `limit` messages of a thread (the parent first), or an empty
+ * list when the call fails, for example an install without
+ * `channels:history`. https://docs.slack.dev/reference/methods/conversations.replies
+ */
+export async function conversationsReplies(
+  thread: { channel: string; ts: string; limit: number },
+  options: SlackApiOptions,
+): Promise<ThreadMessage[]> {
+  const result = (await call(
+    "conversations.replies",
+    { channel: thread.channel, ts: thread.ts, limit: String(thread.limit) },
+    options,
+    true,
+  )) as ConversationsRepliesResult;
+  return result.ok ? (result.messages ?? []) : [];
 }
