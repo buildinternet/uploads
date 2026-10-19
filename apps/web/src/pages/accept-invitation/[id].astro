@@ -3,6 +3,7 @@ import { SAME_ORIGIN_AUTH_BASE } from "../../lib/auth-client";
 import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
 import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
+import ThemeToggle from "../../components/ThemeToggle.astro";
 import Footer from "../../components/Footer.astro";
 import LegalConsent from "../../components/LegalConsent.astro";
 
@@ -150,6 +151,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     </style>
   </head>
   <body>
+    <ThemeToggle floating />
     <main>
       <div class="brandbar"><Brand /></div>
       <h1>You've been invited</h1>
