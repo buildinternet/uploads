@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { describe, expect, it } from "vitest";
 import { createAuth, isCliSessionUserAgent, upsertGithubLogin, type AuthEnv } from "./auth";
@@ -126,5 +127,53 @@ describe("rate limiting exemptions (live handler)", () => {
     );
     expect(res.status).toBe(429);
     expect(res.headers.get("X-Retry-After")).toBe("30");
+  });
+});
+
+// The sign-in pages' "Email me product updates" box (apps/web
+// ProductUpdatesConsent.astro): unticked, it sets a cookie that the session
+// hook turns into notify_product_updates = false.
+describe("product updates opt-out at sign-up (live handler)", () => {
+  async function signUpByMagicLink(cookie?: string) {
+    const db = createFakeD1();
+    const auth = await createAuth({
+      DB: db,
+      BETTER_AUTH_SECRET: "x".repeat(32),
+      BETTER_AUTH_URL: "https://uploads.sh",
+      WEB_ORIGIN: "https://uploads.sh",
+      AUTH_RATE_LIMIT_DISABLED: "true",
+    });
+    const logged: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    try {
+      const res = await auth!.handler(
+        new Request("https://uploads.sh/api/auth/sign-in/magic-link", {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: "https://uploads.sh" },
+          body: JSON.stringify({ email: "new@example.com", callbackURL: "/account" }),
+        }),
+      );
+      expect(res.status).toBe(200);
+    } finally {
+      console.warn = warn;
+    }
+    const link = /Link: (\S+)/.exec(logged.join("\n"))?.[1];
+    expect(link).toBeTruthy();
+    await auth!.handler(new Request(link!, { headers: cookie ? { cookie } : {} }));
+    const [user] = await drizzle(db, { schema })
+      .select()
+      .from(schema.user)
+      .where(eq(schema.user.email, "new@example.com"));
+    return user;
+  }
+
+  it("leaves product updates on by default", async () => {
+    expect((await signUpByMagicLink())?.notifyProductUpdates).toBe(true);
+  });
+
+  it("turns them off when the opt-out cookie rides along", async () => {
+    const user = await signUpByMagicLink("uploads_product_updates=off");
+    expect(user?.notifyProductUpdates).toBe(false);
   });
 });

@@ -85,6 +85,17 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
             : `<p class="muted settings-note">Couldn’t load weekly digest settings.</p>`}
         />
       </div>
+      <div class="notify-group">
+        <h3 class="notify-group__title">From uploads.sh</h3>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-product-updates"
+            checked={initial.user?.notifyProductUpdates ?? true}
+          />
+          <span>Product updates and announcements, like a CLI version you should update</span>
+        </label>
+      </div>
       <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
 
@@ -326,6 +337,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       updateDigestPreference,
       updateNotifyEmailHolds,
       updateNotifyMemberJoin,
+      updateNotifyProductUpdates,
       updateNotifySlackHolds,
       updateNotifyUsageLimits,
       type AuthSession,
@@ -575,6 +587,9 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       const holdEmailToggle = document.getElementById(
         "notify-email-holds",
       ) as HTMLInputElement | null;
+      const productUpdatesToggle = document.getElementById(
+        "notify-product-updates",
+      ) as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
@@ -603,6 +618,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
       wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
       wireNotifyToggle(holdEmailToggle, updateNotifyEmailHolds);
+      wireNotifyToggle(productUpdatesToggle, updateNotifyProductUpdates);
 
       const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
         .__UPLOADS_API_ORIGIN__;
@@ -702,6 +718,9 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         }
         if (holdEmailToggle && typeof user.notifyEmailHolds === "boolean") {
           holdEmailToggle.checked = user.notifyEmailHolds;
+        }
+        if (productUpdatesToggle && typeof user.notifyProductUpdates === "boolean") {
+          productUpdatesToggle.checked = user.notifyProductUpdates;
         }
         if (slackToggle && typeof user.notifySlackHolds === "boolean") {
           slackToggle.checked = user.notifySlackHolds;

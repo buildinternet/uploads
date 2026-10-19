@@ -2,6 +2,8 @@
 /**
  * Operator transactional email previews. POST /admin-ui/dev/emails/:type.
  * Type list mirrors EMAIL_PREVIEW_TYPES in apps/api/src/admin-email-preview.ts.
+ * Below them, the operator-run outdated CLI campaign:
+ * POST /admin-ui/campaigns/cli-upgrade (apps/api/src/cli-upgrade-campaign.ts).
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import {
@@ -25,6 +27,7 @@ const PREVIEW_TYPES = [
   { id: "usage-limit-alert", label: "Admin: usage limit alert", category: "Auth" },
   { id: "welcome", label: "Welcome / next steps", category: "Auth" },
   { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
+  { id: "cli-upgrade", label: "Outdated CLI campaign", category: "Product updates" },
 ] as const;
 ---
 
@@ -97,6 +100,54 @@ const PREVIEW_TYPES = [
         </tbody>
       </table>
     </div>
+
+    <header class="admin-page-header grid gap-1.5 max-w-2xl mt-4">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">
+        Outdated CLI campaign
+      </h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
+        Emails people whose newest CLI in the last 30 days is below a version, if they left product
+        updates on. Count first. Each send covers up to 100 people, and nobody gets the same
+        campaign twice.
+      </p>
+    </header>
+
+    <form
+      id="campaign-form"
+      class="admin-field flex flex-wrap items-end gap-y-2 gap-x-3 max-w-[480px]"
+    >
+      <label
+        for="campaign-version"
+        class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+        >Below version</label
+      >
+      <input
+        type="text"
+        id="campaign-version"
+        required
+        pattern="\d+\.\d+\.\d+"
+        placeholder="0.59.0"
+        class="w-[120px] bg-panel border border-border rounded-sm text-foreground px-[9px] py-[7px] text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
+      />
+      <button type="submit" id="campaign-count" class={`admin-btn ${ADMIN_BTN}`}>Count</button>
+      <button type="button" id="campaign-send" class={`admin-btn ${ADMIN_BTN}`} disabled>
+        Send
+      </button>
+    </form>
+
+    <div
+      id="campaign-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+      role="status"
+      hidden
+    >
+    </div>
+    <ul
+      id="campaign-sample"
+      class="m-0 pl-5 text-(length:--text-micro) text-muted-foreground grid gap-0.5"
+      hidden
+    >
+    </ul>
   </section>
 
   <script>
@@ -175,6 +226,90 @@ const PREVIEW_TYPES = [
       for (const btn of buttons) {
         btn.addEventListener("click", () => void sendPreview(btn.dataset.type ?? ""));
       }
+
+      const campaignForm = requireElement<HTMLFormElement>("#campaign-form", "admin email");
+      const versionInput = requireElement<HTMLInputElement>("#campaign-version", "admin email");
+      const countBtn = requireElement<HTMLButtonElement>("#campaign-count", "admin email");
+      const sendBtn = requireElement<HTMLButtonElement>("#campaign-send", "admin email");
+      const campaignStatus = requireElement<HTMLElement>("#campaign-status", "admin email");
+      const sampleList = requireElement<HTMLUListElement>("#campaign-sample", "admin email");
+
+      type CampaignResult = {
+        eligible?: number;
+        sample?: { email: string; version: string | null }[];
+        sent?: number;
+        failed?: number;
+        error?: { message?: string };
+      };
+
+      function setCampaignStatus(message: string, state?: "ready" | "error") {
+        campaignStatus.hidden = !message;
+        campaignStatus.textContent = message;
+        if (state) campaignStatus.dataset.state = state;
+        else delete campaignStatus.dataset.state;
+      }
+
+      let counted = { version: "", eligible: 0 };
+
+      async function runCampaign(send: boolean) {
+        const minimumVersion = versionInput.value.trim();
+        countBtn.disabled = true;
+        sendBtn.disabled = true;
+        try {
+          const res = await fetch(`${apiOrigin}/admin-ui/campaigns/cli-upgrade`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ minimumVersion, send }),
+          });
+          const payload = (await res.json().catch(() => null)) as CampaignResult | null;
+          if (!res.ok || typeof payload?.eligible !== "number") {
+            setCampaignStatus(payload?.error?.message || `Could not run (${res.status}).`, "error");
+            counted = { version: "", eligible: 0 };
+            return;
+          }
+          counted = { version: minimumVersion, eligible: payload.eligible };
+          const left = `${payload.eligible} ${payload.eligible === 1 ? "person" : "people"} below ${minimumVersion} not emailed yet.`;
+          setCampaignStatus(
+            send ? `Sent ${payload.sent ?? 0}, ${payload.failed ?? 0} failed. ${left}` : left,
+            send && payload.failed ? "error" : "ready",
+          );
+          sampleList.replaceChildren(
+            ...(payload.sample ?? []).map((r) => {
+              const li = document.createElement("li");
+              li.textContent = `${r.email} (${r.version ?? "older than 0.57.0"})`;
+              return li;
+            }),
+          );
+          sampleList.hidden = send || !payload.sample?.length;
+        } catch {
+          setCampaignStatus("Could not reach the API.", "error");
+        } finally {
+          countBtn.disabled = false;
+          sendBtn.disabled = !(
+            counted.eligible > 0 && counted.version === versionInput.value.trim()
+          );
+        }
+      }
+
+      campaignForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void runCampaign(false);
+      });
+      versionInput.addEventListener("input", () => {
+        sendBtn.disabled = true;
+      });
+      sendBtn.addEventListener("click", () => {
+        const batch = Math.min(counted.eligible, 100);
+        if (
+          !window.confirm(
+            `Email ${batch} ${batch === 1 ? "person" : "people"} to update to ${counted.version}?`,
+          )
+        ) {
+          return;
+        }
+        void runCampaign(true);
+      });
     });
   </script>
 </AdminLayout>

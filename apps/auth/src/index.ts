@@ -11,6 +11,7 @@ import { runAuthRetentionSweep } from "./retention-sweep";
 import { sweepOauthClients } from "./oauth-client-reaper";
 import { BILLING_OUTBOX_CRON, drainBillingOutbox } from "./billing-outbox";
 import { applyDigestUnsubscribe, unsubscribePage } from "./notify-weekly-digest";
+import { applyUpdatesUnsubscribe, updatesUnsubscribePage } from "./notify-product-updates";
 import { signingSecret } from "./digest-token";
 import * as schema from "./schema";
 import { billingPricesResponseBody } from "./billing-prices";
@@ -307,6 +308,27 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
       unsubscribePage(result.ok, result.ok ? result.workspaceName : null),
       result.ok ? 200 : 400,
     );
+  })
+  // Public unsubscribe from product update emails. Same token-as-credential
+  // shape as the digest route above.
+  .on(["GET", "POST"], "/updates/unsubscribe", async (c) => {
+    const url = new URL(c.req.url);
+    let token = url.searchParams.get("token") ?? "";
+    if (!token && c.req.method === "POST") {
+      const form = await c.req.raw
+        .clone()
+        .formData()
+        .catch(() => null);
+      const fromForm = form?.get("token");
+      if (typeof fromForm === "string") token = fromForm;
+    }
+    const secret = await signingSecret(c.env);
+    if (!secret) {
+      reportHandledError(new Error("updates unsubscribe signing secret is not configured"));
+      return c.html(updatesUnsubscribePage(false), 503);
+    }
+    const ok = await applyUpdatesUnsubscribe(drizzle(c.env.DB, { schema }), secret, token);
+    return c.html(updatesUnsubscribePage(ok), ok ? 200 : 400);
   })
   // RFC 8414 path-inserted form: /.well-known/oauth-authorization-server{issuer-path}.
   // Issuer is `${BETTER_AUTH_URL}/api/auth`, so both the bare and `/*` forms

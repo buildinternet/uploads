@@ -48,6 +48,7 @@ describe("notifyAdminsOfUsageAlert", () => {
       notifyUsageLimits: over.notifyUsageLimits ?? true,
       notifySlackHolds: true,
       notifyEmailHolds: false,
+      notifyProductUpdates: true,
       notifyWeeklyDigest: over.notifyWeeklyDigest ?? false,
       notifyWeeklyWorkspaceDigest: over.notifyWeeklyWorkspaceDigest ?? false,
     };

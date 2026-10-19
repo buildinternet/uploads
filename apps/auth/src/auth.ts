@@ -56,6 +56,7 @@ import {
   sanitizeDcrRegistrationBody,
 } from "./oauth-dcr";
 import { annotatePublicClientOfficial, PUBLIC_CLIENT_PATHS } from "./oauth-public-client";
+import { hasProductUpdatesOptOut } from "./product-updates";
 import { reportHandledError } from "@uploads/observability";
 import { setIssueContext } from "@uploads/observability/issues";
 import { buildTokenGrantAfterHandler, captureRefreshTokenPriorState } from "./oauth-observability";
@@ -1203,6 +1204,12 @@ function buildAuth(
           input: true,
           defaultValue: false,
         },
+        notifyProductUpdates: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: true,
+        },
       },
     },
     session: {
@@ -1231,9 +1238,17 @@ function buildAuth(
     databaseHooks: {
       session: {
         create: {
-          after: async (session) => {
+          after: async (session, context) => {
             const userId = session?.userId;
-            if (!userId || !isCliSessionUserAgent(session.userAgent)) return;
+            if (!userId) return;
+            // Unticked "Email me product updates" on a sign-in page.
+            if (hasProductUpdatesOptOut(context?.headers ?? context?.request?.headers)) {
+              await db
+                .update(schema.user)
+                .set({ notifyProductUpdates: false, updatedAt: new Date() })
+                .where(eq(schema.user.id, userId));
+            }
+            if (!isCliSessionUserAgent(session.userAgent)) return;
             await db
               .update(schema.user)
               .set({ cliOnboardedAt: new Date(), updatedAt: new Date() })

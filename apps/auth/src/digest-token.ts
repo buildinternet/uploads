@@ -4,7 +4,8 @@
  *
  * Version 2 payload is `v.u.k.w.e`: version, user id, kinds, workspace slug,
  * expiry (unix seconds). Version 1 tokens have no workspace and turn that
- * kind off for every membership. New mail signs version 2.
+ * kind off for every membership. New mail signs version 2. Version 3 is the
+ * product updates link (`signUpdatesUnsubscribe`): `v.u.e`, no kinds.
  */
 import { resolveSigningSecret, type SigningSecretEnv } from "./secrets";
 
@@ -13,6 +14,7 @@ export type DigestUnsubscribeKind = (typeof DIGEST_KINDS)[number];
 
 const TOKEN_VERSION = 2;
 const LEGACY_TOKEN_VERSION = 1;
+const UPDATES_TOKEN_VERSION = 3;
 const TOKEN_TTL_S = 90 * 24 * 60 * 60;
 
 export interface DigestUnsubscribeClaims {
@@ -112,11 +114,8 @@ export async function signLegacyDigestUnsubscribe(
   return tokenString(secret, payload);
 }
 
-export async function verifyDigestUnsubscribe(
-  secret: string,
-  token: string,
-  now = new Date(),
-): Promise<DigestUnsubscribeClaims | null> {
+/** The token's JSON payload when its signature checks out, else null. */
+async function readSignedPayload(secret: string, token: string): Promise<object | null> {
   const parts = token.split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   const payloadBytes = b64UrlToBytes(parts[0]);
@@ -132,7 +131,16 @@ export async function verifyDigestUnsubscribe(
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object") return null;
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+
+export async function verifyDigestUnsubscribe(
+  secret: string,
+  token: string,
+  now = new Date(),
+): Promise<DigestUnsubscribeClaims | null> {
+  const parsed = await readSignedPayload(secret, token);
+  if (!parsed) return null;
   const { v, u, k, w, e } = parsed as {
     v?: unknown;
     u?: unknown;
@@ -152,6 +160,44 @@ export async function verifyDigestUnsubscribe(
   }
   if (typeof w !== "string" || !w || w.length > 128) return null;
   return { userId: u, kinds: [...new Set(k)], workspace: w, exp: e };
+}
+
+/**
+ * Product update emails (operator campaigns) unsubscribe from the account-wide
+ * `notify_product_updates` preference. Version 3 so a digest link can never
+ * pass for one of these, or the other way round.
+ */
+export async function signUpdatesUnsubscribe(
+  secret: string,
+  userId: string,
+  now = new Date(),
+): Promise<string> {
+  if (!userId) throw new Error("updates unsubscribe needs a user");
+  const payload = JSON.stringify({
+    v: UPDATES_TOKEN_VERSION,
+    u: userId,
+    e: Math.floor(now.getTime() / 1000) + TOKEN_TTL_S,
+  });
+  return tokenString(secret, payload);
+}
+
+export async function verifyUpdatesUnsubscribe(
+  secret: string,
+  token: string,
+  now = new Date(),
+): Promise<{ userId: string } | null> {
+  const parsed = await readSignedPayload(secret, token);
+  if (!parsed) return null;
+  const { v, u, e } = parsed as { v?: unknown; u?: unknown; e?: unknown };
+  if (v !== UPDATES_TOKEN_VERSION || typeof u !== "string" || !u) return null;
+  if (typeof e !== "number" || !Number.isFinite(e) || e < Math.floor(now.getTime() / 1000)) {
+    return null;
+  }
+  return { userId: u };
+}
+
+export function updatesUnsubscribeUrl(base: string, token: string): string {
+  return `${base.replace(/\/$/, "")}/updates/unsubscribe?token=${encodeURIComponent(token)}`;
 }
 
 export function unsubscribeUrl(base: string, token: string): string {

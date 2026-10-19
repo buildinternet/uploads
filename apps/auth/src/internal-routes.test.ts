@@ -135,6 +135,7 @@ describe("DB-backed behavior", () => {
       notifyUsageLimits: overrides.notifyUsageLimits ?? true,
       notifySlackHolds: true,
       notifyEmailHolds: false,
+      notifyProductUpdates: true,
       notifyWeeklyDigest: overrides.notifyWeeklyDigest ?? false,
       notifyWeeklyWorkspaceDigest: overrides.notifyWeeklyWorkspaceDigest ?? false,
     };

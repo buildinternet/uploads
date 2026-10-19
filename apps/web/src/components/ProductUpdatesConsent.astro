@@ -1,0 +1,56 @@
+---
+/**
+ * "Email me product updates" opt-out, shown under the sign-in controls next to
+ * LegalConsent. Ticked by default. Unticking sets a short-lived cookie that the
+ * auth worker reads when the session is created (apps/auth/src/product-updates.ts)
+ * and turns `notify_product_updates` off. Ticking it never turns an earlier
+ * opt-out back on; that lives on /account/profile.
+ *
+ * The cookie name and value must match PRODUCT_UPDATES_OPT_OUT_COOKIE/VALUE
+ * there. Auth is reached same-origin through `/api/auth`, so a host-only
+ * cookie on this origin reaches it on the magic-link click and the GitHub
+ * callback.
+ */
+---
+
+<label class="product-updates-consent">
+  <input type="checkbox" checked data-product-updates-consent />
+  <span>Email me product updates and announcements</span>
+</label>
+
+<script>
+  const COOKIE = "uploads_product_updates";
+  const OFF = "off";
+
+  function setOptOut(off: boolean): void {
+    const secure = location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = off
+      ? `${COOKIE}=${OFF}; Path=/; Max-Age=3600; SameSite=Lax${secure}`
+      : `${COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  }
+
+  const optedOut = document.cookie.split(";").some((part) => part.trim() === `${COOKIE}=${OFF}`);
+  for (const box of document.querySelectorAll<HTMLInputElement>("[data-product-updates-consent]")) {
+    if (optedOut) box.checked = false;
+    box.addEventListener("change", () => setOptOut(!box.checked));
+  }
+</script>
+
+<style>
+  .product-updates-consent {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: var(--text-micro);
+    line-height: 1.55;
+    cursor: pointer;
+  }
+
+  .product-updates-consent input {
+    margin: 0;
+    accent-color: var(--accent);
+  }
+</style>
