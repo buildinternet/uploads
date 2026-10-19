@@ -459,7 +459,7 @@ describe("buildDecideRequest", () => {
     expect(req.image?.type).toBe("image_url");
     expect(Object.keys(req.questions)).toEqual(QUESTION_IDS);
     for (const question of Object.values(req.questions)) {
-      expect(question.type).toBe("choice");
+      if (question.type !== "choice") throw new Error("expected a choice question");
       const options = Object.keys(question.criteria).length;
       expect(options).toBeGreaterThanOrEqual(2);
       expect(options).toBeLessThanOrEqual(255);
@@ -467,7 +467,7 @@ describe("buildDecideRequest", () => {
     // TypeSafe documents no question-count cap (token budget only). Eight
     // short choices stay far inside that budget and inside the 255-option cap.
     expect(QUESTION_IDS.length).toBe(8);
-    expect(Object.keys(req.questions.screen.criteria).length).toBeLessThanOrEqual(255);
+    expect(Object.keys(buildClassifierQuestions().screen.criteria).length).toBeLessThanOrEqual(255);
   });
 
   it("keeps secrets and personal data on separate questions", () => {
