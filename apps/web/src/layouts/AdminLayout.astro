@@ -23,7 +23,7 @@ import "../styles/signed-in-shell.css";
 import "../styles/admin.css";
 
 export type AdminSection =
-  "workspaces" | "clients" | "metrics" | "classifier" | "users" | "oauth" | "email";
+  "workspaces" | "clients" | "metrics" | "classifier" | "models" | "users" | "oauth" | "email";
 
 interface Props {
   section: AdminSection;
@@ -36,6 +36,7 @@ const titles: Record<AdminSection, string> = {
   clients: "Clients · Admin",
   metrics: "Metrics · Admin",
   classifier: "Classifier · Admin",
+  models: "Models · Admin",
   users: "Users · Admin",
   oauth: "OAuth apps · Admin",
   email: "Email · Admin",

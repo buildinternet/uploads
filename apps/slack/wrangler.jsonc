@@ -22,9 +22,6 @@
     // Image hosts Slack may open full size (comma-separated). Each needs a CORS
     // rule allowing https://app.slack.com; see README "Work Objects".
     "SLACK_FULL_SIZE_HOSTS": "storage.uploads.sh,store.uploads.sh",
-    // OpenRouter model for answering @-mentions (src/agent.ts). It must take
-    // images and tool calls.
-    "SLACK_AGENT_MODEL": "anthropic/claude-haiku-5.5",
   },
   // Served as a path on the agent subdomain instead of a hostname of its own.
   // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { database, SqliteD1 } from "../../api/test/helpers/sqlite-d1";
 import {
   answerQuestion,
+  DEFAULT_AGENT_MODEL,
   lookUrl,
   OPENROUTER_CHAT_URL,
   type Complete,
@@ -12,6 +13,7 @@ import type { SearchResponse } from "../src/commands";
 import type { SlackEnv } from "../src/config";
 import { createApp } from "../src/index";
 import { saveInstall } from "../src/installs";
+import { SLACK_AGENT_DEFAULT_MODEL } from "../../api/src/platform-settings";
 import { questionText } from "../src/mentions";
 import { signSlackRequest } from "../src/slack/signature";
 
@@ -187,7 +189,10 @@ describe("app_mention", () => {
   });
 
   async function setup(overrides: Partial<SlackEnv> = {}) {
-    sqlite = new SqliteD1("migrations/20261018160000_slack_installations.sql");
+    sqlite = new SqliteD1([
+      "migrations/20261018160000_slack_installations.sql",
+      "migrations/20261019210000_platform_settings.sql",
+    ]);
     const apiCalls: Record<string, unknown>[] = [];
     const env: SlackEnv = {
       WEB_ORIGIN: "https://uploads.sh",
@@ -333,6 +338,22 @@ describe("app_mention", () => {
     const blocks = posted.blocks as { text?: { text: string } }[];
     expect(blocks).toHaveLength(2);
     expect(blocks[1]!.text!.text).toContain("https://uploads.sh/f/acme/shots/account.png");
+  });
+
+  it("runs the model an operator picked under Admin → Models", async () => {
+    const { env } = await setup();
+    sqlite!.db
+      .prepare(
+        "INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES ('slack_agent_model', 'cheap/vision', 'Admin', '2026-10-19')",
+      )
+      .run();
+    const model = fakeModel();
+    await mention(env, fakeSlack(MEMBER).fetch, model.fetch, { ts: "5.1", text: "<@UBOT> hi" });
+    expect(model.bodies[0]!.model).toBe("cheap/vision");
+  });
+
+  it("defaults to the same model the admin page shows", () => {
+    expect(DEFAULT_AGENT_MODEL).toBe(SLACK_AGENT_DEFAULT_MODEL);
   });
 
   it("starts a thread on a top-level mention without reading history", async () => {

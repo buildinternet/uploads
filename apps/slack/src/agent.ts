@@ -14,7 +14,8 @@
  *   - `reply`         ends the loop with the answer text and the files to show.
  *
  * The model is reached through OpenRouter's chat completions API
- * (`OPENROUTER_API_KEY`, `SLACK_AGENT_MODEL`). Events run in `waitUntil`,
+ * (`OPENROUTER_API_KEY`; the model is an operator setting, see mentions.ts
+ * `agentModel`). Events run in `waitUntil`,
  * which Workers stop about 30 seconds after the response, so the loop has a
  * deadline and is made to reply once it nears it.
  */

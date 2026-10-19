@@ -202,6 +202,7 @@ export type AdminSectionId =
   | "clients"
   | "metrics"
   | "classifier"
+  | "models"
   | "users"
   | "oauth"
   | "email";
@@ -211,6 +212,7 @@ const ADMIN_NAV: { id: AdminSectionId; label: string; href: string; icon: ShellN
   { id: "clients", label: "Clients", href: "/admin/clients", icon: "developers" },
   { id: "metrics", label: "Metrics", href: "/admin/metrics", icon: "metrics" },
   { id: "classifier", label: "Classifier", href: "/admin/classifier", icon: "files" },
+  { id: "models", label: "Models", href: "/admin/models", icon: "settings" },
   { id: "users", label: "Users", href: "/admin/users", icon: "users" },
   { id: "oauth", label: "OAuth apps", href: "/admin/oauth", icon: "oauth" },
   { id: "email", label: "Email", href: "/admin/email", icon: "email" },

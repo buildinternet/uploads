@@ -187,6 +187,7 @@ describe("adminNavSections", () => {
       "/admin/clients",
       "/admin/metrics",
       "/admin/classifier",
+      "/admin/models",
       "/admin/users",
       "/admin/oauth",
       "/admin/email",

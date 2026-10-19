@@ -84,6 +84,7 @@ export async function handleMention(
     return;
   }
 
+  const model = await agentModel(ctx.env);
   const target = { channel: event.channel, timestamp: event.ts, name: WORKING_REACTION };
   await reactionsAdd(target, slack);
   try {
@@ -93,7 +94,7 @@ export async function handleMention(
       {
         complete: openRouterComplete({
           apiKey,
-          model: ctx.env.SLACK_AGENT_MODEL?.trim() || DEFAULT_AGENT_MODEL,
+          model,
           fetch: ctx.modelFetch,
         }),
         search: (term, labels) =>
@@ -111,6 +112,7 @@ export async function handleMention(
     ];
     const posted = await post(answer.text, blocks);
     console.log("slack.mention", {
+      model,
       answered: answer.answered,
       files: answer.files.length,
       posted: posted.ok,
@@ -118,6 +120,23 @@ export async function handleMention(
     });
   } finally {
     await reactionsRemove(target, slack);
+  }
+}
+
+/**
+ * The model an operator picked under Admin → Models (`platform_settings`,
+ * written by uploads-api), or the default when none is set or the read fails.
+ */
+export async function agentModel(env: SlackEnv): Promise<string> {
+  if (!env.DB) return DEFAULT_AGENT_MODEL;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM platform_settings WHERE key = ?")
+      .bind("slack_agent_model")
+      .first<{ value: string }>();
+    return row?.value?.trim() || DEFAULT_AGENT_MODEL;
+  } catch (err) {
+    console.error("slack.mention: model setting read failed", { err: String(err) });
+    return DEFAULT_AGENT_MODEL;
   }
 }
 

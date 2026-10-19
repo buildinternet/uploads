@@ -275,7 +275,9 @@ In a thread it first reads up to 20 messages with `conversations.replies`
 its own last answer; its own messages are recognised by `app_id`.
 
 `src/agent.ts` is a short tool loop over OpenRouter chat completions
-(`OPENROUTER_API_KEY`, model `SLACK_AGENT_MODEL`):
+(`OPENROUTER_API_KEY`). The model is an operator setting under Admin →
+Models (`platform_settings.slack_agent_model`, read on each mention), with
+`DEFAULT_AGENT_MODEL` when none is set:
 
 - `search_files` calls `POST /internal/slack/search` with an optional
   filename term and `labels` (`kind`, `screen`, `surface`, the classifier's
@@ -306,7 +308,6 @@ yet" reply.
 | `SLACK_FULL_SIZE_HOSTS` | var    | Image hosts Slack may open full size; each needs CORS for `app.slack.com`.          |
 | `API_ORIGIN`            | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound.           |
 | `OPENROUTER_API_KEY`    | secret | Model calls for [answering mentions](#answering-mentions); same key as uploads-api. |
-| `SLACK_AGENT_MODEL`     | var    | OpenRouter model for mentions; must take images and tool calls.                     |
 
 ```bash
 wrangler secret put SLACK_SIGNING_SECRET --config apps/slack/wrangler.jsonc
