@@ -1,6 +1,7 @@
 ---
 /**
- * Compact content-report control for public asset pages.
+ * Content-report form for public asset pages, rendered inside a <dialog> the
+ * page opens (file page ⋯ menu). Cancel and a finished report close it.
  * Posts to POST /v1/abuse on the API origin.
  */
 interface Props {
@@ -27,10 +28,8 @@ const REASONS = [
 ---
 
 <div class="report" data-report-abuse>
-  <button type="button" class="report-toggle" data-report-toggle aria-expanded="false">
-    Report a problem
-  </button>
-  <form class="report-form" data-report-form hidden>
+  <form class="report-form" data-report-form method="dialog">
+    <h2 class="report-title">Report a problem</h2>
     <p class="report-lead">Flag this file for review. We read every report.</p>
     <label class="field">
       <span class="field-label">Reason</span>
@@ -77,13 +76,12 @@ const REASONS = [
     const root = document.querySelector("[data-report-abuse]");
     if (!(root instanceof HTMLElement)) return;
 
-    const toggle = root.querySelector("[data-report-toggle]");
+    const dialog = root.closest("dialog");
     const form = root.querySelector("[data-report-form]");
     const cancel = root.querySelector("[data-report-cancel]");
     const status = root.querySelector("[data-report-status]");
     const done = root.querySelector("[data-report-done]");
     if (
-      !(toggle instanceof HTMLButtonElement) ||
       !(form instanceof HTMLFormElement) ||
       !(status instanceof HTMLElement) ||
       !(done instanceof HTMLElement)
@@ -91,18 +89,13 @@ const REASONS = [
       return;
     }
 
-    const setOpen = (open) => {
-      form.hidden = !open;
-      toggle.hidden = open;
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      if (!open) {
-        status.hidden = true;
-        status.textContent = "";
-      }
+    const close = () => {
+      status.hidden = true;
+      status.textContent = "";
+      dialog?.close();
     };
 
-    toggle.addEventListener("click", () => setOpen(true));
-    cancel?.addEventListener("click", () => setOpen(false));
+    cancel?.addEventListener("click", close);
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -148,7 +141,6 @@ const REASONS = [
           return;
         }
         form.hidden = true;
-        toggle.hidden = true;
         status.hidden = true;
         done.hidden = false;
       } catch {
@@ -162,44 +154,23 @@ const REASONS = [
 
 <style>
   .report {
-    margin-top: 4px;
     min-width: 0;
-  }
-  .report-toggle {
-    appearance: none;
-    background: none;
-    border: 0;
-    padding: 0;
-    margin: 0;
-    color: var(--muted);
-    font: var(--text-micro) var(--sans);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent);
-    cursor: pointer;
-  }
-  .report-toggle:hover,
-  .report-toggle:focus-visible {
-    color: var(--fg);
-    text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    outline: none;
   }
   .report-form {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    margin-top: 4px;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    background: var(--bg);
+  }
+  .report-title {
+    margin: 0;
+    color: var(--fg);
+    font: 600 var(--text-ui) var(--sans);
   }
   /* `display: flex` above would override the HTML `hidden` attribute's
-     UA `display: none` — keep the form collapsed until "Report a problem". */
+     UA `display: none`. */
   .report-form[hidden],
   .report-done[hidden],
-  .report-status[hidden],
-  .report-toggle[hidden] {
+  .report-status[hidden] {
     display: none;
   }
   .report-lead {

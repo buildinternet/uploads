@@ -103,18 +103,21 @@ const footnoteLine = footnoteParts.join(" · ");
     height: 1px;
     background: var(--line);
   }
+  /* Sentence-case sans keys, mono values: one rail-label per section is
+     enough uppercase. */
   dl.meta {
     display: grid;
     grid-template-columns: auto 1fr;
     gap: 6px 16px;
     margin: 0;
-    font: var(--text-micro) var(--mono);
+    font: var(--text-micro) / 1.5 var(--mono);
   }
   dl.meta dt {
     color: var(--muted);
+    font-family: var(--sans);
+  }
+  dl.meta dt::first-letter {
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: var(--text-micro);
   }
   dl.meta dd {
     margin: 0;
@@ -165,7 +168,7 @@ const footnoteLine = footnoteParts.join(" · ");
     color: var(--muted);
     font: var(--text-micro) / 1.5 var(--sans);
   }
-  /* Subordinate to everything above — margin-top:auto sinks it (and ReportAbuse, right
+  /* Subordinate to everything above — margin-top:auto sinks it (and anything right
          after it in flow) to the bottom of the rail on tall pages, no-op on short ones. */
   .footnote {
     margin: auto 0 0;

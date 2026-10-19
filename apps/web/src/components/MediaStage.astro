@@ -178,15 +178,18 @@ const pdfPosterUrl =
     flex-wrap: wrap;
     margin-bottom: 12px;
   }
+  /* Quiet text toggle — the rail's own controls carry the visual weight. */
   .viewer-toolbar button {
     margin-left: auto;
-    padding: 7px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    background: var(--panel);
-    color: var(--fg);
+    padding: 4px 2px;
+    border: 0;
+    background: none;
+    color: var(--muted);
     font: var(--text-meta) var(--sans);
     cursor: pointer;
+  }
+  .viewer-toolbar button:hover {
+    color: var(--fg);
   }
   .viewer-toolbar button:focus-visible {
     outline: 2px solid var(--accent);

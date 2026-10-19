@@ -1,0 +1,222 @@
+---
+/**
+ * Header actions for the public file page: Copy link (with a "Copy as" format
+ * menu), Download, and a ⋯ overflow menu. Menus are native <details>; the
+ * delegated handlers in public-copy-controls copy, close and dismiss them.
+ *
+ * Default slot: extra overflow-menu items (Report, Delete). Slotted items use
+ * `class="fa-item"`, styled via `:global` so parent-scoped markup matches.
+ */
+import type { EmbedFormatOption } from "../lib/embed-formats";
+
+interface Props {
+  formats: EmbedFormatOption[];
+  /** Page URL the main Copy link button copies. */
+  canonical: string;
+  downloadUrl?: string | null;
+  originalUrl?: string | null;
+}
+
+const { formats, canonical, downloadUrl = null, originalUrl = null } = Astro.props;
+---
+
+<div class="file-actions" data-public-copy-controls>
+  <div class="split">
+    <button type="button" class="fa-btn fa-main" data-copy={canonical} data-copy-main>
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"
+        ></path>
+      </svg>
+      <span data-copy-label>Copy link</span>
+    </button>
+    {
+      formats.length > 0 && (
+        <details class="fa-menu" data-menu>
+          <summary class="fa-btn fa-icon fa-caret" aria-label="Copy as…" title="Copy as…">
+            <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                d="M2.75 4.5L6 7.75L9.25 4.5"
+              />
+            </svg>
+          </summary>
+          <div class="fa-pop">
+            <div class="fa-label">Copy as</div>
+            {formats.map((format) => (
+              <button type="button" class="fa-item" data-copy={format.value} title={format.value}>
+                {format.label}
+              </button>
+            ))}
+          </div>
+        </details>
+      )
+    }
+  </div>
+  {
+    downloadUrl && (
+      <a
+        class="fa-btn fa-icon"
+        href={downloadUrl}
+        rel="noopener noreferrer"
+        aria-label="Download"
+        title="Download"
+      >
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <path
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+            d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10"
+          />
+        </svg>
+      </a>
+    )
+  }
+  <details class="fa-menu" data-menu>
+    <summary class="fa-btn fa-icon" aria-label="More actions" title="More actions">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <circle cx="3.5" cy="8" r="1.2" fill="currentColor"></circle>
+        <circle cx="8" cy="8" r="1.2" fill="currentColor"></circle>
+        <circle cx="12.5" cy="8" r="1.2" fill="currentColor"></circle>
+      </svg>
+    </summary>
+    <div class="fa-pop">
+      {
+        originalUrl && (
+          <a class="fa-item" href={originalUrl} rel="noopener noreferrer">
+            Open original ↗
+          </a>
+        )
+      }
+      <slot />
+    </div>
+  </details>
+  <span id="copy-status" class="sr-only" aria-live="polite"></span>
+</div>
+
+<script>
+  import "../lib/public-copy-controls";
+</script>
+
+<style>
+  .file-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  .split {
+    display: flex;
+  }
+  .fa-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 34px;
+    box-sizing: border-box;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: var(--fg);
+    font: var(--text-meta) / 1 var(--sans);
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    list-style: none;
+  }
+  .fa-btn::-webkit-details-marker {
+    display: none;
+  }
+  .fa-btn:hover,
+  .fa-btn:focus-visible,
+  .fa-menu[open] > .fa-btn {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+  .fa-icon {
+    width: 34px;
+    padding: 0;
+  }
+  .split .fa-main {
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+  }
+  .split .fa-caret {
+    width: 30px;
+    margin-left: -1px;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+  .fa-menu {
+    position: relative;
+  }
+  .fa-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  }
+  .fa-label {
+    padding: 6px 10px 4px;
+    color: var(--muted);
+    font: var(--text-micro) var(--sans);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .file-actions :global(.fa-item) {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--fg);
+    font: var(--text-meta) / 1.2 var(--sans);
+    text-align: left;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .file-actions :global(.fa-item:hover),
+  .file-actions :global(.fa-item:focus-visible) {
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    outline: none;
+  }
+  .file-actions :global(.fa-item[hidden]) {
+    display: none;
+  }
+  .file-actions :global(.fa-item--danger) {
+    color: var(--red);
+  }
+  .file-actions :global(.fa-sep) {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--line);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
