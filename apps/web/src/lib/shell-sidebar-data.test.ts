@@ -120,7 +120,7 @@ describe("accountNavSections", () => {
     expect(sections[0]!.items.some((i) => i.nested)).toBe(false);
   });
 
-  it("nests GitHub comment and Service tokens under Settings only on settings routes", () => {
+  it("nests General and Service tokens under Settings only on settings routes", () => {
     const plain = accountNavSections({
       pathname: "/account/workspaces/acme/people",
       workspace: "acme",
@@ -136,7 +136,7 @@ describe("accountNavSections", () => {
     const settingsRow = settings[0]!.items.find((i) => i.label === "Settings");
     expect(settingsRow?.current).toBe(true);
     const nested = settings[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.label)).toEqual(["GitHub comment", "Service tokens"]);
+    expect(nested.map((i) => i.label)).toEqual(["General", "Service tokens"]);
     expect(nested.map((i) => i.current)).toEqual([false, true]);
     expect(nested[0]!.href).toBe("/account/workspaces/acme/settings");
     expect(nested[1]!.href).toBe("/account/workspaces/acme/settings/tokens");

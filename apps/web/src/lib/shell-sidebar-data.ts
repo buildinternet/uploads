@@ -148,7 +148,7 @@ export function accountNavSections(options: {
       if (tab.id !== "settings" || !subpage) continue;
       const base = `/account/workspaces/${encodeURIComponent(workspace)}/settings`;
       items.push({
-        label: "GitHub comment",
+        label: "General",
         href: base,
         current: subpage === "comment",
         icon: "dot",
