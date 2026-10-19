@@ -25,12 +25,15 @@ import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
 import {
   HOLD_APPROVED,
+  HOLD_AT_KEY,
+  HOLD_BY_KEY,
   HOLD_META_KEY,
   HOLD_MOVED_KEY,
   HOLD_PENDING,
   holdPolicyEnabled,
   holdReason,
 } from "./upload-hold";
+import type { UploaderIdentity } from "./uploader-identity";
 import { loadWorkspaceRecord, type WorkspaceRecord } from "./workspace";
 import { countHeldByWorkspace, listHeldAcrossWorkspaces } from "./upload-hold-read";
 
@@ -128,6 +131,7 @@ export async function approveUpload(
   ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
+  by?: string | null,
 ): Promise<ApproveUploadResult> {
   const db = dbFor(env);
   const existing = await getFileMetadata(db, workspaceName, key);
@@ -142,10 +146,69 @@ export async function approveUpload(
     }
     await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_MOVED_KEY]);
   }
-  await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_APPROVED });
+  await setServerFileMetadata(db, workspaceName, key, {
+    [HOLD_META_KEY]: HOLD_APPROVED,
+    [HOLD_AT_KEY]: new Date().toISOString(),
+    ...(by ? { [HOLD_BY_KEY]: by } : {}),
+  });
   console.log({ event: "upload_approved", workspace: workspaceName });
   await resyncAttachmentComment(env, ws, workspaceName, key, existing);
   return { approved: true };
+}
+
+export type HoldAgainResult = { held: true } | { held: false; reason: "not_approved" };
+
+/**
+ * Hold an approved file again, for a member who approved by mistake. Only
+ * an approved file: a pending one is already held, and one the classifier
+ * never flagged has no reason to show. Bytes move back to the held bucket
+ * and the PR comment drops the file, as for a new hold, without the Slack
+ * and email alerts (the member asked for it). The public URL may already
+ * be cached or copied, so this is no substitute for rotating a credential.
+ */
+export async function holdAgain(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+): Promise<HoldAgainResult> {
+  const db = dbFor(env);
+  const existing = await getFileMetadata(db, workspaceName, key);
+  if (existing[HOLD_META_KEY] !== HOLD_APPROVED) return { held: false, reason: "not_approved" };
+  // The row lands first, as in `applyUploadHold`.
+  await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
+  await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_BY_KEY, HOLD_AT_KEY]);
+  const moved = await moveToHeld(env, ws, workspaceName, key);
+  console.log({ event: "upload_held_again", workspace: workspaceName, moved });
+  await resyncAttachmentComment(env, ws, workspaceName, key, existing);
+  return { held: true };
+}
+
+/**
+ * The label stored as `ai.hold.by`: a member's name, or a service token's
+ * label. Best-effort; `null` leaves the approval unattributed.
+ */
+export async function approverLabel(
+  env: Env,
+  identity: UploaderIdentity | undefined,
+): Promise<string | null> {
+  if (identity?.kind === "service") return `${identity.label} (service token)`;
+  if (identity?.kind === "user") return memberName(env, identity.userId);
+  return null;
+}
+
+/** A user's display name, or `null` when it can't be read. */
+export async function memberName(env: Env, userId: string): Promise<string | null> {
+  try {
+    const row = await dbFor(env)
+      .prepare("SELECT name FROM user WHERE id = ?")
+      .bind(userId)
+      .first<{ name: string | null }>();
+    const name = row?.name?.trim();
+    return name ? name.slice(0, 80) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -219,7 +282,7 @@ export async function releaseHolds(
     const ws = records.get(row.workspace);
     try {
       if (!ws) throw new Error("workspace not found");
-      const result = await approveUpload(env, ws, row.workspace, row.objectKey);
+      const result = await approveUpload(env, ws, row.workspace, row.objectKey, "uploads.sh");
       if (result.approved) released += 1;
     } catch (err) {
       failed += 1;

@@ -132,6 +132,7 @@ const compare =
     ? { src: counterpart.previewUrl ?? counterpart.url, ownState }
     : null;
 const mediaKind = file ? kind(file.contentType) : null;
+const aiLabelsSettingsHref = `/account/workspaces/${encodeURIComponent(workspace)}/settings/ai-labels`;
 const unfurlKind = mediaKind === "image" || mediaKind === "video" ? mediaKind : "other";
 if (timingsEnabled)
   Astro.response.headers.append("Server-Timing", `file_ssr_prepare;dur=${Date.now() - ssrStarted}`);
@@ -370,9 +371,118 @@ if (timingsEnabled)
         opacity: 0.6;
         cursor: default;
       }
-      .held-preview {
-        margin: 24px auto 0;
-        max-width: 720px;
+      /* Held file (upload-hold.ts): the normal file layout under an amber
+         banner. Members only; the script reveals it. */
+      .held {
+        --held: #e8a93a;
+        --held-ink: #f3d9a4;
+        --held-strong: #fbe7bd;
+        --held-bg: #1f180b;
+        --held-line: #5a431a;
+        --held-on: #1a1405;
+      }
+      :global(html[data-theme="light"]) .held {
+        --held: #9a6412;
+        --held-ink: #5c3d0a;
+        --held-strong: #3d2905;
+        --held-bg: #fbf0d9;
+        --held-line: #e2c48a;
+        --held-on: #ffffff;
+      }
+      .held-banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 16px;
+        margin: 0 0 20px;
+        padding: 14px 16px 14px 18px;
+        border: 1px solid var(--held-line);
+        border-radius: var(--radius-lg);
+        background: var(--held-bg);
+        color: var(--held-ink);
+      }
+      .held-banner svg {
+        flex: none;
+        color: var(--held);
+      }
+      .held-banner-text {
+        flex: 1 1 320px;
+        min-width: 0;
+      }
+      .held-banner h2 {
+        margin: 0 0 3px;
+        color: var(--held-strong);
+        font: 600 var(--text-ui) / 1.4 var(--sans);
+      }
+      .held-banner p {
+        margin: 0;
+        font: var(--text-meta) / 1.45 var(--sans);
+      }
+      .held-banner a {
+        color: inherit;
+        text-decoration-color: currentColor;
+      }
+      .held-approve {
+        flex: none;
+        padding: 9px 16px;
+        border: 1px solid var(--held);
+        border-radius: var(--radius-md);
+        background: var(--held);
+        color: var(--held-on);
+        font: 600 var(--text-meta) var(--sans);
+        cursor: pointer;
+      }
+      .held-approve:focus-visible {
+        outline: 2px solid var(--held-strong);
+        outline-offset: 2px;
+      }
+      .held-approve:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .held-error {
+        flex-basis: 100%;
+        margin: 0;
+        color: var(--red);
+        font: var(--text-micro) var(--sans);
+      }
+      .held-sub {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font: var(--text-meta) var(--sans);
+      }
+      .held-download {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--panel);
+        color: var(--fg);
+      }
+      .held-download:hover,
+      .held-download:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      .held-stage {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      .held-media {
+        min-height: 320px;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--bg);
+      }
+      .held-media figure {
+        margin: 0;
       }
       .held-frame {
         position: relative;
@@ -382,19 +492,84 @@ if (timingsEnabled)
       .held-frame img {
         display: block;
         max-width: 100%;
-        max-height: 60vh;
+        max-height: 70vh;
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
       }
       .held-area {
         position: absolute;
-        border: 2px solid var(--accent);
+        border: 2px solid var(--held);
         border-radius: var(--radius-md);
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        background: color-mix(in srgb, var(--held) 12%, transparent);
         pointer-events: none;
       }
-      .held-preview figcaption {
-        margin-top: 10px;
+      .held-nopreview {
+        margin: 0;
+        color: var(--muted);
+        font: var(--text-meta) var(--sans);
+        text-align: center;
+      }
+      .held-rail {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        padding: 18px 20px 22px;
+        border-top: 1px solid var(--line);
+      }
+      .held-meta {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 16px;
+        margin: 0;
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      .held-meta dt {
+        color: var(--muted);
+      }
+      .held-meta dd {
+        margin: 0;
+        color: var(--body);
+      }
+      .held-foot {
+        margin: auto 0 0;
+        color: var(--muted);
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      @media (min-width: 1080px) {
+        .held-stage {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+        }
+        .held-rail {
+          border-top: none;
+          border-left: 1px solid var(--line);
+        }
+      }
+      /* Members-only note on a file that was held and approved. */
+      .reviewed-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      .reviewed-row svg {
+        flex: none;
+        margin-top: 2px;
+        color: var(--green);
+      }
+      .reviewed-row strong {
+        display: block;
+        color: var(--fg);
+        font-weight: 500;
+      }
+      .reviewed-row span {
+        color: var(--body);
+      }
+      .reviewed-team {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 10px 0 0;
         color: var(--muted);
         font: var(--text-micro) var(--sans);
       }
@@ -553,6 +728,9 @@ if (timingsEnabled)
                 <button type="button" class="fa-item" id="report-open">
                   Report a problem
                 </button>
+                <button type="button" class="fa-item" id="hold-again" hidden>
+                  Hold for review again
+                </button>
                 <button type="button" class="fa-item fa-item--danger" id="delete-open" hidden>
                   Delete file…
                 </button>
@@ -594,6 +772,56 @@ if (timingsEnabled)
                   </ul>
                 </div>
               )}
+              <div id="reviewed" hidden>
+                <div class="rail-head">
+                  <span class="rail-label">Reviewed</span>
+                  <span class="rail-rule" aria-hidden="true" />
+                </div>
+                <div class="reviewed-row">
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                    <path
+                      d="M8 1.5l5.5 2v4c0 3.3-2.4 6-5.5 7-3.1-1-5.5-3.7-5.5-7v-4z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M5.5 8l1.8 1.8L10.5 6.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  <div>
+                    <strong id="reviewed-reason">Flagged for possible sensitive information</strong>
+                    <span id="reviewed-by">Approved</span>
+                  </div>
+                </div>
+                <p class="reviewed-team">
+                  <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                    <rect
+                      x="3.5"
+                      y="7"
+                      width="9"
+                      height="6.5"
+                      rx="1.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                    />
+                    <path
+                      d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                    />
+                  </svg>
+                  Only visible to your team
+                </p>
+              </div>
               <FileDetails
                 metadata={file.metadata}
                 size={file.size}
@@ -653,32 +881,100 @@ if (timingsEnabled)
                 Checking your session…
               </span>
             </section>
-            <section class="error" id="held-state" hidden>
-              <code>file.held</code>
-              <h1>Held for your review</h1>
-              <p>
-                It may show <span id="held-reason">a credential or personal information</span>.
-                Check it, then approve it to put it back at its link.
-              </p>
-              <figure class="held-preview" id="held-preview" hidden>
-                <div class="held-frame">
-                  <img id="held-image" alt="The held file" />
-                  <div class="held-area" id="held-area" hidden />
+            <div class="held" id="held-state" hidden>
+              <section class="held-banner" aria-labelledby="held-title">
+                <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                  <path
+                    d="M10 2.5l8 14H2z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M10 8v4M10 14.2v.3"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div class="held-banner-text">
+                  <h2 id="held-title">
+                    Held for review because it may show{" "}
+                    <span id="held-reason">sensitive information</span>
+                  </h2>
+                  <p>
+                    Its link is paused until a workspace member approves it. Check the file first.{" "}
+                    <a href={aiLabelsSettingsHref}>Hold settings</a>
+                  </p>
                 </div>
-                <figcaption id="held-caption" hidden>
-                  The outlined area is roughly where it was flagged. Check the rest too.
-                </figcaption>
-              </figure>
-              <a class="signin" id="held-download" hidden>
-                Download to check
-              </a>
-              <button type="button" class="signin" id="held-approve">
-                Approve
-              </button>
-              <span class="checking" id="held-error" hidden>
-                Couldn't approve this file. Try again shortly.
-              </span>
-            </section>
+                <button type="button" class="held-approve" id="held-approve">
+                  Approve and publish
+                </button>
+                <p class="held-error" id="held-error" hidden>
+                  Couldn't approve this file. Try again shortly.
+                </p>
+              </section>
+              <header class="filehead">
+                <div class="filehead-text">
+                  <h1 class="filetitle">{filename}</h1>
+                  <p class="held-sub">Not public yet</p>
+                </div>
+                <a
+                  class="held-download"
+                  id="held-download"
+                  aria-label="Download to check"
+                  title="Download to check"
+                  hidden
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M8 2v8M4.5 7L8 10.5 11.5 7M3 13.5h10"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                    />
+                  </svg>
+                </a>
+              </header>
+              <div class="held-stage">
+                <div class="held-media">
+                  <figure id="held-preview" hidden>
+                    <div class="held-frame">
+                      <img id="held-image" alt="The held file" />
+                      <div class="held-area" id="held-area" hidden />
+                    </div>
+                  </figure>
+                  <p class="held-nopreview" id="held-nopreview">
+                    No preview for this file. Download it to check.
+                  </p>
+                </div>
+                <aside class="held-rail">
+                  <div>
+                    <div class="rail-head">
+                      <span class="rail-label">Hold</span>
+                      <span class="rail-rule" aria-hidden="true" />
+                    </div>
+                    <dl class="held-meta">
+                      <dt>Reason</dt>
+                      <dd id="held-reason-row">Sensitive information</dd>
+                      <dt id="held-where-label" hidden>
+                        Where
+                      </dt>
+                      <dd id="held-where" hidden>
+                        Outlined in the preview
+                      </dd>
+                      <dt>Link</dt>
+                      <dd>Paused</dd>
+                    </dl>
+                  </div>
+                  <p class="held-foot">
+                    Holds come from AI labels. Workspace admins can turn them off in Settings → AI
+                    labels.
+                  </p>
+                </aside>
+              </div>
+            </div>
           </>
         ) : (
           <section class="error">
@@ -771,12 +1067,20 @@ if (timingsEnabled)
           document.getElementById("auth-required").hidden = true;
           document.getElementById("held-state").hidden = false;
           document.title = "Held for review · uploads.sh";
-          if (typeof item.reason === "string" && item.reason.startsWith("secret")) {
-            document.getElementById("held-reason").textContent = "a credential";
-          } else if (typeof item.reason === "string" && item.reason.startsWith("pii")) {
-            document.getElementById("held-reason").textContent = "personal information";
+          const reason =
+            typeof item.reason === "string" && item.reason.startsWith("secret")
+              ? ["a credential", "Credential"]
+              : typeof item.reason === "string" && item.reason.startsWith("pii")
+                ? ["personal information", "Personal information"]
+                : null;
+          if (reason) {
+            document.getElementById("held-reason").textContent = reason[0];
+            document.getElementById("held-reason-row").textContent = reason[1];
           }
           // A hold that never moved (your own bucket) has no held copy.
+          if (!item.moved) {
+            document.getElementById("held-nopreview").textContent = "No preview for this file.";
+          }
           if (item.moved) {
             const download = document.getElementById("held-download");
             download.href = filesEndpoint(`/held/download?key=${encodeURIComponent(key)}`);
@@ -818,6 +1122,7 @@ if (timingsEnabled)
           const image = document.getElementById("held-image");
           image.src = URL.createObjectURL(blob);
           document.getElementById("held-preview").hidden = false;
+          document.getElementById("held-nopreview").hidden = true;
           if (!area) return;
           const box = document.getElementById("held-area");
           box.style.top = `${area.top * 100}%`;
@@ -825,7 +1130,8 @@ if (timingsEnabled)
           box.style.width = `${(area.right - area.left) * 100}%`;
           box.style.height = `${(area.bottom - area.top) * 100}%`;
           box.hidden = false;
-          document.getElementById("held-caption").hidden = false;
+          document.getElementById("held-where-label").hidden = false;
+          document.getElementById("held-where").hidden = false;
         } catch (e) {
           // The download link still works.
         }
@@ -840,6 +1146,65 @@ if (timingsEnabled)
           dialog.showModal();
         });
       })();
+
+      // Members-only Reviewed note for a file that was held and approved,
+      // plus "Hold for review again" in the ⋯ menu for an approval made by
+      // mistake. The public API strips the hold rows, so this asks the
+      // members-only review endpoint.
+      async function showReviewed() {
+        try {
+          const response = await fetch(filesEndpoint(`/review?key=${encodeURIComponent(key)}`), {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!response.ok) return;
+          const review = await response.json();
+          if (review?.hold !== "approved") return;
+          const reason = typeof review.reason === "string" ? review.reason : "";
+          document.getElementById("reviewed-reason").textContent = reason.startsWith("secret")
+            ? "Flagged for a possible credential"
+            : reason.startsWith("pii")
+              ? "Flagged for possible personal information"
+              : "Flagged for possible sensitive information";
+          const when = review.at ? new Date(review.at) : null;
+          const date =
+            when && !Number.isNaN(when.getTime())
+              ? when.toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : null;
+          const by = typeof review.by === "string" && review.by ? ` by ${review.by}` : "";
+          document.getElementById("reviewed-by").textContent =
+            `Approved${by}` + (date ? ` · ${date}` : "");
+          document.getElementById("reviewed").hidden = false;
+
+          const holdBtn = document.getElementById("hold-again");
+          holdBtn.hidden = false;
+          holdBtn.addEventListener("click", async function () {
+            const ok = window.confirm(
+              "Hold this file for review again? Its link stops working until someone approves it. If it shows a credential, rotate the credential too: the file was public.",
+            );
+            if (!ok) return;
+            holdBtn.disabled = true;
+            try {
+              const result = await fetch(filesEndpoint(`/hold?key=${encodeURIComponent(key)}`), {
+                method: "POST",
+                credentials: "include",
+              });
+              if (!result.ok) throw new Error(String(result.status));
+              window.location.reload();
+            } catch (e) {
+              holdBtn.disabled = false;
+              window.alert("Couldn't hold this file. Try again shortly.");
+            }
+          });
+        } catch (e) {
+          // Leave the page as the public sees it.
+        }
+      }
 
       // Member-only delete control (spec 2026-07-30). Reveal is progressive
       // enhancement: the same /v1/workspaces/:name/files/file-url probe the unlisted
@@ -860,6 +1225,7 @@ if (timingsEnabled)
           return;
         }
         openBtn.hidden = false;
+        void showReviewed();
 
         const stepBtn = document.getElementById("delete-step");
         const cancelBtn = document.getElementById("delete-cancel");

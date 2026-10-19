@@ -371,6 +371,75 @@
         }
       }
     },
+    "/v1/workspaces/{workspace}/files/hold": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "holdFileAgain",
+        "security": [{ "bearerAuth": ["files:write"] }],
+        "summary": "Hold an approved file for review again",
+        "description": "For a file approved by mistake: puts it back under review, so its link stops working until a member approves it again. Only a file that was held and approved can be held again; any other key answers 200 with `held: false`.",
+        "parameters": [
+          { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the file is held again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["key", "held"],
+                  "properties": {
+                    "key": { "type": "string" },
+                    "held": { "type": "boolean" },
+                    "reason": { "type": "string", "enum": ["not_approved"] }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/review": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "getFileReview",
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "A file's review state",
+        "description": "Whether a file is held, was approved (with who approved it and when), or was never held. For workspace members; the public file API does not return it.",
+        "parameters": [
+          { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file's review state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["key", "hold", "reason", "by", "at"],
+                  "properties": {
+                    "key": { "type": "string" },
+                    "hold": { "type": ["string", "null"], "enum": ["pending", "approved", null] },
+                    "reason": { "type": ["string", "null"] },
+                    "by": { "type": ["string", "null"] },
+                    "at": { "type": ["string", "null"], "format": "date-time" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/workspaces/{workspace}/files/{key}": {
       "parameters": [
         { "$ref": "#/components/parameters/Workspace" },

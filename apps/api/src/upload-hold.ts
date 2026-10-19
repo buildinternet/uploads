@@ -35,6 +35,15 @@ export const HOLD_MOVED_KEY = "ai.hold.moved";
  */
 export const HOLD_AREA_KEY = "ai.hold.area";
 
+/**
+ * Who released a hold and when, for the members-only Reviewed note on the
+ * file page. `by` is a display label captured at approval (a member's
+ * name, or a service token's label); `at` is an ISO timestamp. Cleared
+ * when a file is held again.
+ */
+export const HOLD_BY_KEY = "ai.hold.by";
+export const HOLD_AT_KEY = "ai.hold.at";
+
 export interface HoldArea {
   top: number;
   bottom: number;

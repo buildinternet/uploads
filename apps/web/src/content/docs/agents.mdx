@@ -257,7 +257,7 @@ A high-confidence `ai.secret` (any value other than `none`), or a high-confidenc
 - Public feeds and galleries show it as withheld. Its `/f/` page asks for sign-in, and shows a signed-in member why it's held, with **Approve**. For an image on hosted storage, the page shows the held copy with the flagged area outlined. The outline is approximate, so check the whole image.
 - On hosted storage, its raw URL returns 404 while it is held. Approval brings the file back at the same URL. A file in your own bucket keeps serving from your domain.
 
-Any workspace member can approve, from the file's page or the CLI. Check each held file before you approve it. If it does show a credential, rotate the credential, then replace or delete the file.
+Any workspace member can approve, from the file's page or the CLI. Check each held file before you approve it. If it does show a credential, rotate the credential, then replace or delete the file. Approved one by mistake? A member can hold it again from the ⋯ menu on its file page.
 
 ```ansi
 uploads approve --pr 12             # list held files and why
