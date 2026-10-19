@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { downloadResponse } from "../files-core";
 import { listGalleryItems, resolvePublicGallery } from "../galleries";
 import { hydratePublicGallery } from "../gallery-service";
-import { objectPublicUrls, storage, storageConfig } from "../storage";
+import { createLaneResolver, objectPublicUrls } from "../storage";
 import { isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
@@ -46,11 +46,15 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 
-    const store = await withGalleryStorageErrors(() => storage(c.env, workspace));
-    const exists = await withGalleryStorageErrors(() => store.exists(item.object_key));
-    if (!exists) {
+    // Match gallery hydration: the active lane wins, then fallbacks are
+    // searched in order. All subsequent gates and bytes use that same lane.
+    const resolver = createLaneResolver(c.env, workspace);
+    await withGalleryStorageErrors(() => resolver.activeConfig());
+    const lane = await withGalleryStorageErrors(() => resolver.resolve(item.object_key));
+    if (!lane) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
+    const { store, config } = lane;
 
     // Mirrors hydrateGalleryItems (gallery-service.ts): the object may have
     // been public at item-add time but the workspace's publicBaseUrl is
@@ -70,7 +74,6 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 
-    const config = await withGalleryStorageErrors(() => storageConfig(c.env, workspace));
     const urls = objectPublicUrls(c.env, config, item.object_key);
     if (!urls.url) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
