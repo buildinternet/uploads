@@ -20,11 +20,11 @@ const REPO = "https://github.com/buildinternet/uploads";
 // Expressive Code already ships. defaultColor is false so the colors stay CSS
 // variables; the page style follows data-theme instead of the OS.
 const BASH_HIGHLIGHT = {
-  lang: "bash" as const,
+  lang: "bash",
   themes: { light: "vitesse-light", dark: "vitesse-dark" },
-  defaultColor: false as const,
+  defaultColor: false,
   class: "bash-example",
-};
+} as const;
 const MANUAL_SETUP = `# install the agent skills
 npx skills add buildinternet/uploads
 
