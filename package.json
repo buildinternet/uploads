@@ -30,7 +30,7 @@
     "upload:web": "pnpm --filter @uploads/web run build && pnpm --filter @uploads/web exec wrangler versions upload",
     "upload:mcp": "pnpm --filter @buildinternet/uploads run build && pnpm --filter @uploads/mcp exec wrangler versions upload",
     "upload:auth": "pnpm --filter @uploads/auth exec wrangler versions upload",
-    "types": "pnpm --filter @uploads/api types && pnpm --filter @uploads/mcp types && pnpm --filter @uploads/web types && pnpm --filter @uploads/auth types && pnpm --filter @uploads/slack types",
+    "types": "pnpm --filter @uploads/api types && pnpm --filter @uploads/mcp types && pnpm --filter @uploads/web types && pnpm --filter @uploads/auth types && pnpm --filter @uploads/slack types && pnpm --filter @uploads/api types:viewer && pnpm --filter @uploads/api types:public-edge",
     "prelint": "pnpm --filter @uploads/ui build",
     "lint": "oxlint --ignore-pattern '.worktrees/**'",
     "lint:fix": "oxlint --fix --ignore-pattern '.worktrees/**'",
@@ -61,7 +61,12 @@
     "plugin-skills:check": "node scripts/sync-plugin-skills.mjs --check",
     "changeset:version": "changeset version && node scripts/sync-server-json-version.mjs && node scripts/sync-plugin-version.mjs && node scripts/build-mcp-server-card.mjs && pnpm install --lockfile-only",
     "changeset:publish": "changeset publish",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev:viewer": "pnpm --filter @uploads/api run dev:viewer",
+    "deploy:viewer": "pnpm --filter @uploads/api run deploy:viewer",
+    "viewer:bundle:check": "node scripts/check-viewer-bundle.mjs",
+    "viewer:bundle:measure": "node scripts/measure-viewer-bundles.mjs",
+    "deploy:public-edge": "pnpm --filter @uploads/api run deploy:public-edge"
   },
   "devDependencies": {
     "@buildinternet/uploads": "workspace:*",

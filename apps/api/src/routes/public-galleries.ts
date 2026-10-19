@@ -1,9 +1,10 @@
+import { withPublicReadTiming } from "../public-read-timing";
 import { NotFoundError, ServiceUnavailableError } from "@uploads/errors";
 import { Hono } from "hono";
-import { downloadResponse } from "../files-core";
+import { downloadResponse } from "../files-read";
 import { listGalleryItems, resolvePublicGallery } from "../galleries";
 import { hydratePublicGallery } from "../gallery-service";
-import { objectPublicUrls, storage, storageConfig } from "../storage";
+import { createLaneResolver, objectPublicUrls } from "../storage";
 import { isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
@@ -23,72 +24,101 @@ async function withGalleryStorageErrors<T>(action: () => Promise<T>): Promise<T>
 }
 
 export const publicGalleries = new Hono<WorkspaceVars>()
-  .get("/:id/items/:item/download", async (c) => {
-    const record = await resolvePublicGallery(dbFor(c.env), c.req.param("id"));
-    if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-
-    // Soft-deleted / purged workspaces collapse to null — same uniform 404 as
-    // missing tenants (matches public-files + authenticated paths). Check
-    // before item lookup so existing and unknown item IDs both yield
-    // gallery_not_found for unavailable workspaces (no item-existence oracle).
-    const workspace = await loadWorkspaceRecord(c.env, record.workspace);
-    if (!workspace) {
-      throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-    }
-
-    const items = await boundedDataRead(
+  .get("/:id/items/:item/download", (c) =>
+    withPublicReadTiming(
       c,
-      () => listGalleryItems(dbFor(c.env), record.workspace, record.id),
-      { name: "d1_gallery_items" },
-    );
-    const item = items.find((entry) => entry.id === c.req.param("item"));
-    if (!item) {
-      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
-    }
+      "/public/galleries/:id/items/:item/download",
+      "gallery_download_api",
+      async (measure) => {
+        const record = await measure("gallery_resolve", () =>
+          resolvePublicGallery(dbFor(c.env), c.req.param("id")),
+        );
+        if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
 
-    const store = await withGalleryStorageErrors(() => storage(c.env, workspace));
-    const exists = await withGalleryStorageErrors(() => store.exists(item.object_key));
-    if (!exists) {
-      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
-    }
+        // Soft-deleted / purged workspaces collapse to null — same uniform 404 as
+        // missing tenants (matches public-files + authenticated paths). Check
+        // before item lookup so existing and unknown item IDs both yield
+        // gallery_not_found for unavailable workspaces (no item-existence oracle).
+        const workspace = await measure("workspace", () =>
+          loadWorkspaceRecord(c.env, record.workspace),
+        );
+        if (!workspace) {
+          throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+        }
 
-    // Mirrors hydrateGalleryItems (gallery-service.ts): the object may have
-    // been public at item-add time but the workspace's publicBaseUrl is
-    // mutable afterward, or it may since have been marked private. Withhold
-    // the bytes here exactly when the gallery's own read path would withhold
-    // the item (uniform 404, never a distinct code), so this route can't be
-    // used to bypass that gate.
-    const [head, held] = await Promise.all([
-      withGalleryStorageErrors(() => store.head(item.object_key)),
-      isKeyHeld(c.env, record.workspace, item.object_key),
-    ]);
-    if (objectVisibility((head as { metadata?: Record<string, string> } | null)?.metadata)) {
-      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
-    }
-    // A held upload (`upload-hold.ts`) is withheld the same way.
-    if (held) {
-      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
-    }
+        const items = await boundedDataRead(
+          c,
+          () => listGalleryItems(dbFor(c.env), record.workspace, record.id),
+          { name: "d1_gallery_items" },
+        );
+        const item = items.find((entry) => entry.id === c.req.param("item"));
+        if (!item) {
+          throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+        }
 
-    const config = await withGalleryStorageErrors(() => storageConfig(c.env, workspace));
-    const urls = objectPublicUrls(c.env, config, item.object_key);
-    if (!urls.url) {
-      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
-    }
+        // Match gallery hydration: the active lane wins, then fallbacks are
+        // searched in order. All subsequent gates and bytes use that same lane.
+        const resolver = createLaneResolver(c.env, workspace);
+        await measure("storage_config", () =>
+          withGalleryStorageErrors(() => resolver.activeConfig()),
+        );
+        const lane = await measure("exists", () =>
+          withGalleryStorageErrors(() => resolver.resolve(item.object_key)),
+        );
+        if (!lane) {
+          throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+        }
+        const { store, config } = lane;
 
-    return withGalleryStorageErrors(() => downloadResponse(store, item.object_key));
-  })
-  .get("/:id", async (c) => {
-    const record = await resolvePublicGallery(dbFor(c.env), c.req.param("id"));
-    if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-    const workspace = await loadWorkspaceRecord(c.env, record.workspace);
-    if (!workspace) {
-      throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-    }
-    const items = await boundedDataRead(
-      c,
-      () => listGalleryItems(dbFor(c.env), record.workspace, record.id),
-      { name: "d1_gallery_items" },
-    );
-    return c.json(await hydratePublicGallery(c.env, workspace, record, items));
-  });
+        // Mirrors hydrateGalleryItems (gallery-service.ts): the object may have
+        // been public at item-add time but the workspace's publicBaseUrl is
+        // mutable afterward, or it may since have been marked private. Withhold
+        // the bytes here exactly when the gallery's own read path would withhold
+        // the item (uniform 404, never a distinct code), so this route can't be
+        // used to bypass that gate.
+        const [head, held] = await Promise.all([
+          measure("head", () => withGalleryStorageErrors(() => store.head(item.object_key))),
+          measure("holds", () => isKeyHeld(c.env, record.workspace, item.object_key)),
+        ]);
+        if (objectVisibility((head as { metadata?: Record<string, string> } | null)?.metadata)) {
+          throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+        }
+        // A held upload (`upload-hold.ts`) is withheld the same way.
+        if (held) {
+          throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+        }
+
+        const urls = await measure("public_urls", async () =>
+          objectPublicUrls(c.env, config, item.object_key),
+        );
+        if (!urls.url) {
+          throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+        }
+
+        return measure("download", () =>
+          withGalleryStorageErrors(() => downloadResponse(store, item.object_key)),
+        );
+      },
+    ),
+  )
+  .get("/:id", (c) =>
+    withPublicReadTiming(c, "/public/galleries/:id", "gallery_api", async (measure) => {
+      const record = await measure("gallery_resolve", () =>
+        resolvePublicGallery(dbFor(c.env), c.req.param("id")),
+      );
+      if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+      const workspace = await measure("workspace", () =>
+        loadWorkspaceRecord(c.env, record.workspace),
+      );
+      if (!workspace) {
+        throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+      }
+      const items = await boundedDataRead(
+        c,
+        () => listGalleryItems(dbFor(c.env), record.workspace, record.id),
+        { name: "d1_gallery_items" },
+      );
+      const dto = await hydratePublicGallery(c.env, workspace, record, items, measure);
+      return measure("serialize", async () => c.json(dto));
+    }),
+  );

@@ -1,3 +1,4 @@
+import { unmeasured, type PublicReadMeasure } from "./public-read-timing";
 /**
  * Hydration + public/owner DTOs for repo change feeds. The feed record is
  * just a query; this module runs it against `file_metadata` (newest first)
@@ -9,7 +10,7 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
-import { publicObjectDateFields } from "./files-core";
+import { publicObjectDateFields } from "./files-read";
 import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
 import {
   encodePublicFeedCursor,
@@ -27,7 +28,7 @@ import {
   type FeedRecord,
   type FeedSource,
 } from "./feeds";
-import { isDerivedPosterContentType, videoPresentation } from "./poster";
+import { isDerivedPosterContentType, videoPresentation } from "./poster-presentation";
 import type {
   FeedItemDto,
   FeedSummaryDto,
@@ -238,11 +239,14 @@ export async function hydrateFeedItems(
     audience: "owner" | "public";
     privateKeys?: Set<string>;
     requirePublicUrls?: boolean;
+    measure?: PublicReadMeasure;
   },
 ): Promise<FeedItemDto[]> {
+  const measure = opts.measure ?? unmeasured;
+  const workspaceName = workspace.name;
   const resolver: LaneResolver = createLaneResolver(env, workspace);
   try {
-    await resolver.activeConfig();
+    await measure("storage_config", () => resolver.activeConfig());
   } catch (cause) {
     throw new ServiceUnavailableError("Feed storage unavailable.", {
       code: "feed_storage_unavailable",
@@ -253,76 +257,82 @@ export async function hydrateFeedItems(
   // Held uploads (`upload-hold.ts`) are withheld from a public feed the same
   // way private ones are.
   const heldKeys =
-    opts.audience === "public" && workspace.name
-      ? await heldKeysAmong(
-          env,
-          workspace.name,
-          matches.map((match) => match.key),
+    opts.audience === "public" && workspaceName
+      ? await measure("holds", () =>
+          heldKeysAmong(
+            env,
+            workspaceName,
+            matches.map((match) => match.key),
+          ),
         )
       : new Set<string>();
-  const hydrated = await mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
-    let meta: FeedObjectHead | null;
-    let itemConfig: StorageConfig | null = null;
-    try {
-      const lane = await resolver.resolve(match.key);
-      if (lane) {
-        itemConfig = lane.config;
-        laneConfigByKey.set(match.key, lane.config);
-        meta = (await lane.store.head(match.key)) as FeedObjectHead;
-      } else {
-        meta = null;
+  const hydrated = await measure("head_hydration", () =>
+    mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
+      let meta: FeedObjectHead | null;
+      let itemConfig: StorageConfig | null = null;
+      try {
+        const lane = await resolver.resolve(match.key);
+        if (lane) {
+          itemConfig = lane.config;
+          laneConfigByKey.set(match.key, lane.config);
+          meta = (await lane.store.head(match.key)) as FeedObjectHead;
+        } else {
+          meta = null;
+        }
+      } catch (cause) {
+        throw new ServiceUnavailableError("Feed storage unavailable.", {
+          code: "feed_storage_unavailable",
+          cause,
+        });
       }
-    } catch (cause) {
-      throw new ServiceUnavailableError("Feed storage unavailable.", {
-        code: "feed_storage_unavailable",
-        cause,
-      });
-    }
-    const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
-    if (isPrivate) opts.privateKeys?.add(match.key);
-    const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(match.key));
-    const urls =
-      meta && !withheld && itemConfig
-        ? objectPublicUrls(env, itemConfig, match.key)
-        : { url: null, embedUrl: null };
-    if (opts.requirePublicUrls !== false && meta && !withheld && urls.url === null)
-      throw feedNotPublicError();
-    const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
-    const id = await feedItemIdFor(match.key);
-    return {
-      id,
-      objectKey: match.key,
-      filename: heldKeys.has(match.key) ? HELD_FILENAME : feedItemFilename(match.key),
-      status: withheld ? "withheld" : meta ? "available" : "missing",
-      url: urls.url,
-      embedUrl: urls.embedUrl,
-      contentType: withheld ? null : (meta?.type ?? null),
-      size: withheld ? null : (meta?.size ?? null),
-      uploaded: dates.uploaded ?? null,
-      modified: dates.modified ?? null,
-      ...(meta && !withheld && opts.audience === "public"
-        ? { metadata: publicFileMetadata(match.metadata, { includeGithub: false }) }
-        : {}),
-      path: withheld ? null : (match.metadata.path ?? null),
-      state: withheld ? null : (match.metadata.state ?? null),
-    };
-  });
+      const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
+      if (isPrivate) opts.privateKeys?.add(match.key);
+      const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(match.key));
+      const urls =
+        meta && !withheld && itemConfig
+          ? objectPublicUrls(env, itemConfig, match.key)
+          : { url: null, embedUrl: null };
+      if (opts.requirePublicUrls !== false && meta && !withheld && urls.url === null)
+        throw feedNotPublicError();
+      const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
+      const id = await feedItemIdFor(match.key);
+      return {
+        id,
+        objectKey: match.key,
+        filename: heldKeys.has(match.key) ? HELD_FILENAME : feedItemFilename(match.key),
+        status: withheld ? "withheld" : meta ? "available" : "missing",
+        url: urls.url,
+        embedUrl: urls.embedUrl,
+        contentType: withheld ? null : (meta?.type ?? null),
+        size: withheld ? null : (meta?.size ?? null),
+        uploaded: dates.uploaded ?? null,
+        modified: dates.modified ?? null,
+        ...(meta && !withheld && opts.audience === "public"
+          ? { metadata: publicFileMetadata(match.metadata, { includeGithub: false }) }
+          : {}),
+        path: withheld ? null : (match.metadata.path ?? null),
+        state: withheld ? null : (match.metadata.state ?? null),
+      };
+    }),
+  );
 
   const posterKeys = hydrated
     .filter((item) => item.url !== null && isDerivedPosterContentType(item.contentType ?? ""))
     .map((item) => item.objectKey);
-  if (posterKeys.length > 0 && workspace.name) {
+  if (posterKeys.length > 0 && workspaceName) {
     try {
-      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, posterKeys, {
-        metaKeys: [
-          "video.poster",
-          "video.width",
-          "video.height",
-          "pdf.poster",
-          "pdf.width",
-          "pdf.height",
-        ],
-      });
+      const metadataByKey = await measure("metadata", () =>
+        getMetadataForKeys(dbFor(env), workspaceName, posterKeys, {
+          metaKeys: [
+            "video.poster",
+            "video.width",
+            "video.height",
+            "pdf.poster",
+            "pdf.width",
+            "pdf.height",
+          ],
+        }),
+      );
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
         const itemConfig = laneConfigByKey.get(item.objectKey);
@@ -441,16 +451,19 @@ export async function hydratePublicFeed(
   env: Env,
   workspace: WorkspaceRecord,
   record: FeedRecord,
-  opts: { cursor?: ScopeResume | null } = {},
+  opts: { cursor?: ScopeResume | null; measure?: PublicReadMeasure } = {},
 ): Promise<PublicFeedDto> {
-  const page = await prScopeQuery(dbFor(env), {
-    ...feedRecordScope(record),
-    cursor: opts.cursor ?? null,
-    limit: FEED_ITEM_LIMIT,
-  });
-  const items = await hydrateFeedItems(env, workspace, page.items, { audience: "public" });
+  const measure = opts.measure ?? unmeasured;
+  const page = await measure("scope_query", () =>
+    prScopeQuery(dbFor(env), {
+      ...feedRecordScope(record),
+      cursor: opts.cursor ?? null,
+      limit: FEED_ITEM_LIMIT,
+    }),
+  );
+  const items = await hydrateFeedItems(env, workspace, page.items, { audience: "public", measure });
   const summary = feedSummary(env, record);
-  return {
+  return measure("dto", async () => ({
     id: record.id,
     title: summary.title,
     repo: record.repo,
@@ -461,7 +474,7 @@ export async function hydratePublicFeed(
     updatedAt: record.updated_at,
     items: items.map(toPublicItem),
     nextCursor: page.nextCursor ? await encodePublicFeedCursor(page.nextCursor) : null,
-  };
+  }));
 }
 
 /**
@@ -478,21 +491,25 @@ export async function publicFeedItemPage(
   itemId: string,
   /** The API Worker's `LIVE_LINK_INDEX` KV; other Workers pass nothing and scan. */
   indexStore?: KVNamespace,
+  measure: PublicReadMeasure = unmeasured,
 ): Promise<PublicFeedItemPage | null> {
   if (!FEED_ITEM_ID_RE.test(itemId)) return null;
   const db = dbFor(env);
-  const found = await findLiveLinkItem(db, indexStore, record, itemId);
+  const found = await findLiveLinkItem(db, indexStore, record, itemId, measure);
   if (!found) return null;
   const { entries: scope, position: index } = found;
 
   const match = scope[index];
   const metadata =
-    (await getMetadataForKeys(db, record.workspace, [match.key])).get(match.key) ?? {};
+    (await measure("metadata", () => getMetadataForKeys(db, record.workspace, [match.key]))).get(
+      match.key,
+    ) ?? {};
   const [item] = await hydrateFeedItems(env, workspace, [{ key: match.key, metadata }], {
     audience: "public",
+    measure,
   });
   const summary = feedSummary(env, record);
-  return {
+  return measure("dto", async () => ({
     feed: {
       id: record.id,
       title: summary.title,
@@ -506,5 +523,5 @@ export async function publicFeedItemPage(
     next: index + 1 < scope.length ? scope[index + 1].id : null,
     index,
     total: scope.length,
-  };
+  }));
 }
