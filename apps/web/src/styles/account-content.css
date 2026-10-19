@@ -34,6 +34,12 @@ section.card.settings-page {
 section.card.settings-page h2 {
   margin: 0 0 10px;
 }
+section.card.settings-page h3 {
+  margin: 24px 0 4px;
+  font-size: var(--text-ui);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
 /* Storage heading + hosted SVG/XML status (issue #929). The timestamp
    lives in a hover/focus tooltip so it never reads as the section subhead. */
 .storage-heading {
@@ -110,6 +116,148 @@ section.card.settings-page .storage-heading h2 {
 }
 .settings-section > .settings-note:last-child {
   margin-bottom: 0;
+}
+
+/* Settings building blocks, shared by every workspace settings sub-page.
+   Plain classes (not Tailwind utilities) because this file is unlayered and
+   would out-rank utilities on the same element, and because the Slack page
+   builds rows as HTML strings. */
+
+/* Connect box — one line of copy and a button (Add to Slack, Install
+   GitHub App). */
+.settings-connect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin: 16px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.settings-connect[hidden] {
+  display: none;
+}
+section.card .settings-connect p {
+  margin: 0;
+  max-width: 44ch;
+  font-size: var(--text-meta);
+  color: var(--body);
+  text-wrap: pretty;
+}
+.settings-connect .ul-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Label + description on the left, control on the right, hairline between
+   rows. Stacks under 680px. */
+.setting-rows {
+  margin-top: 8px;
+}
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 28px;
+  padding: 16px 0;
+}
+.setting-row--stacked {
+  display: block;
+}
+.setting-row + .setting-row {
+  border-top: 1px solid var(--line);
+}
+.setting-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.setting-row__label {
+  font-size: var(--text-meta);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+.setting-row p.setting-row__desc {
+  margin: 4px 0 0;
+  max-width: 48ch;
+  font-size: var(--text-meta);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.setting-row__control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+/* "Saving…" / "Saved" next to the control that changed. */
+.setting-row__status {
+  font-size: var(--text-micro);
+  color: var(--muted);
+}
+.setting-row__status[data-state="saved"] {
+  color: var(--green);
+}
+.setting-row__status[data-state="error"] {
+  color: var(--red);
+}
+.setting-row__status:empty {
+  display: none;
+}
+@media (max-width: 680px) {
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .setting-row__control {
+    justify-content: flex-start;
+  }
+  .setting-row p.setting-row__desc {
+    max-width: none;
+  }
+}
+
+/* role="switch" button: <button class="setting-switch" role="switch"
+   aria-checked="…"><span class="setting-switch__thumb"></span></button> */
+.setting-switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  width: 32px;
+  height: 18px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.setting-switch[aria-checked="true"] {
+  background: var(--accent);
+}
+.setting-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+.setting-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.setting-switch__thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--fg);
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+.setting-switch[aria-checked="true"] .setting-switch__thumb {
+  background: var(--bg);
+  transform: translateX(14px);
 }
 
 /* Developers / workspaces picker — flat hairline rows, not nested boxes. */

@@ -1,0 +1,20 @@
+---
+/** A `role="switch"` toggle styled by `.setting-switch` in account-content.css. */
+interface Props {
+  id: string;
+  label: string;
+}
+
+const { id, label } = Astro.props;
+---
+
+<button
+  type="button"
+  class="setting-switch"
+  role="switch"
+  id={id}
+  aria-checked="false"
+  aria-label={label}
+>
+  <span class="setting-switch__thumb" aria-hidden="true"></span>
+</button>
