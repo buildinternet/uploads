@@ -60,10 +60,7 @@
     "test": "vitest run",
     "dev:viewer": "wrangler dev --config wrangler.viewer.jsonc",
     "deploy:viewer": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy --config wrangler.viewer.jsonc",
-    "types:viewer": "mkdir -p .wrangler && wrangler types --config wrangler.viewer.jsonc --env-interface ViewerEnv --include-runtime false .wrangler/viewer-configuration.d.ts",
-    "dev:public-edge": "wrangler dev --config wrangler.public-edge.jsonc",
-    "deploy:public-edge": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy --config wrangler.public-edge.jsonc",
-    "types:public-edge": "mkdir -p .wrangler && wrangler types --config wrangler.public-edge.jsonc --env-interface PublicEdgeConfigEnv --include-runtime false .wrangler/public-edge-configuration.d.ts"
+    "types:viewer": "mkdir -p .wrangler && wrangler types --config wrangler.viewer.jsonc --env-interface ViewerEnv --include-runtime false .wrangler/viewer-configuration.d.ts"
   },
   "dependencies": {
     "@uploads/billing": "workspace:^",

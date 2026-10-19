@@ -1,4 +1,3 @@
-import { unmeasured, type PublicReadMeasure } from "./public-read-timing";
 /**
  * Item lookup for public live-link item pages (`/c/<id>/<item>`, issue #1072).
  *
@@ -117,20 +116,14 @@ async function writeIndex(
 }
 
 /** Scan the scope (cap 2,000) and hash every key. */
-async function buildIndex(
-  db: D1Queryable,
-  scope: Scope,
-  measure: PublicReadMeasure,
-): Promise<LiveLinkIndexEntry[]> {
-  const rows = await measure("scope_query", () => scanScopeKeys(db, scope));
-  return measure("index_hash", () =>
-    Promise.all(
-      rows.map(async (row) => ({
-        id: await feedItemIdFor(row.key),
-        key: row.key,
-        updatedAt: row.updatedAt,
-      })),
-    ),
+async function buildIndex(db: D1Queryable, scope: Scope): Promise<LiveLinkIndexEntry[]> {
+  const rows = await scanScopeKeys(db, scope);
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: await feedItemIdFor(row.key),
+      key: row.key,
+      updatedAt: row.updatedAt,
+    })),
   );
 }
 
@@ -140,18 +133,13 @@ async function newerRowsHave(
   scope: Scope,
   cached: LiveLinkIndexEntry[],
   itemId: string,
-  measure: PublicReadMeasure,
 ): Promise<boolean> {
   const since = cached[0]?.updatedAt;
-  const rows = await measure("scope_query", () =>
-    scanScopeKeys(db, scope, since === undefined ? {} : { since }),
-  );
-  return measure("index_hash", async () => {
-    for (const row of rows) {
-      if ((await feedItemIdFor(row.key)) === itemId) return true;
-    }
-    return false;
-  });
+  const rows = await scanScopeKeys(db, scope, since === undefined ? {} : { since });
+  for (const row of rows) {
+    if ((await feedItemIdFor(row.key)) === itemId) return true;
+  }
+  return false;
 }
 
 function logOutcome(outcome: LookupOutcome): void {
@@ -168,23 +156,22 @@ export async function findLiveLinkItem(
   store: IndexStore | undefined,
   record: FeedRecord,
   itemId: string,
-  measure: PublicReadMeasure = unmeasured,
 ): Promise<{ entries: LiveLinkIndexEntry[]; position: number } | null> {
   const scope = feedRecordScope(record);
-  const key = store ? await measure("index_key_hash", () => indexKey(record, scope)) : null;
-  const cached = store && key ? await measure("index_read", () => readIndex(store, key)) : null;
+  const key = store ? await indexKey(record, scope) : null;
+  const cached = store && key ? await readIndex(store, key) : null;
 
   let outcome: LookupOutcome = store ? "miss" : "unbound";
   if (cached) {
     const position = cached.findIndex((entry) => entry.id === itemId);
     if (position >= 0) {
-      if (await measure("scope_validate", () => scopeHasKey(db, scope, cached[position].key))) {
+      if (await scopeHasKey(db, scope, cached[position].key)) {
         logOutcome("hit");
         return { entries: cached, position };
       }
       // The key left the scope (deleted or re-scoped): rebuild below.
       outcome = "stale";
-    } else if (await newerRowsHave(db, scope, cached, itemId, measure)) {
+    } else if (await newerRowsHave(db, scope, cached, itemId)) {
       outcome = "newer";
     } else {
       logOutcome("absent");
@@ -193,8 +180,8 @@ export async function findLiveLinkItem(
   }
 
   logOutcome(outcome);
-  const entries = await buildIndex(db, scope, measure);
-  if (store && key) await measure("index_write", () => writeIndex(store, key, entries));
+  const entries = await buildIndex(db, scope);
+  if (store && key) await writeIndex(store, key, entries);
   const position = entries.findIndex((entry) => entry.id === itemId);
   return position >= 0 ? { entries, position } : null;
 }

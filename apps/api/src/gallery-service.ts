@@ -1,4 +1,3 @@
-import { unmeasured, type PublicReadMeasure } from "./public-read-timing";
 import {
   ConflictError,
   NotFoundError,
@@ -267,12 +266,8 @@ export async function hydrateGalleryItems(
   env: Env,
   workspace: WorkspaceRecord,
   items: GalleryItemRecord[],
-  opts: { audience: "owner" | "public"; heldOut?: Set<string>; measure?: PublicReadMeasure } = {
-    audience: "owner",
-  },
+  opts: { audience: "owner" | "public"; heldOut?: Set<string> } = { audience: "owner" },
 ): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
-  const measure = opts.measure ?? unmeasured;
-  const workspaceName = workspace.name;
   // Two-lane storage (PR C audit): each item resolves its OWN lane via a
   // shared `LaneResolver` — a gallery can reference objects uploaded before
   // a storage switch, and the resolver caches each lane's store/config
@@ -283,7 +278,7 @@ export async function hydrateGalleryItems(
   // deep inside `mapBounded`.
   const resolver = createLaneResolver(env, workspace);
   try {
-    await measure("storage_config", () => resolver.activeConfig());
+    await resolver.activeConfig();
   } catch (cause) {
     throw new ServiceUnavailableError("Gallery storage unavailable.", {
       code: "gallery_storage_unavailable",
@@ -294,18 +289,18 @@ export async function hydrateGalleryItems(
   // Held uploads (`upload-hold.ts`) are withheld from a public gallery the
   // same way private ones are.
   const heldKeys =
-    opts.audience === "public" && workspaceName
-      ? await measure("holds", () =>
-          heldKeysAmong(
-            env,
-            workspaceName,
-            items.map((item) => item.object_key),
-          ),
+    opts.audience === "public" && workspace.name
+      ? await heldKeysAmong(
+          env,
+          workspace.name,
+          items.map((item) => item.object_key),
         )
       : new Set<string>();
   for (const key of heldKeys) opts.heldOut?.add(key);
-  const hydrated = await measure("head_hydration", () =>
-    mapBounded(items, 8, async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
+  const hydrated = await mapBounded(
+    items,
+    8,
+    async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
       let meta: GalleryObjectHead | null;
       let itemConfig: StorageConfig | null = null;
       try {
@@ -349,7 +344,7 @@ export async function hydrateGalleryItems(
         uploaded: dates.uploaded ?? null,
         modified: dates.modified ?? null,
       };
-    }),
+    },
   );
 
   // Poster + real dimensions (issue #299 videos, #1009 PDF first page): the
@@ -362,23 +357,21 @@ export async function hydrateGalleryItems(
         (opts.audience === "public" || isDerivedPosterContentType(item.contentType ?? "")),
     )
     .map((item) => item.objectKey);
-  if (presentationKeys.length > 0 && workspaceName) {
+  if (presentationKeys.length > 0 && workspace.name) {
     try {
-      const metadataByKey = await measure("metadata", () =>
-        getMetadataForKeys(dbFor(env), workspaceName, presentationKeys, {
-          metaKeys:
-            opts.audience === "public"
-              ? undefined
-              : [
-                  "video.poster",
-                  "video.width",
-                  "video.height",
-                  "pdf.poster",
-                  "pdf.width",
-                  "pdf.height",
-                ],
-        }),
-      );
+      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, presentationKeys, {
+        metaKeys:
+          opts.audience === "public"
+            ? undefined
+            : [
+                "video.poster",
+                "video.width",
+                "video.height",
+                "pdf.poster",
+                "pdf.width",
+                "pdf.height",
+              ],
+      });
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
         // Same lane the primary object resolved from above — posters are
@@ -547,15 +540,13 @@ export async function hydratePublicGallery(
   workspace: WorkspaceRecord,
   record: GalleryRecord,
   items: GalleryItemRecord[],
-  measure: PublicReadMeasure = unmeasured,
 ): Promise<PublicGalleryDto> {
   const held = new Set<string>();
   const hydrated = await hydrateGalleryItems(env, workspace, items, {
     audience: "public",
     heldOut: held,
-    measure,
   });
-  return measure("dto", async () => ({
+  return {
     ...projectPublicGallery(record),
     items: hydrated.map((item) => ({
       id: item.id,
@@ -574,5 +565,5 @@ export async function hydratePublicGallery(
       ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
       ...(item.videoDimensions ? { videoDimensions: item.videoDimensions } : {}),
     })),
-  }));
+  };
 }

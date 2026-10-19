@@ -31,10 +31,10 @@ export const publicFeeds = new Hono<WorkspaceVars>()
         decodePublicFeedCursor(dbFor(c.env), feedRecordScope(record), c.req.query("cursor")),
       );
       const [dto, github] = await Promise.all([
-        hydratePublicFeed(c.env, workspace, record, { cursor, measure }),
+        measure("hydrate", () => hydratePublicFeed(c.env, workspace, record, { cursor })),
         githubPromise,
       ]);
-      return measure("serialize", async () => c.json({ ...dto, github }));
+      return c.json({ ...dto, github });
     }),
   )
   // Pager item plus neighbours, found in the scope (cap 2,000) so items older
@@ -43,15 +43,10 @@ export const publicFeeds = new Hono<WorkspaceVars>()
   .get("/:id/items/:item", (c) =>
     withPublicReadTiming(c, "/public/feeds/:id/items/:item", "feed_item_api", async (measure) => {
       const { record, workspace } = await liveFeed(c.env, c.req.param("id"), measure);
-      const page = await publicFeedItemPage(
-        c.env,
-        workspace,
-        record,
-        c.req.param("item"),
-        c.env.LIVE_LINK_INDEX,
-        measure,
+      const page = await measure("item_page", () =>
+        publicFeedItemPage(c.env, workspace, record, c.req.param("item"), c.env.LIVE_LINK_INDEX),
       );
       if (!page) throw new NotFoundError("Feed item not found.", { code: "feed_item_not_found" });
-      return measure("serialize", async () => c.json(page));
+      return c.json(page);
     }),
   );

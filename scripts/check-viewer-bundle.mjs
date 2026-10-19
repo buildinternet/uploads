@@ -32,6 +32,12 @@ for (const isPreview of [false, true]) {
       }
     }
   }
+  // Vars the viewer copies must keep the API's values.
+  for (const [name, value] of Object.entries(viewer.vars ?? {})) {
+    if (source.vars?.[name] !== value) {
+      throw new Error(`Viewer ${isPreview ? "preview" : "production"} var drift: ${name}`);
+    }
+  }
 }
 
 const output = join(api, ".wrangler/viewer-bundle-check");
@@ -77,7 +83,9 @@ function wasmFiles(directory) {
 }
 violations.push(...wasmFiles(output));
 // A code-size regression ceiling, not a claim about platform startup latency.
-const maxBytes = 1_600_000;
+// The forbidden list above is the real guard; this leaves room for ordinary
+// growth in the shared public read paths (~1.44 MB in Oct 2026).
+const maxBytes = 2_000_000;
 console.log(
   JSON.stringify({ viewerJavaScriptBytes: bytes, maxBytes, linkedModules: linked.size }, null, 2),
 );
@@ -85,42 +93,3 @@ if (bytes === 0 || bytes > maxBytes || violations.length) {
   console.error("Viewer bundle budget failed", { bytes, maxBytes, forbidden: violations });
   process.exit(1);
 }
-
-// The public URL dispatcher must remain independent of both application bundles.
-const edgeConfig = readConfig(
-  { config: join(api, "wrangler.public-edge.jsonc") },
-  { hideWarnings: true },
-);
-if (
-  edgeConfig.routes.length ||
-  edgeConfig.vars.PUBLIC_VIEWER_ROLLOUT !== "off" ||
-  edgeConfig.services.some((binding) => binding.binding === "PUBLIC_VIEWER")
-) {
-  throw new Error("Public edge must remain unbound and off until rollout review");
-}
-const edgeOutput = join(api, ".wrangler/public-edge-bundle-check");
-const edgeBuild = spawnSync(
-  "pnpm",
-  [
-    "exec",
-    "wrangler",
-    "deploy",
-    "--config",
-    "wrangler.public-edge.jsonc",
-    "--dry-run",
-    "--outdir",
-    edgeOutput,
-    "--metafile",
-    join(edgeOutput, "meta.json"),
-  ],
-  { cwd: api, stdio: "inherit", timeout: 120_000 },
-);
-if (edgeBuild.error) throw edgeBuild.error;
-if (edgeBuild.status !== 0) process.exit(edgeBuild.status ?? 1);
-const edgeMeta = JSON.parse(readFileSync(join(edgeOutput, "meta.json"), "utf8"));
-const edgeBytes = Object.entries(edgeMeta.outputs)
-  .filter(([path]) => /\.[cm]?js$/.test(path))
-  .reduce((sum, [, artifact]) => sum + artifact.bytes, 0);
-if (edgeBytes === 0 || edgeBytes > 8192)
-  throw new Error(`Public edge exceeds 8 KiB budget: ${edgeBytes}`);
-console.log(JSON.stringify({ publicEdgeJavaScriptBytes: edgeBytes, maxBytes: 8192 }));

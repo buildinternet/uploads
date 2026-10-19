@@ -1,4 +1,14 @@
-/** Identifies SSR HTTP fallbacks to the public edge's bot protection. */
+/**
+ * User-Agent for server-side (SSR) fetches the `uploads-web` worker makes to
+ * sibling origins (`api.uploads.sh`, `storage.uploads.sh`, …).
+ *
+ * Cloudflare Workers' `fetch()` sends no `User-Agent` by default, and the API
+ * zone's WAF blocks empty-UA requests as bot traffic — which silently 503'd
+ * every `/f/`, `/g/`, and `/c/` page because their SSR subrequest was rejected
+ * at the edge before reaching the API worker. Identifying ourselves keeps the
+ * bot defense intact for real empty-UA traffic while letting our own
+ * server-to-server calls through.
+ */
 export const SSR_USER_AGENT = "uploads-web (+https://uploads.sh; SSR)";
 
 /** Optional bindings keep local HTTP development and pre-rollout deployments working. */
@@ -14,6 +24,11 @@ export interface PublicApiFetchEnv {
  * fallback, including for authenticated actions and unknown paths. The URL,
  * encoded key, query, request options, and response pass through unchanged.
  * Removing the binding or setting the rollout to off restores the API path.
+ *
+ * Service bindings (production/preview) are direct worker-to-worker calls:
+ * faster, no billable edge subrequest, and immune to the zone's WAF/bot rules
+ * (#998). Global `fetch` against the public origin is the fallback when no
+ * binding exists, as under `astro dev`.
  */
 export function publicApiFetch(env: PublicApiFetchEnv): typeof globalThis.fetch {
   const fallback = env.API

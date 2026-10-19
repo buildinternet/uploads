@@ -104,5 +104,5 @@ regenerated into `worker-configuration.d.ts`. Never hand-write that file.
 
 The independent public viewer has a separate deploy command and a staged web
 binding switch. See [Public viewer Worker](public-viewer.md) for provisioning,
-preview isolation, measurements, and rollback. Deploy and validate it before
+preview isolation, and rollback. Deploy and validate it before
 adding the web service binding.
