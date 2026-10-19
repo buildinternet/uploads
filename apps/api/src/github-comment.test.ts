@@ -372,7 +372,7 @@ describe("gatherCommentBody held uploads", () => {
     expect(result.body).toContain("shown.png");
     expect(result.body).not.toContain("secret-settings");
     expect(result.body).toContain(
-      "🔒 1 file is held for review · approve with <code>uploads approve --pr 12</code>",
+      "🔒 1 file is held for your review · approve with <code>uploads approve --pr 12</code>",
     );
     expect(result.count).toBe(2);
   });
@@ -389,7 +389,7 @@ describe("gatherCommentBody held uploads", () => {
     expect(result.count).toBe(1);
     expect(result.body).not.toContain("No attachments are currently associated");
     expect(result.body).not.toContain("token.png");
-    expect(result.body).toContain("1 file is held for review");
+    expect(result.body).toContain("1 file is held for your review");
   });
 
   it("counts a moved hold that has no public object left", async () => {
@@ -404,7 +404,7 @@ describe("gatherCommentBody held uploads", () => {
     });
     const result = await gatherCommentBody(env, ws, workspaceName, target);
     expect(result.count).toBe(1);
-    expect(result.body).toContain("1 file is held for review");
+    expect(result.body).toContain("1 file is held for your review");
     expect(result.body).not.toContain("moved.png");
   });
 
@@ -418,7 +418,7 @@ describe("gatherCommentBody held uploads", () => {
     });
     const result = await gatherCommentBody(env, ws, workspaceName, target);
     expect(result.body).toContain("ok.png");
-    expect(result.body).not.toContain("held for review");
+    expect(result.body).not.toContain("held for your review");
   });
 });
 

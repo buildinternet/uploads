@@ -148,7 +148,7 @@ describe("runComment", () => {
     expect(create!.input).toContain("after.png");
     expect(create!.input).not.toContain("settings-token");
     expect(create!.input).toContain(
-      "🔒 1 file is held for review · approve with <code>uploads approve --pr 5</code>",
+      "🔒 1 file is held for your review · approve with <code>uploads approve --pr 5</code>",
     );
   });
 
