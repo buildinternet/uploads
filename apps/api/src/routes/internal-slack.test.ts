@@ -13,11 +13,8 @@ vi.mock("../workspace", async (orig) => ({
     name === "acme" ? { provider: "r2", bucket: "b", name } : null,
 }));
 
-const searchFilesByNameAndMeta = vi.fn();
-vi.mock("../file-search", async (orig) => ({
-  ...(await orig<typeof import("../file-search")>()),
-  searchFilesByNameAndMeta: (...a: unknown[]) => searchFilesByNameAndMeta(...a),
-}));
+/** What the storage walk yields for a name search: key + upload time. */
+const walk = vi.fn<(term: string) => { key: string; lastModified?: number }[]>(() => []);
 const heldKeysAmong = vi.fn();
 vi.mock("../upload-hold-read", () => ({
   heldKeysAmong: (...a: unknown[]) => heldKeysAmong(...a),
@@ -25,6 +22,11 @@ vi.mock("../upload-hold-read", () => ({
 /** Objects by key: whether each is private. Missing keys resolve to no lane. */
 const objects = new Map<string, { private: boolean }>();
 vi.mock("../storage", () => ({
+  storage: async () => ({
+    async *search(term: string) {
+      yield* walk(term);
+    },
+  }),
   objectPublicUrls: (_env: unknown, _cfg: unknown, key: string) => ({
     url: `https://cdn.example/${key}`,
     embedUrl: null,
@@ -32,7 +34,13 @@ vi.mock("../storage", () => ({
   resolveObjectLaneWithHead: async (_env: unknown, _ws: unknown, key: string) => {
     const o = objects.get(key);
     if (!o) return null;
-    return { config: {}, head: { metadata: o.private ? { visibility: "private" } : {} } };
+    return {
+      config: {},
+      head: {
+        type: key.endsWith(".png") ? "image/png" : "video/mp4",
+        metadata: o.private ? { visibility: "private" } : {},
+      },
+    };
   },
 }));
 
@@ -171,7 +179,8 @@ describe("POST /internal/slack/search", () => {
       )
       .run();
     objects.clear();
-    searchFilesByNameAndMeta.mockReset();
+    walk.mockReset();
+    walk.mockReturnValue([]);
     heldKeysAmong.mockReset();
     heldKeysAmong.mockResolvedValue(new Set(["shots/held.png"]));
   });
@@ -187,36 +196,52 @@ describe("POST /internal/slack/search", () => {
   it("says when the Slack team isn't bound, without searching", async () => {
     const res = await search({ teamId: "T0TEAM1", term: "login" });
     expect(await res.json()).toEqual({ bound: false, results: [], truncated: false });
-    expect(searchFilesByNameAndMeta).not.toHaveBeenCalled();
+    expect(walk).not.toHaveBeenCalled();
   });
 
-  it("returns only public, unheld matches from bound workspaces", async () => {
+  it("returns the newest public, unheld matches from bound workspaces", async () => {
     bind();
-    objects.set("shots/login.png", { private: false });
-    objects.set("shots/secret-login.png", { private: true });
-    objects.set("shots/held.png", { private: false });
-    searchFilesByNameAndMeta.mockResolvedValue({
-      matches: [
-        { key: "shots/login.png", metadata: {} },
-        { key: "shots/secret-login.png", metadata: {} },
-        { key: "shots/held.png", metadata: {} },
-        { key: "shots/gone.png", metadata: {} },
-      ],
-      truncated: false,
-      cursor: null,
-    });
+    for (const key of [
+      "shots/login.png",
+      "shots/secret-login.png",
+      "shots/held.png",
+      "a/login.mp4",
+    ])
+      objects.set(key, { private: key.includes("secret") });
+    walk.mockReturnValue([
+      { key: "a/login.mp4", lastModified: 1_000 },
+      { key: "shots/gone.png", lastModified: 5_000 },
+      { key: "shots/held.png", lastModified: 4_000 },
+      { key: "shots/login.png", lastModified: 3_000 },
+      { key: "shots/secret-login.png", lastModified: 2_000 },
+      { key: "_internal/posters/a/login.mp4.jpg", lastModified: 9_000 },
+    ]);
     const res = await search({ teamId: "T0TEAM1", term: "  Login " });
     expect(await res.json()).toEqual({
       bound: true,
-      results: [{ workspace: "acme", key: "shots/login.png" }],
+      results: [
+        {
+          workspace: "acme",
+          key: "shots/login.png",
+          imageUrl: "https://cdn.example/shots/login.png",
+          uploaded: 3_000,
+        },
+        // Older, and not an image, so no thumbnail.
+        { workspace: "acme", key: "a/login.mp4", uploaded: 1_000 },
+      ],
       truncated: false,
     });
-    expect(searchFilesByNameAndMeta).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ name: "acme" }),
-      "acme",
-      { nameTerm: "login", pageSize: 10 },
-    );
+    expect(walk).toHaveBeenCalledWith("login");
+  });
+
+  it("returns at most five", async () => {
+    bind();
+    const keys = Array.from({ length: 8 }, (_, i) => `shots/login-${i}.png`);
+    for (const key of keys) objects.set(key, { private: false });
+    walk.mockReturnValue(keys.map((key, i) => ({ key, lastModified: i })));
+    const res = await search({ teamId: "T0TEAM1", term: "login" });
+    const body = (await res.json()) as { results: { key: string }[] };
+    expect(body.results.map((r) => r.key)).toEqual(keys.slice(3).reverse());
   });
 
   it("ignores bindings once the app is uninstalled", async () => {
@@ -231,6 +256,6 @@ describe("POST /internal/slack/search", () => {
     expect((await search({ teamId: "T0TEAM1", term: "x" }, "api.uploads.sh")).status).toBe(404);
     expect((await search({ teamId: "nope", term: "x" })).status).toBe(404);
     expect((await search({ teamId: "T0TEAM1", term: " " })).status).toBe(404);
-    expect(searchFilesByNameAndMeta).not.toHaveBeenCalled();
+    expect(walk).not.toHaveBeenCalled();
   });
 });

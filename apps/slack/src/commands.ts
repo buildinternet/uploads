@@ -6,8 +6,10 @@
  * Anyone who is a full member of the Slack workspace can search, linked
  * account or not: the admin opted the whole Slack workspace in. Guests
  * (single- and multi-channel) and people from other organizations can't.
- * Results are the files the public share page would show anyway (uploads-api
- * drops private and held ones), and the reply is ephemeral.
+ * Results are the newest few files the public share page would show anyway
+ * (uploads-api drops private and held ones), each with a thumbnail when it's
+ * an image. The reply is ephemeral; **Share** on a result posts it to the
+ * channel for everyone, the way Giphy's Send does.
  *
  * Slack wants an answer within 3 seconds and a storage walk can take
  * longer, so the handler acks with "Searching…" and posts the results to
@@ -15,6 +17,7 @@
  * https://docs.slack.dev/interactivity/implementing-slash-commands
  */
 import { botTokenFor, type SlackEnv } from "./config";
+import { isSlackImage } from "./entities";
 import { respondToAction, SLACK_API_ORIGIN, type Block } from "./slack/api";
 
 /** Same cap as uploads-api's `SEARCH_NAME_MAX`. */
@@ -85,11 +88,20 @@ async function isFullMember(
   }
 }
 
+interface SearchResult {
+  workspace: string;
+  key: string;
+  imageUrl?: string;
+  uploaded?: number;
+}
+
 interface SearchResponse {
   bound: boolean;
-  results: { workspace: string; key: string }[];
+  results: SearchResult[];
   truncated: boolean;
 }
+
+export const SHARE_ACTION = "uploads_search_share";
 
 async function searchViaApi(env: SlackEnv, teamId: string, term: string) {
   // Only the service binding reaches the internal route (host api.internal).
@@ -133,19 +145,85 @@ export function resultsMessage(
     return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] };
   }
   const multipleWorkspaces = new Set(response.results.map((r) => r.workspace)).size > 1;
-  const lines = response.results.map((r) => {
-    const name = escapeMrkdwn(r.key.split("/").at(-1) || r.key);
-    const where = multipleWorkspaces ? `  ·  ${escapeMrkdwn(r.workspace)}` : "";
-    return `• <${sharePageUrl(webOrigin, r.workspace, r.key)}|${name}>${where}`;
-  });
-  const heading = `Files matching ${quoted}${response.truncated ? " (first matches only)" : ""}:`;
-  return {
-    text: `${heading}\n${lines.join("\n")}`,
-    blocks: [
-      { type: "section", text: { type: "mrkdwn", text: heading } },
-      { type: "section", text: { type: "mrkdwn", text: lines.join("\n") } },
-    ],
-  };
+  const heading = `Newest files matching ${quoted}${response.truncated ? " (from the first matches)" : ""}:`;
+  const blocks: Block[] = [{ type: "section", text: { type: "mrkdwn", text: heading } }];
+  const lines: string[] = [];
+  for (const r of response.results) {
+    const url = sharePageUrl(webOrigin, r.workspace, r.key);
+    const name = r.key.split("/").at(-1) || r.key;
+    const folder = r.key.slice(0, -name.length - 1);
+    const details = [
+      folder ? `\`${escapeMrkdwn(folder)}\`` : null,
+      multipleWorkspaces ? escapeMrkdwn(r.workspace) : null,
+      r.uploaded ? slackDate(r.uploaded) : null,
+    ].filter(Boolean);
+    const image = r.imageUrl && isSlackImage(r.imageUrl) ? r.imageUrl : null;
+    lines.push(`• <${url}|${escapeMrkdwn(name)}>`);
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*<${url}|${escapeMrkdwn(name)}>*${details.length ? `\n${details.join("  ·  ")}` : ""}`,
+      },
+      ...(image ? { accessory: { type: "image", image_url: image, alt_text: name } } : {}),
+    });
+    blocks.push({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          action_id: SHARE_ACTION,
+          text: { type: "plain_text", text: "Share" },
+          value: JSON.stringify({ w: r.workspace, k: r.key, ...(image ? { i: image } : {}) }),
+        },
+      ],
+    });
+  }
+  return { text: `${heading}\n${lines.join("\n")}`, blocks };
+}
+
+/** Slack renders this in the reader's own timezone. */
+function slackDate(ms: number): string {
+  const fallback = new Date(ms).toISOString().slice(0, 10);
+  return `<!date^${Math.floor(ms / 1000)}^{date_short_pretty}|${fallback}>`;
+}
+
+/**
+ * **Share** on a search result: posts the file to the channel through the
+ * results message's `response_url`, with its picture when it's an image.
+ * The value is what `resultsMessage` put on the button; it comes back inside
+ * Slack's signed payload, and is still re-checked here.
+ */
+export async function shareSearchResult(
+  action: { value?: string; slackUserId: string; responseUrl?: string },
+  deps: { env: SlackEnv; slackFetch?: typeof globalThis.fetch },
+): Promise<void> {
+  if (!action.responseUrl) return;
+  let value: { w?: unknown; k?: unknown; i?: unknown };
+  try {
+    value = JSON.parse(action.value ?? "");
+  } catch {
+    return;
+  }
+  const { w, k, i } = value;
+  if (typeof w !== "string" || !/^[a-z0-9-]{1,64}$/.test(w)) return;
+  if (typeof k !== "string" || !k || k.length > 1024) return;
+  const image = typeof i === "string" && isSlackImage(i) ? i : null;
+  const name = k.split("/").at(-1) || k;
+  const url = sharePageUrl(deps.env.WEB_ORIGIN || "https://uploads.sh", w, k);
+  const text = `<@${action.slackUserId}> shared <${url}|${escapeMrkdwn(name)}>`;
+  await respondToAction(
+    action.responseUrl,
+    {
+      text,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text } },
+        ...(image ? [{ type: "image", image_url: image, alt_text: name }] : []),
+      ],
+    },
+    deps.slackFetch ?? globalThis.fetch,
+    "in_channel",
+  );
 }
 
 const reply = (text: string) => ({ response_type: "ephemeral" as const, text });

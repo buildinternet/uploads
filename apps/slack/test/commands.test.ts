@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { database, SqliteD1 } from "../../api/test/helpers/sqlite-d1";
-import { resultsMessage, searchTerm, sharePageUrl, USAGE_TEXT } from "../src/commands";
+import {
+  resultsMessage,
+  SHARE_ACTION,
+  searchTerm,
+  sharePageUrl,
+  USAGE_TEXT,
+} from "../src/commands";
 import type { SlackEnv } from "../src/config";
 import { createApp } from "../src/index";
 import { saveInstall } from "../src/installs";
@@ -153,6 +159,7 @@ describe("/uploads search", () => {
     expect(String(slack.responses[0]!.text)).toContain(
       "<https://uploads.sh/f/acme/screenshots/login%20page.png|login page.png>",
     );
+    expect(JSON.stringify(slack.responses[0]!.blocks)).toContain(SHARE_ACTION);
   });
 
   it("refuses guests without calling the API", async () => {
@@ -192,6 +199,42 @@ describe("resultsMessage", () => {
     expect(msg.text).toBe("No public files match “x”.");
   });
 
+  it("shows each result's folder, date and thumbnail, with a Share button", () => {
+    const msg = resultsMessage(
+      "sunny",
+      {
+        bound: true,
+        results: [
+          {
+            workspace: "acme",
+            key: "sunny/plan.webp",
+            imageUrl: "https://storage.uploads.sh/acme/sunny/plan.webp",
+            uploaded: 1_792_281_600_000,
+          },
+          { workspace: "acme", key: "sunny/plan.svg", imageUrl: "https://x.test/plan.svg" },
+        ],
+        truncated: false,
+      },
+      "https://uploads.sh",
+    );
+    const [, first, firstActions, second] = msg.blocks as Array<Record<string, any>>;
+    expect(first!.text.text).toBe(
+      "*<https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>*\n`sunny`  ·  <!date^1792281600^{date_short_pretty}|2026-10-18>",
+    );
+    expect(first!.accessory).toEqual({
+      type: "image",
+      image_url: "https://storage.uploads.sh/acme/sunny/plan.webp",
+      alt_text: "plan.webp",
+    });
+    expect(JSON.parse(firstActions!.elements[0].value)).toEqual({
+      w: "acme",
+      k: "sunny/plan.webp",
+      i: "https://storage.uploads.sh/acme/sunny/plan.webp",
+    });
+    // Slack can't draw an SVG, so no thumbnail rather than a failed reply.
+    expect(second!.accessory).toBeUndefined();
+  });
+
   it("names the workspace only when results span several", () => {
     const msg = resultsMessage(
       "a",
@@ -205,13 +248,76 @@ describe("resultsMessage", () => {
       },
       "https://uploads.sh",
     );
-    expect(msg.text).toContain("(first matches only)");
-    expect(msg.text).toContain("·  two");
+    expect(msg.text).toContain("(from the first matches)");
+    expect(JSON.stringify(msg.blocks)).toContain("`b`  ·  two");
+    expect(JSON.stringify(msg.blocks)).not.toContain("·  one");
   });
 
   it("encodes share page paths", () => {
     expect(sharePageUrl("https://uploads.sh/", "acme", "a b/c#d.png")).toBe(
       "https://uploads.sh/f/acme/a%20b/c%23d.png",
     );
+  });
+});
+
+describe("Share on a search result", () => {
+  async function press(value: string) {
+    const env = await setup();
+    const slack = fakeSlack(MEMBER);
+    const body = new URLSearchParams({
+      payload: JSON.stringify({
+        type: "block_actions",
+        team: { id: "T1" },
+        user: { id: "U0ALICE" },
+        response_url: RESPONSE_URL,
+        actions: [{ action_id: SHARE_ACTION, value }],
+      }),
+    }).toString();
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const { ctx: executionCtx, settle } = ctx();
+    const res = await createApp({ slackFetch: slack.fetch }).fetch(
+      new Request("https://agents.uploads.sh/slack/interactivity", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Slack-Request-Timestamp": timestamp,
+          "X-Slack-Signature": await signSlackRequest(SECRET, timestamp, body),
+        },
+        body,
+      }),
+      env,
+      executionCtx,
+    );
+    await settle();
+    expect(res.status).toBe(200);
+    return slack.responses;
+  }
+
+  it("posts the file to the channel with its picture", async () => {
+    const responses = await press(
+      JSON.stringify({ w: "acme", k: "sunny/plan.webp", i: "https://storage.uploads.sh/p.webp" }),
+    );
+    expect(responses).toEqual([
+      {
+        text: "<@U0ALICE> shared <https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>",
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "<@U0ALICE> shared <https://uploads.sh/f/acme/sunny/plan.webp|plan.webp>",
+            },
+          },
+          { type: "image", image_url: "https://storage.uploads.sh/p.webp", alt_text: "plan.webp" },
+        ],
+        replace_original: false,
+        response_type: "in_channel",
+      },
+    ]);
+  });
+
+  it("ignores a value it didn't write", async () => {
+    expect(await press("not json")).toEqual([]);
+    expect(await press(JSON.stringify({ w: "Acme!", k: "a.png" }))).toEqual([]);
   });
 });
