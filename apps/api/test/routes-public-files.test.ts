@@ -462,6 +462,23 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.error.code).toBe("auth_required");
   });
 
+  it("401s with auth_required for a moved hold whose bytes left the public lane", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await setServerFileMetadata(
+      env.DB as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+      {
+        "ai.hold": "pending",
+      },
+    );
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("auth_required");
+  });
+
   it("serves a file once its hold is approved", async () => {
     const { env } = await makeEnv({}, { db: makeFakeDB() });
     const key = await seedShot(env);
