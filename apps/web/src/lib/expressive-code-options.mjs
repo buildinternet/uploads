@@ -59,7 +59,7 @@ export const expressiveCodeOptions = {
       terminalTitlebarForeground: "var(--muted)",
       terminalTitlebarBorderBottomColor: "var(--line)",
       inlineButtonBorder: "var(--line)",
-      inlineButtonForeground: "var(--accent)",
+      inlineButtonForeground: "var(--muted)",
       inlineButtonBackgroundActiveOpacity: "0.2",
       inlineButtonBackgroundHoverOrFocusOpacity: "0.12",
       tooltipSuccessBackground: "var(--green)",
