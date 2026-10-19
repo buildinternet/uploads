@@ -404,6 +404,10 @@ if (timingsEnabled)
         color: var(--muted);
         font: var(--text-micro) var(--sans);
       }
+      /* `display: block` above would otherwise beat the hidden attribute. */
+      .error .checking[hidden] {
+        display: none;
+      }
       a {
         color: var(--fg);
         text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
