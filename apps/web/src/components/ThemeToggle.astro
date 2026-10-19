@@ -2,10 +2,11 @@
 /**
  * Appearance control: Light, Dark, or Match system.
  *
- * The choice lives in localStorage (`uploads-theme`). BaseHead applies it
- * on `documentElement` before paint; this control only writes that choice
- * and reflects `data-theme-choice`. Visual selection is CSS keyed off that
- * attribute, so the pressed option is correct on first paint.
+ * Closed, this is one icon (the current choice). The three options sit in a
+ * menu so the header does not carry them all at once. The choice lives in
+ * localStorage (`uploads-theme`). BaseHead applies it before paint; this
+ * control only writes that choice. The pressed icon and row are CSS keyed
+ * off `data-theme-choice`, so they are correct on first paint.
  *
  * `floating` pins the control to the viewport corner for pages that have
  * no site header (sign-in, invite, device, consent).
@@ -14,76 +15,193 @@ interface Props {
   floating?: boolean;
 }
 const { floating = false } = Astro.props;
-
-const BIND = `(function(){function sync(){var pick=document.documentElement.getAttribute("data-theme-choice")||"system";document.querySelectorAll("[data-theme-toggle]").forEach(function(group){group.querySelectorAll('input[name="uploads-theme"]').forEach(function(input){input.checked=input.value===pick;});});}function bind(group){if(group.dataset.bound==="1")return;group.dataset.bound="1";group.addEventListener("change",function(event){var input=event.target;if(!input||input.name!=="uploads-theme"||!input.checked)return;if(window.__uploadsSetTheme)window.__uploadsSetTheme(input.value);});}document.querySelectorAll("[data-theme-toggle]").forEach(bind);sync();if(!window.__uploadsThemeToggleBound){window.__uploadsThemeToggleBound=true;document.addEventListener("uploads:theme",sync);}})();`;
 ---
 
-<div
-  class:list={["theme-toggle", { "theme-toggle--floating": floating }]}
-  data-theme-toggle
-  role="radiogroup"
-  aria-label="Appearance"
->
-  <label class="theme-toggle__opt" data-value="light">
-    <input type="radio" name="uploads-theme" value="light" aria-label="Light" />
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="2.25"></circle>
-      <path
-        d="M8 1.6v1.4M8 13v1.4M1.6 8H3M13 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M3.3 12.7l1-1M11.7 4.3l1-1"
-      ></path>
-    </svg>
-  </label>
-  <label class="theme-toggle__opt" data-value="dark">
-    <input type="radio" name="uploads-theme" value="dark" aria-label="Dark" />
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M13.4 9.3A5.1 5.1 0 0 1 6.7 2.6 5.1 5.1 0 1 0 13.4 9.3z"></path>
-    </svg>
-  </label>
-  <label class="theme-toggle__opt" data-value="system">
-    <input type="radio" name="uploads-theme" value="system" aria-label="Match system" checked />
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <rect x="2" y="2.75" width="12" height="8" rx="1"></rect>
-      <path d="M6 13.25h4M8 10.75v2.5"></path>
-    </svg>
-  </label>
-</div>
+<details class:list={["theme-toggle", { "theme-toggle--floating": floating }]} data-theme-toggle>
+  <summary class="theme-toggle__btn" aria-label="Appearance">
+    <span class="theme-toggle__glyph">
+      <svg data-icon="light" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.25"></circle>
+        <path
+          d="M8 1.6v1.4M8 13v1.4M1.6 8H3M13 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M3.3 12.7l1-1M11.7 4.3l1-1"
+        ></path>
+      </svg>
+      <svg data-icon="dark" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M13.4 9.3A5.1 5.1 0 0 1 6.7 2.6 5.1 5.1 0 1 0 13.4 9.3z"></path>
+      </svg>
+      <svg data-icon="system" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="2.75" width="12" height="8" rx="1"></rect>
+        <path d="M6 13.25h4M8 10.75v2.5"></path>
+      </svg>
+    </span>
+  </summary>
+  <div class="theme-toggle__menu" role="radiogroup" aria-label="Appearance">
+    <label class="theme-toggle__opt" data-value="light">
+      <input type="radio" name="uploads-theme" value="light" />
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.25"></circle>
+        <path
+          d="M8 1.6v1.4M8 13v1.4M1.6 8H3M13 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M3.3 12.7l1-1M11.7 4.3l1-1"
+        ></path>
+      </svg>
+      Light
+    </label>
+    <label class="theme-toggle__opt" data-value="dark">
+      <input type="radio" name="uploads-theme" value="dark" />
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M13.4 9.3A5.1 5.1 0 0 1 6.7 2.6 5.1 5.1 0 1 0 13.4 9.3z"></path>
+      </svg>
+      Dark
+    </label>
+    <label class="theme-toggle__opt" data-value="system">
+      <input type="radio" name="uploads-theme" value="system" checked />
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="2.75" width="12" height="8" rx="1"></rect>
+        <path d="M6 13.25h4M8 10.75v2.5"></path>
+      </svg>
+      System
+    </label>
+  </div>
+</details>
 
-<script is:inline data-astro-rerun set:html={BIND} />
+<script is:inline data-astro-rerun>
+  (function () {
+    function sync() {
+      var pick = document.documentElement.getAttribute("data-theme-choice") || "system";
+      document.querySelectorAll("[data-theme-toggle]").forEach(function (group) {
+        group.querySelectorAll('input[name="uploads-theme"]').forEach(function (input) {
+          input.checked = input.value === pick;
+        });
+      });
+    }
+    function bind(group) {
+      if (group.dataset.bound === "1") return;
+      group.dataset.bound = "1";
+      group.addEventListener("change", function (event) {
+        var input = event.target;
+        if (!input || input.name !== "uploads-theme" || !input.checked) return;
+        if (window.__uploadsSetTheme) window.__uploadsSetTheme(input.value);
+        group.open = false;
+        var btn = group.querySelector("summary");
+        if (btn) btn.focus();
+      });
+    }
+    document.querySelectorAll("[data-theme-toggle]").forEach(bind);
+    sync();
+    if (!window.__uploadsThemeToggleBound) {
+      window.__uploadsThemeToggleBound = true;
+      document.addEventListener("uploads:theme", sync);
+      document.addEventListener("click", function (event) {
+        document.querySelectorAll("details[data-theme-toggle][open]").forEach(function (group) {
+          if (!group.contains(event.target)) group.open = false;
+        });
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        document.querySelectorAll("details[data-theme-toggle][open]").forEach(function (group) {
+          group.open = false;
+          var btn = group.querySelector("summary");
+          if (btn) btn.focus();
+        });
+      });
+    }
+  })();
+</script>
 
 <style>
   .theme-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 1px;
-    padding: 2px;
-    border: 1px solid var(--line, #232327);
-    border-radius: var(--radius-sm, 7px);
-    background: var(--bg, #0a0a0b);
+    position: relative;
+    z-index: 30;
+    display: inline-block;
   }
   .theme-toggle--floating {
     position: fixed;
     top: 14px;
     right: 14px;
     z-index: 40;
+  }
+  .theme-toggle__btn {
+    box-sizing: border-box;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--line, #232327);
+    border-radius: var(--radius-sm, 7px);
+    background: var(--bg, #0a0a0b);
+    color: var(--fg, #ececea);
+    cursor: pointer;
+    list-style: none;
+  }
+  .theme-toggle__btn::-webkit-details-marker,
+  .theme-toggle__btn::marker {
+    display: none;
+    content: "";
+  }
+  .theme-toggle__glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+  .theme-toggle__btn svg {
+    display: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.25;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  html[data-theme-choice="light"] .theme-toggle__btn [data-icon="light"],
+  html[data-theme-choice="dark"] .theme-toggle__btn [data-icon="dark"],
+  html[data-theme-choice="system"] .theme-toggle__btn [data-icon="system"],
+  html:not([data-theme-choice]) .theme-toggle__btn [data-icon="system"] {
+    display: block;
+  }
+  .theme-toggle__btn:hover,
+  .theme-toggle[open] > .theme-toggle__btn {
+    border-color: var(--accent, #c27eff);
+  }
+  .theme-toggle__btn:focus-visible {
+    outline: 2px solid var(--accent, #c27eff);
+    outline-offset: 2px;
+  }
+  .theme-toggle:not([open]) > .theme-toggle__menu {
+    display: none;
+  }
+  .theme-toggle__menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1;
+    display: grid;
+    gap: 1px;
+    min-width: 132px;
+    padding: 4px;
     background: var(--panel, #121214);
+    border: 1px solid var(--line, #232327);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 8px 20px rgb(0 0 0 / 0.18);
   }
   .theme-toggle__opt {
     position: relative;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 24px;
-    border-radius: 4px;
-    color: var(--muted, #8a8a83);
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 5px;
+    color: var(--body, #b3b3ad);
+    font: var(--text-meta, 13px) var(--sans, system-ui, sans-serif);
     cursor: pointer;
   }
   .theme-toggle__opt input {
     position: absolute;
-    inset: 0;
+    width: 1px;
+    height: 1px;
     margin: 0;
     opacity: 0;
-    cursor: pointer;
   }
   .theme-toggle__opt svg {
     width: 14px;
@@ -93,17 +211,17 @@ const BIND = `(function(){function sync(){var pick=document.documentElement.getA
     stroke-width: 1.25;
     stroke-linecap: round;
     stroke-linejoin: round;
-    pointer-events: none;
   }
   .theme-toggle__opt:hover {
-    color: var(--fg, #ececea);
-  }
-  html[data-theme-choice="light"] .theme-toggle [data-value="light"],
-  html[data-theme-choice="dark"] .theme-toggle [data-value="dark"],
-  html[data-theme-choice="system"] .theme-toggle [data-value="system"],
-  html:not([data-theme-choice]) .theme-toggle [data-value="system"] {
     background: var(--surface-hover, #1a1a1e);
     color: var(--fg, #ececea);
+  }
+  html[data-theme-choice="light"] .theme-toggle__opt[data-value="light"],
+  html[data-theme-choice="dark"] .theme-toggle__opt[data-value="dark"],
+  html[data-theme-choice="system"] .theme-toggle__opt[data-value="system"],
+  html:not([data-theme-choice]) .theme-toggle__opt[data-value="system"] {
+    background: var(--surface-hover, #1a1a1e);
+    color: var(--accent, #c27eff);
   }
   .theme-toggle__opt:has(:focus-visible) {
     outline: 2px solid var(--accent, #c27eff);
