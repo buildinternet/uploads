@@ -904,8 +904,11 @@ if (timingsEnabled)
                     <span id="held-reason">sensitive information</span>
                   </h2>
                   <p>
-                    Its link is paused until a workspace member approves it. Check the file first.{" "}
-                    <a href={aiLabelsSettingsHref}>Hold settings</a>
+                    Its link is paused until a workspace member approves it. Check the file first.
+                    <span class="held-admin" hidden>
+                      {" "}
+                      <a href={aiLabelsSettingsHref}>Hold settings</a>
+                    </span>
                   </p>
                 </div>
                 <button type="button" class="held-approve" id="held-approve">
@@ -969,8 +972,14 @@ if (timingsEnabled)
                     </dl>
                   </div>
                   <p class="held-foot">
-                    Holds come from AI labels. Workspace admins can turn them off in Settings → AI
-                    labels.
+                    Holds come from AI labels.{" "}
+                    <span class="held-member">
+                      Workspace admins can turn them off in Settings → AI labels.
+                    </span>
+                    <span class="held-admin" hidden>
+                      You can turn them off in{" "}
+                      <a href={aiLabelsSettingsHref}>Settings → AI labels</a>.
+                    </span>
                   </p>
                 </aside>
               </div>
@@ -1087,6 +1096,7 @@ if (timingsEnabled)
             download.hidden = false;
             void showHeldPreview(download.href, item.area);
           }
+          void showHoldSettingsLinks();
           const approve = document.getElementById("held-approve");
           const error = document.getElementById("held-error");
           approve.addEventListener("click", async function () {
@@ -1107,6 +1117,23 @@ if (timingsEnabled)
           return true;
         } catch (e) {
           return false;
+        }
+      }
+
+      // Hold settings live on an admin-only page. The same settings read
+      // that page makes answers only for admins and owners, so it decides
+      // who gets links to it.
+      async function showHoldSettingsLinks() {
+        try {
+          const response = await fetch(
+            `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/classifier-settings`,
+            { credentials: "include", headers: { Accept: "application/json" }, cache: "no-store" },
+          );
+          if (!response.ok) return;
+          for (const el of document.querySelectorAll(".held-admin")) el.hidden = false;
+          for (const el of document.querySelectorAll(".held-member")) el.hidden = true;
+        } catch (e) {
+          // Members keep the plain note.
         }
       }
 
