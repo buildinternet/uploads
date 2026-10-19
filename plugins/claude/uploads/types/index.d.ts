@@ -12,6 +12,8 @@ export type FileRef = {
   size: number | null;
   /** ISO time the file was staged, when the CLI reported it. */
   stagedAt: string | null;
+  /** Held for review: its bytes stay private until a member approves it. */
+  held: boolean;
 };
 
 /**

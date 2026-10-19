@@ -346,6 +346,35 @@ describe("runStaged: file listing", () => {
     expect(plain).not.toHaveProperty("path");
   });
 
+  it("marks a file held for review, and only a pending hold", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/env.png",
+          url: null,
+          metadata: { "ai.hold": "pending" },
+        },
+        {
+          key: "gh/o/r/branch/feature-thing/ok.png",
+          url: null,
+          metadata: { "ai.hold": "approved" },
+        },
+      ],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    const [held, approved] = JSON.parse(stdout).files;
+    expect(held).toMatchObject({ filename: "env.png", held: true });
+    expect(approved).not.toHaveProperty("held");
+  });
+
   it("human mode prints one compact line per file plus binding + promote affordance", async () => {
     const { client } = fakeClient({
       items: [

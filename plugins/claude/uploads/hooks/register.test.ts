@@ -26,7 +26,10 @@ type Cli = {
     path?: string;
     branch?: string;
     stagedAt?: string;
+    held?: boolean;
   }[];
+  /** Files the synced comment counts as held after `attach --promote`. */
+  heldOnPr?: number;
   /** How `attach --promote` ends: everything moved (default), one skipped, or a server error. */
   promote?: "ok" | "partial" | "error";
   /** The open PR for the session branch, as `gh pr view` reports it. */
@@ -125,7 +128,19 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
                 reason: "too big",
               })),
             };
-      return ok(JSON.stringify({ target: {}, uploads: [], failures: [], promotion }));
+      const comment = {
+        action: "created",
+        count: staged,
+        via: "gh",
+        ...(cli.heldOnPr ? { held: cli.heldOnPr } : {}),
+      };
+      return ok(JSON.stringify({ target: {}, uploads: [], failures: [], comment, promotion }));
+    }
+    if (argv[1] === "approve") {
+      cli.files = cli.files?.map((f) =>
+        argv.includes(`gh/x/${f.filename}`) ? { ...f, held: false } : f,
+      );
+      return ok("");
     }
     const i = argv.indexOf("--branch");
     const branch = i === -1 ? cli.sessionBranch : (argv[i + 1] ?? "");
@@ -210,6 +225,17 @@ describe("gh pr create", () => {
 
     expect(world.toasts).toContainEqual("uploads: added 2 attachments to PR #1051; 1 skipped");
     expect(ran.context?.join("\n")).toContain("1 was skipped");
+  });
+
+  test("says which promoted files are held for review", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, heldOnPr: 1 });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(world.toasts).toContainEqual(
+      "uploads: added 2 attachments to PR #1051; 1 is held for review",
+    );
+    expect(ran.context?.join("\n")).toContain("uploads approve --pr 1051");
   });
 
   test(
@@ -640,6 +666,50 @@ describe("staged pane", () => {
 
     expect(await detail.find({ text: "notes.txt can't be previewed here." })).toBeTruthy();
     expect(await detail.find({ type: "Link" })).toBeTruthy();
+  });
+
+  test("draws a held file as a lock card, fetches no thumbnail, and says so", async ($, on) => {
+    const world = setup(on, {
+      counts: { "feat/x": 2 },
+      files: [{ filename: "env.png", held: true }, { filename: "ok.png" }],
+    });
+    await runBash($, world, STAGE);
+
+    const ui = await mountPane($);
+    expect(
+      await ui.find({
+        text: "2 attachments waiting for a PR · link the repo to auto-attach · 1 held for review",
+      }),
+    ).toBeTruthy();
+    expect(JSON.stringify(await ui.drawn())).toContain("HELD");
+    const fetched = world.argvs.filter((argv) => argv[0] === "sh").map((argv) => argv.at(-1));
+    expect(fetched.some((url) => url?.includes("env.png"))).toBe(false);
+    expect(fetched.some((url) => url?.includes("ok.png"))).toBe(true);
+  });
+
+  test("marks a held file in the terminal band", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "env.png", held: true }] });
+    await runBash($, world, STAGE);
+
+    const band = await mountBand($);
+    await band.press({ key: "files" });
+    expect(await band.find({ text: " held for review" })).toBeTruthy();
+  });
+
+  test("Approve releases a held file from its detail view", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "env.png", held: true }] });
+    await runBash($, world, STAGE);
+    const ui = await mountPane($);
+    await ui.press({ key: "name-0" });
+
+    expect(await ui.find({ text: /env.png is held for review/ })).toBeTruthy();
+    expect(await ui.find({ type: "Link", text: "Review on uploads.sh" })).toBeTruthy();
+    await ui.press({ key: "approve" });
+    await world.clock.settle();
+
+    expect(world.argvs).toContainEqual(["uploads", "approve", "gh/x/env.png"]);
+    expect(world.toasts).toContainEqual("Approved env.png");
+    expect(await ui.find({ type: "Button", text: "Approve" })).toBeUndefined();
   });
 
   test("Remove deletes each file, then shows the grid", async ($, on) => {

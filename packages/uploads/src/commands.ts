@@ -2567,6 +2567,8 @@ export interface StagedFile {
   path?: string;
   /** `gh.branch` when the object carries it. Absent on older staged files. */
   branch?: string;
+  /** Held for review (`ai.hold=pending`): its bytes are private until `uploads approve`. */
+  held?: true;
 }
 
 /** Tri-state binding, folded into a ready-to-render advisory (issue #405/#398). */
@@ -2762,6 +2764,7 @@ export async function resolveStaged(opts: {
       ...(fileBranch ? { branch: fileBranch } : {}),
       ...(meta?.state ? { state: meta.state } : {}),
       ...(meta?.path ? { path: meta.path } : {}),
+      ...(meta?.["ai.hold"] === "pending" ? { held: true as const } : {}),
     });
   }
   return { repo, branch, files, binding };
@@ -2831,7 +2834,8 @@ export async function runStaged(
   for (const file of result.files) {
     const size = file.size !== undefined ? formatByteSize(file.size) : "? B";
     const staged = file.stagedAt ? `  staged ${file.stagedAt}` : "";
-    await writeStdout(`${file.filename}  ${size}${staged}  ${file.url ?? "(no url)"}\n`);
+    const held = file.held ? "  held for review" : "";
+    await writeStdout(`${file.filename}  ${size}${staged}${held}  ${file.url ?? "(no url)"}\n`);
   }
   process.stderr.write(`binding: ${result.binding.state} — ${result.binding.message}\n`);
   // Promote is pointless advice when the repo belongs to another workspace —
