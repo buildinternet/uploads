@@ -290,15 +290,18 @@ const fullTitle = `${title} · uploads.sh`;
       }
 
       /* ---------- slotted page content (scoped to .doc) ---------- */
+      /* Underline matches the text color; hover only firms it up. */
       .doc a {
-        color: var(--body);
+        color: inherit;
         text-decoration: underline;
-        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-decoration-thickness: 1px;
+        text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
         text-underline-offset: 3px;
+        transition: text-decoration-color 0.12s ease;
       }
       .doc a:hover,
       .doc a:focus-visible {
-        color: var(--accent);
+        text-decoration-color: currentColor;
         outline: none;
       }
 
@@ -814,7 +817,7 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--body);
       }
       .doc .pointer a {
-        color: var(--accent);
+        color: var(--body);
       }
 
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.

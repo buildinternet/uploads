@@ -1,6 +1,6 @@
 ---
 title: Live links
-description: Share a live, newest-first page of the files tagged with a GitHub repo or one pull request, behind a public link at /c/<id>. The PR comment links to it. The CLI and API call a live link a feed.
+description: Share a live, newest-first page of the files tagged with a GitHub repo or one pull request, behind one public link. The PR comment links to it. The CLI and API call a live link a feed.
 heading: Live links
 tagline: A live, newest-first page of files for one repo, or one pull request.
 navLabel: Live links
@@ -22,9 +22,9 @@ toc:
 A live link is a public page of the files already tagged with a GitHub repo. With a live link you
 can:
 
-- Share the latest files for a repo behind one `/c/<id>` URL.
+- Share the latest files for a repo behind one URL.
 - Scope the same link to one pull request or issue.
-- Open one file at `/c/<id>/<item>` and page through the set.
+- Open one file and page through the rest of the set.
 - Filter by page path (the same `path` metadata `uploads find` uses).
 
 A live link updates on its own: new tagged files appear without anyone adding them. To hand-pick
@@ -34,8 +34,7 @@ Anyone who knows the URL can view the live link. GitHub repository visibility do
 
 <div class="note">
   The CLI, API, and MCP call a live link a <strong>feed</strong>. <code>uploads feed create</code>,
-  MCP <code>feed_create</code>, and the <code>/feeds</code> REST routes all create or read one, and
-  its URL starts with <code>/c/</code>.
+  MCP <code>feed_create</code>, and the <code>/feeds</code> REST routes all create or read one.
 </div>
 
 </section>
@@ -79,7 +78,7 @@ Syncing the managed PR comment creates the pull request's live link if it does n
 comment then opens with a line like `12 files · View all on uploads.sh →` that links to it.
 
 Each file tagged with that pull request links to its own page in the live link. A file whose
-`gh.*` metadata names a different pull request keeps its `/f/` link. The `<img>` still loads from
+`gh.*` metadata names a different pull request keeps its standalone link. The `<img>` still loads from
 the embed URL.
 
 The comment posted through your local `gh` (no GitHub App on the repo) shows the same line and
@@ -93,10 +92,7 @@ links. Turn both off with `linkToFilePage: false` in [`.uploads.yml`](/docs/comm
 
 The live link page shows 50 files at a time, newest first. **Older files** opens the next page.
 
-Each file has its own page at `/c/<id>/<item>`, with newer and older links and a 1 of N count. Older
-`/feed/…` links redirect to `/c/…`.
-
-Standalone `/f/…` pages stay for one-off shares.
+Each file has its own page in the live link, with newer and older links and a 1 of N count.
 
 </section>
 
