@@ -17,6 +17,17 @@ const FROM = { name: "uploads.sh", email: "noreply@uploads.sh" } as const;
 
 const UPLOADER_ID_KEY = "gh.uploader-id";
 
+/** apps/mcp shares this module and its Env has no EMAIL binding. */
+type EmailBinding = {
+  send: (message: {
+    to: string;
+    from: { name: string; email: string };
+    subject: string;
+    text?: string;
+    html?: string;
+  }) => Promise<unknown>;
+};
+
 export interface EmailHoldRecipient {
   userId: string;
   email: string;
@@ -73,7 +84,8 @@ export async function emailHold(
   reason: HoldReason,
   meta: Record<string, string>,
 ): Promise<number> {
-  if (!env.EMAIL) return 0;
+  const email = (env as { EMAIL?: EmailBinding }).EMAIL;
+  if (!email) return 0;
   try {
     const uploaderId = meta[UPLOADER_ID_KEY] || undefined;
     const recipients = await emailHoldRecipients(dbFor(env), workspaceName, uploaderId);
@@ -91,7 +103,7 @@ export async function emailHold(
           webOrigin: env.WEB_ORIGIN,
         });
         try {
-          await env.EMAIL.send({ to: r.email, from: FROM, subject, text, html });
+          await email.send({ to: r.email, from: FROM, subject, text, html });
           return true;
         } catch {
           return false;
