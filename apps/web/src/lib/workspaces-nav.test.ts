@@ -135,6 +135,9 @@ describe("workspaceTabFromPathname", () => {
     expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/tokens")).toBe(
       "tokens",
     );
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/slack")).toBe(
+      "slack",
+    );
     expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/storage")).toBe(
       "",
     );

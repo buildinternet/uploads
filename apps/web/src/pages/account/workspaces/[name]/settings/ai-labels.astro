@@ -1,0 +1,203 @@
+---
+/**
+ * Workspace settings — AI labels sub-page: the classifier's labeling and
+ * upload-hold switches. Hidden until the admin-gated load lands; a member
+ * who isn't an admin gets a note instead.
+ */
+import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "Held uploads stay private until someone approves them.",
+  href: "/docs/agents#held-uploads",
+  linkLabel: "Held uploads →",
+};
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip}>
+  <section class="card settings-page">
+    <div id="ai-labels-forbidden" class="ul-callout" data-state="muted" role="status" hidden>
+      Only workspace admins and owners can change AI label settings.
+    </div>
+    <div class="settings-section" id="classifier-section" hidden>
+      <h2>AI labels</h2>
+      <p class="settings-note muted" id="classifier-note">
+        Labels describe each uploaded image (kind, screen, device) so agents can search and sort
+        files.
+      </p>
+      <div id="classifier-error" class="ul-callout" data-state="error" role="alert" hidden></div>
+      <div class="ws-form max-w-none mt-2">
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        >
+          <div class="cs-row__info min-w-0">
+            <span class="cs-row__label font-semibold text-[13px] text-foreground"
+              >Label uploads</span
+            >
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              Run the AI labeler on new images. Off means no labels and no holds.
+            </p>
+          </div>
+          <div class="cs-row__control flex items-center gap-2.5">
+            <button
+              type="button"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
+              role="switch"
+              data-slot="switch"
+              id="classifier-label"
+              aria-checked="false"
+              aria-label="Label uploads"
+            >
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b-0 py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        >
+          <div class="cs-row__info min-w-0">
+            <span class="cs-row__label font-semibold text-[13px] text-foreground"
+              >Hold likely secrets for review</span
+            >
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              An image that likely shows a credential or sensitive personal data stays out of PR
+              comments and its link until a member runs uploads approve.
+            </p>
+          </div>
+          <div class="cs-row__control flex items-center gap-2.5">
+            <button
+              type="button"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
+              role="switch"
+              data-slot="switch"
+              id="classifier-hold"
+              aria-checked="false"
+              aria-label="Hold likely secrets for review"
+            >
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p id="classifier-status" class="muted settings-note" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../../../lib/account-shell";
+    import {
+      workspaceClassifierSettings,
+      type ClassifierSettings,
+    } from "../../../../../lib/api-client";
+    import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
+    onAstroPageLoad(() => {
+      const sectionEl = document.getElementById("classifier-section");
+      if (!sectionEl) return;
+      const section = sectionEl;
+
+      const page = "workspace classifier settings";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      const labelToggle = requireElement<HTMLButtonElement>("#classifier-label", page);
+      const holdToggle = requireElement<HTMLButtonElement>("#classifier-hold", page);
+      const noteEl = requireElement<HTMLElement>("#classifier-note", page);
+      const statusEl = requireElement<HTMLElement>("#classifier-status", page);
+      const errorEl = requireElement<HTMLElement>("#classifier-error", page);
+      const forbiddenEl = requireElement<HTMLElement>("#ai-labels-forbidden", page);
+      const baseNote = noteEl.textContent?.trim() ?? "";
+
+      const isOn = (btn: HTMLButtonElement): boolean => btn.getAttribute("aria-checked") === "true";
+      const paintToggle = (btn: HTMLButtonElement, on: boolean): void => {
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+      };
+      function showError(message: string | null): void {
+        errorEl.hidden = !message;
+        errorEl.textContent = message ?? "";
+      }
+      function paint(settings: ClassifierSettings): void {
+        paintToggle(labelToggle, settings.classifyUploads);
+        paintToggle(holdToggle, settings.holdFlaggedUploads);
+        holdToggle.disabled = !settings.classifyUploads;
+        noteEl.textContent = settings.available
+          ? baseNote
+          : `${baseNote} Labels aren’t enabled for this workspace yet. These switches save and take effect when they are.`;
+      }
+      function wire(btn: HTMLButtonElement, key: "classifyUploads" | "holdFlaggedUploads"): void {
+        btn.addEventListener("click", () => {
+          const desired = !isOn(btn);
+          paintToggle(btn, desired);
+          labelToggle.disabled = true;
+          holdToggle.disabled = true;
+          showError(null);
+          statusEl.textContent = "Saving…";
+          void (async () => {
+            const result = await workspaceClassifierSettings(apiOrigin, workspaceName, {
+              [key]: desired,
+            });
+            if (!stillHere()) return;
+            labelToggle.disabled = false;
+            if (result.kind === "ok") {
+              paint(result.settings);
+              statusEl.textContent = "Saved.";
+              return;
+            }
+            paintToggle(btn, !desired);
+            holdToggle.disabled = !isOn(labelToggle);
+            statusEl.textContent = "";
+            showError(result.kind === "invalid" ? result.message : "Couldn’t save. Try again.");
+          })();
+        });
+      }
+
+      wire(labelToggle, "classifyUploads");
+      wire(holdToggle, "holdFlaggedUploads");
+
+      onSession(() => {
+        void (async () => {
+          const result = await workspaceClassifierSettings(apiOrigin, workspaceName);
+          if (!stillHere()) return;
+          if (result.kind !== "ok") {
+            if (result.kind === "unavailable" && result.reason === "forbidden") {
+              forbiddenEl.hidden = false;
+            }
+            return;
+          }
+          paint(result.settings);
+          section.hidden = false;
+        })();
+      });
+    });
+  </script>
+</WorkspaceLayout>

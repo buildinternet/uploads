@@ -13,6 +13,7 @@ import {
 import { fakeRegistry, FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
+import { posterKeyFor } from "../poster";
 import { SqliteD1, database as d1FromSqlite } from "../../test/helpers/sqlite-d1";
 import { recordRepoLink } from "../github-repo-links";
 
@@ -2565,6 +2566,29 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("workspace");
     expect(body.body).toContain("screenshot.png");
+  });
+
+  it("(c2) leaves held files out and shows a video's poster, like the real comment", async () => {
+    const bucket = new FakeR2Bucket();
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await bucket.put("acme/gh/o/repo/pull/12/shown.png", png);
+    await bucket.put("acme/gh/o/repo/pull/12/held.png", png);
+    await bucket.put("acme/gh/o/repo/pull/12/clip.mp4", new Uint8Array([0]), {
+      httpMetadata: { contentType: "video/mp4" },
+    });
+    await bucket.put(`acme/${posterKeyFor("gh/o/repo/pull/12/clip.mp4")}`, new Uint8Array([0]));
+    const { env, sqlite } = previewEnv({ role: "owner", record: REC, bucket });
+    const insert = sqlite.db.prepare(
+      "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES ('acme', ?, ?, ?, '2026-10-19')",
+    );
+    insert.run("gh/o/repo/pull/12/held.png", "ai.hold", "pending");
+    insert.run("gh/o/repo/pull/12/clip.mp4", "video.poster", "1");
+    const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
+    const body = (await res.json()) as { body: string };
+    expect(body.body).toContain("shown.png");
+    expect(body.body).not.toContain("held.png");
+    expect(body.body).toContain("▶ Play video");
+    expect(body.body).not.toContain("- [clip.mp4]");
   });
 
   it("(d) empty workspace -> sample fixtures, body contains dashboard-overview.png", async () => {

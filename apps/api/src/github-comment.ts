@@ -144,6 +144,29 @@ const SCOPE_META_KEYS = ["gh.repo", "gh.number", "gh.status"];
  */
 const HOLD_META_KEYS = [HOLD_META_KEY];
 
+/**
+ * Detached copies and held files never render. The settings preview uses
+ * this directly; `gatherAttachments` applies the same two checks in steps
+ * because the attachment-index shadow sits between them.
+ */
+export async function dropHiddenAttachments(
+  env: Env,
+  workspaceName: string,
+  items: AttachmentItem[],
+): Promise<AttachmentItem[]> {
+  if (items.length === 0) return items;
+  const metaByKey = await getMetadataForKeys(
+    dbFor(env),
+    workspaceName,
+    items.map((item) => item.key),
+    { metaKeys: [DETACH_META_KEY, ...HOLD_META_KEYS] },
+  );
+  return items.filter((item) => {
+    const meta = metaByKey.get(item.key);
+    return meta?.[DETACH_META_KEY] !== "true" && !isHeld(meta);
+  });
+}
+
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
   env: Env,
@@ -272,6 +295,22 @@ async function gatherAttachments(
 
   if (!showMetadata || items.length === 0) return { items, liveLinkUrl, heldCount };
 
+  await addCommentMetadata(env, ws, workspaceName, items);
+  return { items, liveLinkUrl, heldCount };
+}
+
+/**
+ * Captions (path/state), posters and image dimensions for the items the
+ * comment renders. Shared with the settings preview (`commentPreviewHandler`)
+ * so a video or PDF previews as the poster it will get on GitHub.
+ */
+export async function addCommentMetadata(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  items: AttachmentItem[],
+): Promise<void> {
+  if (items.length === 0) return;
   const metaByKey = await getMetadataForKeys(
     dbFor(env),
     workspaceName,
@@ -337,7 +376,6 @@ async function gatherAttachments(
       };
     }
   }
-  return { items, liveLinkUrl, heldCount };
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   WORKSPACE_NAV_TABS,
   workspacePath,
   workspaceSettingsSubpageFromPathname,
+  type WorkspaceSettingsSubpage,
   workspaceTabFromPathname,
   type WorkspaceNavTab,
 } from "./workspaces-nav";
@@ -116,6 +117,15 @@ export function readSidebarDefaultOpen(cookieHeader: string | null | undefined):
 export type AccountSectionId = "workspaces" | "profile" | "developers" | "connected-apps";
 
 /** Nav rows read as proper nouns; the shared tab list keeps its lowercase ids. */
+/** Settings sub-nav, in sidebar order. `comment` is the settings root. */
+const SETTINGS_SUBNAV: { id: WorkspaceSettingsSubpage; label: string }[] = [
+  { id: "comment", label: "GitHub" },
+  { id: "slack", label: "Slack" },
+  { id: "previews", label: "Previews" },
+  { id: "ai-labels", label: "AI labels" },
+  { id: "tokens", label: "Service tokens" },
+];
+
 function capitalize(label: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
@@ -147,20 +157,15 @@ export function accountNavSections(options: {
       });
       if (tab.id !== "settings" || !subpage) continue;
       const base = `/account/workspaces/${encodeURIComponent(workspace)}/settings`;
-      items.push({
-        label: "General",
-        href: base,
-        current: subpage === "comment",
-        icon: "dot",
-        nested: true,
-      });
-      items.push({
-        label: "Service tokens",
-        href: `${base}/tokens`,
-        current: subpage === "tokens",
-        icon: "dot",
-        nested: true,
-      });
+      for (const sub of SETTINGS_SUBNAV) {
+        items.push({
+          label: sub.label,
+          href: sub.id === "comment" ? base : `${base}/${sub.id}`,
+          current: subpage === sub.id,
+          icon: "dot",
+          nested: true,
+        });
+      }
     }
     sections.push({ label: "Workspace", items });
   }

@@ -275,7 +275,10 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   return TAB_SEGMENTS.get(segment) ?? "";
 }
 
-export type WorkspaceSettingsSubpage = "comment" | "tokens";
+export const WORKSPACE_SETTINGS_SUBPAGES = ["slack", "previews", "ai-labels", "tokens"] as const;
+
+/** `comment` is the settings root (GitHub); the rest are `settings/<id>`. */
+export type WorkspaceSettingsSubpage = "comment" | (typeof WORKSPACE_SETTINGS_SUBPAGES)[number];
 
 /**
  * Which settings sub-page is active, for the sidebar's nested sub-nav
@@ -289,8 +292,7 @@ export function workspaceSettingsSubpageFromPathname(
   if (!match) return "";
   const sub = match[1] ?? "";
   if (!sub) return "comment";
-  if (sub === "tokens") return "tokens";
-  return "";
+  return WORKSPACE_SETTINGS_SUBPAGES.find((id) => id === sub) ?? "";
 }
 
 /** Path suffix that keeps the current tab when switching workspaces.
