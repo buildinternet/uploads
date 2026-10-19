@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { database, SqliteD1 } from "../../api/test/helpers/sqlite-d1";
 import {
+  fileBlock,
+  largeFileBlocks,
   resultsMessage,
   SHARE_ACTION,
   searchTerm,
@@ -343,5 +345,30 @@ describe("Share a file", () => {
     const api = publicApi(["a.png"]);
     expect(await pick("Acme!/a.png", api)).toEqual([]);
     expect(await pick("no-slash", api)).toEqual([]);
+  });
+});
+
+describe("largeFileBlocks", () => {
+  const shot = {
+    workspace: "acme",
+    key: "shots/login.png",
+    imageUrl: "https://storage.uploads.sh/acme/shots/login.png",
+    uploaded: Date.parse("2026-10-19"),
+  };
+
+  it("shows the image full width with its link and details under it", () => {
+    const blocks = largeFileBlocks(shot, "https://uploads.sh", false) as Record<string, any>[];
+    expect(blocks[0]).toEqual({ type: "image", image_url: shot.imageUrl, alt_text: "login.png" });
+    expect(blocks[1]!.type).toBe("context");
+    expect(blocks[1]!.elements[0].text).toMatch(
+      /^<https:\/\/uploads\.sh\/f\/acme\/shots\/login\.png\|\*login\.png\*> · shots · /,
+    );
+  });
+
+  it("falls back to the compact card without an image", () => {
+    const video = { workspace: "acme", key: "clips/demo.mp4" };
+    expect(largeFileBlocks(video, "https://uploads.sh", false)).toEqual([
+      fileBlock(video, "https://uploads.sh", false),
+    ]);
   });
 });

@@ -24,7 +24,7 @@
  * in the Agents dashboard, and its agent id is the Slack team.
  */
 import { answerQuestion, DEFAULT_AGENT_MODEL, openRouterComplete } from "./agent";
-import { fileBlock, isFullMember, searchViaApi } from "./commands";
+import { fileBlock, isFullMember, largeFileBlocks, searchViaApi } from "./commands";
 import { botTokenFor, type SlackEnv } from "./config";
 import { inSpan } from "./tracing";
 import {
@@ -42,6 +42,8 @@ const THREAD_MAX = 20;
 /** Characters kept from each context message. */
 const CONTEXT_CHARS = 500;
 const WORKING_REACTION = "eyes";
+/** Answers showing this many files or fewer show each image full width. */
+const LARGE_FILES_MAX = 2;
 /** `gen_ai.agent.name` on the mention agent's spans. */
 const AGENT_NAME = "uploads.sh Slack";
 
@@ -153,9 +155,15 @@ export async function handleMention(
     });
     const webOrigin = ctx.env.WEB_ORIGIN || "https://uploads.sh";
     const showWorkspace = new Set(answer.files.map((f) => f.workspace)).size > 1;
+    // One or two images read better full width; more stay a compact list.
+    const large = answer.files.length <= LARGE_FILES_MAX;
     const blocks: Block[] = [
       { type: "section", text: { type: "mrkdwn", text: answer.text } },
-      ...answer.files.map((f) => fileBlock(f, webOrigin, showWorkspace)),
+      ...answer.files.flatMap((f) =>
+        large
+          ? largeFileBlocks(f, webOrigin, showWorkspace)
+          : [fileBlock(f, webOrigin, showWorkspace)],
+      ),
     ];
     const posted = await post(answer.text, blocks);
     console.log("slack.mention", {

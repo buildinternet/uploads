@@ -198,22 +198,45 @@ export function resultsMessage(
 
 /** One result as a section: linked name, folder and date, and a thumbnail for images. */
 export function fileBlock(r: SearchResult, webOrigin: string, showWorkspace: boolean): Block {
+  const { name, link, details, image } = fileParts(r, webOrigin, showWorkspace);
+  return {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `${link}${details.length ? `\n${details.join(" · ")}` : ""}`,
+    },
+    ...(image ? { accessory: { type: "image", image_url: image, alt_text: name } } : {}),
+  };
+}
+
+/**
+ * One image shown full width with its link and details under it, for a
+ * mention reply that shows only one or two images. Falls back to the
+ * compact card when there's no image Slack can draw.
+ */
+export function largeFileBlocks(
+  r: SearchResult,
+  webOrigin: string,
+  showWorkspace: boolean,
+): Block[] {
+  const { name, link, details, image } = fileParts(r, webOrigin, showWorkspace);
+  if (!image) return [fileBlock(r, webOrigin, showWorkspace)];
+  return [
+    { type: "image", image_url: image, alt_text: name },
+    { type: "context", elements: [{ type: "mrkdwn", text: [link, ...details].join(" · ") }] },
+  ];
+}
+
+function fileParts(r: SearchResult, webOrigin: string, showWorkspace: boolean) {
   const url = sharePageUrl(webOrigin, r.workspace, r.key);
   const name = r.key.split("/").at(-1) || r.key;
   const details = [
     folderLabel(r.key),
     showWorkspace ? escapeMrkdwn(r.workspace) : null,
     r.uploaded ? slackDate(r.uploaded) : null,
-  ].filter(Boolean);
+  ].filter((d): d is string => Boolean(d));
   const image = r.imageUrl && isSlackImage(r.imageUrl) ? r.imageUrl : null;
-  return {
-    type: "section",
-    text: {
-      type: "mrkdwn",
-      text: `<${url}|*${escapeMrkdwn(name)}*>${details.length ? `\n${details.join(" · ")}` : ""}`,
-    },
-    ...(image ? { accessory: { type: "image", image_url: image, alt_text: name } } : {}),
-  };
+  return { name, link: `<${url}|*${escapeMrkdwn(name)}*>`, details, image };
 }
 
 const OPTION_VALUE_MAX = 150;
