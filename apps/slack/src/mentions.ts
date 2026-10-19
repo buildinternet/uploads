@@ -13,10 +13,11 @@
  * follow-up like "just the mobile ones" builds on the last answer. Without
  * those scopes it answers the mention alone.
  *
- * Every answer is a billed model run, so each Slack workspace gets
- * DAILY_MENTIONS a UTC day (`slack_agent_usage`); past that it says so
- * instead. When something fails, the thread still gets a reply saying what
- * happened.
+ * Every answer is a billed model run, so each Slack workspace gets a daily
+ * number of answers (UTC, counted in `slack_agent_usage`) set by the highest
+ * plan among its bound uploads.sh workspaces (uploads-api's
+ * `/internal/slack/plan`); past that it says so instead. When something
+ * fails, the thread still gets a reply saying what happened.
  *
  * Each mention is one `invoke_agent` trace span (tracing.ts). Its
  * conversation id is the Slack thread, so a thread's mentions group together
@@ -41,8 +42,6 @@ const THREAD_MAX = 20;
 /** Characters kept from each context message. */
 const CONTEXT_CHARS = 500;
 const WORKING_REACTION = "eyes";
-/** Answers per Slack workspace per UTC day. */
-export const DAILY_MENTIONS = 50;
 /** `gen_ai.agent.name` on the mention agent's spans. */
 const AGENT_NAME = "uploads.sh Slack";
 
@@ -98,11 +97,15 @@ export async function handleMention(
     return;
   }
 
-  const used = await countMention(ctx.env, ctx.teamId, new Date());
-  if (used !== null && used > DAILY_MENTIONS) {
-    console.warn("slack.mention: daily limit reached", { team: ctx.teamId, used });
+  const [used, limit] = await Promise.all([
+    countMention(ctx.env, ctx.teamId, new Date()),
+    dailyLimit(ctx.env, ctx.teamId),
+  ]);
+  if (used !== null && limit && used > limit.answersPerDay) {
+    console.warn("slack.mention: daily limit reached", { team: ctx.teamId, used, ...limit });
+    const upgrade = limit.plan === "free" ? " Pro workspaces get more." : "";
     await post(
-      `This Slack workspace has used today's ${DAILY_MENTIONS} questions. I can answer again tomorrow (UTC). \`/uploads search <filename>\` still works.`,
+      `This Slack workspace has used today's ${limit.answersPerDay} questions.${upgrade} I can answer again tomorrow (UTC). \`/uploads search <filename>\` still works.`,
     );
     return;
   }
@@ -198,6 +201,31 @@ export async function countMention(
     return row?.mentions ?? null;
   } catch (err) {
     console.error("slack.mention: usage count failed", { err: String(err) });
+    return null;
+  }
+}
+
+/**
+ * The team's answers a day and the plan behind it, from uploads-api, or null
+ * when that can't be read (then the mention goes ahead).
+ */
+export async function dailyLimit(
+  env: SlackEnv,
+  teamId: string,
+): Promise<{ plan: string; answersPerDay: number } | null> {
+  if (!env.API) return null;
+  try {
+    const res = await env.API.fetch("https://api.internal/internal/slack/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teamId }),
+    });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const body = (await res.json()) as { plan?: unknown; answersPerDay?: unknown };
+    if (typeof body.answersPerDay !== "number") throw new Error("bad shape");
+    return { plan: String(body.plan), answersPerDay: body.answersPerDay };
+  } catch (err) {
+    console.error("slack.mention: plan read failed", { err: String(err) });
     return null;
   }
 }

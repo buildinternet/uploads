@@ -163,8 +163,10 @@ It answers in the thread with a sentence or two and the files that fit. It searc
 by what the [AI labels](/docs/agents#experimental-ai-tags) say a file shows (the kind of file, the screen,
 and the device), and looks at the images before it answers. Mention it again in the same thread
 to narrow the answer, for example `@uploads.sh just the mobile ones`. It reads the thread first,
-so the follow-up builds on its last answer. Replies that don't mention it get no answer. Each Slack
-workspace gets 50 answers a day (UTC); after that the app says so until the next day.
+so the follow-up builds on its last answer. Replies that don't mention it get no answer. Answers
+are limited each day (UTC) on the free plan, with more on [Pro](/docs/limits#plans); a Slack workspace
+connected to several uploads.sh workspaces gets the highest plan among them. Past the limit the app
+says so until the next day.
 
 It follows the same rules as [search](#search): a workspace admin turns it on, only full members
 get an answer, and it finds only public files in the uploads.sh workspaces connected to that Slack
