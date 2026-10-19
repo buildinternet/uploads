@@ -491,7 +491,7 @@ if (timingsEnabled)
         <Brand />
         <div class="nav-end">
           <ThemeToggle />
-          {!file && <span class="public">public file</span>}
+          {!file && result.status !== "auth_required" && <span class="public">public file</span>}
         </div>
       </nav>
       {
