@@ -35,6 +35,8 @@ describe("public file headers", () => {
   it("locks down like the public gallery: no-store, noindex, strict CSP", () => {
     expect(PUBLIC_FILE_CSP).toContain("default-src 'none'");
     expect(PUBLIC_FILE_CSP).toContain("frame-ancestors 'none'");
+    // The held preview is an object URL.
+    expect(PUBLIC_FILE_CSP).toContain("img-src https: data: blob:");
     expect(PUBLIC_FILE_CSP).toContain("style-src 'self' 'unsafe-inline'");
     // Default CSP (prod API origin) allows Report-a-problem + RUM.
     expect(PUBLIC_FILE_CSP).toContain("connect-src https://api.uploads.sh");
