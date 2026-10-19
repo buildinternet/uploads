@@ -14,6 +14,17 @@ const REPO = "https://github.com/buildinternet/uploads";
 // Non-copy, illustrative command blocks — syntax-highlighted rather than
 // click-to-copy, since the reader reads them (or their agent runs them) rather
 // than pasting them verbatim.
+//
+// Astro's <Code> defaults to github-dark, and the worker's Shiki bundle does
+// not include that theme, so prerender fails. These two themes are the ones
+// Expressive Code already ships. defaultColor is false so the colors stay CSS
+// variables; the page style follows data-theme instead of the OS.
+const BASH_HIGHLIGHT = {
+  lang: "bash" as const,
+  themes: { light: "vitesse-light", dark: "vitesse-dark" },
+  defaultColor: false as const,
+  class: "bash-example",
+};
 const MANUAL_SETUP = `# install the agent skills
 npx skills add buildinternet/uploads
 
@@ -191,7 +202,7 @@ const FAQ_JSON_LD = JSON.stringify({
       On another agent runtime? Wire up each piece yourself —
       <a href="/docs/agents#install">see the setup <span class="go">→</span></a>.
     </p>
-    <Code code={MANUAL_SETUP} lang="bash" class="bash-example" />
+    <Code code={MANUAL_SETUP} {...BASH_HIGHLIGHT} />
   </section>
 
   <section id="stage">
@@ -205,7 +216,7 @@ const FAQ_JSON_LD = JSON.stringify({
     <p>
       No pull request required. On a branch, a bare <code>put</code> stages the file automatically:
     </p>
-    <Code code={STAGE_EXAMPLE} lang="bash" class="bash-example" />
+    <Code code={STAGE_EXAMPLE} {...BASH_HIGHLIGHT} />
     <p>
       Keep doing that at each visual milestone. Check the queue with <code>uploads staged</code>.
       When the PR opens, staged files promote into one managed comment — via the GitHub App, or
@@ -324,5 +335,20 @@ const FAQ_JSON_LD = JSON.stringify({
     padding: 0;
     border-radius: 0;
     font: inherit;
+  }
+  /* Dark is the no-JS default. Light swaps the same variables. */
+  :global(pre.astro-code.bash-example),
+  :global(pre.astro-code.bash-example span) {
+    color: var(--shiki-dark);
+    font-style: var(--shiki-dark-font-style);
+    font-weight: var(--shiki-dark-font-weight);
+    text-decoration: var(--shiki-dark-text-decoration);
+  }
+  :global(html[data-theme="light"] pre.astro-code.bash-example),
+  :global(html[data-theme="light"] pre.astro-code.bash-example span) {
+    color: var(--shiki-light);
+    font-style: var(--shiki-light-font-style);
+    font-weight: var(--shiki-light-font-weight);
+    text-decoration: var(--shiki-light-text-decoration);
   }
 </style>
