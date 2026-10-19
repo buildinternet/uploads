@@ -5,7 +5,8 @@
  * is a PR or issue attachment, so a held image leaves the comment, and an
  * approved one returns to it, without waiting for the next upload. A new
  * hold also DMs the people who can approve it in Slack
- * (`slack-hold-notify.ts`).
+ * (`slack-hold-notify.ts`), and emails those who opted in
+ * (`hold-email-notify.ts`).
  */
 
 import { ServiceUnavailableError } from "@uploads/errors";
@@ -18,6 +19,7 @@ import {
 } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
 import { moveToHeld, restoreFromHeld } from "./held-storage";
+import { emailHold } from "./hold-email-notify";
 import { notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
@@ -79,6 +81,7 @@ export async function applyUploadHold(
     await Promise.all([
       resyncAttachmentComment(env, ws, workspaceName, key, existing),
       notifySlackOfHold(env, workspaceName, key, reason, existing),
+      emailHold(env, workspaceName, key, reason, existing),
     ]);
     return true;
   } catch (err) {

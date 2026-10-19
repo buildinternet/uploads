@@ -272,7 +272,7 @@ curl -X POST -H "Authorization: Bearer $UPLOADS_TOKEN" \
   "https://api.uploads.sh/v1/workspaces/$WORKSPACE/files/approve?key=$KEY"
 ```
 
-With the [Slack app](/docs/slack#held-uploads) connected, the uploader (or, without one, the workspace admins) gets a Slack message for each new hold, with an **Approve** button.
+With the [Slack app](/docs/slack#held-uploads) connected, the uploader (or, without one, the workspace admins) gets a Slack message for each new hold, with an **Approve** button. To get an email for each new hold instead, or as well, turn on **An upload is held for review** under Email notifications in your [account settings](/account/profile). It's off by default.
 
 Workspace admins can turn labels, or just holds, off under **Settings → AI labels**.
 

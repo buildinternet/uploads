@@ -1197,6 +1197,12 @@ function buildAuth(
           input: true,
           defaultValue: true,
         },
+        notifyEmailHolds: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: false,
+        },
       },
     },
     session: {
