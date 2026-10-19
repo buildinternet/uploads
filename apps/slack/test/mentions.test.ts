@@ -150,6 +150,52 @@ describe("answerQuestion", () => {
     expect(answer.files).toEqual([SETTINGS.results[0]]);
   });
 
+  it("sends a reply back once to look at images it only knows by filename", async () => {
+    const model = scripted([
+      { content: null, tool_calls: [call("c1", "search_files", { screen: "settings" })] },
+      { content: null, tool_calls: [call("c2", "reply", { text: "Here.", file_ids: ["f1"] })] },
+      { content: null, tool_calls: [call("c3", "look_at_files", { ids: ["f1"] })] },
+      {
+        content: null,
+        tool_calls: [call("c4", "reply", { text: "Slack settings.", file_ids: ["f1"] })],
+      },
+    ]);
+    const answer = await answerQuestion(
+      { question: "settings?", context: [] },
+      { complete: model.complete, search: async () => SETTINGS },
+    );
+    expect(model.requests[2]!.messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "c2",
+      content: "Not sent. Call look_at_files on f1 first, then reply.",
+    });
+    expect(answer).toEqual({
+      text: "Slack settings.",
+      files: [SETTINGS.results[0]],
+      answered: true,
+    });
+  });
+
+  it("shows the same image once when it was uploaded to two folders", async () => {
+    const copy = { ...SETTINGS.results[0]!, key: "pull/12/settings-slack.png" };
+    const model = scripted([
+      { content: null, tool_calls: [call("c1", "search_files", { screen: "settings" })] },
+      { content: null, tool_calls: [call("c2", "look_at_files", { ids: ["f1", "f3"] })] },
+      {
+        content: null,
+        tool_calls: [call("c3", "reply", { text: "One.", file_ids: ["f1", "f3"] })],
+      },
+    ]);
+    const answer = await answerQuestion(
+      { question: "settings?", context: [] },
+      {
+        complete: model.complete,
+        search: async () => ({ ...SETTINGS, results: [...SETTINGS.results, copy] }),
+      },
+    );
+    expect(answer.files).toEqual([SETTINGS.results[0]]);
+  });
+
   it("says so when search isn't on for the Slack workspace", async () => {
     const model = scripted([
       { content: null, tool_calls: [call("c1", "search_files", { query: "login" })] },
@@ -248,12 +294,13 @@ describe("app_mention", () => {
     return { fetch, calls };
   }
 
-  /** OpenRouter answering with one search, then a reply showing f2. */
+  /** OpenRouter answering with one search, a look, then a reply showing f2. */
   function fakeModel() {
     const bodies: Record<string, unknown>[] = [];
     const turns = [
       [call("c1", "search_files", { screen: "settings", surface: "mobile" })],
-      [call("c2", "reply", { text: "One mobile settings screenshot.", file_ids: ["f2"] })],
+      [call("c2", "look_at_files", { ids: ["f1", "f2"] })],
+      [call("c3", "reply", { text: "One mobile settings screenshot.", file_ids: ["f2"] })],
     ];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(OPENROUTER_CHAT_URL);
