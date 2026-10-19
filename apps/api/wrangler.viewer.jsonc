@@ -1,0 +1,111 @@
+// Service-binding only. The web worker owns public viewer URLs.
+// Shares the API TypeScript program; types:viewer separately validates this config.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-viewer",
+  "main": "src/viewer.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "secrets": {
+    "required": ["WORKSPACE_SECRETS_KEY"],
+  },
+  "vars": {
+    "WEB_ORIGIN": "https://uploads.sh",
+    "ENVIRONMENT": "production",
+    "GITHUB_APP_ID": "4346270",
+    "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "issues": {
+      "enabled": true,
+    },
+  },
+  "kv_namespaces": [
+    {
+      "binding": "REGISTRY",
+      "id": "808bc1c3a86a4675b134e11b6dca303d",
+    },
+    {
+      "binding": "GITHUB_CACHE",
+      "id": "8076084dae50495ab883ec79c1c5968f",
+    },
+    {
+      "binding": "LIVE_LINK_INDEX",
+      "id": "72021c9af60b4d2e846c30264bd38eb6",
+    },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "buildinternet-dev",
+    },
+    {
+      "binding": "UPLOADS_DEFAULT",
+      "bucket_name": "uploads-default",
+    },
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "SLOW_OPS",
+      "dataset": "uploads_slow_ops",
+    },
+  ],
+  "previews": {
+    "vars": {
+      "WEB_ORIGIN": "https://uploads.sh",
+      "ENVIRONMENT": "preview",
+      "GITHUB_APP_ID": "4346270",
+      "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+    },
+    "kv_namespaces": [
+      {
+        "binding": "REGISTRY",
+        "id": "7bb5509c12f54fd7b238c75726e63c09",
+      },
+      {
+        "binding": "GITHUB_CACHE",
+        "id": "8076084dae50495ab883ec79c1c5968f",
+      },
+      {
+        "binding": "LIVE_LINK_INDEX",
+        "id": "500f169b84ae49258654ff9af86ffe9e",
+      },
+    ],
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
+        "migrations_dir": "migrations",
+      },
+    ],
+    "r2_buckets": [
+      {
+        "binding": "UPLOADS",
+        "bucket_name": "buildinternet-dev",
+      },
+      {
+        "binding": "UPLOADS_DEFAULT",
+        "bucket_name": "uploads-preview-default",
+      },
+    ],
+    "analytics_engine_datasets": [
+      {
+        "binding": "SLOW_OPS",
+        "dataset": "uploads_slow_ops_preview",
+      },
+    ],
+  },
+}

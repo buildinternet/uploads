@@ -4,9 +4,13 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
-import { publicObjectDateFields } from "./files-core";
+import { publicObjectDateFields } from "./files-read";
 import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
-import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
+import {
+  isDerivedPosterContentType,
+  videoPresentation,
+  type VideoDimensions,
+} from "./poster-presentation";
 import {
   type GalleryCursor,
   type GalleryItemRecord,

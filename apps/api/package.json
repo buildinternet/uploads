@@ -57,7 +57,10 @@
     "workspace:limits": "node --env-file-if-exists=../../.env scripts/set-workspace-limits.mjs",
     "workspace:reencrypt-secrets": "node --env-file-if-exists=../../.env scripts/reencrypt-workspace-secrets.mjs",
     "typecheck": "wrangler types && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:viewer": "wrangler dev --config wrangler.viewer.jsonc",
+    "deploy:viewer": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy --config wrangler.viewer.jsonc",
+    "types:viewer": "mkdir -p .wrangler && wrangler types --config wrangler.viewer.jsonc --env-interface ViewerEnv --include-runtime false .wrangler/viewer-configuration.d.ts"
   },
   "dependencies": {
     "@uploads/billing": "workspace:^",

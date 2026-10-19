@@ -107,3 +107,6 @@ jobs:
 
       - name: Bundle remote MCP Worker
         run: pnpm --filter @uploads/mcp run bundle:check
+
+      - name: Check independent public viewer bundle
+        run: pnpm viewer:bundle:check

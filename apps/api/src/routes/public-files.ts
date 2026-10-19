@@ -12,11 +12,11 @@ import {
   isPairableImageContentType,
   type BeforeAfterState,
 } from "../before-after";
-import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
+import { badKey, downloadResponse, publicObjectDateFields } from "../files-read";
 import { displayTitle, getFileMetadata, publicFileMetadata } from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
-import { videoPresentation } from "../poster";
+import { videoPresentation } from "../poster-presentation";
 import { objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
 import { isHeld } from "../upload-hold";
 import { isKeyHeld } from "../upload-hold-read";

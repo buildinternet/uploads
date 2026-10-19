@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it, vi } from "vitest";
-import { app } from "../src/index";
+import { app } from "../src/viewer";
 import { setServerFileMetadata } from "../src/file-metadata";
 import { FakeR2Bucket } from "./fake-r2";
 import { fakeRegistry } from "./fake-kv";
@@ -69,6 +69,7 @@ describe("gallery downloads across storage lanes", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("Content-Disposition")).toContain("attachment");
       expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(response.headers.get("Server-Timing")).toContain("gallery_download_api");
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(BYTES);
     } finally {
       sqlite.close();

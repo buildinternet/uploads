@@ -9,7 +9,7 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
-import { publicObjectDateFields } from "./files-core";
+import { publicObjectDateFields } from "./files-read";
 import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
 import {
   encodePublicFeedCursor,
@@ -27,7 +27,7 @@ import {
   type FeedRecord,
   type FeedSource,
 } from "./feeds";
-import { isDerivedPosterContentType, videoPresentation } from "./poster";
+import { isDerivedPosterContentType, videoPresentation } from "./poster-presentation";
 import type {
   FeedItemDto,
   FeedSummaryDto,

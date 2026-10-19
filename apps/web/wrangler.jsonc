@@ -23,6 +23,8 @@
   "upload_source_maps": true,
   "vars": {
     "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+    // Enable only after provisioning and measuring the independent viewer.
+    "PUBLIC_VIEWER_ROLLOUT": "off",
     // Public origin of apps/auth (Phase 2, plan D6). Local dev default is
     // http://127.0.0.1:8788 (apps/auth's pinned wrangler dev port — see
     // apps/auth/wrangler.jsonc); override via .dev.vars for local dev, same
@@ -41,6 +43,7 @@
   "services": [
     { "binding": "AUTH", "service": "uploads-auth" },
     { "binding": "API", "service": "uploads-api" },
+    // Add PUBLIC_VIEWER -> uploads-viewer after its first deploy. See docs/public-viewer.md.
   ],
   "assets": {
     "binding": "ASSETS",
@@ -108,6 +111,8 @@
   "previews": {
     "vars": {
       "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+      // Enable only after provisioning and measuring the independent viewer.
+      "PUBLIC_VIEWER_ROLLOUT": "off",
       "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
     },
     // Same-origin auth proxy (#731 phase A), duplicated here because bindings
@@ -118,6 +123,7 @@
     "services": [
       { "binding": "AUTH", "service": "uploads-auth" },
       { "binding": "API", "service": "uploads-api" },
+      // Add PUBLIC_VIEWER -> uploads-viewer after its first deploy. See docs/public-viewer.md.
     ],
     // The Astro Cloudflare adapter's generated config (dist/server/wrangler.json,
     // via the .wrangler/deploy redirect) injects an id-less SESSION KV binding.
