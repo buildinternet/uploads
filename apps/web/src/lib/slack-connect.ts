@@ -160,19 +160,22 @@ function teamsUrl(apiOrigin: string, workspace: string, teamId?: string): string
 
 /**
  * The admin's connected Slack workspaces (and any already bound) for
- * `workspace`, or null when the request fails or the caller isn't an admin.
+ * `workspace`; "forbidden" when the caller isn't an admin or owner, null
+ * when the request fails.
  */
 export async function listSlackSearchTeams(
   apiOrigin: string,
   workspace: string,
   opts?: FetchWithTimeoutOptions,
-): Promise<SlackSearchTeam[] | null> {
+): Promise<SlackSearchTeam[] | "forbidden" | null> {
   const result = await fetchWithTimeout(
     teamsUrl(apiOrigin, workspace),
     { credentials: "include", cache: "no-store" },
     opts,
   );
-  if (result.kind === "unavailable" || !result.response.ok) return null;
+  if (result.kind === "unavailable") return null;
+  if (result.response.status === 403) return "forbidden";
+  if (!result.response.ok) return null;
   const raw = ((await result.response.json().catch(() => null)) as { teams?: unknown } | null)
     ?.teams;
   if (!Array.isArray(raw)) return null;

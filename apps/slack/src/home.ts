@@ -5,12 +5,13 @@
  * ticket to uploads.sh/slack/connect (links.ts). Linked users see which
  * account they're connected to and a Disconnect button, handled by the
  * interactivity endpoint. Either way, a workspace whose install is missing
- * scopes gets an Update permissions banner first.
+ * scopes gets an Update permissions banner first, and everyone sees how to
+ * use (or turn on) `/uploads search` at the bottom.
  */
 import type { SlackEnv } from "./config";
 import { installedScopes } from "./installs";
 import { findLink, mintTicket, removeLink, teamName } from "./links";
-import { missingFeaturesText } from "./scopes";
+import { canRun, missingFeaturesText } from "./scopes";
 import { slackDisplayName, viewsPublish, type Block } from "./slack/api";
 
 export const DISCONNECT_ACTION = "uploads_disconnect";
@@ -18,6 +19,7 @@ export const CONNECT_ACTION = "uploads_connect";
 export const UPDATE_PERMISSIONS_ACTION = "uploads_update_permissions";
 
 const SETTINGS_URL = "https://uploads.sh/account/profile#slack";
+const WORKSPACES_URL = "https://uploads.sh/account/workspaces";
 
 /**
  * The linked state names no uploads.sh account on purpose: if someone was
@@ -125,6 +127,53 @@ export function updatePermissionsBlocks(missingText: string, installUrl: string)
   ];
 }
 
+/**
+ * How to search from Slack. `workspaces` are the uploads.sh workspaces bound
+ * to this Slack team (commands.ts); with none, explain who can turn it on.
+ */
+export function searchBlocks(workspaces: string[]): Block[] {
+  const escape = (t: string) =>
+    t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const section: Block =
+    workspaces.length > 0
+      ? {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Search*\nRun \`/uploads search <filename>\` in any conversation to find public files in ${workspaces.map((w) => `*${escape(w)}*`).join(", ")}. Only you see the results.`,
+          },
+        }
+      : {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "*Search*\nAn admin of an uploads.sh workspace can let everyone here find its public files with `/uploads search`. Turn it on under that workspace's *Settings → Slack*.",
+          },
+          accessory: {
+            type: "button",
+            text: { type: "plain_text", text: "Open uploads.sh" },
+            url: WORKSPACES_URL,
+          },
+        };
+  return [{ type: "divider" }, section];
+}
+
+/** uploads.sh workspaces bound to `teamId` (slack_workspace_bindings), sorted. */
+async function boundWorkspaces(db: D1Database, teamId: string): Promise<string[]> {
+  try {
+    const { results } = await db
+      .prepare(
+        "SELECT workspace FROM slack_workspace_bindings WHERE team_id = ? ORDER BY workspace LIMIT 5",
+      )
+      .bind(teamId)
+      .all<{ workspace: string }>();
+    return results.map((r) => r.workspace);
+  } catch (err) {
+    console.error("slack.home: bindings lookup failed", { team: teamId, err: String(err) });
+    return [];
+  }
+}
+
 export interface HomeContext {
   env: SlackEnv;
   teamId: string;
@@ -157,6 +206,9 @@ export async function publishHome(ctx: HomeContext): Promise<void> {
   }
   const granted = await installedScopes(db, ctx.teamId);
   const missing = granted ? missingFeaturesText(granted) : null;
+  if (granted && canRun(granted, "search")) {
+    blocks = [...blocks, ...searchBlocks(await boundWorkspaces(db, ctx.teamId))];
+  }
   if (missing) {
     const installUrl = `${(ctx.env.SLACK_ORIGIN || "https://agents.uploads.sh").replace(/\/+$/, "")}/slack/install`;
     blocks = [...updatePermissionsBlocks(missing, installUrl), ...blocks];
