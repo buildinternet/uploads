@@ -94,7 +94,8 @@ comment:
   # uploads.sh check says UI files changed. A pattern without a slash matches
   # a file name anywhere (*.css); one with a slash starts at the repo root.
   # ** crosses folders, * doesn't. Replaces the workspace's UI file paths
-  # setting; with neither set, both stay off.
+  # setting. With neither set, a built-in list drives the check only, with
+  # no comment. [] turns both off.
   uiPaths:
     - "apps/web/**"
     - "*.css"

@@ -7,7 +7,7 @@
  * D1 rows scoped by workspace name).
  */
 
-import { changedUiFiles, noUploadsCommentBody } from "./github-no-uploads";
+import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -69,7 +69,7 @@ export async function gatherCommentBody(
   body: string;
   count: number;
   heldCount: number;
-  /** Changed files matching the repo's `uiPaths`; only looked up for an empty PR. */
+  /** Changed files counting as UI changes; only looked up for an empty PR. */
   uiFiles: string[];
   /** The body is the no-uploads how-to, which may create the comment. */
   noUploads: boolean;
@@ -77,7 +77,7 @@ export async function gatherCommentBody(
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
   // to workspace-defaults/auto only (see resolveRepoCommentOptions).
-  const { options } = await resolveRepoCommentOptions(env, ws, target.repo);
+  const { options, source } = await resolveRepoCommentOptions(env, ws, target.repo);
 
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
@@ -97,12 +97,16 @@ export async function gatherCommentBody(
     metaState: options.metaState,
     note: options.note,
   };
-  // An empty PR that changes UI files gets the how-to instead of the neutral
-  // empty state (github-no-uploads.ts). Only looked up for an empty PR, so a
-  // PR with uploads never pays for the changed-files read.
+  // An empty PR that changes UI files gets a neutral "UI files changed" check,
+  // and the how-to instead of the empty state when paths are configured
+  // (github-no-uploads.ts). Only looked up for an empty PR, so a PR with
+  // uploads never pays for the changed-files read.
+  const configured = source.uiPaths !== "auto";
   const uiFiles =
-    count === 0 && opts.detectUiChanges ? await changedUiFiles(env, target, options.uiPaths) : [];
-  if (uiFiles.length > 0 && options.noUploadsComment) {
+    count === 0 && opts.detectUiChanges
+      ? await changedUiFiles(env, target, configured ? options.uiPaths : DEFAULT_UI_PATHS)
+      : [];
+  if (uiFiles.length > 0 && configured && options.noUploadsComment) {
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
         importsAttachments: options.ingestGithubAttachments,

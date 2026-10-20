@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   changedUiFiles,
+  DEFAULT_UI_PATHS,
   describeUiFiles,
   noUploadsCommentBody,
   uiPathMatcher,
@@ -33,6 +34,21 @@ describe("uiPathMatcher", () => {
     const m = uiPathMatcher(["app/(marketing)/page.tsx"]);
     expect(m("app/(marketing)/page.tsx")).toBe(true);
     expect(m("app/marketing/page.tsx")).toBe(false);
+  });
+});
+
+describe("DEFAULT_UI_PATHS", () => {
+  it("matches what the CLI's pre-PR hook counts as UI", () => {
+    const matches = uiPathMatcher(DEFAULT_UI_PATHS);
+    for (const f of ["a.astro", "src/B.tsx", "x/y.jsx", "c.vue", "d.svelte", "e.html"]) {
+      expect(matches(f)).toBe(true);
+    }
+    for (const f of ["s.css", "s.scss", "s.less", "email/welcome.ts", "apps/email/x.ts"]) {
+      expect(matches(f)).toBe(true);
+    }
+    for (const f of ["src/a.ts", "README.md", "emails.ts", "package.json"]) {
+      expect(matches(f)).toBe(false);
+    }
   });
 });
 

@@ -35,6 +35,11 @@ describe("checkRunContent", () => {
     expect(content.summary).toContain("- `apps/web/a.astro`\n- `b.css`");
   });
 
+  it("links the how-to docs when there's no comment to point at", () => {
+    const content = checkRunContent({ count: 0, heldCount: 0, uiFiles: ["b.css"] }, null);
+    expect(content.summary).toContain("https://uploads.sh/docs/github-app#no-uploads");
+  });
+
   it("goes neutral when nothing is attached", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
       conclusion: "neutral",
