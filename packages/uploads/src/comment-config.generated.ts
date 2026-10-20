@@ -29,6 +29,7 @@ export interface WorkspaceCommentDefaults {
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
+  uiPaths?: string[];
   noUploadsComment?: boolean;
 }
 export interface ResolvedCommentOptions {
@@ -41,7 +42,7 @@ export interface ResolvedCommentOptions {
   ingestGithubAttachments: boolean;
   ingestBotAttachments: boolean;
   adoptLinkedFiles: boolean;
-  /** Globs for the files that count as UI changes. Repo config only. */
+  /** Globs for the files that count as UI changes. */
   uiPaths: string[];
   /** Post a how-to comment on a PR that changes `uiPaths` but has no uploads. */
   noUploadsComment: boolean;
@@ -72,7 +73,7 @@ const WIDTH_MAX = 1000;
 const MAX_INLINE_MIN = 1;
 const MAX_INLINE_MAX = 48;
 export const UI_PATHS_MAX = 50;
-const UI_PATH_MAX_CHARS = 200;
+export const UI_PATH_MAX_CHARS = 200;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)));
 
@@ -222,6 +223,7 @@ export function resolveCommentOptions(
       ? { ingestBotAttachments: ws.ingestBotAttachments }
       : {}),
     ...(ws?.adoptLinkedFiles !== undefined ? { adoptLinkedFiles: ws.adoptLinkedFiles } : {}),
+    ...(ws?.uiPaths?.length ? { uiPaths: ws.uiPaths } : {}),
     ...(ws?.noUploadsComment !== undefined ? { noUploadsComment: ws.noUploadsComment } : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };

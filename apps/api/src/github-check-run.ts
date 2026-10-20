@@ -62,7 +62,7 @@ export function checkRunContent(
       conclusion: "neutral",
       title: "UI files changed, no uploads attached",
       summary:
-        "This pull request changes files the repo lists under `uiPaths`, and nothing is " +
+        "This pull request changes files that count as UI changes, and nothing is " +
         "attached yet. Add screenshots with `uploads put`." +
         commentLink +
         "\n\n" +

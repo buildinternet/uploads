@@ -143,10 +143,26 @@ const tip = {
         <SettingRow
           id="cs-row-no-uploads"
           label="Comment when a PR has no uploads"
-          description="When a pull request changes the UI files a repo lists under uiPaths in .uploads.yml and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
+          description="When a pull request changes UI files and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
         >
           <SettingSwitch id="cs-no-uploads-comment" label="Comment when a PR has no uploads" />
         </SettingRow>
+
+        <div class="setting-row setting-row--stacked" id="cs-row-ui-paths">
+          <div class="setting-row__head">
+            <label for="cs-ui-paths" class="setting-row__label">UI file paths</label>
+            <span id="cs-row-ui-paths-chip"></span>
+          </div>
+          <p class="setting-row__desc">
+            Files that count as UI changes, one pattern per line. A repo's own uiPaths in
+            .uploads.yml replaces this list.
+          </p>
+          <textarea
+            id="cs-ui-paths"
+            class="ul-input mt-2 box-border w-full resize-y font-mono text-[13px] leading-[1.5]"
+            rows="3"
+            placeholder={"apps/web/**\n*.css"}></textarea>
+        </div>
 
         <div class="setting-row setting-row--stacked" id="cs-row-note">
           <div class="setting-row__head">
@@ -404,6 +420,7 @@ const tip = {
       const ingestToggle = requireElement<HTMLButtonElement>("#cs-ingest-github-attachments", page);
       const noUploadsToggle = requireElement<HTMLButtonElement>("#cs-no-uploads-comment", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
+      const uiPathsInput = requireElement<HTMLTextAreaElement>("#cs-ui-paths", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
       const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
       const resetBtn = requireElement<HTMLButtonElement>("#cs-reset-btn", page);
@@ -445,6 +462,7 @@ const tip = {
         },
         { id: "link", source: (p) => p.source.linkToFilePage ?? "auto" },
         { id: "note", source: (p) => p.source.note ?? "auto" },
+        { id: "ui-paths", source: (p) => p.source.uiPaths ?? "auto" },
       ];
       const chipTargets = chipRows.map((target) => ({
         ...target,
@@ -580,9 +598,19 @@ const tip = {
           showMetadata: toggleOn(metaToggle),
           linkToFilePage: toggleOn(linkToggle),
           note: noteInput.value.trim() === "" ? null : noteInput.value,
+          uiPaths: uiPathsFromInput(),
           ingestGithubAttachments: toggleOn(ingestToggle),
           noUploadsComment: toggleOn(noUploadsToggle),
         };
+      }
+
+      /** One glob per line; blank lines dropped. Empty means "no default" (null). */
+      function uiPathsFromInput(): string[] | null {
+        const paths = uiPathsInput.value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        return paths.length > 0 ? paths : null;
       }
 
       function isDirty(): boolean {
@@ -649,6 +677,7 @@ const tip = {
         paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
         paintToggle(noUploadsToggle, settings.noUploadsComment ?? true);
         noteInput.value = settings.note ?? "";
+        uiPathsInput.value = (settings.uiPaths ?? []).join("\n");
         noteCount.textContent = String(noteInput.value.length);
         // Baseline off the painted form, not `settings`: the toggles normalise
         // `null` to a boolean above, so reading the form back keeps the dirty
@@ -669,6 +698,7 @@ const tip = {
       bindToggle(noUploadsToggle, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());
       maxInlineInput.addEventListener("input", () => markEdited());
+      uiPathsInput.addEventListener("input", () => markEdited());
       noteInput.addEventListener("input", () => {
         noteCount.textContent = String(noteInput.value.length);
         markEdited();

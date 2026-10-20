@@ -1,9 +1,9 @@
 /**
- * The "no uploads yet" path: a PR that changes the files a repo lists under
- * `uiPaths` in `.uploads.yml` but has nothing attached. The managed comment
- * then carries a short how-to instead of staying absent, and the `uploads.sh`
- * check says UI files changed. Both are off until a repo lists paths, so a
- * backend-only repo never sees either.
+ * The "no uploads yet" path: a PR that changes UI files (`uiPaths` from the
+ * repo's `.uploads.yml`, else the workspace's UI file paths setting) but has
+ * nothing attached. The managed comment then carries a short how-to instead
+ * of staying absent, and the `uploads.sh` check says UI files changed. Both
+ * are off until paths are set, so a backend-only repo never sees either.
  *
  * The how-to is the same marker-owned comment: the first upload replaces it
  * in place with the normal attachments body, so a PR never gets two.
