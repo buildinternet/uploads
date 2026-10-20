@@ -106,9 +106,13 @@ export async function changedUiFiles(
         { headers: githubHeaders(token) },
       );
       if (!res.ok) return [];
-      const files = (await res.json().catch(() => null)) as { filename?: unknown }[] | null;
+      const files = (await res.json().catch(() => null)) as
+        | { filename?: unknown; status?: unknown; changes?: unknown }[]
+        | null;
       if (!Array.isArray(files)) return [];
       for (const f of files) {
+        // A deleted file, or one moved without edits, has nothing to screenshot.
+        if (f.status === "removed" || (f.status === "renamed" && f.changes === 0)) continue;
         if (typeof f.filename === "string" && matches(f.filename)) found.push(f.filename);
       }
       if (files.length < 100) break;

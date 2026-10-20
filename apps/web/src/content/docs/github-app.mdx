@@ -182,7 +182,7 @@ Once paths are set, a pull request that changes one of those files with nothing 
 a short comment naming the changed files and the ways to add screenshots. It's the same managed
 comment, so the first upload replaces it with the normal screenshots.
 
-Nothing happens on PRs that don't touch UI files. A repo can turn both the check and the comment off
+Nothing happens on PRs that don't touch UI files, and deleted files don't count. A repo can turn both the check and the comment off
 with `uiPaths: []`. To keep the check but skip the comment, a workspace admin can turn off **Comment when a PR has no uploads** under
 **Settings → GitHub**, or a repo can set `noUploadsComment: false`.
 

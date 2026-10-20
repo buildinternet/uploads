@@ -115,6 +115,20 @@ describe("changedUiFiles", () => {
     expect(urls).toHaveLength(2);
   });
 
+  it("leaves out deleted files and moves without edits", async () => {
+    const fetchImpl = (async () =>
+      Response.json([
+        { filename: "apps/web/gone.css", status: "removed", changes: 12 },
+        { filename: "apps/web/moved.tsx", status: "renamed", changes: 0 },
+        { filename: "apps/web/renamed.tsx", status: "renamed", changes: 3 },
+        { filename: "apps/web/edited.astro", status: "modified", changes: 2 },
+      ])) as unknown as typeof fetch;
+    await expect(changedUiFiles(env(), TARGET, ["apps/web/**"], fetchImpl)).resolves.toEqual([
+      "apps/web/renamed.tsx",
+      "apps/web/edited.astro",
+    ]);
+  });
+
   it("skips issues, empty uiPaths and GitHub failures", async () => {
     let calls = 0;
     const fetchImpl = (async () => {
