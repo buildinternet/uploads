@@ -382,9 +382,13 @@ export async function repoIsPrivate(
  */
 export async function cacheRepoPrivacy(env: Env, repo: string, isPrivate: boolean): Promise<void> {
   if (!REPO_RE.test(repo)) return;
-  await env.GITHUB_CACHE.put(`ghpriv:${repo}`, isPrivate ? "1" : "0", {
-    expirationTtl: REPO_PRIVACY_TTL,
-  });
+  const key = `ghpriv:${repo}`;
+  const value = isPrivate ? "1" : "0";
+  // KV allows about one write per second per key, and a burst of webhooks
+  // for one repo all carry the same visibility. Skip the write when the
+  // cache already agrees; the entry still expires on its own TTL.
+  if ((await cacheGet(env, key)) === value) return;
+  await env.GITHUB_CACHE.put(key, value, { expirationTtl: REPO_PRIVACY_TTL });
 }
 
 /** PR head-ref cache TTL — a PR's head ref never changes once opened. */

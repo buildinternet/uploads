@@ -704,13 +704,16 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
     try {
       await cacheRepoPrivacy(env, ev.privacy.repo, ev.privacy.isPrivate);
     } catch (err) {
-      console.error(
-        JSON.stringify({
-          message: "webhook privacy cache write-through failed",
-          repo: ev.privacy.repo,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      const error = err instanceof Error ? err.message : String(err);
+      const line = JSON.stringify({
+        message: "webhook privacy cache write-through failed",
+        repo: ev.privacy.repo,
+        error,
+      });
+      // A KV write-rate 429 only skips this priming; readers fall back to
+      // the GitHub API.
+      if (error.includes("429")) console.warn(line);
+      else console.error(line);
     }
   }
 
