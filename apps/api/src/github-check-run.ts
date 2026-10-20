@@ -54,6 +54,19 @@ export interface CheckFacts {
   required?: boolean;
   /** Where the PR stands on the requirements; absent unless required and UI files changed. */
   requirement?: Requirement | null;
+  /** Images and videos attached on GitHub itself; counted only when `count` is 0. */
+  githubAttachments?: number;
+  /** The repo imports GitHub attachments, so the check needn't suggest it. */
+  importsAttachments?: boolean;
+}
+
+/** The summary line for screenshots attached on GitHub, nudging toward import when it's off. */
+function githubAttachmentsLine(n: number, imports: boolean): string {
+  const line = `${files(n)} attached on GitHub.`;
+  return imports
+    ? line
+    : `${line} Workspace admins can turn on importing GitHub attachments in Settings → GitHub ` +
+        "to keep a copy on uploads.sh.";
 }
 
 /**
@@ -65,6 +78,10 @@ export interface CheckFacts {
 export function checkRunContent(gathered: CheckFacts, commentUrl: string | null): CheckRunContent {
   const { count, heldCount } = gathered;
   const uiFiles = gathered.uiFiles ?? [];
+  const onGithub = count === 0 ? (gathered.githubAttachments ?? 0) : 0;
+  const onGithubLine = onGithub
+    ? githubAttachmentsLine(onGithub, gathered.importsAttachments ?? false)
+    : "";
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
   const requirement = gathered.requirement;
   if (requirement?.skipLabel) {
@@ -85,16 +102,24 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
       return {
         conclusion: "failure",
         title:
-          count === 0
+          count === 0 && onGithub === 0
             ? "UI files changed, no uploads attached"
             : `Missing: ${missing.map((c) => c.label.toLowerCase()).join(", ")}`,
         summary:
+          (onGithubLine ? `${onGithubLine}\n\n` : "") +
           "This repo requires uploads on pull requests that change UI files. Add them with " +
           "`uploads put`." +
           skip +
           commentLink +
           "\n\n" +
           line,
+      };
+    }
+    if (onGithub > 0) {
+      return {
+        conclusion: "success",
+        title: `${files(onGithub)} attached on GitHub, requirements met`,
+        summary: `${onGithubLine}\n\n${line}`,
       };
     }
     return {
@@ -109,6 +134,13 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
       title: "No UI files changed",
       summary:
         "This pull request changes no files that count as UI changes, so no uploads are required.",
+    };
+  }
+  if (onGithub > 0 && uiFiles.length > 0) {
+    return {
+      conclusion: "success",
+      title: `${files(onGithub)} attached on GitHub`,
+      summary: onGithubLine,
     };
   }
   if (count === 0 && uiFiles.length > 0) {

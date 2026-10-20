@@ -128,9 +128,9 @@ function escapeHtml(s: string): string {
 
 /**
  * The how-to body for a PR whose UI files changed with nothing attached.
- * `importsAttachments` adds the drag-and-drop route only when the repo's
- * attachment import is on, so the comment never promises an import that
- * won't happen.
+ * Images dragged in on GitHub count too; the comment mentions the import
+ * only when the repo's attachment import is on, so it never promises an
+ * import that won't happen.
  */
 export function noUploadsCommentBody(
   marker: string,
@@ -147,9 +147,11 @@ export function noUploadsCommentBody(
     `- From the CLI: <code>uploads put before.png after.png --pr ${target.num}</code>`,
     "- From an agent: ask it to attach screenshots with uploads.sh",
   ];
-  if (opts.importsAttachments) {
-    lines.push("- By hand: drag images into the PR description and they're imported automatically");
-  }
+  lines.push(
+    opts.importsAttachments
+      ? "- By hand: drag images into the PR description and they're imported automatically"
+      : "- By hand: drag images into the PR description",
+  );
   if (opts.checklist?.length) lines.push("", checklistLine(opts.checklist));
   lines.push(
     "",

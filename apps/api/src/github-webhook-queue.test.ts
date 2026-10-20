@@ -15,9 +15,14 @@ import {
 } from "./github-webhook-queue";
 import { ingestForWebhook } from "./github-ingest";
 import { adoptLinkedFilesForWebhook } from "./github-link-adopt";
+import { findRepoLinkStrict } from "./github-repo-links";
 import { FakeKv } from "../test/fake-kv";
 
 vi.mock("./github-ingest", () => ({ ingestForWebhook: vi.fn() }));
+vi.mock("./github-repo-links", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./github-repo-links")>();
+  return { ...original, findRepoLinkStrict: vi.fn(original.findRepoLinkStrict) };
+});
 vi.mock("./github-link-adopt", () => ({
   adoptLinkedFilesForWebhook: vi.fn(),
   hasLinkCandidate: (text: string) => /https?:\/\//i.test(text),
@@ -436,16 +441,20 @@ describe("handleGithubWebhookBatch", () => {
 
   it("dispatches ingest events to ingestForWebhook and acks", async () => {
     vi.mocked(ingestForWebhook).mockResolvedValueOnce(undefined);
+    vi.mocked(findRepoLinkStrict).mockResolvedValueOnce(null);
     const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
     const m = msg({ keys: [], ingest: ref });
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
     expect(ingestForWebhook).toHaveBeenCalledWith(expect.anything(), ref);
+    // A pull request's text changed, so the check re-syncs too (unbound repo here).
+    expect(vi.mocked(findRepoLinkStrict).mock.calls.at(-1)?.[1]).toBe("acme/app");
     expect(m.acked).toBe(true);
     expect(m.retried).toBe(false);
   });
 
   it("retries a message whose ingestForWebhook throws", async () => {
     vi.mocked(ingestForWebhook).mockRejectedValueOnce(new Error("transient"));
+    vi.mocked(findRepoLinkStrict).mockResolvedValueOnce(null);
     const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
     const m = msg({ keys: [], ingest: ref });
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));

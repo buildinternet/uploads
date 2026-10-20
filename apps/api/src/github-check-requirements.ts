@@ -10,6 +10,7 @@ import type { ChecklistEntry, GhTarget } from "./github-comment-render";
 import { githubFetch, githubHeaders, repoInstallationToken } from "./github-app";
 import { getMetadataForKeys } from "./file-metadata";
 import { dbFor } from "./db-session";
+import { extractIngestAttachments } from "./github-attachment-extract";
 
 const LABELS: Record<CheckRequirement, string> = {
   uploads: "Uploads",
@@ -143,5 +144,41 @@ export async function skipLabelOnPr(
     return matchingSkipLabel(names, skipLabels);
   } catch {
     return null;
+  }
+}
+
+/** Images and videos linked from one GitHub body, or none for a bot's post (import skips bots too). */
+function attachmentsIn(post: { body?: unknown; user?: { type?: unknown } } | null): number {
+  if (!post || post.user?.type === "Bot" || typeof post.body !== "string") return 0;
+  return extractIngestAttachments(post.body).length;
+}
+
+/**
+ * Images and videos people attached on GitHub itself (dragged into the PR
+ * description or a comment), counted from the text whether or not the
+ * workspace imports them, so a contributor without uploads.sh still meets
+ * the `uploads` requirement. Reads the first 100 comments only. Zero on any
+ * GitHub failure.
+ */
+export async function githubAttachmentCount(
+  env: Env,
+  target: GhTarget,
+  fetchImpl: typeof fetch = fetch,
+): Promise<number> {
+  try {
+    const token = await repoInstallationToken(env, target.repo, fetchImpl);
+    if (!token) return 0;
+    const base = `https://api.github.com/repos/${target.repo}/issues/${target.num}`;
+    const [issue, comments] = await Promise.all(
+      [base, `${base}/comments?per_page=100`].map(async (url) => {
+        const res = await githubFetch(fetchImpl, url, { headers: githubHeaders(token) });
+        return res.ok ? await res.json().catch(() => null) : null;
+      }),
+    );
+    let count = attachmentsIn(issue as Parameters<typeof attachmentsIn>[0]);
+    if (Array.isArray(comments)) for (const c of comments) count += attachmentsIn(c);
+    return count;
+  } catch {
+    return 0;
   }
 }
