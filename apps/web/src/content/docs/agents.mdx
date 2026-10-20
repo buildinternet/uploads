@@ -146,7 +146,8 @@ Before `gh pr create`, the reminder hook nudges the agent if the branch touches 
 nothing is staged. When files are staged, it says whether they attach on their own when the PR
 opens. If those files are older than 30 days, or they belong to a different branch, it suggests
 `uploads unstage --branch <name>` instead. It never blocks the PR. Turn it off with
-`UPLOADS_HOOK_DISABLE=1`.
+`UPLOADS_HOOK_DISABLE=1`. To check for screenshots on the PR itself, and block merges without them,
+see [Require screenshots on pull requests](/docs/require-screenshots).
 
 - **Claude Code and Codex:** included in the [plugin](#plugin).
 - **Grok and Cursor:** `uploads install` adds it when those tools are installed.

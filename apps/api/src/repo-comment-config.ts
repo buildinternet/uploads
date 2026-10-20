@@ -138,6 +138,7 @@ export function workspaceCommentDefaults(ws: WorkspaceRecord): WorkspaceCommentD
   if (ws.githubUiPaths !== undefined) defaults.uiPaths = ws.githubUiPaths;
   if (ws.githubNoUploadsComment !== undefined)
     defaults.noUploadsComment = ws.githubNoUploadsComment;
+  if (ws.githubRequireUploads !== undefined) defaults.requireUploads = ws.githubRequireUploads;
   return defaults;
 }
 

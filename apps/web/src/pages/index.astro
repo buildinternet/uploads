@@ -376,9 +376,123 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .gap {
         height: 1.25em;
       }
+      .ci,
       .features {
         padding: 52px 0 60px;
         border-top: 1px solid var(--line);
+      }
+      .ci-block {
+        display: grid;
+        grid-template-columns: 0.9fr 1.1fr;
+        gap: 60px;
+        align-items: center;
+      }
+      .ci .sect-lede {
+        margin-bottom: 18px;
+      }
+      .ci-note {
+        color: var(--muted);
+        font-size: 14px;
+        max-width: 520px;
+      }
+      /* GitHub checks illustration — pinned to the same dark palette as the
+         terminal illustration in both appearances. */
+      .checks-screen {
+        background: #19151f;
+        border: 1px solid #342c40;
+        border-radius: 7px;
+        overflow: hidden;
+        color: #f3eee7;
+        font-size: 13px;
+        min-width: 0;
+      }
+      .checks-top,
+      .check-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 11px 16px;
+        border-bottom: 1px solid #342c40;
+      }
+      .checks-top {
+        padding: 14px 16px;
+      }
+      .checks-top strong {
+        display: block;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .checks-top span,
+      .check-name {
+        color: #9a92a6;
+      }
+      .check-name {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .check-name b {
+        color: #f3eee7;
+        font-weight: 600;
+        margin-right: 0.5ch;
+      }
+      .checks-screen .mark {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 10px;
+        font-weight: 700;
+        color: #19151f;
+      }
+      .checks-screen .mark.ok {
+        background: #a8d7ae;
+      }
+      .checks-screen .mark.bad {
+        background: #e9a0b0;
+      }
+      .required {
+        flex: none;
+        font-size: 11px;
+        color: #9a92a6;
+        border: 1px solid #342c40;
+        border-radius: 999px;
+        padding: 1px 8px;
+      }
+      .check-list {
+        list-style: none;
+        margin: 0;
+        padding: 12px 16px 14px 42px;
+        display: grid;
+        gap: 5px;
+        color: #b7b2bd;
+      }
+      .check-list li {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .check-list li::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        border: 1px solid #5a4f6a;
+        border-radius: 3px;
+        flex: none;
+      }
+      .check-list li.done::before {
+        content: "✓";
+        background: #a8d7ae;
+        border-color: #a8d7ae;
+        color: #19151f;
+        font-size: 9px;
+        font-weight: 700;
+        display: grid;
+        place-items: center;
       }
       .find-block {
         display: grid;
@@ -619,6 +733,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           margin-right: -15px;
         }
         .find-block,
+        .ci-block,
         .install-layout {
           gap: 28px;
         }
@@ -660,6 +775,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           padding: 46px 0;
         }
         .find-block,
+        .ci-block,
         .install-layout {
           grid-template-columns: 1fr;
           gap: 28px;
@@ -667,6 +783,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         .sect-head {
           font-size: 29px;
         }
+        .ci,
         .features {
           padding: 35px 0 42px;
         }
@@ -790,6 +907,56 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           right where the review happens.
         </p>
         <WorkflowDemo />
+      </section>
+      <section class="ci" aria-labelledby="ci-heading">
+        <div class="ci-block">
+          <div>
+            <p class="eyebrow">Screenshots in CI</p>
+            <h2 class="sect-head" id="ci-heading">Make screenshots part of your checks.</h2>
+            <p class="sect-lede">
+              The uploads.sh GitHub App adds a screenshot check to your pull requests, next to your
+              tests and builds. Make proof required, and a UI change can't merge until it shows what
+              changed.
+            </p>
+            <p class="ci-note">
+              Works with your coding agent, the uploads CLI, or images dragged in on GitHub. Turn it
+              on in Settings or with one line of config.{" "}
+              <a href="/docs/require-screenshots">Require screenshots on pull requests</a>
+            </p>
+          </div>
+          <div
+            class="checks-screen"
+            role="img"
+            aria-label="A pull request's checks: build and test pass, and the required uploads.sh check fails because a mobile capture is missing"
+          >
+            <div class="checks-top">
+              <span class="mark bad" aria-hidden="true">✕</span>
+              <div>
+                <strong>Some checks were not successful</strong>
+                <span>1 failing, 2 successful checks</span>
+              </div>
+            </div>
+            <div class="check-row">
+              <span class="mark ok" aria-hidden="true">✓</span>
+              <span class="check-name"><b>build</b> Successful in 2m</span>
+            </div>
+            <div class="check-row">
+              <span class="mark ok" aria-hidden="true">✓</span>
+              <span class="check-name"><b>test</b> Successful in 4m</span>
+            </div>
+            <div class="check-row">
+              <span class="mark bad" aria-hidden="true">✕</span>
+              <span class="check-name"><b>uploads.sh</b> Missing a mobile capture</span>
+              <span class="required">Required</span>
+            </div>
+            <ul class="check-list">
+              <li class="done">Uploads attached</li>
+              <li class="done">Before and after</li>
+              <li class="done">Desktop capture</li>
+              <li>Mobile capture</li>
+            </ul>
+          </div>
+        </div>
       </section>
       <section class="features" aria-label="Features">
         <div class="find-block">

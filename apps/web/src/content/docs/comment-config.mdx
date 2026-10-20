@@ -5,7 +5,7 @@ heading: Comment config
 tagline: A repo-committed file that shapes how the managed comment renders.
 navLabel: Comment config
 navSlug: comment-config
-navOrder: 9
+navOrder: 10
 navGroup: github
 toc:
   - { id: what-it-controls, label: What it controls }
@@ -34,8 +34,8 @@ under a top-level `comment:` map and is optional. With it you can set:
   and whether bot-authored ones count.
 - **Whether uploads.sh links pasted into a PR or comment are adopted** into that PR/issue's
   attachment context.
-- **Which files count as UI changes**, for the [no-uploads comment](/docs/github-app#no-uploads)
-  and the [uploads.sh check](/docs/github-app#check).
+- **Which files count as UI changes**, and **which screenshots a UI change must have** before the
+  uploads.sh check passes. See [Require screenshots on pull requests](/docs/require-screenshots).
 
 <div class="note">
   The file only reshapes the comment for a repo that's already allowed to receive one — it can't
@@ -107,7 +107,8 @@ comment:
   # Make the uploads.sh check fail when a PR changes uiPaths without these.
   # Items: uploads (or any), before-after, desktop, mobile. Any item implies uploads.
   # skipLabels excuse a PR (any case); it defaults to uploads:skip-verify,
-  # skip-uploads and uploads-skip. See the GitHub App docs, Required uploads.
+  # skip-uploads and uploads-skip. Replaces the workspace's Require
+  # screenshots on UI changes setting. See /docs/require-screenshots.
   check:
     require: [uploads, before-after]
     skipLabels: ["uploads:skip-verify"]

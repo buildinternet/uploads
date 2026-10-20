@@ -226,6 +226,7 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       ingestGithubAttachments: null,
       noUploadsComment: null,
       uiPaths: null,
+      requireUploads: null,
     });
   });
 
@@ -374,6 +375,30 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
     expect(registry.record<{ githubUiPaths?: string[] }>("acme")?.githubUiPaths).toBeUndefined();
     expect((await patch({ uiPaths: "apps/**" })).status).toBe(400);
     expect((await patch({ uiPaths: [3] })).status).toBe(400);
+  });
+
+  it("PATCH stores requireUploads and rejects a non-boolean", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    const res = await patch({ requireUploads: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ requireUploads: true });
+    expect(registry.record<{ githubRequireUploads?: boolean }>("acme")?.githubRequireUploads).toBe(
+      true,
+    );
+    expect(await (await patch({ requireUploads: null })).json()).toMatchObject({
+      requireUploads: null,
+    });
+    expect((await patch({ requireUploads: "yes" })).status).toBe(400);
   });
 
   it("PATCH rejects a non-boolean ingestGithubAttachments with 400", async () => {
