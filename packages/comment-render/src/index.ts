@@ -562,9 +562,9 @@ function filenameStemToken(name: string): { base: string; state: "before" | "aft
 }
 
 /**
- * Pair up attachments for the before/after side-by-side row (issue #419).
- * `isImageAt[i]` mirrors the renderer's own image test — only images pair;
- * videos and non-image links render exactly as before.
+ * Pair up attachments for the before/after table (issue #419).
+ * `kindAt[i]` is the item's inline kind: images pair with images and videos
+ * (with a poster) with videos; anything else renders exactly as before.
  *
  * Priority order, checked independently per candidate item so rule 2 only
  * ever claims items rule 1 left untouched:
@@ -576,7 +576,7 @@ function filenameStemToken(name: string): { base: string; state: "before" | "aft
  */
 function pairAttachments(
   items: AttachmentItem[],
-  isImageAt: boolean[],
+  kindAt: ("image" | "video" | null)[],
 ): { partnerOf: Map<number, number>; roleOf: Map<number, "before" | "after"> } {
   const partnerOf = new Map<number, number>();
   const roleOf = new Map<number, "before" | "after">();
@@ -590,14 +590,16 @@ function pairAttachments(
   // Priority 1: same path metadata, exactly one before + one after.
   const pathGroups = new Map<string, { before: number[]; after: number[] }>();
   items.forEach((item, i) => {
-    if (!isImageAt[i]) return;
+    const kind = kindAt[i];
+    if (!kind) return;
     const path = item.meta?.path?.trim();
     if (!path || path === "/") return;
     const state = item.meta?.state?.trim().toLowerCase();
     if (state !== "before" && state !== "after") return;
-    const g = pathGroups.get(path) ?? { before: [], after: [] };
+    const key = `${kind}:${path}`;
+    const g = pathGroups.get(key) ?? { before: [], after: [] };
     g[state].push(i);
-    pathGroups.set(path, g);
+    pathGroups.set(key, g);
   });
   for (const g of pathGroups.values()) {
     if (g.before.length === 1 && g.after.length === 1) pair(g.before[0], g.after[0]);
@@ -606,7 +608,7 @@ function pairAttachments(
   // Priority 2: no usable path metadata — filename stem token, same extension.
   const stemGroups = new Map<string, { before: number[]; after: number[] }>();
   items.forEach((item, i) => {
-    if (!isImageAt[i] || partnerOf.has(i)) return;
+    if (!kindAt[i] || partnerOf.has(i)) return;
     const path = item.meta?.path?.trim();
     if (path && path !== "/") return; // usable path metadata — rule 1 owns this item
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
@@ -628,36 +630,48 @@ function pairAttachments(
 
 function renderPairCell(
   item: AttachmentItem,
-  label: "Before" | "After",
   options: CommentRenderOptions,
   density: AttachmentDensity,
 ): string {
   const name = item.key.slice(item.key.lastIndexOf("/") + 1);
-  const src = item.embedUrl ?? item.url;
+  const isVideo = inlinePosterKind(item) === "video";
+  // A video shows its poster still (GitHub strips <video>).
+  const src = isVideo ? item.posterUrl : (item.embedUrl ?? item.url);
   const link = item.pageUrl ?? item.url;
   const autoPx = Math.min(
-    naturalMediaWidth(item.imageMeta, name, density),
+    naturalMediaWidth(isVideo ? item.videoMeta : item.imageMeta, name, density),
     attachmentPairWidth(density),
   );
   const w = resolvedWidth(autoPx, options);
   const alt = escapeHtmlAttr(name);
   const href = escapeHtmlAttr((link ?? src) as string);
   const imgSrc = escapeHtmlAttr(src as string);
-  const caption = formatMetaCaption(item.meta, options, "html");
-  // Caption at body size (issue: <sub> made paths unreadably small); the
-  // Before/After label keeps <sub> as a deliberate small header.
-  const captionHtml = caption ? `<br>${caption}` : "";
-  return `<td align="center"><sub><strong>${label}</strong></sub><br><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
+  // The column header already says Before/After, so the state value is
+  // dropped from the caption; path and the rest stay.
+  const parts: string[] = [];
+  if (isVideo) {
+    parts.push("▶ Play video");
+    if (item.videoMeta?.durationSeconds != null) {
+      parts.push(formatDuration(item.videoMeta.durationSeconds));
+    }
+  }
+  const caption = formatMetaCaption({ path: item.meta?.path }, options, "html");
+  if (caption) parts.push(caption);
+  const captionHtml = parts.length > 0 ? `<br>${parts.join(" · ")}` : "";
+  return `<td align="center"><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
 }
 
-/** One side-by-side before/after row (issue #419). */
-function renderPairRow(
-  beforeItem: AttachmentItem,
-  afterItem: AttachmentItem,
+/** The before/after table: one header row, one row per pair (issue #419). */
+function renderPairTable(
+  pairs: [AttachmentItem, AttachmentItem][],
   options: CommentRenderOptions,
   density: AttachmentDensity,
 ): string {
-  return `<table><tr>${renderPairCell(beforeItem, "Before", options, density)}${renderPairCell(afterItem, "After", options, density)}</tr></table>`;
+  const rows = pairs.map(
+    ([before, after]) =>
+      `<tr>${renderPairCell(before, options, density)}${renderPairCell(after, options, density)}</tr>`,
+  );
+  return `<table><tr><th>Before</th><th>After</th></tr>${rows.join("")}</table>`;
 }
 
 /** How many image/poster items will fit under `maxInlineImages` (for density). */
@@ -800,18 +814,22 @@ export function attachmentsCommentBody(
     }
     lines.push("");
   }
-  const isImageAt = sorted.map((item) => {
+  const kindAt = sorted.map((item) => {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const src = item.embedUrl ?? item.url;
-    return Boolean(src) && inferContentType(name).startsWith("image/");
+    if (Boolean(src) && inferContentType(name).startsWith("image/")) return "image";
+    return inlinePosterKind(item) === "video" ? "video" : null;
   });
-  const { partnerOf, roleOf } = pairAttachments(sorted, isImageAt);
+  const { partnerOf, roleOf } = pairAttachments(sorted, kindAt);
   // One screenshot → large; a wall of shots → compact historical sizes.
   const density =
     options.imageWidth === "auto"
       ? attachmentDensityForCount(countInlinableMedia(sorted, options.maxInlineImages))
       : "dense";
   const consumedByPair = new Set<number>();
+  // All pairs share one table, placed where the first pair sorts.
+  const pairs: [AttachmentItem, AttachmentItem][] = [];
+  let pairTableAt = -1;
 
   let inlinedImages = 0;
   const overflowImages: AttachmentItem[] = [];
@@ -830,7 +848,11 @@ export function attachmentsCommentBody(
         consumedByPair.add(partnerIdx);
         const beforeItem = roleOf.get(idx) === "before" ? item : partner;
         const afterItem = roleOf.get(idx) === "before" ? partner : item;
-        lines.push(renderPairRow(beforeItem, afterItem, options, density), "");
+        if (pairTableAt < 0) {
+          pairTableAt = lines.length;
+          lines.push("", "");
+        }
+        pairs.push([beforeItem, afterItem]);
         continue;
       }
       // Cap already full for a two-image row — degrade this pair to two
@@ -958,6 +980,7 @@ export function attachmentsCommentBody(
       lines.push(`- ${name}${cap ? ` · ${cap}` : ""}`);
     }
   }
+  if (pairTableAt >= 0) lines[pairTableAt] = renderPairTable(pairs, options, density);
   if (fileItems.length > 0) {
     lines.push("| File | Type | Size |", "| --- | --- | --- |");
     for (const item of fileItems) {

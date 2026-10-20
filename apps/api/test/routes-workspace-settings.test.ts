@@ -2580,8 +2580,7 @@ describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("workspace");
-    expect(body.body).toContain("<strong>Before</strong>");
-    expect(body.body).toContain("<strong>After</strong>");
+    expect(body.body).toContain("<th>Before</th><th>After</th>");
     expect(body.body).toContain("docs/hero.png");
   });
 
