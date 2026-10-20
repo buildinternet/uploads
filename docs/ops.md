@@ -1483,6 +1483,19 @@ thrown evaluation are all off.
    comments re-sync). A file whose held copy cannot be restored is counted
    as failed and stays held.
 
+   PR checks have their own switch, Flagship `pr-checks` (same context,
+   fails closed). Serving on lets the GitHub App post the `uploads.sh`
+   check run beside the managed comment (`github-check-run.ts`); off
+   stops new syncs and leaves existing runs as they are. Installations
+   that haven't accepted `Checks: write` answer 403, remembered for an
+   hour under `ghchecks:denied:<installation>` in `GITHUB_CACHE` and
+   cleared by the next `installation` webhook.
+
+   ```bash
+   wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     pr-checks --description "uploads.sh check run on PRs"
+   ```
+
 4. **Workspace switches (admins)** — the workspace settings page's **AI
    labels** section (`GET/PATCH /v1/workspaces/:ws/classifier-settings`,
    session admin/owner) writes `classifyUploads` and `holdFlaggedUploads`.

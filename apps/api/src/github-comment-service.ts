@@ -9,6 +9,7 @@
  */
 import { recordAdoptionSafe } from "./adoption";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
+import { syncUploadsCheck } from "./github-check-run";
 import { fetchPrActors, githubAppConfig, installationForRepo } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
 import { isEntitledToClaimRepo } from "./github-claim-authz";
@@ -255,6 +256,9 @@ export async function postManagedComment(
     if (result.degrade === "forbidden") return forbiddenDecline(target.repo, installId);
     return { posted: false, reason: result.degrade };
   }
+  await syncUploadsCheck(env, cfg, installId, ws, workspaceName, target, gathered, {
+    commentUrl: "commentUrl" in result ? result.commentUrl : null,
+  });
   // Empty + no existing comment: nothing posted, nothing to claim.
   if (result.action === "skipped") return { posted: true, action: "skipped", count: 0 };
 
