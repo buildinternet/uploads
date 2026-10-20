@@ -1,5 +1,20 @@
 # @buildinternet/uploads
 
+## 0.59.4
+
+### Patch Changes
+
+- fa6918f: Before/after pairs in the PR comment now share one table with a Before and After header, one row per pair. Two videos tagged before and after pair the same way images do.
+- d608204: The comment's View on uploads.sh button turns golden yellow while a file is held, and `.uploads.yml` accepts `uiPaths` and `noUploadsComment`.
+- 9a73033: The PR comment's live link is now a "View on uploads.sh" button at the end of the comment, after the screenshots, with the file count in the footer beside the add-media hint.
+- 84bec59: The github-screenshots skill explains the neutral "UI files changed" check, which now appears on PRs that change common UI files with nothing attached, even when no UI paths are set. The pre-PR screenshot reminder no longer counts deleted UI files.
+- ed9d927: Count screenshots attached on GitHub toward the uploads.sh check, so contributors without uploads.sh can pass
+- ad63165: `uploads login` now replaces a saved token the server rejects (expired or revoked) without `--force`, and an expired token's error says when it expired.
+- d21a6eb: Once the server says a token expired, the CLI and the local MCP server stop sending it. Later calls fail right away with the same message until `uploads login` saves a new token, so background refreshes no longer hit the API with a dead token.
+- 8c802bd: `.uploads.yml` accepts `check.require` and `check.skipLabels`, so a repo can make the uploads.sh check fail when a PR changes UI files without the uploads it expects.
+- 51838ed: `check.require` in `.uploads.yml` now falls back to the workspace's Require screenshots on UI changes setting.
+- 2cf108b: `uiPaths` in `.uploads.yml` now falls back to the workspace's UI file paths setting.
+
 ## 0.59.3
 
 ### Patch Changes
