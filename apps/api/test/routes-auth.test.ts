@@ -69,7 +69,7 @@ function env(
       put: async () => undefined,
     },
     DB: {
-      prepare: () => {
+      prepare: (sql: string) => {
         let values: unknown[] = [];
         return {
           bind(...next: unknown[]) {
@@ -79,6 +79,15 @@ function env(
           async first() {
             const [, hash, now] = values as string[];
             const token = options.d1;
+            if (sql.includes("expires_at <=")) {
+              const expired =
+                token &&
+                token.tokenHash === hash &&
+                token.revokedAt == null &&
+                token.expiresAt != null &&
+                token.expiresAt <= now;
+              return expired ? { expires_at: token.expiresAt } : null;
+            }
             if (
               token &&
               token.tokenHash === hash &&
@@ -337,5 +346,11 @@ describe("auth routes", () => {
       ),
     ]);
     expect([expired.status, revoked.status]).toEqual([401, 401]);
+    // Expired says so (only to whoever holds the token); revoked stays generic.
+    const expiredBody = (await expired.json()) as { error: { code: string; message: string } };
+    expect(expiredBody.error.code).toBe("token_expired");
+    expect(expiredBody.error.message).toBe("This token expired on 2000-01-01.");
+    const revokedBody = (await revoked.json()) as { error: { code: string } };
+    expect(revokedBody.error.code).toBe("unauthorized");
   });
 });

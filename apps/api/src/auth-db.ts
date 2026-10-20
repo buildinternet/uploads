@@ -233,6 +233,29 @@ export async function findActiveToken(
     .first<AuthTokenRecord>();
 }
 
+/**
+ * The unrevoked token `rawToken` names, when it is past `expires_at`. Lets a
+ * 401 say "expired" to whoever already holds the token, and no one else.
+ */
+export async function findExpiredToken(
+  db: D1Queryable,
+  workspace: string,
+  rawToken: string,
+  now = new Date(),
+): Promise<Pick<AuthTokenRecord, "expires_at"> | null> {
+  if (!rawToken) return null;
+  const hash = await sha256Hex(rawToken);
+  return db
+    .prepare(
+      `SELECT expires_at FROM auth_tokens
+       WHERE workspace = ? AND token_hash = ? AND revoked_at IS NULL
+         AND expires_at IS NOT NULL AND expires_at <= ?
+       LIMIT 1`,
+    )
+    .bind(workspace, hash, now.toISOString())
+    .first<Pick<AuthTokenRecord, "expires_at">>();
+}
+
 export interface CreateTokenInput {
   workspace: string;
   label?: string;

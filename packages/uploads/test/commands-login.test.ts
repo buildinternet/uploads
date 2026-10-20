@@ -106,11 +106,41 @@ describe("runLogin", () => {
     const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
     writeConfigKeys(path, { UPLOADS_TOKEN: "up_default_existingexistingexisting" });
     process.env.UPLOADS_ENROLLMENT_CODE = "upe_abcdefghijklmnopqrstuvwxyz012345";
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+    // The saved token still works, so login refuses before any exchange.
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response({ files: [], cursor: null }));
     await expect(runLogin(["--non-interactive", "--path", path], {})).rejects.toThrow(
       "credentials already exist",
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a saved token the server rejects without --force", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    writeConfigKeys(path, { UPLOADS_TOKEN: "up_default_expiredexpiredexpired" });
+    process.env.UPLOADS_ENROLLMENT_CODE = "upe_abcdefghijklmnopqrstuvwxyz012345";
+    const token = "up_default_abcdefghijklmnopqrstuvwxyz";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        response(
+          {
+            error: {
+              code: "token_expired",
+              type: "unauthorized",
+              message: "This token expired on 2026-10-19.",
+            },
+          },
+          401,
+        ),
+      )
+      .mockResolvedValueOnce(response({ workspace: "default", token }, 201))
+      .mockResolvedValueOnce(response({ ok: true }))
+      .mockResolvedValueOnce(response({ files: [], cursor: null }));
+    const output = captureOutput();
+    expect(await runLogin(["--non-interactive", "--path", path], {})).toBe(0);
+    expect(loadConfigFile(path).UPLOADS_TOKEN).toBe(token);
+    expect(output.err()).toContain("the saved token no longer works");
   });
 
   it("supports --no-check", async () => {

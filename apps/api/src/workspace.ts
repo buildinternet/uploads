@@ -13,6 +13,7 @@ import type { R2Jurisdiction, StorageProvider } from "@uploads/storage";
 import {
   FILE_SCOPES,
   findActiveToken,
+  findExpiredToken,
   isWorkspaceScope,
   parseScopes,
   touchTokenLastUsed,
@@ -731,7 +732,21 @@ function workspaceAuthWith(
     }
     const ok = legacyOk || (record !== null && d1Token !== null);
 
-    if (!ok || !record || !name) throw new UnauthorizedError();
+    if (!ok || !record || !name) {
+      // Same dummy inputs as above, so this lookup doesn't reveal whether the workspace exists.
+      const expired = await findExpiredToken(
+        dbFor(c.env),
+        record && name ? name : "__unknown__",
+        token || "__unknown__",
+      );
+      if (expired?.expires_at) {
+        throw new UnauthorizedError(`This token expired on ${expired.expires_at.slice(0, 10)}.`, {
+          code: "token_expired",
+          details: { expires_at: expired.expires_at },
+        });
+      }
+      throw new UnauthorizedError();
+    }
 
     c.set("workspace", record);
     c.set("workspaceName", name);

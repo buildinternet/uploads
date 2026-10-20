@@ -43,6 +43,7 @@ export const ERROR_CODES = [
 
   // Auth / enrollment
   "invalid_enrollment",
+  "token_expired",
 
   // Idempotency
   "idempotency_key_invalid",
