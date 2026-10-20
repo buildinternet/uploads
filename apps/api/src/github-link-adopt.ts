@@ -54,6 +54,7 @@
  * `pull/<n>/` URL is the same file, not a removal — detaching would hide
  * the real `--pr` / promoted attachment, which shares that destination.
  */
+import { NotFoundError } from "@uploads/errors";
 import { attachExistingObject, resolveAttachSourceKey } from "./github-attach";
 import { detachAttachmentSafe, reattachAttachmentSafe } from "./github-attachment-index";
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
@@ -326,15 +327,18 @@ export async function adoptLinkedFiles(
       // Source vanished between resolve and copy (deleted concurrently), or a
       // transient storage failure — either way this one URL is skipped, the
       // rest of the pass continues. Never fails the whole webhook delivery.
-      console.error(
-        JSON.stringify({
-          message: "link adoption: attach failed for resolved key",
-          repo: target.repo,
-          num: target.num,
-          key,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      // A missing source is the body's fault (a link to a file that was never
+      // uploaded, or a placeholder path), so it logs at warn rather than
+      // opening a Workers issue; storage failures stay errors.
+      const line = JSON.stringify({
+        message: "link adoption: attach failed for resolved key",
+        repo: target.repo,
+        num: target.num,
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (err instanceof NotFoundError) console.warn(line);
+      else console.error(line);
       summary.skipped.push(key);
     }
   }
