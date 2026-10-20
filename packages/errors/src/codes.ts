@@ -23,6 +23,7 @@ export const ERROR_CODES = [
   "rate_limited",
   "insufficient_storage",
   "service_unavailable",
+  "database_export_in_progress",
   "internal_error",
   "malformed_error_response",
 

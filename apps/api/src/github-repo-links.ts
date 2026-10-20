@@ -16,7 +16,7 @@
  */
 
 import { bumpDailyMetric, logAdoptionFailure } from "./adoption";
-import { type D1Queryable } from "./db-session";
+import { isD1ExportInProgress, type D1Queryable } from "./db-session";
 
 export interface RepoLink {
   repo: string;
@@ -87,15 +87,17 @@ export async function recordRepoLink(
       }
     }
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "repo link record failed",
-        repo,
-        workspaceName,
-        source,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    const line = JSON.stringify({
+      message: "repo link record failed",
+      repo,
+      workspaceName,
+      source,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // During the nightly backup's D1 lock this is expected, and the next
+    // attach for the repo records the link again.
+    if (isD1ExportInProgress(err)) console.warn(line);
+    else console.error(line);
   }
 }
 
