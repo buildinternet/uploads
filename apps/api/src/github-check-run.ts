@@ -39,7 +39,7 @@ export function checksDeniedKey(installationId: number | string): string {
 }
 
 export interface CheckRunContent {
-  conclusion: "success" | "neutral" | "action_required";
+  conclusion: "success" | "neutral";
   title: string;
   summary: string;
 }
@@ -65,9 +65,11 @@ export function checkRunContent(
       summary: "Nothing is attached to this pull request any more.",
     };
   }
+  // Neutral, not action_required: a hold is about the uploaded file, not the
+  // PR's code, so it should never be able to block a merge.
   if (heldCount > 0) {
     return {
-      conclusion: "action_required",
+      conclusion: "neutral",
       title: `${heldCount} of ${files(count)} held for review`,
       summary:
         "Held files stay private until someone in the workspace approves them on the " +
@@ -169,7 +171,6 @@ export async function syncUploadsCheck(
       status: "completed",
       conclusion: content.conclusion,
       completed_at: new Date().toISOString(),
-      // GitHub requires a details link for action_required.
       details_url: opts.commentUrl || `https://github.com/${target.repo}/pull/${target.num}`,
       output: { title: content.title, summary: content.summary },
     };

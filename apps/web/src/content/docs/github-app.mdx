@@ -144,13 +144,12 @@ approval.
   </thead>
   <tbody>
     <tr><td>Success</td><td>Every attached file is published, e.g. "3 files attached".</td></tr>
-    <tr><td>Action required</td><td>A file is <a href="#held-files">held for review</a>, e.g. "1 of 4 files held for review".</td></tr>
-    <tr><td>Neutral</td><td>Everything was removed from a PR that had uploads.</td></tr>
+    <tr><td>Neutral</td><td>A file is <a href="#held-files">held for review</a>, e.g. "1 of 4 files held for review", or everything was removed from a PR that had uploads.</td></tr>
   </tbody>
 </table>
 
-A PR that never had uploads gets no check. The check never blocks a merge unless you mark it
-required in branch protection. If you do, a held file blocks the merge until someone approves it.
+A PR that never had uploads gets no check. The check never fails, so it can't block a merge, even
+while a file is held: a hold is about the uploaded file, not the PR's code.
 
 </section>
 

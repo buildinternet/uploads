@@ -18,9 +18,9 @@ describe("checkRunContent", () => {
     expect(checkRunContent({ count: 1, heldCount: 0 }, null).title).toBe("1 file attached");
   });
 
-  it("asks for action while a file is held", () => {
+  it("reports held files as neutral, never blocking", () => {
     expect(checkRunContent({ count: 4, heldCount: 1 }, COMMENT)).toMatchObject({
-      conclusion: "action_required",
+      conclusion: "neutral",
       title: "1 of 4 files held for review",
     });
   });
