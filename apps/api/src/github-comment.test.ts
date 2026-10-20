@@ -139,6 +139,68 @@ describe("gatherCommentBody", () => {
     }
   });
 
+  it("counts screenshots attached on GitHub in place of uploads", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    kv.store.set("repocfg:acme/web", {
+      value: JSON.stringify({
+        found: true,
+        path: ".uploads.yml",
+        config: { uiPaths: ["apps/web/**"], checkRequire: ["uploads", "mobile"] },
+        warnings: [],
+      }),
+    });
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    const shot =
+      "![shot](https://github.com/user-attachments/assets/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b)";
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () => Response.json([{ filename: "apps/web/a.astro" }]),
+        "/issues/12/labels": () => Response.json([]),
+        "/issues/12/comments": () =>
+          Response.json([
+            { body: shot.replace("0f1e", "1f1e"), user: { type: "User" } },
+            { body: shot.replace("0f1e", "2f1e"), user: { type: "Bot" } },
+          ]),
+        "/issues/12": () => Response.json({ body: `Fixes the header\n\n${shot}` }),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      // The bot's comment doesn't count; mobile still needs uploads.sh, so the how-to stays.
+      expect(result).toMatchObject({ count: 0, githubAttachments: 2, noUploads: true });
+      expect(result.requirement?.checklist).toEqual([
+        { label: "Uploads", met: true },
+        { label: "Mobile", met: false },
+      ]);
+
+      kv.store.set("repocfg:acme/web", {
+        value: JSON.stringify({
+          found: true,
+          path: ".uploads.yml",
+          config: { uiPaths: ["apps/web/**"], checkRequire: ["uploads"] },
+          warnings: [],
+        }),
+      });
+      const met = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(met).toMatchObject({ githubAttachments: 2, noUploads: false });
+      expect(met.body).not.toContain("No uploads on this PR yet");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("falls back to the built-in UI paths for the check, without the how-to", async () => {
     const { env, ws, workspaceName, kv } = makeTestEnv();
     Object.assign(env, {

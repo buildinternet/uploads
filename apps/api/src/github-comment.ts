@@ -8,7 +8,11 @@
  */
 
 import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
-import { evaluateRequirement, type Requirement } from "./github-check-requirements";
+import {
+  evaluateRequirement,
+  githubAttachmentCount,
+  type Requirement,
+} from "./github-check-requirements";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -84,6 +88,10 @@ export async function gatherCommentBody(
   required: boolean;
   /** Where the PR stands on the requirements; null unless required and UI files changed. */
   requirement: Requirement | null;
+  /** Images and videos attached on GitHub itself; only counted when nothing else is attached and UI files changed. */
+  githubAttachments: number;
+  /** The repo imports GitHub attachments into the workspace. */
+  importsAttachments: boolean;
 }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -118,6 +126,12 @@ export async function gatherCommentBody(
     (count === 0 || required) && opts.detectUiChanges
       ? await changedUiFiles(env, target, configured ? options.uiPaths : DEFAULT_UI_PATHS)
       : [];
+  // Screenshots dragged into the PR on GitHub stand in for uploads, so a
+  // contributor without uploads.sh isn't nudged or failed.
+  const githubAttachments =
+    count === 0 && uiFiles.length > 0 && target.kind === "pull"
+      ? await githubAttachmentCount(env, target)
+      : 0;
   const requirement =
     required && uiFiles.length > 0
       ? await evaluateRequirement(
@@ -126,13 +140,21 @@ export async function gatherCommentBody(
           target,
           options,
           items.map((item) => item.key),
-          galleries.length + heldCount,
+          galleries.length + heldCount + githubAttachments,
         )
       : null;
   // A skip label replaces the checklist and the how-to with one "skipped" line.
   const skipLabel = requirement?.skipLabel ?? null;
   const checklist = requirement?.checklist ?? [];
-  if (count === 0 && uiFiles.length > 0 && configured && options.noUploadsComment && !skipLabel) {
+  const satisfiedOnGithub = githubAttachments > 0 && checklist.every((c) => c.met);
+  if (
+    count === 0 &&
+    uiFiles.length > 0 &&
+    configured &&
+    options.noUploadsComment &&
+    !skipLabel &&
+    !satisfiedOnGithub
+  ) {
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
         importsAttachments: options.ingestGithubAttachments,
@@ -144,6 +166,8 @@ export async function gatherCommentBody(
       noUploads: true,
       required,
       requirement,
+      githubAttachments,
+      importsAttachments: options.ingestGithubAttachments,
     };
   }
 
@@ -162,6 +186,8 @@ export async function gatherCommentBody(
     noUploads: false,
     required,
     requirement,
+    githubAttachments,
+    importsAttachments: options.ingestGithubAttachments,
   };
 }
 

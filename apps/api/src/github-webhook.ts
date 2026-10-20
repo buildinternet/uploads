@@ -440,6 +440,17 @@ async function recheckForLabels(env: Env, repo: string, num: number, label: stri
 }
 
 /**
+ * A PR's description or a comment changed in a way that wakes ingest: re-sync
+ * the comment and check, so screenshots dragged in on GitHub count right
+ * away, imported or not. Throws like reconcile.
+ */
+async function recheckForGithubAttachments(env: Env, repo: string, num: number): Promise<void> {
+  const link = await findRepoLinkStrict(dbFor(env), repo);
+  if (!link) return;
+  await gatherAndUpsert(env, link, { repo, kind: "pull", num });
+}
+
+/**
  * Compact, queue-safe description of the work one webhook delivery implies.
  * Field-extracted at ingestion (never the raw GitHub payload — those can
  * exceed the 128 KB queue message cap) and consumed by
@@ -731,6 +742,10 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   }
   if (ev.labels) {
     await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
+  }
+  // The PR's own promote above already re-synced the check.
+  if (ev.ingest?.kind === "pull" && !ev.promote) {
+    await recheckForGithubAttachments(env, ev.ingest.repo, ev.ingest.num);
   }
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);

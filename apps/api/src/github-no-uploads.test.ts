@@ -69,11 +69,12 @@ describe("noUploadsCommentBody", () => {
     expect(body).toContain("Settings → GitHub");
   });
 
-  it("leaves out the drag-and-drop route when imports are off", () => {
+  it("offers drag-and-drop without promising an import when imports are off", () => {
     const body = noUploadsCommentBody("<!-- m -->", { num: 1 }, ["a.css"], {
       importsAttachments: false,
     });
-    expect(body).not.toContain("drag images");
+    expect(body).toContain("drag images into the PR description\n");
+    expect(body).not.toContain("imported");
   });
 
   it("escapes file names", () => {

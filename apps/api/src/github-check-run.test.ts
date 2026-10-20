@@ -110,10 +110,64 @@ describe("checkRunContent", () => {
       ).toBe("neutral");
     });
 
+    it("passes on screenshots attached on GitHub, suggesting the import when it's off", () => {
+      const content = checkRunContent(
+        {
+          ...req,
+          count: 0,
+          heldCount: 0,
+          githubAttachments: 2,
+          importsAttachments: false,
+          requirement: requirement([{ label: "Uploads", met: true }]),
+        },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "success",
+        title: "2 files attached on GitHub, requirements met",
+      });
+      expect(content.summary).toContain("turn on importing GitHub attachments");
+    });
+
+    it("names what screenshots attached on GitHub leave missing", () => {
+      const content = checkRunContent(
+        {
+          ...req,
+          count: 0,
+          heldCount: 0,
+          githubAttachments: 1,
+          importsAttachments: true,
+          requirement: requirement(unmet),
+        },
+        null,
+      );
+      expect(content).toMatchObject({ conclusion: "failure", title: "Missing: mobile" });
+      expect(content.summary.startsWith("1 file attached on GitHub.\n\n")).toBe(true);
+    });
+
     it("passes a PR that changes no UI files", () => {
       expect(
         checkRunContent({ required: true, count: 0, heldCount: 0, uiFiles: [] }, null),
       ).toMatchObject({ conclusion: "success", title: "No UI files changed" });
+    });
+  });
+
+  it("reports screenshots attached on GitHub as success", () => {
+    expect(
+      checkRunContent(
+        {
+          count: 0,
+          heldCount: 0,
+          uiFiles: ["a.astro"],
+          githubAttachments: 1,
+          importsAttachments: true,
+        },
+        null,
+      ),
+    ).toEqual({
+      conclusion: "success",
+      title: "1 file attached on GitHub",
+      summary: "1 file attached on GitHub.",
     });
   });
 
