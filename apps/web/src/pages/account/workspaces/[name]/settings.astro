@@ -145,6 +145,7 @@ const tip = {
           chipId="cs-row-require-chip"
           label="Require screenshots on UI changes"
           description="Fail the uploads.sh check on pull requests that change UI files with nothing attached. Make it a required check in GitHub to block merges. A repo's check.require in .uploads.yml replaces this."
+          docsHref="/docs/require-screenshots"
         >
           <SettingSwitch id="cs-require-uploads" label="Require screenshots on UI changes" />
         </SettingRow>
@@ -153,6 +154,7 @@ const tip = {
           id="cs-row-no-uploads"
           label="Comment when a PR has no uploads"
           description="When a pull request changes UI files and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
+          docsHref="/docs/require-screenshots#no-uploads-comment"
         >
           <SettingSwitch id="cs-no-uploads-comment" label="Comment when a PR has no uploads" />
         </SettingRow>
@@ -166,6 +168,7 @@ const tip = {
             Files that count as UI changes, one pattern per line. Left empty, common UI files (.tsx,
             .css, .astro and similar) count, and they show only in the check with no comment. A
             repo's own uiPaths in .uploads.yml replaces this list.
+            <a href="/docs/require-screenshots#ui-files">How it works</a>
           </p>
           <textarea
             id="cs-ui-paths"

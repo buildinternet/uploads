@@ -196,6 +196,9 @@ section.card .settings-connect p {
   color: var(--muted);
   text-wrap: pretty;
 }
+.setting-row__desc a {
+  text-underline-offset: 0.15em;
+}
 .setting-row__control {
   display: flex;
   align-items: center;

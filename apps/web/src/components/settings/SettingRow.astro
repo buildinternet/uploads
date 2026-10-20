@@ -10,9 +10,11 @@ interface Props {
   description: string;
   id?: string;
   chipId?: string;
+  /** Docs page for this setting, linked after the description. */
+  docsHref?: string;
 }
 
-const { label, description, id, chipId } = Astro.props;
+const { label, description, id, chipId, docsHref } = Astro.props;
 ---
 
 <div class="setting-row" id={id}>
@@ -21,7 +23,10 @@ const { label, description, id, chipId } = Astro.props;
       <span class="setting-row__label">{label}</span>
       {chipId && <span id={chipId} />}
     </div>
-    <p class="setting-row__desc">{description}</p>
+    <p class="setting-row__desc">
+      {description}
+      {docsHref && <a href={docsHref}>How it works</a>}
+    </p>
   </div>
   <div class="setting-row__control">
     <span class="setting-row__status" role="status" aria-live="polite"></span>
