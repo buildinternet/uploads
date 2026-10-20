@@ -229,11 +229,14 @@ export async function postManagedComment(
   );
   if (actorDecline) return actorDecline;
 
-  const gathered = await gatherCommentBody(env, ws, workspaceName, target);
+  const gathered = await gatherCommentBody(env, ws, workspaceName, target, {
+    detectUiChanges: true,
+  });
 
   // Patch-only when empty: never create a comment just to say "empty" (see
   // upsertBotComment's createIfMissing). `gathered.body` already renders the
-  // neutral empty state when count is 0.
+  // neutral empty state when count is 0, or the no-uploads how-to, which
+  // may create one.
   const result = await upsertBotComment(
     env,
     cfg,
@@ -243,7 +246,7 @@ export async function postManagedComment(
     workspaceName,
     fetch,
     {
-      createIfMissing: gathered.count > 0,
+      createIfMissing: gathered.count > 0 || gathered.noUploads,
       forceHunt: opts.resync === true,
     },
   );

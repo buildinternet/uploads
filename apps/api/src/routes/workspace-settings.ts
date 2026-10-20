@@ -228,7 +228,7 @@ const COMMENT_IMAGE_WIDTH_MAX = 1000;
 const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
 const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
 
-/** The six workspace-level comment-defaults fields (issue #307; ingestGithubAttachments added issue-spec 2026-08-11). */
+/** The workspace-level comment-defaults fields (issue #307; ingestGithubAttachments added issue-spec 2026-08-11, noUploadsComment for the no-uploads comment). */
 const COMMENT_SETTINGS_KEYS = [
   "imageWidth",
   "maxInlineImages",
@@ -236,6 +236,7 @@ const COMMENT_SETTINGS_KEYS = [
   "linkToFilePage",
   "note",
   "ingestGithubAttachments",
+  "noUploadsComment",
 ] as const;
 type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
 
@@ -247,6 +248,7 @@ const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceR
   linkToFilePage: "githubCommentLinkToFilePage",
   note: "githubCommentNote",
   ingestGithubAttachments: "githubIngestAttachments",
+  noUploadsComment: "githubNoUploadsComment",
 };
 
 type CommentSettingsValue = string | number | boolean;
@@ -344,6 +346,17 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
     patch.ingestGithubAttachments = value;
   }
 
+  if ("noUploadsComment" in record) {
+    const value = record.noUploadsComment;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("noUploadsComment must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "noUploadsComment" },
+      });
+    }
+    patch.noUploadsComment = value;
+  }
+
   if ("note" in record) {
     const value = record.note;
     if (value === null) {
@@ -385,6 +398,7 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     linkToFilePage: record.githubCommentLinkToFilePage ?? null,
     note: record.githubCommentNote ?? null,
     ingestGithubAttachments: record.githubIngestAttachments ?? null,
+    noUploadsComment: record.githubNoUploadsComment ?? null,
   };
 }
 

@@ -770,6 +770,19 @@ describe("live link line", () => {
     );
   });
 
+  it("turns the button golden while a file is held", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      { liveLinkUrl: "https://uploads.sh/c/feed_x", heldCount: 1 },
+    );
+    expect(body).toContain('src="https://uploads.sh/brand/comment/view-on-uploads-held.svg"');
+    expect(body).not.toContain("view-on-uploads.svg");
+  });
+
   it("closes the comment, after the note and the media", () => {
     const body = attachmentsCommentBody(
       one,

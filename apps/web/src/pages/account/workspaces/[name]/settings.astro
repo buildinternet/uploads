@@ -140,6 +140,14 @@ const tip = {
           <SettingSwitch id="cs-ingest-github-attachments" label="Import GitHub attachments" />
         </SettingRow>
 
+        <SettingRow
+          id="cs-row-no-uploads"
+          label="Comment when a PR has no uploads"
+          description="When a pull request changes the UI files a repo lists under uiPaths in .uploads.yml and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
+        >
+          <SettingSwitch id="cs-no-uploads-comment" label="Comment when a PR has no uploads" />
+        </SettingRow>
+
         <div class="setting-row setting-row--stacked" id="cs-row-note">
           <div class="setting-row__head">
             <label for="cs-note" class="setting-row__label">Note (optional)</label>
@@ -394,6 +402,7 @@ const tip = {
       const metaToggle = requireElement<HTMLButtonElement>("#cs-show-metadata", page);
       const linkToggle = requireElement<HTMLButtonElement>("#cs-link-to-file-page", page);
       const ingestToggle = requireElement<HTMLButtonElement>("#cs-ingest-github-attachments", page);
+      const noUploadsToggle = requireElement<HTMLButtonElement>("#cs-no-uploads-comment", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
       const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
@@ -572,6 +581,7 @@ const tip = {
           linkToFilePage: toggleOn(linkToggle),
           note: noteInput.value.trim() === "" ? null : noteInput.value,
           ingestGithubAttachments: toggleOn(ingestToggle),
+          noUploadsComment: toggleOn(noUploadsToggle),
         };
       }
 
@@ -637,6 +647,7 @@ const tip = {
         // Unset means the platform default, which is ON (issue #690) — paint
         // the toggle the way ingestion will actually behave.
         paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
+        paintToggle(noUploadsToggle, settings.noUploadsComment ?? true);
         noteInput.value = settings.note ?? "";
         noteCount.textContent = String(noteInput.value.length);
         // Baseline off the painted form, not `settings`: the toggles normalise
@@ -655,6 +666,7 @@ const tip = {
       bindToggle(metaToggle, () => markEdited());
       bindToggle(linkToggle, () => markEdited());
       bindToggle(ingestToggle, () => markEdited());
+      bindToggle(noUploadsToggle, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());
       maxInlineInput.addEventListener("input", () => markEdited());
       noteInput.addEventListener("input", () => {

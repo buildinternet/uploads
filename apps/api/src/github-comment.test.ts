@@ -90,6 +90,55 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain("<code>uploads put &lt;file&gt; --pr 12</code>");
   });
 
+  it("swaps in the no-uploads how-to when an empty PR changes uiPaths", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    kv.store.set("repocfg:acme/web", {
+      value: JSON.stringify({
+        found: true,
+        path: ".uploads.yml",
+        config: { uiPaths: ["apps/web/**"] },
+        warnings: [],
+      }),
+    });
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () =>
+          Response.json([{ filename: "apps/web/a.astro" }, { filename: "apps/api/b.ts" }]),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(result).toMatchObject({ count: 0, noUploads: true, uiFiles: ["apps/web/a.astro"] });
+      expect(result.body).toContain("**No uploads on this PR yet**");
+      expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
+
+      // Turned off for the workspace: the check still learns about the UI
+      // files, but the comment keeps the neutral empty state.
+      const off = await gatherCommentBody(
+        env,
+        { ...ws, githubNoUploadsComment: false },
+        workspaceName,
+        target,
+        { detectUiChanges: true },
+      );
+      expect(off).toMatchObject({ noUploads: false, uiFiles: ["apps/web/a.astro"] });
+      expect(off.body).toContain("_No attachments are currently associated");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("uses --issue <num> in the add-media hint for issue targets", async () => {
     const { env, ws, workspaceName } = makeTestEnv();
     const result = await gatherCommentBody(env, ws, workspaceName, {

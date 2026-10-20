@@ -187,6 +187,12 @@ export interface WorkspaceRecord {
    */
   githubCommentLinkToFilePage?: boolean;
   /**
+   * Whether a PR that changes the repo's `uiPaths` but has no uploads gets
+   * the how-to comment. Default (undefined/true) = post it. A repo's
+   * `.uploads.yml` `noUploadsComment` wins over this.
+   */
+  githubNoUploadsComment?: boolean;
+  /**
    * Governs whether the managed GitHub comment shows an upload's canonical
    * `path`/`state` metadata (issue #365). Default (undefined/true) = show.
    * When `false`, the comment renders filenames only and the server skips the

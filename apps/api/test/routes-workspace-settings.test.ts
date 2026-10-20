@@ -224,6 +224,7 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       linkToFilePage: null,
       note: null,
       ingestGithubAttachments: null,
+      noUploadsComment: null,
     });
   });
 
@@ -326,6 +327,27 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
     expect(
       registry.record<{ githubIngestAttachments?: boolean }>("acme")?.githubIngestAttachments,
     ).toBe(true);
+  });
+
+  it("PATCH round-trips noUploadsComment, and rejects a non-boolean", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    const res = await patch({ noUploadsComment: false });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ noUploadsComment: false });
+    expect(
+      registry.record<{ githubNoUploadsComment?: boolean }>("acme")?.githubNoUploadsComment,
+    ).toBe(false);
+    expect((await patch({ noUploadsComment: "no" })).status).toBe(400);
   });
 
   it("PATCH rejects a non-boolean ingestGithubAttachments with 400", async () => {
