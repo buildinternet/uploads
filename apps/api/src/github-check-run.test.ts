@@ -23,6 +23,18 @@ describe("checkRunContent", () => {
     });
   });
 
+  it("says when UI files changed with nothing attached", () => {
+    const content = checkRunContent(
+      { count: 0, heldCount: 0, uiFiles: ["apps/web/a.astro", "b.css"] },
+      COMMENT,
+    );
+    expect(content).toMatchObject({
+      conclusion: "neutral",
+      title: "UI files changed, no uploads attached",
+    });
+    expect(content.summary).toContain("- `apps/web/a.astro`\n- `b.css`");
+  });
+
   it("goes neutral when nothing is attached", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
       conclusion: "neutral",
@@ -115,6 +127,20 @@ describe("syncUploadsCheck", () => {
       },
     );
     expect(h.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("creates a run for UI changes with nothing attached", async () => {
+    const h = harness();
+    await syncUploadsCheck(
+      h.env,
+      CFG,
+      42,
+      TARGET,
+      { count: 0, heldCount: 0, uiFiles: ["a.css"] },
+      { headSha: "abc123", fetchImpl: h.fetchImpl },
+    );
+    const post = h.calls.find((c) => c.method === "POST");
+    expect(post?.body).toMatchObject({ conclusion: "neutral" });
   });
 
   it("does nothing for issues", async () => {

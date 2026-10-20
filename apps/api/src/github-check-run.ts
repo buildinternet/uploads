@@ -7,8 +7,9 @@
  * never disagree.
  *
  * Same create posture as the comment: a run is only created when the PR has
- * something to report; an existing run is patched to neutral when the PR
- * empties, never created just to say "empty".
+ * something to report (uploads, or UI files changed with none); an existing
+ * run is patched to neutral when the PR empties, never created just to say
+ * "empty".
  *
  * Needs the App's `Checks: write` permission. Installations that haven't
  * accepted it yet answer 403; that is remembered per installation for an
@@ -23,6 +24,8 @@ import type { GhTarget } from "./github-comment-render";
 export const CHECK_NAME = "uploads.sh";
 
 const DENIED_TTL = 3600;
+/** Changed UI files the check's summary lists by name. */
+const UI_FILES_LISTED = 10;
 
 /** KV key remembering that `installationId` lacks `Checks: write`. */
 export function checksDeniedKey(installationId: number | string): string {
@@ -41,14 +44,31 @@ function files(n: number): string {
 
 /**
  * What the check says for a comment that carries `count` items (attachments,
- * galleries and held files), `heldCount` of them held. Pure.
+ * galleries and held files), `heldCount` of them held, for a PR that changed
+ * `uiFiles` (the repo's `uiPaths` matches; only looked up when empty). Pure.
  */
 export function checkRunContent(
-  gathered: { count: number; heldCount: number },
+  gathered: { count: number; heldCount: number; uiFiles?: readonly string[] },
   commentUrl: string | null,
 ): CheckRunContent {
   const { count, heldCount } = gathered;
+  const uiFiles = gathered.uiFiles ?? [];
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
+  if (count === 0 && uiFiles.length > 0) {
+    const shown = uiFiles.slice(0, UI_FILES_LISTED).map((f) => `- \`${f}\``);
+    if (uiFiles.length > UI_FILES_LISTED)
+      shown.push(`- and ${uiFiles.length - UI_FILES_LISTED} more`);
+    return {
+      conclusion: "neutral",
+      title: "UI files changed, no uploads attached",
+      summary:
+        "This pull request changes files the repo lists under `uiPaths`, and nothing is " +
+        "attached yet. Add screenshots with `uploads put`." +
+        commentLink +
+        "\n\n" +
+        shown.join("\n"),
+    };
+  }
   if (count === 0) {
     return {
       conclusion: "neutral",
@@ -100,7 +120,7 @@ export async function syncUploadsCheck(
   cfg: GithubAppConfig,
   installationId: number,
   target: GhTarget,
-  gathered: { count: number; heldCount: number },
+  gathered: { count: number; heldCount: number; uiFiles?: readonly string[] },
   opts: { headSha?: string; commentUrl?: string | null; fetchImpl?: typeof fetch } = {},
 ): Promise<void> {
   if (target.kind !== "pull") return;
@@ -133,7 +153,7 @@ export async function syncUploadsCheck(
       | number
       | undefined;
 
-    if (existingId === undefined && gathered.count === 0) return;
+    if (existingId === undefined && gathered.count === 0 && !gathered.uiFiles?.length) return;
 
     const content = checkRunContent(gathered, opts.commentUrl ?? null);
     const payload = {

@@ -19,6 +19,8 @@ export interface RepoCommentConfig {
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
+  uiPaths?: string[];
+  noUploadsComment?: boolean;
 }
 export interface WorkspaceCommentDefaults {
   imageWidth?: "full" | number;
@@ -29,6 +31,7 @@ export interface WorkspaceCommentDefaults {
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
+  noUploadsComment?: boolean;
 }
 export interface ResolvedCommentOptions {
   imageWidth: "auto" | "full" | number;
@@ -40,6 +43,10 @@ export interface ResolvedCommentOptions {
   ingestGithubAttachments: boolean;
   ingestBotAttachments: boolean;
   adoptLinkedFiles: boolean;
+  /** Globs for the files that count as UI changes. Repo config only. */
+  uiPaths: string[];
+  /** Post a how-to comment on a PR that changes `uiPaths` but has no uploads. */
+  noUploadsComment: boolean;
 }
 export type OptionSource = "repo" | "workspace" | "auto";
 
@@ -55,6 +62,10 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   // Default ON for bound repos (issue #701) — binding is already an
   // explicit opt-in relationship, same posture as ingestGithubAttachments.
   adoptLinkedFiles: true,
+  // Empty: no file counts as a UI change, so the no-uploads comment and the
+  // check's "UI files changed" state stay off until a repo lists paths.
+  uiPaths: [],
+  noUploadsComment: true,
 };
 
 export const NOTE_MAX_CHARS = 500;
@@ -62,6 +73,8 @@ const WIDTH_MIN = 160;
 const WIDTH_MAX = 1000;
 const MAX_INLINE_MIN = 1;
 const MAX_INLINE_MAX = 48;
+export const UI_PATHS_MAX = 50;
+const UI_PATH_MAX_CHARS = 200;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)));
 
@@ -131,6 +144,29 @@ export function parseRepoCommentConfig(
     else warnings.push(`adoptLinkedFiles: expected a boolean; dropped`);
   }
 
+  // noUploadsComment: boolean
+  if ("noUploadsComment" in c) {
+    const v = c.noUploadsComment;
+    if (typeof v === "boolean") config.noUploadsComment = v;
+    else warnings.push(`noUploadsComment: expected a boolean; dropped`);
+  }
+
+  // uiPaths: list of non-empty glob strings (a bare string is one glob)
+  if ("uiPaths" in c) {
+    const v = typeof c.uiPaths === "string" ? [c.uiPaths] : c.uiPaths;
+    if (Array.isArray(v)) {
+      const paths = v
+        .filter((p): p is string => typeof p === "string")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0 && p.length <= UI_PATH_MAX_CHARS);
+      if (paths.length < v.length) warnings.push(`uiPaths: dropped entries that aren't paths`);
+      if (paths.length > UI_PATHS_MAX) warnings.push(`uiPaths: kept the first ${UI_PATHS_MAX}`);
+      config.uiPaths = paths.slice(0, UI_PATHS_MAX);
+    } else {
+      warnings.push(`uiPaths: expected a list of paths; dropped`);
+    }
+  }
+
   // meta.path / meta.state: booleans nested under `meta`
   if ("meta" in c) {
     const v = c.meta;
@@ -188,6 +224,7 @@ export function resolveCommentOptions(
       ? { ingestBotAttachments: ws.ingestBotAttachments }
       : {}),
     ...(ws?.adoptLinkedFiles !== undefined ? { adoptLinkedFiles: ws.adoptLinkedFiles } : {}),
+    ...(ws?.noUploadsComment !== undefined ? { noUploadsComment: ws.noUploadsComment } : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };
   const source = Object.fromEntries(
@@ -203,6 +240,8 @@ export function resolveCommentOptions(
       "ingestGithubAttachments",
       "ingestBotAttachments",
       "adoptLinkedFiles",
+      "uiPaths",
+      "noUploadsComment",
     ] as const) {
       if (cfg[key] !== undefined && source[key] === "auto") {
         (options as Record<string, unknown>)[key] = cfg[key];

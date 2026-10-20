@@ -1921,6 +1921,7 @@ function toCommentSettings(body: unknown): CommentSettings | null {
   const note = typeof b.note === "string" ? b.note : null;
   const ingestGithubAttachments =
     typeof b.ingestGithubAttachments === "boolean" ? b.ingestGithubAttachments : null;
+  const noUploadsComment = typeof b.noUploadsComment === "boolean" ? b.noUploadsComment : null;
   return {
     imageWidth,
     maxInlineImages,
@@ -1928,6 +1929,7 @@ function toCommentSettings(body: unknown): CommentSettings | null {
     linkToFilePage,
     note,
     ingestGithubAttachments,
+    noUploadsComment,
   };
 }
 

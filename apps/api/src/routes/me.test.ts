@@ -2246,6 +2246,7 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: null,
       note: null,
       ingestGithubAttachments: null,
+      noUploadsComment: null,
     });
   });
 
@@ -2268,6 +2269,7 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: null,
       note: "Hi",
       ingestGithubAttachments: null,
+      noUploadsComment: null,
     });
 
     // Re-read via GET, independent of the PATCH response, per the brief.
@@ -2279,6 +2281,7 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: null,
       note: "Hi",
       ingestGithubAttachments: null,
+      noUploadsComment: null,
     });
 
     const saved = registry.record<{ version?: number }>("acme");
@@ -2377,6 +2380,7 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: false,
       note: null,
       ingestGithubAttachments: null,
+      noUploadsComment: null,
     });
     const saved = registry.record<{
       githubCommentShowMetadata?: unknown;
@@ -2548,6 +2552,8 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       ingestGithubAttachments: true,
       ingestBotAttachments: false,
       adoptLinkedFiles: true,
+      uiPaths: [],
+      noUploadsComment: true,
     });
     expect(body.source).toMatchObject({ imageWidth: "auto" });
     expect(typeof body.body).toBe("string");

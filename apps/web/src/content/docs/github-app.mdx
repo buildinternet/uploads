@@ -13,6 +13,7 @@ toc:
   - { id: staging, label: Staging before a PR exists }
   - { id: ingest, label: Imported attachments }
   - { id: check, label: The uploads.sh check }
+  - { id: no-uploads, label: PRs with no uploads }
   - { id: permissions, label: Permissions & events }
   - { id: bindings, label: Repo bindings }
   - { id: self-healing, label: Self-healing comments }
@@ -35,7 +36,7 @@ import { GITHUB_APP_INSTALL_URL, GITHUB_APP_URL } from "../../lib/github-app";
 ## What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a>
 
 Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what makes the staged
-loop hands-off. Six things change:
+loop hands-off. Seven things change:
 
 - **The bot posts all linked media automatically.** The attachments comment is created and kept
   current on the server — no local `gh` auth, no comments under contributors' own accounts.
@@ -49,6 +50,8 @@ loop hands-off. Six things change:
   [Imported attachments](#ingest).
 - **PRs get an uploads.sh check.** One row in the checks list says what's attached and whether
   anything is held for review. See [The uploads.sh check](#check).
+- **PRs that change UI files get a nudge.** If a repo lists its UI paths, a PR that changes them with
+  nothing attached gets a short how-to comment. See [PRs with no uploads](#no-uploads).
 
 Everything in these docs still works without it — see [Without the App](#without-it).
 
@@ -145,11 +148,36 @@ approval.
   <tbody>
     <tr><td>Success</td><td>Every attached file is published, e.g. "3 files attached".</td></tr>
     <tr><td>Neutral</td><td>A file is <a href="#held-files">held for review</a>, e.g. "1 of 4 files held for review", or everything was removed from a PR that had uploads.</td></tr>
+    <tr><td>Neutral</td><td>The PR changes files the repo lists under <a href="#no-uploads"><code>uiPaths</code></a> and nothing is attached: "UI files changed, no uploads attached".</td></tr>
   </tbody>
 </table>
 
-A PR that never had uploads gets no check. The check never fails, so it can't block a merge, even
+Otherwise a PR that never had uploads gets no check. The check never fails, so it can't block a merge, even
 while a file is held: a hold is about the uploaded file, not the PR's code.
+
+</section>
+
+<section id="no-uploads">
+
+## PRs with no uploads <a class="anchor" href="#no-uploads" aria-label="Link to this section">#</a>
+
+List a repo's UI files under `uiPaths` in [`.uploads.yml`](/docs/comment-config):
+
+```yaml title=".uploads.yml" frame="code"
+comment:
+  uiPaths:
+    - "apps/web/**"
+    - "*.css"
+```
+
+When a pull request changes one of those files and has nothing attached, the App posts a short
+comment naming the changed files and the ways to add screenshots. It's the same managed comment, so
+the first upload replaces it with the normal screenshots. The [uploads.sh check](#check) reports the
+same state.
+
+Nothing happens on PRs that don't touch those paths, or in repos without `uiPaths`. To keep the check
+but skip the comment, a workspace admin can turn off **Comment when a PR has no uploads** under
+**Settings → GitHub**, or a repo can set `noUploadsComment: false`.
 
 </section>
 
@@ -225,7 +253,8 @@ the file out and shows one line instead:
 ```
 
 The line never names the file. A workspace member checks the file, then runs
-`uploads approve --pr 12 --all`, and the comment and the [uploads.sh check](#check) update. If the file does show a real credential,
+`uploads approve --pr 12 --all`, and the comment and the [uploads.sh check](#check) update. While a
+file is held, the comment's **View on uploads.sh** button turns golden yellow. If the file does show a real credential,
 rotate it and delete the file instead. See [Held uploads](/docs/agents#held-uploads).
 
 </section>

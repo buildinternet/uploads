@@ -7,6 +7,7 @@
  * D1 rows scoped by workspace name).
  */
 
+import { changedUiFiles, noUploadsCommentBody } from "./github-no-uploads";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -63,8 +64,16 @@ export async function gatherCommentBody(
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
-  opts: { headBranch?: string; shadow?: boolean } = {},
-): Promise<{ body: string; count: number; heldCount: number }> {
+  opts: { headBranch?: string; shadow?: boolean; detectUiChanges?: boolean } = {},
+): Promise<{
+  body: string;
+  count: number;
+  heldCount: number;
+  /** Changed files matching the repo's `uiPaths`; only looked up for an empty PR. */
+  uiFiles: string[];
+  /** The body is the no-uploads how-to, which may create the comment. */
+  noUploads: boolean;
+}> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
   // to workspace-defaults/auto only (see resolveRepoCommentOptions).
@@ -88,6 +97,23 @@ export async function gatherCommentBody(
     metaState: options.metaState,
     note: options.note,
   };
+  // An empty PR that changes UI files gets the how-to instead of the neutral
+  // empty state (github-no-uploads.ts). Only looked up for an empty PR, so a
+  // PR with uploads never pays for the changed-files read.
+  const uiFiles =
+    count === 0 && opts.detectUiChanges ? await changedUiFiles(env, target, options.uiPaths) : [];
+  if (uiFiles.length > 0 && options.noUploadsComment) {
+    return {
+      body: noUploadsCommentBody(marker, target, uiFiles, {
+        importsAttachments: options.ingestGithubAttachments,
+      }),
+      count,
+      heldCount,
+      uiFiles,
+      noUploads: true,
+    };
+  }
+
   // count may be 0 — attachmentsCommentBody renders a neutral empty state.
   // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
   return {
@@ -97,6 +123,8 @@ export async function gatherCommentBody(
     }),
     count,
     heldCount,
+    uiFiles,
+    noUploads: false,
   };
 }
 

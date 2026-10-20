@@ -753,19 +753,24 @@ export interface CommentLinks {
  * Fixed wording on purpose: GitHub's image proxy caches it.
  */
 export const VIEW_BUTTON_SRC = "https://uploads.sh/brand/comment/view-on-uploads.svg";
+/** The same button in golden yellow, while any of the comment's files is held. */
+export const VIEW_BUTTON_HELD_SRC = "https://uploads.sh/brand/comment/view-on-uploads-held.svg";
 
 /**
  * The reviewer's way into the live link: the button, then the quiet footer
  * led by the file count. The count is the comment's own attachments
  * (galleries excluded), so it can never disagree with what the comment lists.
+ * `held` turns the button golden; the live link is where members approve.
  */
 function liveLinkBlock(
   count: number,
   url: string,
-  target?: Pick<GhTarget, "kind" | "num">,
+  target: Pick<GhTarget, "kind" | "num"> | undefined,
+  held: boolean,
 ): string {
   const noun = count === 1 ? "file" : "files";
-  const button = `<a href="${escapeHtmlAttr(url)}"><img height="36" alt="View on uploads.sh" src="${VIEW_BUTTON_SRC}"></a>`;
+  const src = held ? VIEW_BUTTON_HELD_SRC : VIEW_BUTTON_SRC;
+  const button = `<a href="${escapeHtmlAttr(url)}"><img height="36" alt="View on uploads.sh" src="${src}"></a>`;
   return `${button}\n\n<sub>${count} ${noun} · ${addMediaHint(target)}</sub>`;
 }
 
@@ -1036,7 +1041,7 @@ export function attachmentsCommentBody(
   // comment in place of the plain footer. Never on the empty state.
   lines.push(
     links.liveLinkUrl && sorted.length > 0
-      ? liveLinkBlock(sorted.length, links.liveLinkUrl, target)
+      ? liveLinkBlock(sorted.length, links.liveLinkUrl, target, heldCount > 0)
       : addMediaFooter(target),
   );
   return lines.join("\n");

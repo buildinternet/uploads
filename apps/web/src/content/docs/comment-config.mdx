@@ -34,6 +34,8 @@ under a top-level `comment:` map and is optional. With it you can set:
   and whether bot-authored ones count.
 - **Whether uploads.sh links pasted into a PR or comment are adopted** into that PR/issue's
   attachment context.
+- **Which files count as UI changes**, for the [no-uploads comment](/docs/github-app#no-uploads)
+  and the [uploads.sh check](/docs/github-app#check).
 
 <div class="note">
   The file only reshapes the comment for a repo that's already allowed to receive one — it can't
@@ -86,6 +88,19 @@ comment:
   # already in this repo's own bound workspace are adopted; links to any
   # other workspace's files are ignored. On by default for bound repos.
   adoptLinkedFiles: true
+
+  # Files that count as UI changes. A PR that changes one and has nothing
+  # attached gets a short comment on how to add screenshots, and the
+  # uploads.sh check says UI files changed. A pattern without a slash matches
+  # a file name anywhere (*.css); one with a slash starts at the repo root.
+  # ** crosses folders, * doesn't. Empty by default, which turns both off.
+  uiPaths:
+    - "apps/web/**"
+    - "*.css"
+
+  # Whether that no-uploads comment is posted. On by default once uiPaths is
+  # set. Overrides the workspace setting.
+  noUploadsComment: true
 
   # Optional short markdown at the top of the comment, before the media —
   # repo-specific context, a link to a contributing guide, and so on.

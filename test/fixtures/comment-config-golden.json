@@ -224,6 +224,40 @@
         },
         "warnings": []
       }
+    },
+    {
+      "name": "uiPaths list and noUploadsComment",
+      "text": "comment:\n  uiPaths:\n    - \"apps/web/**\"\n    - \"*.css\"\n  noUploadsComment: false\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "noUploadsComment": false,
+          "uiPaths": ["apps/web/**", "*.css"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "uiPaths bare string and bad entries",
+      "text": "{\"comment\":{\"uiPaths\":\"src/ui/**\",\"noUploadsComment\":\"yes\"}}",
+      "format": "json",
+      "expected": {
+        "config": {
+          "uiPaths": ["src/ui/**"]
+        },
+        "warnings": ["noUploadsComment: expected a boolean; dropped"]
+      }
+    },
+    {
+      "name": "uiPaths drops non-strings",
+      "text": "comment:\n  uiPaths: [\"apps/**\", 3, \"\"]\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "uiPaths": ["apps/**"]
+        },
+        "warnings": ["uiPaths: dropped entries that aren't paths"]
+      }
     }
   ],
   "resolveCases": [
@@ -241,7 +275,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "auto",
@@ -252,7 +288,9 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
         }
       }
     },
@@ -275,7 +313,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "repo",
@@ -286,7 +326,9 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
         }
       }
     },
@@ -306,7 +348,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "auto",
@@ -317,7 +361,9 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
         }
       }
     },
@@ -339,7 +385,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "auto",
@@ -350,7 +398,9 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
         }
       }
     },
@@ -372,7 +422,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "auto",
@@ -383,7 +435,9 @@
           "note": "auto",
           "ingestGithubAttachments": "repo",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
         }
       }
     },
@@ -405,7 +459,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": true,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "auto",
@@ -416,7 +472,9 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "repo",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
         }
       }
     },
@@ -438,7 +496,9 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": false
+          "adoptLinkedFiles": false,
+          "uiPaths": [],
+          "noUploadsComment": true
         },
         "source": {
           "imageWidth": "auto",
@@ -449,7 +509,47 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "repo"
+          "adoptLinkedFiles": "repo",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto"
+        }
+      }
+    },
+    {
+      "name": "repo noUploadsComment beats workspace; uiPaths from repo",
+      "repo": {
+        "uiPaths": ["apps/web/**"],
+        "noUploadsComment": true
+      },
+      "workspace": {
+        "noUploadsComment": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": ["apps/web/**"],
+          "noUploadsComment": true
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "repo",
+          "noUploadsComment": "repo"
         }
       }
     }

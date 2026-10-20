@@ -213,6 +213,7 @@ async function gatherAndUpsert(
 
   const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, {
     headBranch: opts.headBranch,
+    detectUiChanges: true,
   });
 
   const cfg = githubAppConfig(env);
@@ -222,7 +223,8 @@ async function gatherAndUpsert(
 
   // Patch-only when empty: a fully-cleared PR keeps/updates an existing
   // comment to the empty state, but we never create one just to say "empty"
-  // (this path fires on every pull_request event for a bound repo).
+  // (this path fires on every pull_request event for a bound repo). The one
+  // exception is the no-uploads how-to, which a repo opts into via uiPaths.
   const result = await upsertBotComment(
     env,
     cfg,
@@ -231,7 +233,7 @@ async function gatherAndUpsert(
     gathered.body,
     link.workspaceName,
     fetch,
-    { createIfMissing: gathered.count > 0 },
+    { createIfMissing: gathered.count > 0 || gathered.noUploads },
   );
   if ("degrade" in result) {
     console.error(
