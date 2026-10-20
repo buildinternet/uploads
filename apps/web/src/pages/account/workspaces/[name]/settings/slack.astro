@@ -3,7 +3,8 @@
  * Workspace settings — Slack sub-page: Add to Slack, and which Slack
  * workspaces can run `/uploads search` over this workspace (#1165).
  * "Search from Slack" always renders; a non-admin or a failed load gets a
- * line saying why instead of the list.
+ * line saying why instead of the list. Once a Slack workspace is connected,
+ * the Add to Slack box gives way to that list (same as the GitHub install box).
  */
 import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
 import { SLACK_INSTALL_URL } from "../../../../../lib/account-profile-ui";
@@ -30,7 +31,7 @@ const tip = {
         Previews for uploads.sh links posted in Slack, a direct message when an upload is held for
         review, and <code>/uploads search</code> for this workspace’s public files.
       </p>
-      <div class="settings-connect">
+      <div class="settings-connect" id="slack-connect" hidden>
         <p>
           Add the app to your Slack workspace, then connect your account from its Home tab. Your
           connections and Slack notification setting are in <a href="/account/profile#slack"
@@ -51,6 +52,9 @@ const tip = {
           here.
         </p>
         <div id="slack-search-teams" class="setting-rows"></div>
+        <p id="slack-add-another" class="slack-add-another" hidden>
+          <a class="text-btn" href={SLACK_INSTALL_URL}>Add another Slack workspace</a>
+        </p>
       </div>
     </div>
   </section>
@@ -71,6 +75,7 @@ const tip = {
     import { setRowStatus } from "../../../../../lib/setting-row-status";
     import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
     import { escapeHtml } from "../../../../../lib/workspace-ui";
+    import { SLACK_MARK_PATH } from "../../../../../lib/brand-icons";
     onAstroPageLoad(() => {
       if (!document.getElementById("slack-search")) return;
 
@@ -89,9 +94,13 @@ const tip = {
       const listEl = requireElement<HTMLElement>("#slack-search-teams", page);
       const emptyEl = requireElement<HTMLElement>("#slack-search-empty", page);
       const messageEl = requireElement<HTMLElement>("#slack-search-message", page);
+      const connectEl = requireElement<HTMLElement>("#slack-connect", page);
+      const addAnotherEl = requireElement<HTMLElement>("#slack-add-another", page);
 
       function render(teams: SlackSearchTeam[]): void {
         emptyEl.hidden = teams.length > 0;
+        connectEl.hidden = teams.length > 0;
+        addAnotherEl.hidden = teams.length === 0;
         listEl.innerHTML = teams
           .map((team) => {
             const name = escapeHtml(team.teamName ?? team.teamId);
@@ -101,7 +110,11 @@ const tip = {
               : "Let members of this Slack workspace search this workspace’s public files.";
             return `<div class="setting-row">
               <div class="min-w-0">
-                <span class="setting-row__label">${name}</span>
+                <span class="setting-row__label slack-team">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path fill="currentColor" d="${SLACK_MARK_PATH}"/></svg>
+                  ${name}
+                  <span class="ul-badge ul-badge--ok">Connected</span>
+                </span>
                 <p class="setting-row__desc">${desc}</p>
               </div>
               <div class="setting-row__control">
@@ -130,6 +143,8 @@ const tip = {
         if (Array.isArray(teams)) render(teams);
         else {
           emptyEl.hidden = true;
+          connectEl.hidden = false;
+          addAnotherEl.hidden = true;
           listEl.innerHTML = "";
         }
       }

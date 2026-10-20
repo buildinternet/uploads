@@ -180,6 +180,14 @@ section.card .settings-connect p {
   font-weight: var(--weight-semibold);
   color: var(--fg);
 }
+.slack-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.slack-add-another {
+  margin: 8px 0 0;
+}
 .setting-row p.setting-row__desc {
   margin: 4px 0 0;
   max-width: 48ch;
