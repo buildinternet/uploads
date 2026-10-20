@@ -449,7 +449,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
     const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
     expect(feed?.source).toBe("comment");
     expect(result.body).toContain(
-      `\n2 files · <a href="https://uploads.test/c/${feed!.id}">View all on uploads.sh →</a>\n`,
+      `<a href="https://uploads.test/c/${feed!.id}"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>2 files · `,
     );
   });
 
@@ -463,7 +463,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
       target,
     );
     expect(await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12)).toBeNull();
-    expect(result.body).not.toContain("View all on uploads.sh");
+    expect(result.body).not.toContain("view-on-uploads.svg");
     expect(result.body).not.toContain("/c/");
   });
 
@@ -476,7 +476,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
       workspaceName,
       target,
     );
-    expect(result.body).not.toContain("View all on uploads.sh");
+    expect(result.body).not.toContain("view-on-uploads.svg");
     expect(result.body).not.toContain("/c/");
   });
 
@@ -526,7 +526,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
     for (const key of keys) {
       expect(result.body).toContain(`/c/${feed!.id}/${await feedItemIdFor(key)}`);
     }
-    expect(result.body).toContain("\n55 files · ");
+    expect(result.body).toContain("<sub>55 files · ");
   });
 
   it("links in-scope items even when caption metadata is off", async () => {
@@ -541,7 +541,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
     );
     const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
     expect(result.body).toContain(`/c/${feed!.id}/${await feedItemIdFor(key)}`);
-    expect(result.body).toContain("1 file · ");
+    expect(result.body).toContain("<sub>1 file · ");
   });
 });
 

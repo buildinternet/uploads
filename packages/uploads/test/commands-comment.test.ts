@@ -818,7 +818,9 @@ describe("syncAttachmentsComment gh fallback live link", () => {
     const result = await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
     expect(result.via).toBe("gh");
     const body = created(calls);
-    expect(body).toContain(`\n2 files · <a href="${feed.url}">View all on uploads.sh →</a>\n`);
+    expect(body).toContain(
+      `<a href="${feed.url}"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>2 files · `,
+    );
     expect(body).toContain(`${feed.url}/${await feedItemIdFor(key)}`);
     expect(body).toContain(`https://x.test/f/test/${movedKey}`);
     expect(createFeed).toHaveBeenCalledWith({ repo: "o/r", pr: 5 });
@@ -831,7 +833,7 @@ describe("syncAttachmentsComment gh fallback live link", () => {
     });
     await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
     const body = created(calls);
-    expect(body).not.toContain("View all on uploads.sh");
+    expect(body).not.toContain("view-on-uploads.svg");
     expect(body).toContain(`https://x.test/f/test/${key}`);
   });
 
@@ -839,7 +841,7 @@ describe("syncAttachmentsComment gh fallback live link", () => {
     const { run, calls } = ghRunner();
     const client = listClient([{ key, url: `https://x.test/${key}` }]);
     await syncAttachmentsComment(client, target, run, "test");
-    expect(created(calls)).not.toContain("View all on uploads.sh");
+    expect(created(calls)).not.toContain("view-on-uploads.svg");
   });
 
   it("honors linkToFilePage: false from .uploads.yml like the bot (raw links, no line, no create)", async () => {
@@ -859,7 +861,7 @@ describe("syncAttachmentsComment gh fallback live link", () => {
       const createFeed = vi.fn(async () => feed);
       await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
       expect(createFeed).not.toHaveBeenCalled();
-      expect(posted).not.toContain("View all on uploads.sh");
+      expect(posted).not.toContain("view-on-uploads.svg");
       expect(posted).not.toContain("/f/test/");
       expect(posted).toContain(`https://x.test/${key}`);
     } finally {

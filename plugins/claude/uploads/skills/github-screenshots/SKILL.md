@@ -303,7 +303,7 @@ uploads feed create --github owner/repo#123
 MCP: `feed_create` with `repo`, or `repo` + `pr`, or `github` alone. See
 `uploads-cli` for flags. Creating the same scope again returns the existing URL.
 
-The managed PR comment opens with `N files · View all on uploads.sh →`, linking
+The managed PR comment ends with a "View on uploads.sh" button (count in the footer), linking
 the PR's feed (the web UI calls it a "live link"). Clicking an image opens
 `/c/<id>/<item>` (newer / older through that PR's files), not the standalone
 `/f/` page. The next comment sync creates the feed if it does not exist yet,
