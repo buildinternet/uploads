@@ -200,7 +200,7 @@ comment:
     require: [uploads, before-after, desktop, mobile]
 ```
 
-- `uploads`: at least one file. Every other item implies it.
+- `uploads` (or `any`): at least one file of any kind. Every other item implies it.
 - `before-after`: a file with `--state before` and one with `--state after`.
 - `desktop` and `mobile`: a capture of each. The AI label decides when it's set, otherwise the
   frame's shape (tall reads as mobile, wide as desktop).

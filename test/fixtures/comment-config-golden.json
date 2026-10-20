@@ -292,6 +292,17 @@
         "config": {},
         "warnings": ["check: expected an object; dropped"]
       }
+    },
+    {
+      "name": "check.require accepts any as uploads",
+      "text": "comment:\n  check:\n    require: any\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkRequire": ["uploads"]
+        },
+        "warnings": []
+      }
     }
   ],
   "resolveCases": [

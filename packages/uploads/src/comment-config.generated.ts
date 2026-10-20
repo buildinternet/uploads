@@ -193,9 +193,12 @@ export function parseRepoCommentConfig(
       if ("require" in check) {
         const req = typeof check.require === "string" ? [check.require] : check.require;
         if (Array.isArray(req)) {
-          const known = req.filter((r): r is CheckRequirement =>
-            (CHECK_REQUIREMENTS as readonly unknown[]).includes(r),
-          );
+          // `any` is an alias for `uploads`.
+          const known = req
+            .map((r) => (r === "any" ? "uploads" : r))
+            .filter((r): r is CheckRequirement =>
+              (CHECK_REQUIREMENTS as readonly unknown[]).includes(r),
+            );
           if (known.length < req.length)
             warnings.push(
               `check.require: dropped unknown items (use ${CHECK_REQUIREMENTS.join(", ")})`,
