@@ -195,17 +195,15 @@ describe("attachmentsCommentBody (CLI copy)", () => {
         img("gh/acme/web/pull/12/a.webp", { meta: { path: "/settings", state: "after" } }),
         img("gh/acme/web/pull/12/b.webp", { meta: { path: "/settings", state: "before" } }),
       ]);
-      expect(body).toContain("<table><tr>");
-      expect(body).toContain("<strong>Before</strong>");
-      expect(body).toContain("<strong>After</strong>");
+      expect(body).toContain("<table><tr><th>Before</th><th>After</th></tr><tr>");
       // Before cell comes first regardless of which key sorts first.
       const beforeIdx = body.indexOf("b.webp");
       const afterIdx = body.indexOf("a.webp");
       expect(beforeIdx).toBeGreaterThan(-1);
       expect(beforeIdx).toBeLessThan(afterIdx);
-      // Each side's own path/state caption is preserved.
-      expect(body).toContain("<code>/settings</code> · <code>before</code>");
-      expect(body).toContain("<code>/settings</code> · <code>after</code>");
+      // Each side keeps its path caption; the header carries the state.
+      expect(body).toContain('.webp"></a><br><code>/settings</code></td>');
+      expect(body).not.toContain("<code>before</code>");
       // Only one table row — no leftover standalone <img> rendering for these two.
       expect(body.match(/<table>/g)).toHaveLength(1);
     });
@@ -215,7 +213,7 @@ describe("attachmentsCommentBody (CLI copy)", () => {
         img("gh/acme/web/pull/12/hero-after.webp"),
         img("gh/acme/web/pull/12/hero-before.webp"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
       const beforeIdx = body.indexOf("hero-before.webp");
       const afterIdx = body.indexOf("hero-after.webp");
       expect(beforeIdx).toBeLessThan(afterIdx);
@@ -226,7 +224,7 @@ describe("attachmentsCommentBody (CLI copy)", () => {
         img("gh/acme/web/pull/12/after.png"),
         img("gh/acme/web/pull/12/before.png"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
     });
 
     it("does not pair mismatched extensions or unrelated stems", () => {

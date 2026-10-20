@@ -264,17 +264,15 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/a.webp", { meta: { path: "/settings", state: "after" } }),
         img("gh/acme/web/pull/12/b.webp", { meta: { path: "/settings", state: "before" } }),
       ]);
-      expect(body).toContain("<table><tr>");
-      expect(body).toContain("<strong>Before</strong>");
-      expect(body).toContain("<strong>After</strong>");
+      expect(body).toContain("<table><tr><th>Before</th><th>After</th></tr><tr>");
       // Before cell comes first regardless of which key sorts first.
       const beforeIdx = body.indexOf("b.webp");
       const afterIdx = body.indexOf("a.webp");
       expect(beforeIdx).toBeGreaterThan(-1);
       expect(beforeIdx).toBeLessThan(afterIdx);
-      // Each side's own path/state caption is preserved.
-      expect(body).toContain("<code>/settings</code> · <code>before</code>");
-      expect(body).toContain("<code>/settings</code> · <code>after</code>");
+      // Each side keeps its path caption; the header carries the state.
+      expect(body).toContain('.webp"></a><br><code>/settings</code></td>');
+      expect(body).not.toContain("<code>before</code>");
       // Only one table row — no leftover standalone <img> rendering for these two.
       expect(body.match(/<table>/g)).toHaveLength(1);
     });
@@ -284,7 +282,7 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/hero-after.webp"),
         img("gh/acme/web/pull/12/hero-before.webp"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
       const beforeIdx = body.indexOf("hero-before.webp");
       const afterIdx = body.indexOf("hero-after.webp");
       expect(beforeIdx).toBeLessThan(afterIdx);
@@ -295,7 +293,7 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/after.png"),
         img("gh/acme/web/pull/12/before.png"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
     });
 
     it("does not pair mismatched extensions or unrelated stems", () => {
@@ -391,6 +389,40 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/shot.webp", { meta: { path: "/x", state: "after" } }),
       ]);
       expect(body).not.toContain("<table>");
+    });
+
+    it("puts every pair in one table, one row each", () => {
+      const body = attachmentsCommentBody([
+        img("gh/acme/web/pull/12/home-after.webp"),
+        img("gh/acme/web/pull/12/home-before.webp"),
+        img("gh/acme/web/pull/12/solo.webp"),
+        img("gh/acme/web/pull/12/settings-after.webp"),
+        img("gh/acme/web/pull/12/settings-before.webp"),
+      ]);
+      expect(body.match(/<table>/g)).toHaveLength(1);
+      expect(body.match(/<th>Before<\/th>/g)).toHaveLength(1);
+      expect(body.match(/<tr><td/g)).toHaveLength(2);
+      // Unpaired shots render on their own after the table.
+      expect(body.indexOf("</table>")).toBeLessThan(body.indexOf("solo.webp"));
+    });
+
+    it("pairs two videos by their posters", () => {
+      const video = (name: string, state: string) => ({
+        key: `gh/acme/web/pull/12/${name}`,
+        url: `https://uploads.sh/f/${name}`,
+        embedUrl: null,
+        pageUrl: `https://uploads.sh/f/acme/${name}`,
+        posterUrl: `https://embed.uploads.sh/_internal/posters/${name}.jpg`,
+        videoMeta: { durationSeconds: 7 },
+        meta: { path: "/projects", state },
+      });
+      const body = attachmentsCommentBody([
+        video("after.mp4", "after"),
+        video("before.mp4", "before"),
+      ]);
+      expect(body).toContain("<th>Before</th><th>After</th>");
+      expect(body.indexOf("before.mp4.jpg")).toBeLessThan(body.indexOf("after.mp4.jpg"));
+      expect(body).toContain("▶ Play video · 0:07 · <code>/projects</code>");
     });
   });
 
@@ -680,7 +712,7 @@ describe("image dimensions (issue #365 follow-up)", () => {
       img("gh/acme/web/pull/12/hero-before.png", { imageMeta: { width: 150, height: 100 } }),
       img("gh/acme/web/pull/12/hero-after.png", { imageMeta: { width: 150, height: 100 } }),
     ]);
-    expect(body).toContain("<table><tr>");
+    expect(body).toContain("<th>Before</th>");
     const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
     expect(widths).toEqual([150, 150]);
   });

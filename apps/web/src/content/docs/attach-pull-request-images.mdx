@@ -104,7 +104,8 @@ viewport and device, and shows them on the file's public page. See
 
 ## Pair a before and after <a class="anchor" href="#before-after" aria-label="Link to this section">#</a>
 
-Tag two images with `--state` and they render side by side in the comment:
+Tag two images or two videos with `--state` and they render side by side in a Before and After table
+in the comment:
 
 ```bash
 uploads put ./hero-before.webp --state before
@@ -113,5 +114,6 @@ uploads put ./hero-after.webp --state after
 
 If one comment has several pairs, give each pair the same `--meta path=<page>` value so they match
 up. Without a `path`, files pair by name, so `hero-before.webp` matches `hero-after.webp`.
+Several pairs share one table, a row each. A file with no before shows on its own, as usual.
 
 </section>
