@@ -552,6 +552,80 @@
           "noUploadsComment": "repo"
         }
       }
+    },
+    {
+      "name": "workspace uiPaths apply when the repo sets none",
+      "repo": {
+        "noUploadsComment": true
+      },
+      "workspace": {
+        "uiPaths": ["src/ui/**"]
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": ["src/ui/**"],
+          "noUploadsComment": true
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "workspace",
+          "noUploadsComment": "repo"
+        }
+      }
+    },
+    {
+      "name": "a repo's empty uiPaths replaces the workspace list",
+      "repo": {
+        "uiPaths": []
+      },
+      "workspace": {
+        "uiPaths": ["src/ui/**"]
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "repo",
+          "noUploadsComment": "auto"
+        }
+      }
     }
   ]
 }

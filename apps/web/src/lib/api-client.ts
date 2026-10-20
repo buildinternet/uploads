@@ -1922,6 +1922,9 @@ function toCommentSettings(body: unknown): CommentSettings | null {
   const ingestGithubAttachments =
     typeof b.ingestGithubAttachments === "boolean" ? b.ingestGithubAttachments : null;
   const noUploadsComment = typeof b.noUploadsComment === "boolean" ? b.noUploadsComment : null;
+  const uiPaths = Array.isArray(b.uiPaths)
+    ? b.uiPaths.filter((p): p is string => typeof p === "string")
+    : null;
   return {
     imageWidth,
     maxInlineImages,
@@ -1930,6 +1933,7 @@ function toCommentSettings(body: unknown): CommentSettings | null {
     note,
     ingestGithubAttachments,
     noUploadsComment,
+    uiPaths,
   };
 }
 
@@ -2165,6 +2169,7 @@ export interface CommentPreviewResolved {
   metaState: boolean;
   linkToFilePage: boolean;
   note: string | null;
+  uiPaths: string[];
 }
 
 export interface CommentPreview {

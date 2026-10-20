@@ -93,7 +93,8 @@ comment:
   # attached gets a short comment on how to add screenshots, and the
   # uploads.sh check says UI files changed. A pattern without a slash matches
   # a file name anywhere (*.css); one with a slash starts at the repo root.
-  # ** crosses folders, * doesn't. Empty by default, which turns both off.
+  # ** crosses folders, * doesn't. Replaces the workspace's UI file paths
+  # setting; with neither set, both stay off.
   uiPaths:
     - "apps/web/**"
     - "*.css"

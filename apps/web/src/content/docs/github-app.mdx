@@ -148,7 +148,7 @@ approval.
   <tbody>
     <tr><td>Success</td><td>Every attached file is published, e.g. "3 files attached".</td></tr>
     <tr><td>Neutral</td><td>A file is <a href="#held-files">held for review</a>, e.g. "1 of 4 files held for review", or everything was removed from a PR that had uploads.</td></tr>
-    <tr><td>Neutral</td><td>The PR changes files the repo lists under <a href="#no-uploads"><code>uiPaths</code></a> and nothing is attached: "UI files changed, no uploads attached".</td></tr>
+    <tr><td>Neutral</td><td>The PR changes <a href="#no-uploads">UI files</a> and nothing is attached: "UI files changed, no uploads attached".</td></tr>
   </tbody>
 </table>
 
@@ -161,7 +161,9 @@ while a file is held: a hold is about the uploaded file, not the PR's code.
 
 ## PRs with no uploads <a class="anchor" href="#no-uploads" aria-label="Link to this section">#</a>
 
-List a repo's UI files under `uiPaths` in [`.uploads.yml`](/docs/comment-config):
+A workspace admin can list the files that count as UI changes under **UI file paths** in
+**Settings → GitHub**. A repo can set its own list under `uiPaths` in
+[`.uploads.yml`](/docs/comment-config), which replaces the workspace list:
 
 ```yaml title=".uploads.yml" frame="code"
 comment:
@@ -175,7 +177,7 @@ comment naming the changed files and the ways to add screenshots. It's the same 
 the first upload replaces it with the normal screenshots. The [uploads.sh check](#check) reports the
 same state.
 
-Nothing happens on PRs that don't touch those paths, or in repos without `uiPaths`. To keep the check
+Nothing happens on PRs that don't touch those paths, or when no paths are set. To keep the check
 but skip the comment, a workspace admin can turn off **Comment when a PR has no uploads** under
 **Settings → GitHub**, or a repo can set `noUploadsComment: false`.
 

@@ -51,6 +51,8 @@
  */
 import {
   NOTE_MAX_CHARS,
+  UI_PATH_MAX_CHARS,
+  UI_PATHS_MAX,
   resolveCommentOptions,
   type OptionSource,
   type ResolvedCommentOptions,
@@ -237,6 +239,7 @@ const COMMENT_SETTINGS_KEYS = [
   "note",
   "ingestGithubAttachments",
   "noUploadsComment",
+  "uiPaths",
 ] as const;
 type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
 
@@ -249,9 +252,10 @@ const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceR
   note: "githubCommentNote",
   ingestGithubAttachments: "githubIngestAttachments",
   noUploadsComment: "githubNoUploadsComment",
+  uiPaths: "githubUiPaths",
 };
 
-type CommentSettingsValue = string | number | boolean;
+type CommentSettingsValue = string | number | boolean | string[];
 type CommentSettingsPatch = Partial<Record<CommentSettingsKey, CommentSettingsValue | null>>;
 
 /**
@@ -357,6 +361,27 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
     patch.noUploadsComment = value;
   }
 
+  // uiPaths: a list of globs, trimmed; blank entries dropped. An empty list
+  // clears the field, like `null`.
+  if ("uiPaths" in record) {
+    const value = record.uiPaths;
+    const fail = () => {
+      throw new ValidationError(
+        `uiPaths must be a list of up to ${UI_PATHS_MAX} paths of at most ${UI_PATH_MAX_CHARS} characters, or null`,
+        { code: "invalid_settings", details: { field: "uiPaths" } },
+      );
+    };
+    if (value === null) {
+      patch.uiPaths = null;
+    } else if (Array.isArray(value) && value.every((p) => typeof p === "string")) {
+      const paths = (value as string[]).map((p) => p.trim()).filter((p) => p.length > 0);
+      if (paths.length > UI_PATHS_MAX || paths.some((p) => p.length > UI_PATH_MAX_CHARS)) fail();
+      patch.uiPaths = paths.length > 0 ? paths : null;
+    } else {
+      fail();
+    }
+  }
+
   if ("note" in record) {
     const value = record.note;
     if (value === null) {
@@ -399,6 +424,7 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     note: record.githubCommentNote ?? null,
     ingestGithubAttachments: record.githubIngestAttachments ?? null,
     noUploadsComment: record.githubNoUploadsComment ?? null,
+    uiPaths: record.githubUiPaths ?? null,
   };
 }
 

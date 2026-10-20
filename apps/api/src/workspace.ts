@@ -193,6 +193,12 @@ export interface WorkspaceRecord {
    */
   githubNoUploadsComment?: boolean;
   /**
+   * Workspace default for `.uploads.yml` `uiPaths`: globs for the files that
+   * count as UI changes. A repo that sets its own `uiPaths` (even `[]`)
+   * replaces this list.
+   */
+  githubUiPaths?: string[];
+  /**
    * Governs whether the managed GitHub comment shows an upload's canonical
    * `path`/`state` metadata (issue #365). Default (undefined/true) = show.
    * When `false`, the comment renders filenames only and the server skips the

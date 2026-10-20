@@ -225,6 +225,7 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       note: null,
       ingestGithubAttachments: null,
       noUploadsComment: null,
+      uiPaths: null,
     });
   });
 
@@ -348,6 +349,31 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       registry.record<{ githubNoUploadsComment?: boolean }>("acme")?.githubNoUploadsComment,
     ).toBe(false);
     expect((await patch({ noUploadsComment: "no" })).status).toBe(400);
+  });
+
+  it("PATCH trims uiPaths, clears an empty list, and rejects bad entries", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    const res = await patch({ uiPaths: [" apps/web/** ", "", "*.css"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ uiPaths: ["apps/web/**", "*.css"] });
+    expect(registry.record<{ githubUiPaths?: string[] }>("acme")?.githubUiPaths).toEqual([
+      "apps/web/**",
+      "*.css",
+    ]);
+    expect(await (await patch({ uiPaths: [" "] })).json()).toMatchObject({ uiPaths: null });
+    expect(registry.record<{ githubUiPaths?: string[] }>("acme")?.githubUiPaths).toBeUndefined();
+    expect((await patch({ uiPaths: "apps/**" })).status).toBe(400);
+    expect((await patch({ uiPaths: [3] })).status).toBe(400);
   });
 
   it("PATCH rejects a non-boolean ingestGithubAttachments with 400", async () => {

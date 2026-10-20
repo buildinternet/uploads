@@ -135,6 +135,7 @@ export function workspaceCommentDefaults(ws: WorkspaceRecord): WorkspaceCommentD
     defaults.ingestGithubAttachments = ws.githubIngestAttachments;
   if (ws.githubAdoptLinkedFiles !== undefined)
     defaults.adoptLinkedFiles = ws.githubAdoptLinkedFiles;
+  if (ws.githubUiPaths !== undefined) defaults.uiPaths = ws.githubUiPaths;
   if (ws.githubNoUploadsComment !== undefined)
     defaults.noUploadsComment = ws.githubNoUploadsComment;
   return defaults;
