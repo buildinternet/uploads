@@ -564,11 +564,11 @@ describe("live link line (CLI copy)", () => {
       },
     );
     expect(body).toContain(
-      `\n1 file · <a href="https://uploads.sh/c/feed_x">View all on uploads.sh →</a>\n`,
+      `<a href="https://uploads.sh/c/feed_x"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>1 file · `,
     );
   });
 
-  it("sits after the repo note and before the media", () => {
+  it("closes the comment, after the note and the media", () => {
     const body = attachmentsCommentBody(
       one,
       [],
@@ -577,16 +577,18 @@ describe("live link line (CLI copy)", () => {
       undefined,
       { liveLinkUrl: "https://uploads.sh/c/feed_x" },
     );
-    expect(body.startsWith(`${ATTACHMENTS_MARKER}\nStaging only.\n\n1 file · `)).toBe(true);
+    expect(body.startsWith(`${ATTACHMENTS_MARKER}\nStaging only.\n\n`)).toBe(true);
+    expect(body.endsWith("</sub>")).toBe(true);
+    expect(body.indexOf("view-on-uploads.svg")).toBeGreaterThan(body.indexOf("shot.png"));
   });
 
   it("omits the line without a URL and on an empty comment", () => {
-    expect(attachmentsCommentBody(one)).not.toContain("View all on uploads.sh");
+    expect(attachmentsCommentBody(one)).not.toContain("view-on-uploads.svg");
     expect(
       attachmentsCommentBody(one, [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
         liveLinkUrl: null,
       }),
-    ).not.toContain("View all on uploads.sh");
+    ).not.toContain("view-on-uploads.svg");
     expect(
       attachmentsCommentBody([], [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
         liveLinkUrl: "https://uploads.sh/c/feed_x",

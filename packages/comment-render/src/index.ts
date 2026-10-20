@@ -718,10 +718,14 @@ function pdfPosterCaption(item: AttachmentItem, options: CommentRenderOptions): 
  * can copy it. Without a target the generic `--pr <N>` placeholder stays.
  */
 function addMediaFooter(target?: Pick<GhTarget, "kind" | "num">): string {
+  return `<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · ${addMediaHint(target)}</sub>`;
+}
+
+function addMediaHint(target?: Pick<GhTarget, "kind" | "num">): string {
   const flag = target?.kind === "issues" ? "--issue" : "--pr";
   const n =
     target && Number.isInteger(target.num) && target.num > 0 ? String(target.num) : "&lt;N&gt;";
-  return `<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; ${flag} ${n}</code> · <a href="https://uploads.sh/docs/github-app">docs</a></sub>`;
+  return `add media: <code>uploads put &lt;file&gt; ${flag} ${n}</code> · <a href="https://uploads.sh/docs/github-app">docs</a>`;
 }
 
 /** Links the managed comment renders around its attachments. */
@@ -743,13 +747,26 @@ export interface CommentLinks {
 }
 
 /**
- * `12 files · View all on uploads.sh →` — the reviewer's way into the live
- * link. The count is the comment's own attachments (galleries excluded), so
- * it can never disagree with what the comment lists.
+ * The "View on uploads.sh" button: a static SVG (GitHub strips CSS from
+ * comments, so a button has to be an image in a link). Served from
+ * apps/web/public/brand/, which the web worker leaves to the asset server.
+ * Fixed wording on purpose: GitHub's image proxy caches it.
  */
-function liveLinkLine(count: number, url: string): string {
+export const VIEW_BUTTON_SRC = "https://uploads.sh/brand/comment/view-on-uploads.svg";
+
+/**
+ * The reviewer's way into the live link: the button, then the quiet footer
+ * led by the file count. The count is the comment's own attachments
+ * (galleries excluded), so it can never disagree with what the comment lists.
+ */
+function liveLinkBlock(
+  count: number,
+  url: string,
+  target?: Pick<GhTarget, "kind" | "num">,
+): string {
   const noun = count === 1 ? "file" : "files";
-  return `${count} ${noun} · <a href="${escapeHtmlAttr(url)}">View all on uploads.sh →</a>`;
+  const button = `<a href="${escapeHtmlAttr(url)}"><img height="36" alt="View on uploads.sh" src="${VIEW_BUTTON_SRC}"></a>`;
+  return `${button}\n\n<sub>${count} ${noun} · ${addMediaHint(target)}</sub>`;
 }
 
 /**
@@ -772,8 +789,8 @@ function heldLine(count: number, target?: Pick<GhTarget, "kind" | "num">): strin
  * `target` is optional so goldens, the settings preview, and other callers
  * without a PR/issue stay on the generic `--pr <N>` hint.
  *
- * `links.liveLinkUrl` adds the live link line under the heading (absent:
- * byte-identical to before).
+ * `links.liveLinkUrl` swaps the footer for the "View on uploads.sh" button
+ * plus a count-led footer (absent: byte-identical to before).
  */
 export function attachmentsCommentBody(
   items: AttachmentItem[],
@@ -792,11 +809,6 @@ export function attachmentsCommentBody(
   );
   const lines: string[] = [marker];
   if (options.note) lines.push(options.note, "");
-  // Live link line: under the heading, not in the <sub> footer — it is the
-  // main destination for reviewers. Never on the empty state.
-  if (links.liveLinkUrl && sorted.length > 0) {
-    lines.push(liveLinkLine(sorted.length, links.liveLinkUrl), "");
-  }
   if (sortedGalleries.length > 0) {
     lines.push("### 🖼️ Galleries", "");
     for (const gallery of sortedGalleries) {
@@ -1020,6 +1032,12 @@ export function attachmentsCommentBody(
   // Footer condensed to a single quiet line — the old two-line explainer
   // ("re-uploading updates everywhere", full add-media flags) repeats on
   // every PR and lost value with each appearance; details live in the docs.
-  lines.push(addMediaFooter(target));
+  // Live link: the screenshots come first, then the button closes the
+  // comment in place of the plain footer. Never on the empty state.
+  lines.push(
+    links.liveLinkUrl && sorted.length > 0
+      ? liveLinkBlock(sorted.length, links.liveLinkUrl, target)
+      : addMediaFooter(target),
+  );
   return lines.join("\n");
 }

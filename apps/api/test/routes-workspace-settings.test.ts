@@ -2541,9 +2541,9 @@ describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("fixtures");
     expect(typeof body.body).toBe("string");
-    // The preview shows the live link line exactly where the real comment does.
+    // The preview shows the live link button exactly where the real comment does.
     expect(body.body).toContain(
-      '· <a href="https://uploads.test/docs/feeds">View all on uploads.sh →</a>',
+      '<a href="https://uploads.test/docs/feeds"><img height="36" alt="View on uploads.sh"',
     );
   });
 

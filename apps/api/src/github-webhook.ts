@@ -64,6 +64,7 @@
 import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
+import { checksDeniedKey, syncUploadsCheck } from "./github-check-run";
 import { bumpPublicTitleEpoch, titleCacheKeys } from "./github-titles";
 import { applyPrActivityWebhook, type PrState } from "./github-pr-activity";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
@@ -183,7 +184,7 @@ interface PullRequestPayload {
     /** Only meaningful on `action: "closed"` — true iff the PR was merged
      * (vs. closed without merging). */
     merged?: unknown;
-    head?: { ref?: unknown; repo?: { full_name?: unknown } };
+    head?: { ref?: unknown; sha?: unknown; repo?: { full_name?: unknown } };
   };
 }
 
@@ -199,7 +200,7 @@ async function gatherAndUpsert(
   env: Env,
   link: RepoLink,
   target: GhTarget,
-  opts: { headBranch?: string } = {},
+  opts: { headBranch?: string; headSha?: string } = {},
 ): Promise<void> {
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) {
@@ -210,7 +211,9 @@ async function gatherAndUpsert(
     return;
   }
 
-  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, opts);
+  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, {
+    headBranch: opts.headBranch,
+  });
 
   const cfg = githubAppConfig(env);
   if (!cfg) return;
@@ -240,6 +243,10 @@ async function gatherAndUpsert(
       }),
     );
   }
+  await syncUploadsCheck(env, cfg, installId, target, gathered, {
+    headSha: opts.headSha,
+    commentUrl: "commentUrl" in result ? result.commentUrl : null,
+  });
 }
 
 /**
@@ -282,6 +289,7 @@ async function autoPromoteAndComment(
   repo: string,
   num: number,
   branch: string,
+  headSha?: string,
 ): Promise<void> {
   const resolved = await resolveLinkedWorkspaceOrCleanup(env, repo);
   if (!resolved) return;
@@ -295,7 +303,7 @@ async function autoPromoteAndComment(
   const target: GhTarget = { repo, kind: "pull", num };
   // The head branch is what a metadata-less private attachment resolves
   // under (#934) — pass it so the gather can list that prefix.
-  await gatherAndUpsert(env, link, target, { headBranch: branch });
+  await gatherAndUpsert(env, link, target, { headBranch: branch, headSha });
 }
 
 /**
@@ -420,8 +428,9 @@ async function reconcileBotComment(
 export interface WebhookEvent {
   /** GITHUB_CACHE keys to delete (targeted; possibly empty). */
   keys: string[];
-  /** Same-repo PR opened/reopened/synchronize → promote + comment. */
-  promote?: { repo: string; num: number; branch: string };
+  /** Same-repo PR opened/reopened/synchronize → promote + comment + check
+   * run on the head commit (`sha`, absent on events queued before it). */
+  promote?: { repo: string; num: number; branch: string; sha?: string };
   /** Gated issue_comment edited/deleted → heal the managed comment. */
   reconcile?: { repo: string; num: number; kind: GhTarget["kind"] };
   /** Same-repo PR closed with `merged: true` → stamp its screenshots
@@ -461,7 +470,9 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
 
   if (eventType === "installation") {
     const id = (p.installation as { id?: unknown } | undefined)?.id;
-    if (typeof id === "number") ev.keys.push(`ghtok:${id}`);
+    // The denied-checks marker too: accepting a new permission (e.g.
+    // Checks: write) arrives as an `installation` event.
+    if (typeof id === "number") ev.keys.push(`ghtok:${id}`, checksDeniedKey(id));
     for (const repo of repoFullNames(p.repositories)) ev.keys.push(`ghinst:${repo}`);
   } else if (eventType === "installation_repositories") {
     for (const repo of repoFullNames(p.repositories_added)) ev.keys.push(`ghinst:${repo}`);
@@ -539,7 +550,12 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       // lives in a different repo.
       pr.head.repo.full_name.toLowerCase() === repo.toLowerCase()
     ) {
-      ev.promote = { repo, num: pr.number, branch: pr.head.ref };
+      ev.promote = {
+        repo,
+        num: pr.number,
+        branch: pr.head.ref,
+        ...(typeof pr.head.sha === "string" ? { sha: pr.head.sha } : {}),
+      };
     } else if (
       // Merge tagging (persisted PR merge-state, 2026-08-21): closed WITHOUT
       // `merged: true` (i.e. closed without merging) is deliberately a no-op
@@ -669,7 +685,13 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   }
 
   if (ev.promote) {
-    await autoPromoteAndComment(env, ev.promote.repo, ev.promote.num, ev.promote.branch);
+    await autoPromoteAndComment(
+      env,
+      ev.promote.repo,
+      ev.promote.num,
+      ev.promote.branch,
+      ev.promote.sha,
+    );
   }
   if (ev.reconcile) {
     await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
