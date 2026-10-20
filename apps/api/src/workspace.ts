@@ -199,6 +199,12 @@ export interface WorkspaceRecord {
    */
   githubUiPaths?: string[];
   /**
+   * Workspace default for `.uploads.yml` `check.require: [uploads]`: the
+   * uploads.sh check fails on a PR that changes UI files with nothing
+   * attached. A repo that sets its own `check.require` replaces this.
+   */
+  githubRequireUploads?: boolean;
+  /**
    * Governs whether the managed GitHub comment shows an upload's canonical
    * `path`/`state` metadata (issue #365). Default (undefined/true) = show.
    * When `false`, the comment renders filenames only and the server skips the

@@ -43,6 +43,11 @@ export const HOME_FAQ: HomeFaqItem[] = [
 <p>A file staged more than 30 days before the PR opens stays hosted. It does not promote on its own.</p>`,
   },
   {
+    q: "Can I require screenshots on pull requests?",
+    a: `<p>Yes. The <a href="/docs/github-app">uploads GitHub App</a> adds a check called <code>uploads.sh</code> to pull requests that change UI files. Turn on <strong>Require screenshots on UI changes</strong> in workspace Settings, or add <code>check.require</code> to <code>.uploads.yml</code>, and the check fails until the PR has a screenshot or recording.</p>
+<p>Make it a required check in GitHub branch protection to block merges. Images dragged into the PR on GitHub count too. See <a href="/docs/require-screenshots">Require screenshots on pull requests</a>.</p>`,
+  },
+  {
     q: "Do I need to pay, or bring my own bucket?",
     a: `<p>No. A new workspace starts on the ${PLAN_FACTS.freeName} plan: ${PLAN_FACTS.freeStorage} of hosted storage and files up to ${PLAN_FACTS.freeMaxUpload}. That holds hundreds of screenshots, so you can start with no bucket of your own.</p>
 <p>${PLAN_FACTS.proName} is for a workspace that outgrows ${PLAN_FACTS.freeName}: ${PLAN_FACTS.proStorage} of storage and files up to ${PLAN_FACTS.proMaxUpload}. See <a href="/docs/limits">plans and limits</a>.</p>

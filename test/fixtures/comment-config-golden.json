@@ -94,7 +94,7 @@
       }
     },
     {
-      "name": "drops an over-500-char note whole, with a warning — never truncates",
+      "name": "drops an over-500-char note whole, with a warning \u2014 never truncates",
       "text": "comment:\n  note: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n",
       "format": "yaml",
       "expected": {
@@ -749,6 +749,125 @@
           "noUploadsComment": "auto",
           "checkRequire": "repo",
           "checkSkipLabels": "repo"
+        }
+      }
+    },
+    {
+      "name": "workspace requireUploads requires uploads when the repo sets no check.require",
+      "repo": null,
+      "workspace": {
+        "requireUploads": true
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": ["uploads"],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "workspace",
+          "checkSkipLabels": "auto"
+        }
+      }
+    },
+    {
+      "name": "a repo's check.require replaces the workspace requireUploads",
+      "repo": {
+        "checkRequire": ["before-after"]
+      },
+      "workspace": {
+        "requireUploads": true
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": ["before-after"],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "repo",
+          "checkSkipLabels": "auto"
+        }
+      }
+    },
+    {
+      "name": "workspace requireUploads false requires nothing",
+      "repo": null,
+      "workspace": {
+        "requireUploads": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto"
         }
       }
     }

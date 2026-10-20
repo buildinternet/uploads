@@ -147,7 +147,7 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
     // Without a comment (built-in UI paths post none), link the how-to docs.
     const howTo =
       commentLink ||
-      " See [how to attach screenshots](https://uploads.sh/docs/github-app#no-uploads).";
+      " See [how to attach screenshots](https://uploads.sh/docs/require-screenshots).";
     const shown = uiFiles.slice(0, UI_FILES_LISTED).map((f) => `- \`${f}\``);
     if (uiFiles.length > UI_FILES_LISTED)
       shown.push(`- and ${uiFiles.length - UI_FILES_LISTED} more`);

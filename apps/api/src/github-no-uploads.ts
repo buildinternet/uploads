@@ -155,7 +155,7 @@ export function noUploadsCommentBody(
   if (opts.checklist?.length) lines.push("", checklistLine(opts.checklist));
   lines.push(
     "",
-    `<sub>Workspace admins can turn this comment off in Settings → GitHub · <a href="https://uploads.sh/docs/github-app#no-uploads">docs</a></sub>`,
+    `<sub>Workspace admins can turn this comment off in Settings → GitHub · <a href="https://uploads.sh/docs/require-screenshots#no-uploads-comment">docs</a></sub>`,
   );
   return lines.join("\n");
 }

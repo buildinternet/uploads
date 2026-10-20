@@ -5,7 +5,7 @@ heading: Bring your own bucket
 tagline: Point a workspace at storage you already pay for, instead of hosted storage.
 navLabel: Bring your own bucket
 navSlug: byo-bucket
-navOrder: 11
+navOrder: 12
 navGroup: workspace
 toc:
   - { id: setup, label: Set up your bucket }
@@ -15,9 +15,9 @@ toc:
   - { id: ownership, label: Data ownership & switching back }
 ---
 
-{/* The connect form's setup disclosure on
-    `apps/web/src/components/workspace/StorageBucketSection.astro` (storage-setup-help) is the
-    source of truth for dashboard paths — keep this page in sync. */}
+{/_ The connect form's setup disclosure on
+`apps/web/src/components/workspace/StorageBucketSection.astro` (storage-setup-help) is the
+source of truth for dashboard paths — keep this page in sync. _/}
 
 <div class="callout">
   Available to every workspace, on any plan. Storage in your own bucket is unmetered — the plan's
@@ -139,10 +139,10 @@ round-trip, and (for a first attach) that the bucket is empty — a public URL a
 S3 providers.
 
 <div class="note">
-  The embed-cache tip above is written for Cloudflare's Transform Rules. On another provider, add the
-  CDN-equivalent no-cache rule on the public domain instead — set `Cache-Control` to
-  `max-age=0, no-cache, no-store, must-revalidate` for that host so GitHub's Camo proxy revalidates
-  overwritten images.
+  The embed-cache tip above is written for Cloudflare's Transform Rules. On another provider, add
+  the CDN-equivalent no-cache rule on the public domain instead — set `Cache-Control` to `max-age=0,
+  no-cache, no-store, must-revalidate` for that host so GitHub's Camo proxy revalidates overwritten
+  images.
 </div>
 
 </section>
@@ -169,9 +169,8 @@ S3 providers.
       <th scope="row">No public URL</th>
       <td>Signed URLs, generated on demand.</td>
       <td>
-        Degraded — links expire after an hour and GitHub embeds won't render (see below). The
-        Bucket form requires a public base URL; signed-only configs can only be saved through the
-        API.
+        Degraded — links expire after an hour and GitHub embeds won't render (see below). The Bucket
+        form requires a public base URL; signed-only configs can only be saved through the API.
       </td>
     </tr>
     <tr>

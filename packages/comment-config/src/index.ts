@@ -35,6 +35,8 @@ export interface WorkspaceCommentDefaults {
   adoptLinkedFiles?: boolean;
   uiPaths?: string[];
   noUploadsComment?: boolean;
+  /** Require at least one upload on UI changes (`check.require: [uploads]`). */
+  requireUploads?: boolean;
 }
 export interface ResolvedCommentOptions {
   imageWidth: "auto" | "full" | number;
@@ -290,6 +292,7 @@ export function resolveCommentOptions(
     ...(ws?.adoptLinkedFiles !== undefined ? { adoptLinkedFiles: ws.adoptLinkedFiles } : {}),
     ...(ws?.uiPaths?.length ? { uiPaths: ws.uiPaths } : {}),
     ...(ws?.noUploadsComment !== undefined ? { noUploadsComment: ws.noUploadsComment } : {}),
+    ...(ws?.requireUploads ? { checkRequire: ["uploads"] as CheckRequirement[] } : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };
   const source = Object.fromEntries(

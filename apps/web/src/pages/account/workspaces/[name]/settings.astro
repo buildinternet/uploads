@@ -141,6 +141,15 @@ const tip = {
         </SettingRow>
 
         <SettingRow
+          id="cs-row-require"
+          chipId="cs-row-require-chip"
+          label="Require screenshots on UI changes"
+          description="Fail the uploads.sh check on pull requests that change UI files with nothing attached. Make it a required check in GitHub to block merges. A repo's check.require in .uploads.yml replaces this."
+        >
+          <SettingSwitch id="cs-require-uploads" label="Require screenshots on UI changes" />
+        </SettingRow>
+
+        <SettingRow
           id="cs-row-no-uploads"
           label="Comment when a PR has no uploads"
           description="When a pull request changes UI files and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
@@ -420,6 +429,7 @@ const tip = {
       const linkToggle = requireElement<HTMLButtonElement>("#cs-link-to-file-page", page);
       const ingestToggle = requireElement<HTMLButtonElement>("#cs-ingest-github-attachments", page);
       const noUploadsToggle = requireElement<HTMLButtonElement>("#cs-no-uploads-comment", page);
+      const requireToggle = requireElement<HTMLButtonElement>("#cs-require-uploads", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
       const uiPathsInput = requireElement<HTMLTextAreaElement>("#cs-ui-paths", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
@@ -464,6 +474,7 @@ const tip = {
         { id: "link", source: (p) => p.source.linkToFilePage ?? "auto" },
         { id: "note", source: (p) => p.source.note ?? "auto" },
         { id: "ui-paths", source: (p) => p.source.uiPaths ?? "auto" },
+        { id: "require", source: (p) => p.source.checkRequire ?? "auto" },
       ];
       const chipTargets = chipRows.map((target) => ({
         ...target,
@@ -602,6 +613,7 @@ const tip = {
           uiPaths: uiPathsFromInput(),
           ingestGithubAttachments: toggleOn(ingestToggle),
           noUploadsComment: toggleOn(noUploadsToggle),
+          requireUploads: toggleOn(requireToggle),
         };
       }
 
@@ -677,6 +689,7 @@ const tip = {
         // the toggle the way ingestion will actually behave.
         paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
         paintToggle(noUploadsToggle, settings.noUploadsComment ?? true);
+        paintToggle(requireToggle, settings.requireUploads ?? false);
         noteInput.value = settings.note ?? "";
         uiPathsInput.value = (settings.uiPaths ?? []).join("\n");
         noteCount.textContent = String(noteInput.value.length);
@@ -697,6 +710,7 @@ const tip = {
       bindToggle(linkToggle, () => markEdited());
       bindToggle(ingestToggle, () => markEdited());
       bindToggle(noUploadsToggle, () => markEdited());
+      bindToggle(requireToggle, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());
       maxInlineInput.addEventListener("input", () => markEdited());
       uiPathsInput.addEventListener("input", () => markEdited());

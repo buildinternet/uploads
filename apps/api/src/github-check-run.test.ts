@@ -37,7 +37,7 @@ describe("checkRunContent", () => {
 
   it("links the how-to docs when there's no comment to point at", () => {
     const content = checkRunContent({ count: 0, heldCount: 0, uiFiles: ["b.css"] }, null);
-    expect(content.summary).toContain("https://uploads.sh/docs/github-app#no-uploads");
+    expect(content.summary).toContain("https://uploads.sh/docs/require-screenshots");
   });
 
   describe("required uploads", () => {

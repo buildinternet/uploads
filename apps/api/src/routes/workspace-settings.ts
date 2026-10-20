@@ -230,7 +230,7 @@ const COMMENT_IMAGE_WIDTH_MAX = 1000;
 const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
 const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
 
-/** The workspace-level comment-defaults fields (issue #307; ingestGithubAttachments added issue-spec 2026-08-11, noUploadsComment for the no-uploads comment). */
+/** The workspace-level comment-defaults fields (issue #307; ingestGithubAttachments added issue-spec 2026-08-11, noUploadsComment for the no-uploads comment, requireUploads for the check). */
 const COMMENT_SETTINGS_KEYS = [
   "imageWidth",
   "maxInlineImages",
@@ -240,6 +240,7 @@ const COMMENT_SETTINGS_KEYS = [
   "ingestGithubAttachments",
   "noUploadsComment",
   "uiPaths",
+  "requireUploads",
 ] as const;
 type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
 
@@ -253,6 +254,7 @@ const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceR
   ingestGithubAttachments: "githubIngestAttachments",
   noUploadsComment: "githubNoUploadsComment",
   uiPaths: "githubUiPaths",
+  requireUploads: "githubRequireUploads",
 };
 
 type CommentSettingsValue = string | number | boolean | string[];
@@ -361,6 +363,17 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
     patch.noUploadsComment = value;
   }
 
+  if ("requireUploads" in record) {
+    const value = record.requireUploads;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("requireUploads must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "requireUploads" },
+      });
+    }
+    patch.requireUploads = value;
+  }
+
   // uiPaths: a list of globs, trimmed; blank entries dropped. An empty list
   // clears the field, like `null`.
   if ("uiPaths" in record) {
@@ -425,6 +438,7 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     ingestGithubAttachments: record.githubIngestAttachments ?? null,
     noUploadsComment: record.githubNoUploadsComment ?? null,
     uiPaths: record.githubUiPaths ?? null,
+    requireUploads: record.githubRequireUploads ?? null,
   };
 }
 
