@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   changedUiFiles,
+  DEFAULT_UI_PATHS,
   describeUiFiles,
   noUploadsCommentBody,
   uiPathMatcher,
@@ -33,6 +34,21 @@ describe("uiPathMatcher", () => {
     const m = uiPathMatcher(["app/(marketing)/page.tsx"]);
     expect(m("app/(marketing)/page.tsx")).toBe(true);
     expect(m("app/marketing/page.tsx")).toBe(false);
+  });
+});
+
+describe("DEFAULT_UI_PATHS", () => {
+  it("matches what the CLI's pre-PR hook counts as UI", () => {
+    const matches = uiPathMatcher(DEFAULT_UI_PATHS);
+    for (const f of ["a.astro", "src/B.tsx", "x/y.jsx", "c.vue", "d.svelte", "e.html"]) {
+      expect(matches(f)).toBe(true);
+    }
+    for (const f of ["s.css", "s.scss", "s.less", "email/welcome.ts", "apps/email/x.ts"]) {
+      expect(matches(f)).toBe(true);
+    }
+    for (const f of ["src/a.ts", "README.md", "emails.ts", "package.json"]) {
+      expect(matches(f)).toBe(false);
+    }
   });
 });
 
@@ -97,6 +113,20 @@ describe("changedUiFiles", () => {
       "https://api.github.com/repos/acme/web/pulls/12/files?per_page=100&page=1",
     );
     expect(urls).toHaveLength(2);
+  });
+
+  it("leaves out deleted files and moves without edits", async () => {
+    const fetchImpl = (async () =>
+      Response.json([
+        { filename: "apps/web/gone.css", status: "removed", changes: 12 },
+        { filename: "apps/web/moved.tsx", status: "renamed", changes: 0 },
+        { filename: "apps/web/renamed.tsx", status: "renamed", changes: 3 },
+        { filename: "apps/web/edited.astro", status: "modified", changes: 2 },
+      ])) as unknown as typeof fetch;
+    await expect(changedUiFiles(env(), TARGET, ["apps/web/**"], fetchImpl)).resolves.toEqual([
+      "apps/web/renamed.tsx",
+      "apps/web/edited.astro",
+    ]);
   });
 
   it("skips issues, empty uiPaths and GitHub failures", async () => {

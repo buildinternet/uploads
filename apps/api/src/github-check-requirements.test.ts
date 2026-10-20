@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { matchingSkipLabel, requirementChecklist, surfaceOf } from "./github-check-requirements";
+import {
+  matchingSkipLabel,
+  requirementChecklist,
+  skipLabelOnPr,
+  surfaceOf,
+} from "./github-check-requirements";
+import { FakeKv } from "../test/fake-kv";
 
 describe("surfaceOf", () => {
   it("prefers the classifier's label", () => {
@@ -43,5 +49,31 @@ describe("matchingSkipLabel", () => {
   it("matches case-insensitively and returns the PR's spelling", () => {
     expect(matchingSkipLabel(["bug", "Skip-Uploads"], ["skip-uploads"])).toBe("Skip-Uploads");
     expect(matchingSkipLabel(["bug"], ["skip-uploads"])).toBe(null);
+  });
+});
+
+describe("skipLabelOnPr", () => {
+  const TARGET = { repo: "acme/web", kind: "pull" as const, num: 12 };
+  function env() {
+    const kv = new FakeKv();
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    return {
+      GITHUB_CACHE: kv,
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    } as unknown as Env;
+  }
+
+  it("reads the PR's labels", async () => {
+    const fetchImpl = (async () =>
+      Response.json([{ name: "design" }, { name: "Skip-Uploads" }])) as unknown as typeof fetch;
+    expect(await skipLabelOnPr(env(), TARGET, ["skip-uploads"], fetchImpl)).toBe("Skip-Uploads");
+  });
+
+  it("keeps the requirement when GitHub fails", async () => {
+    const fetchImpl = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    expect(await skipLabelOnPr(env(), TARGET, ["skip-uploads"], fetchImpl)).toBe(null);
   });
 });

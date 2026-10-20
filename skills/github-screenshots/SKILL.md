@@ -324,6 +324,12 @@ is gone the comment is rewritten in place to a neutral empty state — it stays
 on the PR (a later upload repopulates it) rather than leaving stale entries
 that point at deleted files.
 
+**Neutral `uploads.sh` check saying "UI files changed, no uploads attached"?**
+The PR touches UI files and nothing is attached. It never blocks a merge.
+Attach before/after shots and the check turns green on the next sync. A
+workspace admin picks which files count under Settings → GitHub → UI file
+paths, or a repo sets `comment.uiPaths` in `.uploads.yml` (`[]` turns it off).
+
 **Bot comment not showing up at all?** The managed comment needs a
 repo↔workspace binding (normally created implicitly by the first
 comment/promote call, or by installing the GitHub App). If a comment you

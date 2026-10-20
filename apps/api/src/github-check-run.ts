@@ -20,7 +20,6 @@
 import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
 import { checklistLine, type ChecklistEntry, type GhTarget } from "./github-comment-render";
-import { matchingSkipLabel } from "./github-check-requirements";
 
 export const CHECK_NAME = "uploads.sh";
 
@@ -71,15 +70,15 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
   const uiFiles = gathered.uiFiles ?? [];
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
   const checklist = gathered.checklist ?? [];
+  if (gathered.required && uiFiles.length > 0 && gathered.skipLabel) {
+    return {
+      conclusion: "neutral",
+      title: "Required uploads skipped",
+      summary: `The \`${gathered.skipLabel}\` label excuses this pull request.`,
+    };
+  }
   if (gathered.required && uiFiles.length > 0 && checklist.length > 0) {
     const line = checklistLine(checklist);
-    if (gathered.skipLabel) {
-      return {
-        conclusion: "neutral",
-        title: "Required uploads skipped",
-        summary: `The \`${gathered.skipLabel}\` label excuses this pull request.\n\n${line}`,
-      };
-    }
     const missing = checklist.filter((c) => !c.met);
     // A held file counts as attached, and a hold never blocks a merge.
     if (missing.length > 0 && heldCount === 0) {
@@ -118,6 +117,10 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
     };
   }
   if (count === 0 && uiFiles.length > 0) {
+    // Without a comment (built-in UI paths post none), link the how-to docs.
+    const howTo =
+      commentLink ||
+      " See [how to attach screenshots](https://uploads.sh/docs/github-app#no-uploads).";
     const shown = uiFiles.slice(0, UI_FILES_LISTED).map((f) => `- \`${f}\``);
     if (uiFiles.length > UI_FILES_LISTED)
       shown.push(`- and ${uiFiles.length - UI_FILES_LISTED} more`);
@@ -127,7 +130,7 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
       summary:
         "This pull request changes files that count as UI changes, and nothing is " +
         "attached yet. Add screenshots with `uploads put`." +
-        commentLink +
+        howTo +
         "\n\n" +
         shown.join("\n"),
     };
@@ -158,26 +161,19 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
   };
 }
 
-/** The PR's current head commit and label names, uncached (both move). */
-async function prHead(
+/** The PR's current head commit, uncached (it moves on every push). */
+async function prHeadSha(
   fetchImpl: typeof fetch,
   token: string,
   repo: string,
   num: number,
-): Promise<{ sha: string; labels: string[] } | null> {
+): Promise<string | null> {
   const res = await githubFetch(fetchImpl, `https://api.github.com/repos/${repo}/pulls/${num}`, {
     headers: githubHeaders(token),
   });
   if (!res.ok) return null;
-  const body = (await res.json().catch(() => null)) as {
-    head?: { sha?: unknown };
-    labels?: { name?: unknown }[];
-  } | null;
-  if (typeof body?.head?.sha !== "string") return null;
-  const labels = Array.isArray(body.labels)
-    ? body.labels.map((l) => l?.name).filter((n): n is string => typeof n === "string")
-    : [];
-  return { sha: body.head.sha, labels };
+  const body = (await res.json().catch(() => null)) as { head?: { sha?: unknown } } | null;
+  return typeof body?.head?.sha === "string" ? body.head.sha : null;
 }
 
 /**
@@ -200,21 +196,9 @@ export async function syncUploadsCheck(
 
     const token = await installationToken(env, cfg, installationId, fetchImpl);
     if (!token) return;
-    // Labels only matter when a requirement could fail; otherwise the
-    // webhook's head SHA saves the PR read.
-    const needsLabels = Boolean(gathered.required && gathered.checklist?.length);
-    const head =
-      opts.headSha && !needsLabels
-        ? { sha: opts.headSha, labels: [] }
-        : await prHead(fetchImpl, token, target.repo, target.num);
-    if (!head) return;
-    const sha = opts.headSha ?? head.sha;
-    const skipLabels = gathered.skipLabels ?? [];
-    const facts: CheckFacts = {
-      ...gathered,
-      skipLabel: matchingSkipLabel(head.labels, skipLabels),
-      skipHint: skipLabels[0],
-    };
+    const sha = opts.headSha ?? (await prHeadSha(fetchImpl, token, target.repo, target.num));
+    if (!sha) return;
+    const facts: CheckFacts = { ...gathered, skipHint: gathered.skipLabels?.[0] };
 
     const base = `https://api.github.com/repos/${target.repo}`;
     const list = await githubFetch(

@@ -35,6 +35,11 @@ describe("checkRunContent", () => {
     expect(content.summary).toContain("- `apps/web/a.astro`\n- `b.css`");
   });
 
+  it("links the how-to docs when there's no comment to point at", () => {
+    const content = checkRunContent({ count: 0, heldCount: 0, uiFiles: ["b.css"] }, null);
+    expect(content.summary).toContain("https://uploads.sh/docs/github-app#no-uploads");
+  });
+
   describe("required uploads", () => {
     const req = { required: true, uiFiles: ["a.astro"], skipHint: "uploads:skip-verify" };
     const unmet = [
@@ -74,7 +79,7 @@ describe("checkRunContent", () => {
 
     it("goes neutral for a skip label", () => {
       const content = checkRunContent(
-        { ...req, count: 0, heldCount: 0, checklist: unmet, skipLabel: "Uploads:Skip-Verify" },
+        { ...req, count: 0, heldCount: 0, checklist: [], skipLabel: "Uploads:Skip-Verify" },
         null,
       );
       expect(content).toMatchObject({
@@ -107,7 +112,7 @@ describe("checkRunContent", () => {
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
-function harness(opts: { existing?: number[]; listStatus?: number; labels?: string[] } = {}) {
+function harness(opts: { existing?: number[]; listStatus?: number } = {}) {
   const kv = new FakeKv();
   kv.store.set("ghtok:42", { value: "tok" });
   const calls: Call[] = [];
@@ -119,11 +124,7 @@ function harness(opts: { existing?: number[]; listStatus?: number; labels?: stri
       method,
       ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
     });
-    if (url.endsWith("/pulls/12"))
-      return Response.json({
-        head: { sha: "abc123" },
-        labels: (opts.labels ?? []).map((name) => ({ name })),
-      });
+    if (url.endsWith("/pulls/12")) return Response.json({ head: { sha: "abc123" } });
     if (url.includes("/check-runs?")) {
       if (opts.listStatus) return new Response("", { status: opts.listStatus });
       return Response.json({ check_runs: (opts.existing ?? []).map((id) => ({ id })) });
@@ -221,28 +222,6 @@ describe("syncUploadsCheck", () => {
     );
     const post = h.calls.find((c) => c.method === "POST");
     expect(post?.body).toMatchObject({ conclusion: "success" });
-  });
-
-  it("reads the PR's labels to honour a skip label", async () => {
-    const h = harness({ labels: ["design", "uploads:skip-verify"] });
-    await syncUploadsCheck(
-      h.env,
-      CFG,
-      42,
-      TARGET,
-      {
-        count: 0,
-        heldCount: 0,
-        required: true,
-        uiFiles: ["a.css"],
-        checklist: [{ label: "Uploads", met: false }],
-        skipLabels: ["uploads:skip-verify"],
-      },
-      { headSha: "def456", fetchImpl: h.fetchImpl },
-    );
-    expect(h.calls.some((c) => c.url.endsWith("/pulls/12"))).toBe(true);
-    const post = h.calls.find((c) => c.method === "POST");
-    expect(post?.body).toMatchObject({ head_sha: "def456", conclusion: "neutral" });
   });
 
   it("does nothing for issues", async () => {

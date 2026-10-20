@@ -2,10 +2,18 @@
  * Required uploads (`.uploads.yml` `check.require`): what a PR that changes
  * UI files must carry for the `uploads.sh` check to pass, evaluated from
  * server-owned facts only. The checklist shows in the managed comment and in
- * the check's summary; a skip label (`check.skipLabels`) excuses the PR.
+ * the check's summary; a skip label (`check.skipLabels`) excuses the PR and
+ * replaces the checklist with a "skipped" line in both.
  */
 import type { CheckRequirement } from "@uploads/comment-config";
-import type { ChecklistEntry } from "./github-comment-render";
+import type { ChecklistEntry, GhTarget } from "./github-comment-render";
+import {
+  githubAppConfig,
+  githubFetch,
+  githubHeaders,
+  installationForRepo,
+  installationToken,
+} from "./github-app";
 import { getMetadataForKeys } from "./file-metadata";
 import { dbFor } from "./db-session";
 
@@ -92,4 +100,38 @@ export function matchingSkipLabel(
 ): string | null {
   const wanted = new Set(skipLabels.map((l) => l.toLowerCase()));
   return prLabels.find((l) => wanted.has(l.toLowerCase())) ?? null;
+}
+
+/**
+ * The PR's label that excuses it, read fresh from GitHub. Null on no match
+ * and on any GitHub failure: the requirement then stands, the safe side for
+ * a check the repo chose to enforce.
+ */
+export async function skipLabelOnPr(
+  env: Env,
+  target: GhTarget,
+  skipLabels: readonly string[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  if (target.kind !== "pull" || skipLabels.length === 0) return null;
+  const cfg = githubAppConfig(env);
+  if (!cfg) return null;
+  try {
+    const installId = await installationForRepo(env, cfg, target.repo, fetchImpl);
+    if (installId === null) return null;
+    const token = await installationToken(env, cfg, installId, fetchImpl);
+    if (!token) return null;
+    const res = await githubFetch(
+      fetchImpl,
+      `https://api.github.com/repos/${target.repo}/issues/${target.num}/labels?per_page=100`,
+      { headers: githubHeaders(token) },
+    );
+    if (!res.ok) return null;
+    const labels = (await res.json().catch(() => null)) as { name?: unknown }[] | null;
+    if (!Array.isArray(labels)) return null;
+    const names = labels.map((l) => l?.name).filter((n): n is string => typeof n === "string");
+    return matchingSkipLabel(names, skipLabels);
+  } catch {
+    return null;
+  }
 }

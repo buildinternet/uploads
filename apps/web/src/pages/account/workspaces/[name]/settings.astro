@@ -154,8 +154,9 @@ const tip = {
             <span id="cs-row-ui-paths-chip"></span>
           </div>
           <p class="setting-row__desc">
-            Files that count as UI changes, one pattern per line. A repo's own uiPaths in
-            .uploads.yml replaces this list.
+            Files that count as UI changes, one pattern per line. Left empty, common UI files (.tsx,
+            .css, .astro and similar) count, and they show only in the check with no comment. A
+            repo's own uiPaths in .uploads.yml replaces this list.
           </p>
           <textarea
             id="cs-ui-paths"

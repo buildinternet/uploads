@@ -51,8 +51,8 @@ loop hands-off. Seven things change:
   [Imported attachments](#ingest).
 - **PRs get an uploads.sh check.** One row in the checks list says what's attached and whether
   anything is held for review. See [The uploads.sh check](#check).
-- **PRs that change UI files get a nudge.** If a repo lists its UI paths, a PR that changes them with
-  nothing attached gets a short how-to comment. See [PRs with no uploads](#no-uploads).
+- **PRs that change UI files get a nudge.** A PR that changes UI files with nothing attached gets a
+  neutral check, and a short how-to comment once you set UI paths. See [PRs with no uploads](#no-uploads).
 
 Everything in these docs still works without it — see [Without the App](#without-it).
 
@@ -154,8 +154,9 @@ approval.
   </tbody>
 </table>
 
-Otherwise a PR that never had uploads gets no check. A held file never fails the check, so a hold
-can't block a merge: a hold is about the uploaded file, not the PR's code.
+Otherwise a PR that never had uploads gets no check, so backend-only PRs stay quiet. A held file
+never fails the check, so a hold can't block a merge: a hold is about the uploaded file, not the
+PR's code.
 
 </section>
 
@@ -163,7 +164,13 @@ can't block a merge: a hold is about the uploaded file, not the PR's code.
 
 ## PRs with no uploads <a class="anchor" href="#no-uploads" aria-label="Link to this section">#</a>
 
-A workspace admin can list the files that count as UI changes under **UI file paths** in
+Out of the box, a pull request that changes UI files with nothing attached gets the neutral
+[uploads.sh check](#check), "UI files changed, no uploads attached". It posts no comment, so nobody
+is notified. UI files start out as the same list the CLI's [pre-PR reminder](/docs/agents#pre-pr-reminder)
+uses: `.astro`, `.tsx`, `.jsx`, `.vue`, `.svelte`, `.html`, `.css`, `.scss` and `.less` files, and
+anything in an `email/` folder.
+
+To choose the files yourself, a workspace admin can list them under **UI file paths** in
 **Settings → GitHub**. A repo can set its own list under `uiPaths` in
 [`.uploads.yml`](/docs/comment-config), which replaces the workspace list:
 
@@ -174,13 +181,12 @@ comment:
     - "*.css"
 ```
 
-When a pull request changes one of those files and has nothing attached, the App posts a short
-comment naming the changed files and the ways to add screenshots. It's the same managed comment, so
-the first upload replaces it with the normal screenshots. The [uploads.sh check](#check) reports the
-same state.
+Once paths are set, a pull request that changes one of those files with nothing attached also gets
+a short comment naming the changed files and the ways to add screenshots. It's the same managed
+comment, so the first upload replaces it with the normal screenshots.
 
-Nothing happens on PRs that don't touch those paths, or when no paths are set. To keep the check
-but skip the comment, a workspace admin can turn off **Comment when a PR has no uploads** under
+Nothing happens on PRs that don't touch UI files. Deleted files, and files moved without edits, don't count. A repo can turn both the check and the comment off
+with `uiPaths: []`. To keep the check but skip the comment, a workspace admin can turn off **Comment when a PR has no uploads** under
 **Settings → GitHub**, or a repo can set `noUploadsComment: false`.
 
 </section>
@@ -189,13 +195,12 @@ but skip the comment, a workspace admin can turn off **Comment when a PR has no 
 
 ## Required uploads <a class="anchor" href="#required" aria-label="Link to this section">#</a>
 
-A repo can make the [uploads.sh check](#check) fail when a PR changes its [UI files](#no-uploads)
-without the uploads it expects, like a linter for screenshots:
+A repo can make the [uploads.sh check](#check) fail when a PR changes [UI files](#no-uploads)
+without the uploads it expects, like a linter for screenshots. UI files are the built-in list unless
+the workspace or repo sets its own:
 
 ```yaml title=".uploads.yml" frame="code"
 comment:
-  uiPaths:
-    - "apps/web/**"
   check:
     require: [uploads, before-after, desktop, mobile]
 ```
@@ -210,8 +215,8 @@ To block merges on it, make `uploads.sh` a required check in the repo's branch p
 `check.require` set, every PR gets the check, and a PR that changes no UI files passes.
 
 A PR that needs no uploads can skip the requirement with a label: `uploads:skip-verify`,
-`skip-uploads`, or `uploads-skip`, in any case. The check turns neutral right away and names the
-label. A repo can list its own labels instead under `check.skipLabels`. A held file counts as
+`skip-uploads`, or `uploads-skip`, in any case. The check turns neutral right away, and the
+comment says the requirement was skipped and by which label. A repo can list its own labels instead under `check.skipLabels`. A held file counts as
 attached and never fails the check.
 
 </section>

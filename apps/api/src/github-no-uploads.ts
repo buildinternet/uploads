@@ -1,9 +1,10 @@
 /**
- * The "no uploads yet" path: a PR that changes UI files (`uiPaths` from the
- * repo's `.uploads.yml`, else the workspace's UI file paths setting) but has
- * nothing attached. The managed comment then carries a short how-to instead
- * of staying absent, and the `uploads.sh` check says UI files changed. Both
- * are off until paths are set, so a backend-only repo never sees either.
+ * The "no uploads yet" path: a PR that changes UI files but has nothing
+ * attached. UI files are `uiPaths` from the repo's `.uploads.yml`, else the
+ * workspace's UI file paths setting, else `DEFAULT_UI_PATHS`. The `uploads.sh`
+ * check then says UI files changed. The managed comment carries a short how-to
+ * only when paths are set, since a comment notifies everyone on the PR and the
+ * check row notifies no one. A repo's `uiPaths: []` turns both off.
  *
  * The how-to is the same marker-owned comment: the first upload replaces it
  * in place with the normal attachments body, so a PR never gets two.
@@ -16,6 +17,24 @@ import {
   installationToken,
 } from "./github-app";
 import { checklistLine, type ChecklistEntry, type GhTarget } from "./github-comment-render";
+
+/**
+ * The files that count as UI changes when nothing sets `uiPaths`. Mirrors the
+ * CLI's pre-PR hook (`VISUAL_EXT` and `EMAIL_PATH` in
+ * packages/uploads/src/commands/hook.ts), so the agent and the App agree.
+ */
+export const DEFAULT_UI_PATHS: readonly string[] = [
+  "*.astro",
+  "*.tsx",
+  "*.jsx",
+  "*.vue",
+  "*.svelte",
+  "*.html",
+  "*.css",
+  "*.scss",
+  "*.less",
+  "**/email/**",
+];
 
 /** Pages of 100 changed files read before giving up (GitHub caps the list at 3000). */
 const MAX_FILE_PAGES = 3;
@@ -87,9 +106,13 @@ export async function changedUiFiles(
         { headers: githubHeaders(token) },
       );
       if (!res.ok) return [];
-      const files = (await res.json().catch(() => null)) as { filename?: unknown }[] | null;
+      const files = (await res.json().catch(() => null)) as
+        | { filename?: unknown; status?: unknown; changes?: unknown }[]
+        | null;
       if (!Array.isArray(files)) return [];
       for (const f of files) {
+        // A deleted file, or one moved without edits, has nothing to screenshot.
+        if (f.status === "removed" || (f.status === "renamed" && f.changes === 0)) continue;
         if (typeof f.filename === "string" && matches(f.filename)) found.push(f.filename);
       }
       if (files.length < 100) break;
