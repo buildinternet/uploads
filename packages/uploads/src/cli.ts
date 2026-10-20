@@ -1,4 +1,5 @@
 import { createUploadsClient } from "./client.js";
+import { fileExpiredTokenStore } from "./expired-tokens.js";
 import { DEFAULT_API_URL, resolveApiUrl, resolveConfig } from "./config.js";
 import { scopeRemedy } from "./client.js";
 import { UploadsError } from "./errors.js";
@@ -111,7 +112,7 @@ function createContext(
   });
   return {
     config,
-    client: createUploadsClient(config),
+    client: createUploadsClient(config, { expiredTokens: fileExpiredTokenStore() }),
     json: globals.json ?? false,
     quiet: globals.quiet ?? false,
     envFile: globals.envFile,
