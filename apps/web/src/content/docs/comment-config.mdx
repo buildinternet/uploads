@@ -103,6 +103,14 @@ comment:
   # set. Overrides the workspace setting.
   noUploadsComment: true
 
+  # Make the uploads.sh check fail when a PR changes uiPaths without these.
+  # Items: uploads, before-after, desktop, mobile. Any item implies uploads.
+  # skipLabels excuse a PR (any case); it defaults to uploads:skip-verify,
+  # skip-uploads and uploads-skip. See the GitHub App docs, Required uploads.
+  check:
+    require: [uploads, before-after]
+    skipLabels: ["uploads:skip-verify"]
+
   # Optional short markdown at the top of the comment, before the media —
   # repo-specific context, a link to a contributing guide, and so on.
   # Trimmed, capped at 500 characters, rendered as-is: it's

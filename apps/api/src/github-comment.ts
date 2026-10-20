@@ -8,6 +8,7 @@
  */
 
 import { changedUiFiles, noUploadsCommentBody } from "./github-no-uploads";
+import { gatherChecklist } from "./github-check-requirements";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -30,6 +31,7 @@ import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { HOLD_META_KEY, isHeld } from "./upload-hold";
 import { listHeldKeys } from "./upload-hold-read";
 import type { ResolvedCommentOptions } from "@uploads/comment-config";
+import type { ChecklistEntry } from "./github-comment-render";
 import {
   attachmentsCommentBody,
   attachmentsMarker,
@@ -69,10 +71,22 @@ export async function gatherCommentBody(
   body: string;
   count: number;
   heldCount: number;
-  /** Changed files matching the repo's `uiPaths`; only looked up for an empty PR. */
+  /**
+   * Changed files matching the repo's `uiPaths`; only looked up for an empty
+   * PR, or for any PR when the repo requires uploads.
+   */
   uiFiles: string[];
   /** The body is the no-uploads how-to, which may create the comment. */
   noUploads: boolean;
+  /**
+   * The repo requires uploads (`check.require`), so the check may fail and
+   * must report on every PR.
+   */
+  required: boolean;
+  /** The requirements, evaluated; empty unless required and UI files changed. */
+  checklist: ChecklistEntry[];
+  /** Labels that excuse this PR from the requirements. */
+  skipLabels: string[];
 }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -98,19 +112,36 @@ export async function gatherCommentBody(
     note: options.note,
   };
   // An empty PR that changes UI files gets the how-to instead of the neutral
-  // empty state (github-no-uploads.ts). Only looked up for an empty PR, so a
-  // PR with uploads never pays for the changed-files read.
+  // empty state (github-no-uploads.ts). Only looked up for an empty PR, or
+  // when the repo requires uploads, so other PRs never pay for the
+  // changed-files read.
+  const required = options.checkRequire.length > 0 && target.kind === "pull";
   const uiFiles =
-    count === 0 && opts.detectUiChanges ? await changedUiFiles(env, target, options.uiPaths) : [];
-  if (uiFiles.length > 0 && options.noUploadsComment) {
+    (count === 0 || required) && opts.detectUiChanges
+      ? await changedUiFiles(env, target, options.uiPaths)
+      : [];
+  const checklist =
+    required && uiFiles.length > 0
+      ? await gatherChecklist(
+          env,
+          workspaceName,
+          options.checkRequire,
+          items.map((item) => item.key),
+          galleries.length + heldCount,
+        )
+      : [];
+  const check = { required, checklist, skipLabels: options.checkSkipLabels };
+  if (count === 0 && uiFiles.length > 0 && options.noUploadsComment) {
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
         importsAttachments: options.ingestGithubAttachments,
+        checklist,
       }),
       count,
       heldCount,
       uiFiles,
       noUploads: true,
+      ...check,
     };
   }
 
@@ -120,11 +151,13 @@ export async function gatherCommentBody(
     body: attachmentsCommentBody(items, galleries, marker, renderOptions, target, {
       liveLinkUrl,
       heldCount,
+      checklist,
     }),
     count,
     heldCount,
     uiFiles,
     noUploads: false,
+    ...check,
   };
 }
 

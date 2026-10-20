@@ -15,7 +15,7 @@ import {
   installationForRepo,
   installationToken,
 } from "./github-app";
-import type { GhTarget } from "./github-comment-render";
+import { checklistLine, type ChecklistEntry, type GhTarget } from "./github-comment-render";
 
 /** Pages of 100 changed files read before giving up (GitHub caps the list at 3000). */
 const MAX_FILE_PAGES = 3;
@@ -123,7 +123,7 @@ export function noUploadsCommentBody(
   marker: string,
   target: Pick<GhTarget, "num">,
   uiFiles: readonly string[],
-  opts: { importsAttachments: boolean },
+  opts: { importsAttachments: boolean; checklist?: readonly ChecklistEntry[] },
 ): string {
   const lines = [
     marker,
@@ -137,6 +137,7 @@ export function noUploadsCommentBody(
   if (opts.importsAttachments) {
     lines.push("- By hand: drag images into the PR description and they're imported automatically");
   }
+  if (opts.checklist?.length) lines.push("", checklistLine(opts.checklist));
   lines.push(
     "",
     `<sub>Workspace admins can turn this comment off in Settings → GitHub · <a href="https://uploads.sh/docs/github-app#no-uploads">docs</a></sub>`,

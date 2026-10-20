@@ -35,6 +35,68 @@ describe("checkRunContent", () => {
     expect(content.summary).toContain("- `apps/web/a.astro`\n- `b.css`");
   });
 
+  describe("required uploads", () => {
+    const req = { required: true, uiFiles: ["a.astro"], skipHint: "uploads:skip-verify" };
+    const unmet = [
+      { label: "Uploads", met: true },
+      { label: "Mobile", met: false },
+    ];
+
+    it("fails when UI files changed with nothing attached", () => {
+      const content = checkRunContent(
+        { ...req, count: 0, heldCount: 0, checklist: [{ label: "Uploads", met: false }] },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "failure",
+        title: "UI files changed, no uploads attached",
+      });
+      expect(content.summary).toContain("add the `uploads:skip-verify` label");
+      expect(content.summary).toContain("**Required:** ⬜ Uploads");
+    });
+
+    it("names the unmet requirements", () => {
+      expect(
+        checkRunContent({ ...req, count: 2, heldCount: 0, checklist: unmet }, null),
+      ).toMatchObject({ conclusion: "failure", title: "Missing: mobile" });
+    });
+
+    it("passes when every requirement is met", () => {
+      const content = checkRunContent(
+        { ...req, count: 2, heldCount: 0, checklist: [{ label: "Uploads", met: true }] },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "success",
+        title: "2 files attached, requirements met",
+      });
+    });
+
+    it("goes neutral for a skip label", () => {
+      const content = checkRunContent(
+        { ...req, count: 0, heldCount: 0, checklist: unmet, skipLabel: "Uploads:Skip-Verify" },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "neutral",
+        title: "Required uploads skipped",
+      });
+      expect(content.summary).toContain("`Uploads:Skip-Verify`");
+    });
+
+    it("never fails while a file is held", () => {
+      expect(
+        checkRunContent({ ...req, count: 2, heldCount: 1, checklist: unmet }, null).conclusion,
+      ).toBe("neutral");
+    });
+
+    it("passes a PR that changes no UI files", () => {
+      expect(
+        checkRunContent({ required: true, count: 0, heldCount: 0, uiFiles: [] }, null),
+      ).toMatchObject({ conclusion: "success", title: "No UI files changed" });
+    });
+  });
+
   it("goes neutral when nothing is attached", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
       conclusion: "neutral",
@@ -45,7 +107,7 @@ describe("checkRunContent", () => {
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
-function harness(opts: { existing?: number[]; listStatus?: number } = {}) {
+function harness(opts: { existing?: number[]; listStatus?: number; labels?: string[] } = {}) {
   const kv = new FakeKv();
   kv.store.set("ghtok:42", { value: "tok" });
   const calls: Call[] = [];
@@ -57,7 +119,11 @@ function harness(opts: { existing?: number[]; listStatus?: number } = {}) {
       method,
       ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
     });
-    if (url.endsWith("/pulls/12")) return Response.json({ head: { sha: "abc123" } });
+    if (url.endsWith("/pulls/12"))
+      return Response.json({
+        head: { sha: "abc123" },
+        labels: (opts.labels ?? []).map((name) => ({ name })),
+      });
     if (url.includes("/check-runs?")) {
       if (opts.listStatus) return new Response("", { status: opts.listStatus });
       return Response.json({ check_runs: (opts.existing ?? []).map((id) => ({ id })) });
@@ -143,6 +209,42 @@ describe("syncUploadsCheck", () => {
     expect(post?.body).toMatchObject({ conclusion: "neutral" });
   });
 
+  it("creates a run on every PR when uploads are required", async () => {
+    const h = harness();
+    await syncUploadsCheck(
+      h.env,
+      CFG,
+      42,
+      TARGET,
+      { count: 0, heldCount: 0, required: true },
+      { headSha: "abc123", fetchImpl: h.fetchImpl },
+    );
+    const post = h.calls.find((c) => c.method === "POST");
+    expect(post?.body).toMatchObject({ conclusion: "success" });
+  });
+
+  it("reads the PR's labels to honour a skip label", async () => {
+    const h = harness({ labels: ["design", "uploads:skip-verify"] });
+    await syncUploadsCheck(
+      h.env,
+      CFG,
+      42,
+      TARGET,
+      {
+        count: 0,
+        heldCount: 0,
+        required: true,
+        uiFiles: ["a.css"],
+        checklist: [{ label: "Uploads", met: false }],
+        skipLabels: ["uploads:skip-verify"],
+      },
+      { headSha: "def456", fetchImpl: h.fetchImpl },
+    );
+    expect(h.calls.some((c) => c.url.endsWith("/pulls/12"))).toBe(true);
+    const post = h.calls.find((c) => c.method === "POST");
+    expect(post?.body).toMatchObject({ head_sha: "def456", conclusion: "neutral" });
+  });
+
   it("does nothing for issues", async () => {
     const h = harness();
     await syncUploadsCheck(
@@ -218,6 +320,18 @@ describe("webhook wiring", () => {
       },
     });
     expect(ev?.promote).toEqual({ repo: "acme/web", num: 12, branch: "feat", sha: "abc123" });
+  });
+
+  it("re-checks on label changes", async () => {
+    const { extractWebhookEvent } = await import("./github-webhook");
+    const ev = extractWebhookEvent("pull_request", {
+      action: "labeled",
+      repository: { full_name: "acme/web" },
+      pull_request: { number: 12, title: "t", state: "open" },
+      label: { name: "uploads:skip-verify" },
+    });
+    expect(ev?.labels).toEqual({ repo: "acme/web", num: 12 });
+    expect(ev?.promote).toBeUndefined();
   });
 
   it("clears the denied marker on installation events", async () => {
