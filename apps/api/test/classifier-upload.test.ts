@@ -1,3 +1,4 @@
+import { encode } from "jpeg-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteObject, putObject } from "../src/files-core";
 import { FakeR2Bucket } from "./fake-r2";
@@ -178,6 +179,40 @@ async function putFlagged(
   const pending: Promise<unknown>[] = [];
   const result = await putObject(harness.env, harness.ws, "images/flagged.png", bytes, WORKSPACE, {
     ...opts,
+    waitUntil: (work) => {
+      pending.push(work);
+    },
+  });
+  await Promise.all(pending);
+  return result;
+}
+
+/** 400×280 JPEG inside Jev's window. `comment` changes the bytes, not the pixels. */
+function jpegFrame(seed: number, comment?: string): Uint8Array {
+  const width = 400;
+  const height = 280;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      data[i] = (x + seed) & 255;
+      data[i + 1] = (y * 3) & 255;
+      data[i + 2] = (x * 3 + y + seed) & 255;
+      data[i + 3] = 255;
+    }
+  }
+  const encoded = encode({ data, width, height, ...(comment ? { comments: [comment] } : {}) }, 80);
+  return new Uint8Array(encoded.data);
+}
+
+async function putImage(
+  harness: ReturnType<typeof makeClassifierEnv>,
+  key: string,
+  bytes: Uint8Array,
+  workspace = WORKSPACE,
+) {
+  const pending: Promise<unknown>[] = [];
+  const result = await putObject(harness.env, harness.ws, key, bytes, workspace, {
     waitUntil: (work) => {
       pending.push(work);
     },
@@ -1115,7 +1150,7 @@ describe("safety flags", () => {
     expect(stored?.["ai.content"]).toBe("sexual");
   });
 
-  it("keeps every classifier row when the same bytes are re-uploaded and reclassification fails", async () => {
+  it("skips the model and keeps classifier rows when the same bytes are re-uploaded", async () => {
     let calls = 0;
     const harness = makeClassifierEnv(() => {
       calls += 1;
@@ -1129,7 +1164,7 @@ describe("safety flags", () => {
       metadata: { path: "/settings", state: "after" },
     });
 
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     expect(second.metadata).toEqual({ path: "/settings", state: "after" });
     const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
     expect(after?.["ai.rating"]).toBe("explicit");
@@ -1140,12 +1175,80 @@ describe("safety flags", () => {
     expect(after?.["ai.secret.confidence"]).toBe("high");
     expect(after?.["ai.pii"]).toBe("financial");
     expect(after?.["ai.pii.confidence"]).toBe("medium");
-    // Same bytes: the earlier labels still describe them, and the failed
-    // retry does not overwrite them with a failure marker.
     expect(after?.["ai.kind"]).toBe("screenshot");
     expect(after?.["ai.classifier"]).toBe("v5");
     expect(after?.["ai.error"]).toBeUndefined();
     expect(after?.path).toBe("/settings");
+  });
+
+  it("reuses a classification for identical bytes in the workspace, including safety flags", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    const jpeg = jpegFrame(1);
+    expect(jpeg.byteLength).toBeGreaterThanOrEqual(CLASSIFIER_SKIP_MIN_BYTES);
+    const first = await putImage(harness, "images/exact-a.jpg", jpeg);
+    const second = await putImage(harness, "images/exact-b.jpg", jpeg);
+
+    expect(harness.calls).toHaveLength(1);
+    const copied = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [second.key])).get(
+      second.key,
+    );
+    const original = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(
+      first.key,
+    );
+    expect(copied?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    expect(copied?.["ai.kind"]).toBe("screenshot");
+    expect(copied?.["ai.secret"]).toBe("api_key");
+    expect(copied?.["ai.secret.confidence"]).toBe("high");
+    expect(copied?.["ai.pii"]).toBe("financial");
+    expect(copied?.["ai.rating"]).toBe("explicit");
+    expect(copied?.["ai.content"]).toBe("sexual");
+    expect(copied?.["ai.phash"]).toBe(original?.["ai.phash"]);
+
+    await putImage(harness, "images/exact-c.jpg", jpeg, "elsewhere");
+    expect(harness.calls).toHaveLength(2);
+  });
+
+  it("reuses display labels on a pHash match and does not copy safety flags", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    const original = jpegFrame(4);
+    const resaved = jpegFrame(4, "re-saved");
+    const different = jpegFrame(90);
+    expect(original.byteLength).toBeGreaterThanOrEqual(CLASSIFIER_SKIP_MIN_BYTES);
+    expect(Buffer.from(original).equals(Buffer.from(resaved))).toBe(false);
+
+    const first = await putImage(harness, "images/phash-a.jpg", original);
+    const second = await putImage(harness, "images/phash-b.jpg", resaved);
+    expect(harness.calls).toHaveLength(1);
+
+    const donor = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
+    const copied = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [second.key])).get(
+      second.key,
+    );
+    expect(copied?.["ai.phash"]).toBe(donor?.["ai.phash"]);
+    expect(copied?.["ai.kind"]).toBe("screenshot");
+    expect(copied?.["ai.surface"]).toBe("desktop");
+    expect(copied?.["ai.screen"]).toBe("settings");
+    expect(copied?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    for (const key of [
+      "ai.rating",
+      "ai.rating.confidence",
+      "ai.content",
+      "ai.content.confidence",
+      "ai.secret",
+      "ai.secret.confidence",
+      "ai.pii",
+      "ai.pii.confidence",
+      "ai.hold",
+      "ai.hold.area",
+    ]) {
+      expect(copied?.[key]).toBeUndefined();
+    }
+
+    const third = await putImage(harness, "images/phash-c.jpg", different);
+    expect(harness.calls).toHaveLength(2);
+    const fresh = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [third.key])).get(third.key);
+    expect(fresh?.["ai.secret"]).toBe("api_key");
+    expect(fresh?.["ai.phash"]).not.toBe(donor?.["ai.phash"]);
   });
 
   it("clears old labels when new bytes fail to classify, with or without metadata headers", async () => {

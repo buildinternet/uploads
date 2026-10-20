@@ -89,11 +89,14 @@ export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
 );
 
+/** 63-bit DCT hash for a PNG or JPEG. Server-owned, like the other `ai.*` rows. */
+export const PHASH_META_KEY = "ai.phash";
+
 /**
  * Every row the classifier writes: the version marker, skip and error
  * reasons, the display labels, the older `ai.tags` / `ai.summary`, the
- * hold state (`ai.hold`, see `upload-hold.ts`), and the eight
- * safety-flag rows. They all describe one set of bytes, so
+ * hold state (`ai.hold`, see `upload-hold.ts`), the perceptual hash, and
+ * the eight safety-flag rows. They all describe one set of bytes, so
  * they share the `SAFETY_FLAG_KEYS` lifetime: identical bytes keep them,
  * new bytes delete them before classification is scheduled. Without
  * that, a failed or partial run on new bytes would leave labels from the
@@ -113,6 +116,7 @@ export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
   "ai.hold.area",
   "ai.hold.by",
   "ai.hold.at",
+  PHASH_META_KEY,
   ...SAFETY_FLAG_KEYS,
 ]);
 
