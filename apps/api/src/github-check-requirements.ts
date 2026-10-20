@@ -5,15 +5,9 @@
  * the check's summary; a skip label (`check.skipLabels`) excuses the PR and
  * replaces the checklist with a "skipped" line in both.
  */
-import type { CheckRequirement } from "@uploads/comment-config";
+import type { CheckRequirement, ResolvedCommentOptions } from "@uploads/comment-config";
 import type { ChecklistEntry, GhTarget } from "./github-comment-render";
-import {
-  githubAppConfig,
-  githubFetch,
-  githubHeaders,
-  installationForRepo,
-  installationToken,
-} from "./github-app";
+import { githubFetch, githubHeaders, repoInstallationToken } from "./github-app";
 import { getMetadataForKeys } from "./file-metadata";
 import { dbFor } from "./db-session";
 
@@ -25,7 +19,7 @@ const LABELS: Record<CheckRequirement, string> = {
 };
 
 /** `state` from the upload, `ai.surface` from the classifier, dimensions as the fallback. */
-export const REQUIREMENT_META_KEYS = [
+const REQUIREMENT_META_KEYS = [
   "state",
   "ai.surface",
   "image.width",
@@ -71,26 +65,46 @@ export function requirementChecklist(
   return require.map((r) => ({ label: LABELS[r], met: met[r] }));
 }
 
-/** The checklist for a PR's shown attachments plus `extraCount` galleries and held files. */
-export async function gatherChecklist(
+/**
+ * Where a PR that changed UI files stands on the repo's requirements: excused
+ * by `skipLabel`, or measured by `checklist`. The comment and the check both
+ * render from this one value.
+ */
+export interface Requirement {
+  checklist: ChecklistEntry[];
+  skipLabel: string | null;
+  /** The label a failing check suggests for skipping. */
+  skipHint: string | undefined;
+}
+
+/**
+ * Evaluate the requirements for a PR's shown attachment `keys` plus
+ * `extraCount` galleries and held files. The label read and the metadata
+ * read are independent, so they overlap.
+ */
+export async function evaluateRequirement(
   env: Env,
   workspaceName: string,
-  require: readonly CheckRequirement[],
-  keys: readonly string[],
+  target: GhTarget,
+  options: Pick<ResolvedCommentOptions, "checkRequire" | "checkSkipLabels">,
+  keys: string[],
   extraCount: number,
-): Promise<ChecklistEntry[]> {
-  if (require.length === 0) return [];
-  const metaByKey =
-    keys.length > 0
-      ? await getMetadataForKeys(dbFor(env), workspaceName, [...keys], {
-          metaKeys: REQUIREMENT_META_KEYS,
-        })
-      : new Map<string, Record<string, string>>();
-  return requirementChecklist(
-    require,
-    keys.length + extraCount,
-    keys.map((k) => metaByKey.get(k)),
-  );
+): Promise<Requirement> {
+  const [skipLabel, metaByKey] = await Promise.all([
+    skipLabelOnPr(env, target, options.checkSkipLabels),
+    getMetadataForKeys(dbFor(env), workspaceName, keys, { metaKeys: REQUIREMENT_META_KEYS }),
+  ]);
+  return {
+    checklist: skipLabel
+      ? []
+      : requirementChecklist(
+          options.checkRequire,
+          keys.length + extraCount,
+          keys.map((k) => metaByKey.get(k)),
+        ),
+    skipLabel,
+    skipHint: options.checkSkipLabels[0],
+  };
 }
 
 /** The first of the PR's labels that is a skip label, compared case-insensitively. */
@@ -114,12 +128,8 @@ export async function skipLabelOnPr(
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
   if (target.kind !== "pull" || skipLabels.length === 0) return null;
-  const cfg = githubAppConfig(env);
-  if (!cfg) return null;
   try {
-    const installId = await installationForRepo(env, cfg, target.repo, fetchImpl);
-    if (installId === null) return null;
-    const token = await installationToken(env, cfg, installId, fetchImpl);
+    const token = await repoInstallationToken(env, target.repo, fetchImpl);
     if (!token) return null;
     const res = await githubFetch(
       fetchImpl,

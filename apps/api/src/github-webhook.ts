@@ -82,6 +82,7 @@ import { promoteBranchAttachments } from "./github-promote";
 import { deleteRepoLink, findRepoLinkStrict, type RepoLink } from "./github-repo-links";
 import { loadWorkspaceRecord } from "./workspace";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
+import { matchingSkipLabel } from "./github-check-requirements";
 import { dbFor } from "./db-session";
 
 const enc = new TextEncoder();
@@ -423,17 +424,18 @@ async function reconcileBotComment(
 }
 
 /**
- * A label was added or removed: re-sync the comment and check when the repo
- * requires uploads, so a skip label passes the check right away. Other repos
- * skip the work, since labels change often. Throws like reconcile.
+ * A skip label was added or removed: re-sync the comment and check, so the
+ * check passes right away. Other labels, and repos that don't require
+ * uploads, skip the work. Throws like reconcile.
  */
-async function recheckForLabels(env: Env, repo: string, num: number): Promise<void> {
+async function recheckForLabels(env: Env, repo: string, num: number, label: string): Promise<void> {
   const link = await findRepoLinkStrict(dbFor(env), repo);
   if (!link) return;
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) return;
   const { options } = await resolveRepoCommentOptions(env, ws, repo);
   if (options.checkRequire.length === 0) return;
+  if (!matchingSkipLabel([label], options.checkSkipLabels)) return;
   await gatherAndUpsert(env, link, { repo, kind: "pull", num });
 }
 
@@ -476,7 +478,7 @@ export interface WebhookEvent {
   prActivity?: { repo: string; number: number; title: string; state: PrState };
   /** `pull_request` labeled/unlabeled → re-sync the check, since a skip
    * label can excuse required uploads (`check.skipLabels`). */
-  labels?: { repo: string; num: number };
+  labels?: { repo: string; num: number; label: string };
 }
 
 /**
@@ -559,12 +561,14 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ) {
       ev.prActivity = { repo, number: pr.number, title: pr.title, state: prState };
     }
+    const label = (pp as { label?: { name?: unknown } }).label?.name;
     if (
       (action === "labeled" || action === "unlabeled") &&
       typeof repo === "string" &&
-      typeof pr?.number === "number"
+      typeof pr?.number === "number" &&
+      typeof label === "string"
     ) {
-      ev.labels = { repo, num: pr.number };
+      ev.labels = { repo, num: pr.number, label };
     }
     if (
       typeof action === "string" &&
@@ -726,7 +730,7 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
     await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
   }
   if (ev.labels) {
-    await recheckForLabels(env, ev.labels.repo, ev.labels.num);
+    await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
   }
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);

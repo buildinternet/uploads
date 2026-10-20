@@ -8,7 +8,7 @@
  */
 
 import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
-import { gatherChecklist, skipLabelOnPr } from "./github-check-requirements";
+import { evaluateRequirement, type Requirement } from "./github-check-requirements";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -31,7 +31,6 @@ import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { HOLD_META_KEY, isHeld } from "./upload-hold";
 import { listHeldKeys } from "./upload-hold-read";
 import type { ResolvedCommentOptions } from "@uploads/comment-config";
-import type { ChecklistEntry } from "./github-comment-render";
 import {
   attachmentsCommentBody,
   attachmentsMarker,
@@ -83,10 +82,8 @@ export async function gatherCommentBody(
    * must report on every PR.
    */
   required: boolean;
-  /** The requirements, evaluated; empty unless required and UI files changed. */
-  checklist: ChecklistEntry[];
-  /** Labels that excuse this PR from the requirements. */
-  skipLabels: string[];
+  /** Where the PR stands on the requirements; null unless required and UI files changed. */
+  requirement: Requirement | null;
 }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -121,22 +118,20 @@ export async function gatherCommentBody(
     (count === 0 || required) && opts.detectUiChanges
       ? await changedUiFiles(env, target, configured ? options.uiPaths : DEFAULT_UI_PATHS)
       : [];
-  // A skip label replaces the checklist and the how-to with one "skipped" line.
-  const skipLabel =
+  const requirement =
     required && uiFiles.length > 0
-      ? await skipLabelOnPr(env, target, options.checkSkipLabels)
-      : null;
-  const checklist =
-    required && uiFiles.length > 0 && !skipLabel
-      ? await gatherChecklist(
+      ? await evaluateRequirement(
           env,
           workspaceName,
-          options.checkRequire,
+          target,
+          options,
           items.map((item) => item.key),
           galleries.length + heldCount,
         )
-      : [];
-  const check = { required, checklist, skipLabel, skipLabels: options.checkSkipLabels };
+      : null;
+  // A skip label replaces the checklist and the how-to with one "skipped" line.
+  const skipLabel = requirement?.skipLabel ?? null;
+  const checklist = requirement?.checklist ?? [];
   if (count === 0 && uiFiles.length > 0 && configured && options.noUploadsComment && !skipLabel) {
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
@@ -147,7 +142,8 @@ export async function gatherCommentBody(
       heldCount,
       uiFiles,
       noUploads: true,
-      ...check,
+      required,
+      requirement,
     };
   }
 
@@ -164,7 +160,8 @@ export async function gatherCommentBody(
     heldCount,
     uiFiles,
     noUploads: false,
-    ...check,
+    required,
+    requirement,
   };
 }
 

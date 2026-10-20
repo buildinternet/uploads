@@ -19,7 +19,8 @@
  */
 import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
-import { checklistLine, type ChecklistEntry, type GhTarget } from "./github-comment-render";
+import { checklistLine, type GhTarget } from "./github-comment-render";
+import type { Requirement } from "./github-check-requirements";
 
 export const CHECK_NAME = "uploads.sh";
 
@@ -51,12 +52,8 @@ export interface CheckFacts {
   uiFiles?: readonly string[];
   /** The repo requires uploads (`check.require`): the check can fail. */
   required?: boolean;
-  /** The requirements, evaluated; empty unless required and UI files changed. */
-  checklist?: readonly ChecklistEntry[];
-  /** The PR's label that excuses it from the requirements, if any. */
-  skipLabel?: string | null;
-  /** The label to suggest for skipping. */
-  skipHint?: string;
+  /** Where the PR stands on the requirements; absent unless required and UI files changed. */
+  requirement?: Requirement | null;
 }
 
 /**
@@ -69,21 +66,21 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
   const { count, heldCount } = gathered;
   const uiFiles = gathered.uiFiles ?? [];
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
-  const checklist = gathered.checklist ?? [];
-  if (gathered.required && uiFiles.length > 0 && gathered.skipLabel) {
+  const requirement = gathered.requirement;
+  if (requirement?.skipLabel) {
     return {
       conclusion: "neutral",
       title: "Required uploads skipped",
-      summary: `The \`${gathered.skipLabel}\` label excuses this pull request.`,
+      summary: `The \`${requirement.skipLabel}\` label excuses this pull request.`,
     };
   }
-  if (gathered.required && uiFiles.length > 0 && checklist.length > 0) {
-    const line = checklistLine(checklist);
-    const missing = checklist.filter((c) => !c.met);
-    // A held file counts as attached, and a hold never blocks a merge.
-    if (missing.length > 0 && heldCount === 0) {
-      const skip = gathered.skipHint
-        ? ` If this pull request needs none, add the \`${gathered.skipHint}\` label.`
+  // A held file counts as attached, and a hold never blocks a merge.
+  if (requirement && heldCount === 0) {
+    const line = checklistLine(requirement.checklist);
+    const missing = requirement.checklist.filter((c) => !c.met);
+    if (missing.length > 0) {
+      const skip = requirement.skipHint
+        ? ` If this pull request needs none, add the \`${requirement.skipHint}\` label.`
         : "";
       return {
         conclusion: "failure",
@@ -100,13 +97,11 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
           line,
       };
     }
-    if (heldCount === 0) {
-      return {
-        conclusion: "success",
-        title: `${files(count)} attached, requirements met`,
-        summary: `Screenshots and recordings for this pull request are published.${commentLink}\n\n${line}`,
-      };
-    }
+    return {
+      conclusion: "success",
+      title: `${files(count)} attached, requirements met`,
+      summary: `Screenshots and recordings for this pull request are published.${commentLink}\n\n${line}`,
+    };
   }
   if (gathered.required && count === 0 && uiFiles.length === 0) {
     return {
@@ -186,7 +181,7 @@ export async function syncUploadsCheck(
   cfg: GithubAppConfig,
   installationId: number,
   target: GhTarget,
-  gathered: CheckFacts & { skipLabels?: readonly string[] },
+  gathered: CheckFacts,
   opts: { headSha?: string; commentUrl?: string | null; fetchImpl?: typeof fetch } = {},
 ): Promise<void> {
   if (target.kind !== "pull") return;
@@ -198,8 +193,6 @@ export async function syncUploadsCheck(
     if (!token) return;
     const sha = opts.headSha ?? (await prHeadSha(fetchImpl, token, target.repo, target.num));
     if (!sha) return;
-    const facts: CheckFacts = { ...gathered, skipHint: gathered.skipLabels?.[0] };
-
     const base = `https://api.github.com/repos/${target.repo}`;
     const list = await githubFetch(
       fetchImpl,
@@ -230,7 +223,7 @@ export async function syncUploadsCheck(
     )
       return;
 
-    const content = checkRunContent(facts, opts.commentUrl ?? null);
+    const content = checkRunContent(gathered, opts.commentUrl ?? null);
     const payload = {
       name: CHECK_NAME,
       head_sha: sha,

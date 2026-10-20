@@ -41,7 +41,11 @@ describe("checkRunContent", () => {
   });
 
   describe("required uploads", () => {
-    const req = { required: true, uiFiles: ["a.astro"], skipHint: "uploads:skip-verify" };
+    const req = { required: true, uiFiles: ["a.astro"] };
+    const requirement = (
+      checklist: { label: string; met: boolean }[],
+      skipLabel: string | null = null,
+    ) => ({ checklist, skipLabel, skipHint: "uploads:skip-verify" });
     const unmet = [
       { label: "Uploads", met: true },
       { label: "Mobile", met: false },
@@ -49,7 +53,12 @@ describe("checkRunContent", () => {
 
     it("fails when UI files changed with nothing attached", () => {
       const content = checkRunContent(
-        { ...req, count: 0, heldCount: 0, checklist: [{ label: "Uploads", met: false }] },
+        {
+          ...req,
+          count: 0,
+          heldCount: 0,
+          requirement: requirement([{ label: "Uploads", met: false }]),
+        },
         null,
       );
       expect(content).toMatchObject({
@@ -62,13 +71,18 @@ describe("checkRunContent", () => {
 
     it("names the unmet requirements", () => {
       expect(
-        checkRunContent({ ...req, count: 2, heldCount: 0, checklist: unmet }, null),
+        checkRunContent({ ...req, count: 2, heldCount: 0, requirement: requirement(unmet) }, null),
       ).toMatchObject({ conclusion: "failure", title: "Missing: mobile" });
     });
 
     it("passes when every requirement is met", () => {
       const content = checkRunContent(
-        { ...req, count: 2, heldCount: 0, checklist: [{ label: "Uploads", met: true }] },
+        {
+          ...req,
+          count: 2,
+          heldCount: 0,
+          requirement: requirement([{ label: "Uploads", met: true }]),
+        },
         null,
       );
       expect(content).toMatchObject({
@@ -79,7 +93,7 @@ describe("checkRunContent", () => {
 
     it("goes neutral for a skip label", () => {
       const content = checkRunContent(
-        { ...req, count: 0, heldCount: 0, checklist: [], skipLabel: "Uploads:Skip-Verify" },
+        { ...req, count: 0, heldCount: 0, requirement: requirement([], "Uploads:Skip-Verify") },
         null,
       );
       expect(content).toMatchObject({
@@ -91,7 +105,8 @@ describe("checkRunContent", () => {
 
     it("never fails while a file is held", () => {
       expect(
-        checkRunContent({ ...req, count: 2, heldCount: 1, checklist: unmet }, null).conclusion,
+        checkRunContent({ ...req, count: 2, heldCount: 1, requirement: requirement(unmet) }, null)
+          .conclusion,
       ).toBe("neutral");
     });
 
@@ -309,7 +324,7 @@ describe("webhook wiring", () => {
       pull_request: { number: 12, title: "t", state: "open" },
       label: { name: "uploads:skip-verify" },
     });
-    expect(ev?.labels).toEqual({ repo: "acme/web", num: 12 });
+    expect(ev?.labels).toEqual({ repo: "acme/web", num: 12, label: "uploads:skip-verify" });
     expect(ev?.promote).toBeUndefined();
   });
 
