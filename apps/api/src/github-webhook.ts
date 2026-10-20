@@ -224,7 +224,7 @@ async function gatherAndUpsert(
   // Patch-only when empty: a fully-cleared PR keeps/updates an existing
   // comment to the empty state, but we never create one just to say "empty"
   // (this path fires on every pull_request event for a bound repo). The one
-  // exception is the no-uploads how-to, which a repo opts into via uiPaths.
+  // exception is the no-uploads how-to, which a repo opts into by setting UI paths.
   const result = await upsertBotComment(
     env,
     cfg,

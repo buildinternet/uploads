@@ -139,6 +139,54 @@ describe("gatherCommentBody", () => {
     }
   });
 
+  it("falls back to the built-in UI paths for the check, without the how-to", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    const setRepoConfig = (config: Record<string, unknown>) =>
+      kv.store.set("repocfg:acme/web", {
+        value: JSON.stringify({ found: true, path: ".uploads.yml", config, warnings: [] }),
+      });
+    setRepoConfig({});
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () =>
+          Response.json([
+            { filename: "src/Button.tsx" },
+            { filename: "apps/api/b.ts" },
+            { filename: "src/email/welcome.ts" },
+          ]),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(result).toMatchObject({
+        noUploads: false,
+        uiFiles: ["src/Button.tsx", "src/email/welcome.ts"],
+      });
+      expect(result.body).toContain("_No attachments are currently associated");
+
+      // A repo's explicit empty list turns UI detection off entirely.
+      kv.store.delete("repocfg:acme/web");
+      setRepoConfig({ uiPaths: [] });
+      const optedOut = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(optedOut.uiFiles).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("uses --issue <num> in the add-media hint for issue targets", async () => {
     const { env, ws, workspaceName } = makeTestEnv();
     const result = await gatherCommentBody(env, ws, workspaceName, {

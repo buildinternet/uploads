@@ -177,8 +177,8 @@ function defaultGit(cwd: string): NonNullable<HookDeps["git"]> {
         runGit(["merge-base", `origin/${defaultBranch}`, "HEAD"], cwd) ||
         runGit(["merge-base", defaultBranch, "HEAD"], cwd);
       const diff = mergeBase
-        ? runGit(["diff", "--name-only", mergeBase, "HEAD"], cwd)
-        : runGit(["diff", "--name-only", "HEAD"], cwd);
+        ? runGit(["diff", "--name-only", "--diff-filter=d", mergeBase, "HEAD"], cwd)
+        : runGit(["diff", "--name-only", "--diff-filter=d", "HEAD"], cwd);
       return diff ? diff.split("\n").filter(Boolean) : [];
     },
   };

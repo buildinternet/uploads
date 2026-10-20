@@ -45,7 +45,7 @@ function files(n: number): string {
 /**
  * What the check says for a comment that carries `count` items (attachments,
  * galleries and held files), `heldCount` of them held, for a PR that changed
- * `uiFiles` (the repo's `uiPaths` matches; only looked up when empty). Pure.
+ * `uiFiles` (files counting as UI changes; only looked up when empty). Pure.
  */
 export function checkRunContent(
   gathered: { count: number; heldCount: number; uiFiles?: readonly string[] },
@@ -55,6 +55,10 @@ export function checkRunContent(
   const uiFiles = gathered.uiFiles ?? [];
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
   if (count === 0 && uiFiles.length > 0) {
+    // Without a comment (built-in UI paths post none), link the how-to docs.
+    const howTo =
+      commentLink ||
+      " See [how to attach screenshots](https://uploads.sh/docs/github-app#no-uploads).";
     const shown = uiFiles.slice(0, UI_FILES_LISTED).map((f) => `- \`${f}\``);
     if (uiFiles.length > UI_FILES_LISTED)
       shown.push(`- and ${uiFiles.length - UI_FILES_LISTED} more`);
@@ -64,7 +68,7 @@ export function checkRunContent(
       summary:
         "This pull request changes files that count as UI changes, and nothing is " +
         "attached yet. Add screenshots with `uploads put`." +
-        commentLink +
+        howTo +
         "\n\n" +
         shown.join("\n"),
     };
