@@ -4,7 +4,7 @@
  * gate on comment sync. `adoptLinkedFilesForWebhook`'s repo-link/knob no-ops
  * mirror `ingestForWebhook`'s own tests (github-ingest.test.ts).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   adoptLinkedFiles,
   adoptLinkedFilesForWebhook,
@@ -165,6 +165,30 @@ describe("adoptLinkedFiles", () => {
 
     // Source key itself is untouched — the pasted URL still resolves.
     expect(seeded.bucket.store.has(`${PREFIX}f/shot.png`)).toBe(true);
+  });
+
+  it("skips a link whose file was never uploaded, logging a warning rather than an error", async () => {
+    const seeded = await seededEnv();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const summary = await adoptLinkedFiles(
+        seeded.env,
+        WS,
+        null,
+        { repo: REPO, kind: "pull", num: NUM },
+        "https://storage.uploads.sh/acme/f/never-uploaded.png",
+      );
+      expect(summary.adopted).toEqual([]);
+      expect(summary.skipped).toContain("f/never-uploaded.png");
+      const logged = (spy: typeof warn) =>
+        spy.mock.calls.some((c) => String(c[0]).includes("link adoption: attach failed"));
+      expect(logged(warn)).toBe(true);
+      expect(logged(error)).toBe(false);
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it("noise guard: a single lone adoption with nothing else does NOT sync", async () => {

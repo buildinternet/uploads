@@ -3,17 +3,33 @@
  * throw `AppError` subclasses (or plain values that `AppError.from` wraps);
  * this turns them into the nested wire envelope.
  */
-import { AppError, isAppError } from "@uploads/errors";
+import { AppError, isAppError, ServiceUnavailableError } from "@uploads/errors";
 import { reportHandledError } from "@uploads/observability";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { isD1ExportInProgress } from "./db-session";
 
 export function respondError(c: Context, err: unknown): Response {
-  const appErr = isAppError(err) ? err : AppError.from(err);
+  const appErr = isAppError(err)
+    ? err
+    : isD1ExportInProgress(err)
+      ? // The nightly backup holds D1 for a few minutes. A 503 with Retry-After
+        // lets the CLI's retry loop ride it out instead of failing the call.
+        new ServiceUnavailableError("The database is busy with a backup. Retry shortly.", {
+          code: "database_export_in_progress",
+          details: { retry_after: 10 },
+          cause: err,
+        })
+      : AppError.from(err);
   // 5xx responses are Issues occurrences. Log the Error object so the
   // occurrence has a stack. Expected client outcomes stay quiet, including
-  // 507 storage-quota responses (a 5xx status, but not a server failure).
-  if (appErr.status >= 500 && appErr.type !== "insufficient_storage") {
+  // 507 storage-quota responses (a 5xx status, but not a server failure) and
+  // the backup's brief D1 lock.
+  if (
+    appErr.status >= 500 &&
+    appErr.type !== "insufficient_storage" &&
+    appErr.code !== "database_export_in_progress"
+  ) {
     reportHandledError(appErr.cause instanceof Error ? appErr.cause : appErr);
   }
   applyRetryAfter(c, appErr);

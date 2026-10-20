@@ -1225,6 +1225,18 @@ export interface UploadsClientOptions {
    * the stdio `uploads mcp` server; defaults to `cli`.
    */
   surface?: "cli" | "mcp";
+  /**
+   * Tokens the API has called expired. A remembered token fails locally with
+   * the server's message instead of being sent again. The CLI passes a
+   * file-backed store (`expired-tokens.ts`); omitted, every call asks the server.
+   */
+  expiredTokens?: ExpiredTokenStore;
+}
+
+export interface ExpiredTokenStore {
+  /** The server's expiry message for this token, or undefined if not known expired. */
+  lookup(token: string): string | undefined;
+  remember(token: string, message: string): void;
 }
 
 export function createUploadsClient(
@@ -1250,7 +1262,10 @@ export function createUploadsClient(
     },
   ): Promise<T> {
     const headers: Record<string, string> = { "User-Agent": userAgent, ...opts?.headers };
-    if (opts?.auth !== false) {
+    const sendsToken = opts?.auth !== false;
+    if (sendsToken) {
+      const expired = clientOpts.expiredTokens?.lookup(config.token);
+      if (expired) throw new UploadsError(expired, "UNAUTHORIZED", 401);
       headers.Authorization = `Bearer ${config.token}`;
     }
 
@@ -1262,7 +1277,14 @@ export function createUploadsClient(
     );
 
     if (!res.ok) {
-      throw await parseErrorResponse(res);
+      const { message, code, requiredScope, existingUrl } = await parseErrorEnvelope(
+        res,
+        res.statusText || "request failed",
+      );
+      if (sendsToken && res.status === 401 && code === "token_expired") {
+        clientOpts.expiredTokens?.remember(config.token, message);
+      }
+      throw mapApiError(res.status, message, code, requiredScope, existingUrl);
     }
 
     if (res.status === 204) return undefined as T;

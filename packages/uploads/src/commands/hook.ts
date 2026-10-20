@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createUploadsClient } from "../client.js";
 import { resolveConfig } from "../config.js";
+import { fileExpiredTokenStore } from "../expired-tokens.js";
 import { writeCommandHelp } from "../cli-style.js";
 import { resolveRepo } from "../github-gh.js";
 import { resolveStagedBinding, type StagedBinding } from "../commands.js";
@@ -188,7 +189,7 @@ async function defaultInspectStaged(branch: string): Promise<StagedInspect | nul
   try {
     const config = resolveConfig({ requireToken: false });
     if (!config.token) return null;
-    const client = createUploadsClient(config);
+    const client = createUploadsClient(config, { expiredTokens: fileExpiredTokenStore() });
     let repo: string | undefined;
     try {
       repo = resolveRepo(undefined);
@@ -233,7 +234,7 @@ async function defaultBinding(): Promise<StagedBinding | null> {
   try {
     const config = resolveConfig({ requireToken: false });
     if (!config.token) return null;
-    const client = createUploadsClient(config);
+    const client = createUploadsClient(config, { expiredTokens: fileExpiredTokenStore() });
     return await Promise.race([
       resolveStagedBinding(client, resolveRepo(undefined)),
       new Promise<never>((_, reject) => {

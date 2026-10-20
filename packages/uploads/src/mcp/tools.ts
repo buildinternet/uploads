@@ -101,6 +101,7 @@ import {
   validateReportMessage,
 } from "../report.js";
 import { resolveApiUrl } from "../config.js";
+import { fileExpiredTokenStore } from "../expired-tokens.js";
 import { DEFAULT_CHANGELOG_LIMIT, MAX_CHANGELOG_LIMIT, fetchChangelog } from "../changelog.js";
 import {
   SEARCH_DOCS_DESCRIPTION,
@@ -249,7 +250,8 @@ export function createUploadsMcpTools(opts: {
   const run = opts.runner ?? execRunner;
   const clientFactory =
     opts.clientFactory ??
-    ((config: UploadsClientConfig) => createUploadsClient(config, { surface: "mcp" }));
+    ((config: UploadsClientConfig) =>
+      createUploadsClient(config, { surface: "mcp", expiredTokens: fileExpiredTokenStore() }));
 
   async function clientFor(
     args: ToolArgs,

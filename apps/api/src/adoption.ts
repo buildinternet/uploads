@@ -9,7 +9,7 @@
  * Like `recordUsageSafe`, metering is best-effort: `recordAdoptionSafe` logs
  * and continues on failure, because a metrics write must never fail an upload.
  */
-import { dbFor, type D1Queryable } from "./db-session";
+import { dbFor, isD1ExportInProgress, type D1Queryable } from "./db-session";
 
 /**
  * Every adoption metric. The union is DERIVED from this array so the two can
@@ -184,9 +184,15 @@ export function writeAdoptionPoint(env: Env, event: AdoptionEvent): void {
  */
 export function logAdoptionFailure(metric: AdoptionMetric, workspace: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
-  console.error(
-    JSON.stringify({ message: "adoption metric write failed", metric, workspace, error: message }),
-  );
+  const line = JSON.stringify({
+    message: "adoption metric write failed",
+    metric,
+    workspace,
+    error: message,
+  });
+  // The nightly backup's D1 lock is expected; a lost metric bump is not a bug.
+  if (isD1ExportInProgress(err)) console.warn(line);
+  else console.error(line);
 }
 
 /**

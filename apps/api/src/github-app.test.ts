@@ -318,6 +318,14 @@ describe("cacheRepoPrivacy", () => {
     expect(kv.store.get("ghpriv:o/r")).toEqual({ value: "0", expirationTtl: 600 });
   });
 
+  it("skips the KV write when the cache already agrees", async () => {
+    const kv = new FakeKv();
+    await cacheRepoPrivacy(envWith(kv), "o/r", true);
+    kv.failPutWith = new Error("KV PUT failed: 429 Too Many Requests");
+    await cacheRepoPrivacy(envWith(kv), "o/r", true); // no put, so no throw
+    await expect(cacheRepoPrivacy(envWith(kv), "o/r", false)).rejects.toThrow("429");
+  });
+
   it("skips the KV write for a malformed repo", async () => {
     const kv = new FakeKv();
     await cacheRepoPrivacy(envWith(kv), "o/../r", true);
