@@ -21,6 +21,8 @@ export interface RepoCommentConfig {
   adoptLinkedFiles?: boolean;
   uiPaths?: string[];
   noUploadsComment?: boolean;
+  checkRequire?: CheckRequirement[];
+  checkSkipLabels?: string[];
 }
 export interface WorkspaceCommentDefaults {
   imageWidth?: "full" | number;
@@ -48,7 +50,22 @@ export interface ResolvedCommentOptions {
   uiPaths: string[];
   /** Post a how-to comment on a PR that changes `uiPaths` but has no uploads. */
   noUploadsComment: boolean;
+  /**
+   * What a PR that changes `uiPaths` must carry for the `uploads.sh` check to
+   * pass. Empty: the check never fails.
+   */
+  checkRequire: CheckRequirement[];
+  /** Labels (matched case-insensitively) that excuse a PR from `checkRequire`. */
+  checkSkipLabels: string[];
 }
+
+/** The `check.require` items, in the order the checklist shows them. */
+export const CHECK_REQUIREMENTS = ["uploads", "before-after", "desktop", "mobile"] as const;
+export type CheckRequirement = (typeof CHECK_REQUIREMENTS)[number];
+
+/** Skip labels used when a repo doesn't list its own. */
+export const DEFAULT_CHECK_SKIP_LABELS = ["uploads:skip-verify", "skip-uploads", "uploads-skip"];
+export const CHECK_SKIP_LABELS_MAX = 20;
 export type OptionSource = "repo" | "workspace" | "auto";
 
 export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
@@ -67,6 +84,8 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   // posts the no-uploads comment only once a repo or workspace lists paths.
   uiPaths: [],
   noUploadsComment: true,
+  checkRequire: [],
+  checkSkipLabels: DEFAULT_CHECK_SKIP_LABELS,
 };
 
 export const NOTE_MAX_CHARS = 500;
@@ -168,6 +187,50 @@ export function parseRepoCommentConfig(
     }
   }
 
+  // check.require / check.skipLabels: nested under `check`
+  if ("check" in c) {
+    const v = c.check;
+    if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+      const check = v as Record<string, unknown>;
+      if ("require" in check) {
+        const req = typeof check.require === "string" ? [check.require] : check.require;
+        if (Array.isArray(req)) {
+          // `any` is an alias for `uploads`.
+          const known = req
+            .map((r) => (r === "any" ? "uploads" : r))
+            .filter((r): r is CheckRequirement =>
+              (CHECK_REQUIREMENTS as readonly unknown[]).includes(r),
+            );
+          if (known.length < req.length)
+            warnings.push(
+              `check.require: dropped unknown items (use ${CHECK_REQUIREMENTS.join(", ")})`,
+            );
+          // Any requirement implies at least one upload; keep the checklist order.
+          const wanted = new Set<CheckRequirement>(known.length > 0 ? ["uploads", ...known] : []);
+          config.checkRequire = CHECK_REQUIREMENTS.filter((r) => wanted.has(r));
+        } else {
+          warnings.push(`check.require: expected a list; dropped`);
+        }
+      }
+      if ("skipLabels" in check) {
+        const labels = typeof check.skipLabels === "string" ? [check.skipLabels] : check.skipLabels;
+        if (Array.isArray(labels)) {
+          const names = labels
+            .filter((l): l is string => typeof l === "string")
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0 && l.length <= 50);
+          if (names.length < labels.length)
+            warnings.push(`check.skipLabels: dropped entries that aren't label names`);
+          config.checkSkipLabels = names.slice(0, CHECK_SKIP_LABELS_MAX);
+        } else {
+          warnings.push(`check.skipLabels: expected a list of labels; dropped`);
+        }
+      }
+    } else {
+      warnings.push(`check: expected an object; dropped`);
+    }
+  }
+
   // meta.path / meta.state: booleans nested under `meta`
   if ("meta" in c) {
     const v = c.meta;
@@ -244,6 +307,8 @@ export function resolveCommentOptions(
       "adoptLinkedFiles",
       "uiPaths",
       "noUploadsComment",
+      "checkRequire",
+      "checkSkipLabels",
     ] as const) {
       if (cfg[key] !== undefined && source[key] === "auto") {
         (options as Record<string, unknown>)[key] = cfg[key];

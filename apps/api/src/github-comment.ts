@@ -8,6 +8,7 @@
  */
 
 import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
+import { evaluateRequirement, type Requirement } from "./github-check-requirements";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -69,10 +70,20 @@ export async function gatherCommentBody(
   body: string;
   count: number;
   heldCount: number;
-  /** Changed files counting as UI changes; only looked up for an empty PR. */
+  /**
+   * Changed files counting as UI changes; only looked up for an empty PR, or
+   * for any PR when the repo requires uploads.
+   */
   uiFiles: string[];
   /** The body is the no-uploads how-to, which may create the comment. */
   noUploads: boolean;
+  /**
+   * The repo requires uploads (`check.require`), so the check may fail and
+   * must report on every PR.
+   */
+  required: boolean;
+  /** Where the PR stands on the requirements; null unless required and UI files changed. */
+  requirement: Requirement | null;
 }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -99,22 +110,40 @@ export async function gatherCommentBody(
   };
   // An empty PR that changes UI files gets a neutral "UI files changed" check,
   // and the how-to instead of the empty state when paths are configured
-  // (github-no-uploads.ts). Only looked up for an empty PR, so a PR with
-  // uploads never pays for the changed-files read.
+  // (github-no-uploads.ts). Only looked up for an empty PR, or when the repo
+  // requires uploads, so other PRs never pay for the changed-files read.
   const configured = source.uiPaths !== "auto";
+  const required = options.checkRequire.length > 0 && target.kind === "pull";
   const uiFiles =
-    count === 0 && opts.detectUiChanges
+    (count === 0 || required) && opts.detectUiChanges
       ? await changedUiFiles(env, target, configured ? options.uiPaths : DEFAULT_UI_PATHS)
       : [];
-  if (uiFiles.length > 0 && configured && options.noUploadsComment) {
+  const requirement =
+    required && uiFiles.length > 0
+      ? await evaluateRequirement(
+          env,
+          workspaceName,
+          target,
+          options,
+          items.map((item) => item.key),
+          galleries.length + heldCount,
+        )
+      : null;
+  // A skip label replaces the checklist and the how-to with one "skipped" line.
+  const skipLabel = requirement?.skipLabel ?? null;
+  const checklist = requirement?.checklist ?? [];
+  if (count === 0 && uiFiles.length > 0 && configured && options.noUploadsComment && !skipLabel) {
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
         importsAttachments: options.ingestGithubAttachments,
+        checklist,
       }),
       count,
       heldCount,
       uiFiles,
       noUploads: true,
+      required,
+      requirement,
     };
   }
 
@@ -124,11 +153,15 @@ export async function gatherCommentBody(
     body: attachmentsCommentBody(items, galleries, marker, renderOptions, target, {
       liveLinkUrl,
       heldCount,
+      checklist,
+      skipLabel,
     }),
     count,
     heldCount,
     uiFiles,
     noUploads: false,
+    required,
+    requirement,
   };
 }
 

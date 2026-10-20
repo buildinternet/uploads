@@ -744,6 +744,29 @@ export interface CommentLinks {
    * at it. Absent or 0: byte-identical to before.
    */
   heldCount?: number;
+  /**
+   * The repo's required-uploads checklist (`.uploads.yml` `check.require`),
+   * one entry per requirement, already evaluated. Absent or empty:
+   * byte-identical to before.
+   */
+  checklist?: ChecklistEntry[];
+  /** The PR label that excused it from the checklist; shown in its place. */
+  skipLabel?: string | null;
+}
+
+export interface ChecklistEntry {
+  label: string;
+  met: boolean;
+}
+
+/** The line that stands in for the checklist when a label excuses the PR. */
+export function skippedLine(label: string): string {
+  return `**Required uploads skipped** by the <code>${escapeHtmlText(label)}</code> label`;
+}
+
+/** `**Required:** ✅ Uploads · ⬜ Mobile`, the line the comment and the check share. */
+export function checklistLine(checklist: readonly ChecklistEntry[]): string {
+  return `**Required:** ${checklist.map((c) => `${c.met ? "✅" : "⬜"} ${c.label}`).join(" · ")}`;
 }
 
 /**
@@ -1033,6 +1056,8 @@ export function attachmentsCommentBody(
   if (sorted.length === 0 && sortedGalleries.length === 0 && heldCount === 0) {
     lines.push("_No attachments are currently associated with this pull request._", "");
   }
+  if (links.skipLabel) lines.push(skippedLine(links.skipLabel), "");
+  else if (links.checklist?.length) lines.push(checklistLine(links.checklist), "");
   if (heldCount > 0) lines.push(heldLine(heldCount, target), "");
   // Footer condensed to a single quiet line — the old two-line explainer
   // ("re-uploading updates everywhere", full add-media flags) repeats on

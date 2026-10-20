@@ -2558,6 +2558,8 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       adoptLinkedFiles: true,
       uiPaths: [],
       noUploadsComment: true,
+      checkRequire: [],
+      checkSkipLabels: ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
     });
     expect(body.source).toMatchObject({ imageWidth: "auto" });
     expect(typeof body.body).toBe("string");

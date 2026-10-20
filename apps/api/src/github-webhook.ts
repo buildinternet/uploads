@@ -81,6 +81,8 @@ import { promoteBranchAttachments } from "./github-promote";
 // consumer retries the event, not read as "repo not linked" and ack-drop it.
 import { deleteRepoLink, findRepoLinkStrict, type RepoLink } from "./github-repo-links";
 import { loadWorkspaceRecord } from "./workspace";
+import { resolveRepoCommentOptions } from "./repo-comment-config";
+import { matchingSkipLabel } from "./github-check-requirements";
 import { dbFor } from "./db-session";
 
 const enc = new TextEncoder();
@@ -422,6 +424,22 @@ async function reconcileBotComment(
 }
 
 /**
+ * A skip label was added or removed: re-sync the comment and check, so the
+ * check passes right away. Other labels, and repos that don't require
+ * uploads, skip the work. Throws like reconcile.
+ */
+async function recheckForLabels(env: Env, repo: string, num: number, label: string): Promise<void> {
+  const link = await findRepoLinkStrict(dbFor(env), repo);
+  if (!link) return;
+  const ws = await loadWorkspaceRecord(env, link.workspaceName);
+  if (!ws) return;
+  const { options } = await resolveRepoCommentOptions(env, ws, repo);
+  if (options.checkRequire.length === 0) return;
+  if (!matchingSkipLabel([label], options.checkSkipLabels)) return;
+  await gatherAndUpsert(env, link, { repo, kind: "pull", num });
+}
+
+/**
  * Compact, queue-safe description of the work one webhook delivery implies.
  * Field-extracted at ingestion (never the raw GitHub payload — those can
  * exceed the 128 KB queue message cap) and consumed by
@@ -458,6 +476,9 @@ export interface WebhookEvent {
    * PR's rollup row (`applyPrActivityWebhook`: UPDATE only, linked repos
    * only). GitHub caps titles at 256 chars, so this stays queue-compact. */
   prActivity?: { repo: string; number: number; title: string; state: PrState };
+  /** `pull_request` labeled/unlabeled → re-sync the check, since a skip
+   * label can excuse required uploads (`check.skipLabels`). */
+  labels?: { repo: string; num: number; label: string };
 }
 
 /**
@@ -539,6 +560,15 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       typeof pr.title === "string"
     ) {
       ev.prActivity = { repo, number: pr.number, title: pr.title, state: prState };
+    }
+    const label = (pp as { label?: { name?: unknown } }).label?.name;
+    if (
+      (action === "labeled" || action === "unlabeled") &&
+      typeof repo === "string" &&
+      typeof pr?.number === "number" &&
+      typeof label === "string"
+    ) {
+      ev.labels = { repo, num: pr.number, label };
     }
     if (
       typeof action === "string" &&
@@ -641,7 +671,8 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ev.merge ||
     ev.privacy ||
     ev.privatized ||
-    ev.prActivity
+    ev.prActivity ||
+    ev.labels
     ? ev
     : null;
 }
@@ -697,6 +728,9 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   }
   if (ev.reconcile) {
     await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
+  }
+  if (ev.labels) {
+    await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
   }
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);

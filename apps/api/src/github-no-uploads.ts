@@ -9,14 +9,8 @@
  * The how-to is the same marker-owned comment: the first upload replaces it
  * in place with the normal attachments body, so a PR never gets two.
  */
-import {
-  githubAppConfig,
-  githubFetch,
-  githubHeaders,
-  installationForRepo,
-  installationToken,
-} from "./github-app";
-import type { GhTarget } from "./github-comment-render";
+import { githubFetch, githubHeaders, repoInstallationToken } from "./github-app";
+import { checklistLine, type ChecklistEntry, type GhTarget } from "./github-comment-render";
 
 /**
  * The files that count as UI changes when nothing sets `uiPaths`. Mirrors the
@@ -90,12 +84,8 @@ export async function changedUiFiles(
   fetchImpl: typeof fetch = fetch,
 ): Promise<string[]> {
   if (target.kind !== "pull" || uiPaths.length === 0) return [];
-  const cfg = githubAppConfig(env);
-  if (!cfg) return [];
   try {
-    const installId = await installationForRepo(env, cfg, target.repo, fetchImpl);
-    if (installId === null) return [];
-    const token = await installationToken(env, cfg, installId, fetchImpl);
+    const token = await repoInstallationToken(env, target.repo, fetchImpl);
     if (!token) return [];
     const matches = uiPathMatcher(uiPaths);
     const found: string[] = [];
@@ -146,7 +136,7 @@ export function noUploadsCommentBody(
   marker: string,
   target: Pick<GhTarget, "num">,
   uiFiles: readonly string[],
-  opts: { importsAttachments: boolean },
+  opts: { importsAttachments: boolean; checklist?: readonly ChecklistEntry[] },
 ): string {
   const lines = [
     marker,
@@ -160,6 +150,7 @@ export function noUploadsCommentBody(
   if (opts.importsAttachments) {
     lines.push("- By hand: drag images into the PR description and they're imported automatically");
   }
+  if (opts.checklist?.length) lines.push("", checklistLine(opts.checklist));
   lines.push(
     "",
     `<sub>Workspace admins can turn this comment off in Settings → GitHub · <a href="https://uploads.sh/docs/github-app#no-uploads">docs</a></sub>`,

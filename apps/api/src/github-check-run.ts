@@ -19,7 +19,8 @@
  */
 import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
-import type { GhTarget } from "./github-comment-render";
+import { checklistLine, type GhTarget } from "./github-comment-render";
+import type { Requirement } from "./github-check-requirements";
 
 export const CHECK_NAME = "uploads.sh";
 
@@ -33,7 +34,7 @@ export function checksDeniedKey(installationId: number | string): string {
 }
 
 export interface CheckRunContent {
-  conclusion: "success" | "neutral";
+  conclusion: "success" | "neutral" | "failure";
   title: string;
   summary: string;
 }
@@ -42,18 +43,74 @@ function files(n: number): string {
   return n === 1 ? "1 file" : `${n} files`;
 }
 
+/** What `checkRunContent` reads off a comment sync. */
+export interface CheckFacts {
+  /** Items the comment carries (attachments, galleries and held files). */
+  count: number;
+  heldCount: number;
+  /** The repo's `uiPaths` matches; only looked up when empty or required. */
+  uiFiles?: readonly string[];
+  /** The repo requires uploads (`check.require`): the check can fail. */
+  required?: boolean;
+  /** Where the PR stands on the requirements; absent unless required and UI files changed. */
+  requirement?: Requirement | null;
+}
+
 /**
  * What the check says for a comment that carries `count` items (attachments,
  * galleries and held files), `heldCount` of them held, for a PR that changed
- * `uiFiles` (files counting as UI changes; only looked up when empty). Pure.
+ * `uiFiles`. Fails only when the repo requires uploads, UI files changed,
+ * nothing excuses the PR, and a requirement is unmet. Pure.
  */
-export function checkRunContent(
-  gathered: { count: number; heldCount: number; uiFiles?: readonly string[] },
-  commentUrl: string | null,
-): CheckRunContent {
+export function checkRunContent(gathered: CheckFacts, commentUrl: string | null): CheckRunContent {
   const { count, heldCount } = gathered;
   const uiFiles = gathered.uiFiles ?? [];
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
+  const requirement = gathered.requirement;
+  if (requirement?.skipLabel) {
+    return {
+      conclusion: "neutral",
+      title: "Required uploads skipped",
+      summary: `The \`${requirement.skipLabel}\` label excuses this pull request.`,
+    };
+  }
+  // A held file counts as attached, and a hold never blocks a merge.
+  if (requirement && heldCount === 0) {
+    const line = checklistLine(requirement.checklist);
+    const missing = requirement.checklist.filter((c) => !c.met);
+    if (missing.length > 0) {
+      const skip = requirement.skipHint
+        ? ` If this pull request needs none, add the \`${requirement.skipHint}\` label.`
+        : "";
+      return {
+        conclusion: "failure",
+        title:
+          count === 0
+            ? "UI files changed, no uploads attached"
+            : `Missing: ${missing.map((c) => c.label.toLowerCase()).join(", ")}`,
+        summary:
+          "This repo requires uploads on pull requests that change UI files. Add them with " +
+          "`uploads put`." +
+          skip +
+          commentLink +
+          "\n\n" +
+          line,
+      };
+    }
+    return {
+      conclusion: "success",
+      title: `${files(count)} attached, requirements met`,
+      summary: `Screenshots and recordings for this pull request are published.${commentLink}\n\n${line}`,
+    };
+  }
+  if (gathered.required && count === 0 && uiFiles.length === 0) {
+    return {
+      conclusion: "success",
+      title: "No UI files changed",
+      summary:
+        "This pull request changes no files that count as UI changes, so no uploads are required.",
+    };
+  }
   if (count === 0 && uiFiles.length > 0) {
     // Without a comment (built-in UI paths post none), link the how-to docs.
     const howTo =
@@ -124,7 +181,7 @@ export async function syncUploadsCheck(
   cfg: GithubAppConfig,
   installationId: number,
   target: GhTarget,
-  gathered: { count: number; heldCount: number; uiFiles?: readonly string[] },
+  gathered: CheckFacts,
   opts: { headSha?: string; commentUrl?: string | null; fetchImpl?: typeof fetch } = {},
 ): Promise<void> {
   if (target.kind !== "pull") return;
@@ -136,7 +193,6 @@ export async function syncUploadsCheck(
     if (!token) return;
     const sha = opts.headSha ?? (await prHeadSha(fetchImpl, token, target.repo, target.num));
     if (!sha) return;
-
     const base = `https://api.github.com/repos/${target.repo}`;
     const list = await githubFetch(
       fetchImpl,
@@ -157,7 +213,15 @@ export async function syncUploadsCheck(
       | number
       | undefined;
 
-    if (existingId === undefined && gathered.count === 0 && !gathered.uiFiles?.length) return;
+    // A repo that requires uploads gets a run on every PR: a required check
+    // that never reports blocks the merge.
+    if (
+      existingId === undefined &&
+      gathered.count === 0 &&
+      !gathered.uiFiles?.length &&
+      !gathered.required
+    )
+      return;
 
     const content = checkRunContent(gathered, opts.commentUrl ?? null);
     const payload = {

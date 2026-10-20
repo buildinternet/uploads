@@ -40,6 +40,83 @@ describe("checkRunContent", () => {
     expect(content.summary).toContain("https://uploads.sh/docs/github-app#no-uploads");
   });
 
+  describe("required uploads", () => {
+    const req = { required: true, uiFiles: ["a.astro"] };
+    const requirement = (
+      checklist: { label: string; met: boolean }[],
+      skipLabel: string | null = null,
+    ) => ({ checklist, skipLabel, skipHint: "uploads:skip-verify" });
+    const unmet = [
+      { label: "Uploads", met: true },
+      { label: "Mobile", met: false },
+    ];
+
+    it("fails when UI files changed with nothing attached", () => {
+      const content = checkRunContent(
+        {
+          ...req,
+          count: 0,
+          heldCount: 0,
+          requirement: requirement([{ label: "Uploads", met: false }]),
+        },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "failure",
+        title: "UI files changed, no uploads attached",
+      });
+      expect(content.summary).toContain("add the `uploads:skip-verify` label");
+      expect(content.summary).toContain("**Required:** ⬜ Uploads");
+    });
+
+    it("names the unmet requirements", () => {
+      expect(
+        checkRunContent({ ...req, count: 2, heldCount: 0, requirement: requirement(unmet) }, null),
+      ).toMatchObject({ conclusion: "failure", title: "Missing: mobile" });
+    });
+
+    it("passes when every requirement is met", () => {
+      const content = checkRunContent(
+        {
+          ...req,
+          count: 2,
+          heldCount: 0,
+          requirement: requirement([{ label: "Uploads", met: true }]),
+        },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "success",
+        title: "2 files attached, requirements met",
+      });
+    });
+
+    it("goes neutral for a skip label", () => {
+      const content = checkRunContent(
+        { ...req, count: 0, heldCount: 0, requirement: requirement([], "Uploads:Skip-Verify") },
+        null,
+      );
+      expect(content).toMatchObject({
+        conclusion: "neutral",
+        title: "Required uploads skipped",
+      });
+      expect(content.summary).toContain("`Uploads:Skip-Verify`");
+    });
+
+    it("never fails while a file is held", () => {
+      expect(
+        checkRunContent({ ...req, count: 2, heldCount: 1, requirement: requirement(unmet) }, null)
+          .conclusion,
+      ).toBe("neutral");
+    });
+
+    it("passes a PR that changes no UI files", () => {
+      expect(
+        checkRunContent({ required: true, count: 0, heldCount: 0, uiFiles: [] }, null),
+      ).toMatchObject({ conclusion: "success", title: "No UI files changed" });
+    });
+  });
+
   it("goes neutral when nothing is attached", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
       conclusion: "neutral",
@@ -148,6 +225,20 @@ describe("syncUploadsCheck", () => {
     expect(post?.body).toMatchObject({ conclusion: "neutral" });
   });
 
+  it("creates a run on every PR when uploads are required", async () => {
+    const h = harness();
+    await syncUploadsCheck(
+      h.env,
+      CFG,
+      42,
+      TARGET,
+      { count: 0, heldCount: 0, required: true },
+      { headSha: "abc123", fetchImpl: h.fetchImpl },
+    );
+    const post = h.calls.find((c) => c.method === "POST");
+    expect(post?.body).toMatchObject({ conclusion: "success" });
+  });
+
   it("does nothing for issues", async () => {
     const h = harness();
     await syncUploadsCheck(
@@ -223,6 +314,18 @@ describe("webhook wiring", () => {
       },
     });
     expect(ev?.promote).toEqual({ repo: "acme/web", num: 12, branch: "feat", sha: "abc123" });
+  });
+
+  it("re-checks on label changes", async () => {
+    const { extractWebhookEvent } = await import("./github-webhook");
+    const ev = extractWebhookEvent("pull_request", {
+      action: "labeled",
+      repository: { full_name: "acme/web" },
+      pull_request: { number: 12, title: "t", state: "open" },
+      label: { name: "uploads:skip-verify" },
+    });
+    expect(ev?.labels).toEqual({ repo: "acme/web", num: 12, label: "uploads:skip-verify" });
+    expect(ev?.promote).toBeUndefined();
   });
 
   it("clears the denied marker on installation events", async () => {

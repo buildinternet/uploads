@@ -321,6 +321,19 @@ export async function installationToken(
   }
 }
 
+/** An installation token for `repo`, or null without the App or an installation. */
+export async function repoInstallationToken(
+  env: Env,
+  repo: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  const cfg = githubAppConfig(env);
+  if (!cfg) return null;
+  const installId = await installationForRepo(env, cfg, repo, fetchImpl);
+  if (installId === null) return null;
+  return installationToken(env, cfg, installId, fetchImpl);
+}
+
 /**
  * Repo visibility cache TTL — private/public is rare to flip, but not never
  * (issue #631's private-attachment-prefix decision hinges on it), so 600s

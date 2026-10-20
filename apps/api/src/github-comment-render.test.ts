@@ -783,6 +783,42 @@ describe("live link line", () => {
     expect(body).not.toContain("view-on-uploads.svg");
   });
 
+  it("shows the required-uploads checklist before the footer", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        checklist: [
+          { label: "Uploads", met: true },
+          { label: "Mobile", met: false },
+        ],
+      },
+    );
+    expect(body).toContain("**Required:** ✅ Uploads · ⬜ Mobile\n\n");
+    expect(body.indexOf("**Required:**")).toBeGreaterThan(body.indexOf("shot.png"));
+  });
+
+  it("shows the skip label in place of the checklist", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        checklist: [{ label: "Uploads", met: false }],
+        skipLabel: "uploads:skip-verify",
+      },
+    );
+    expect(body).toContain(
+      "**Required uploads skipped** by the <code>uploads:skip-verify</code> label",
+    );
+    expect(body).not.toContain("**Required:**");
+  });
+
   it("closes the comment, after the note and the media", () => {
     const body = attachmentsCommentBody(
       one,

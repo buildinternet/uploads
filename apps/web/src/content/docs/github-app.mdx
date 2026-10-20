@@ -14,6 +14,7 @@ toc:
   - { id: ingest, label: Imported attachments }
   - { id: check, label: The uploads.sh check }
   - { id: no-uploads, label: PRs with no uploads }
+  - { id: required, label: Required uploads }
   - { id: permissions, label: Permissions & events }
   - { id: bindings, label: Repo bindings }
   - { id: self-healing, label: Self-healing comments }
@@ -149,11 +150,13 @@ approval.
     <tr><td>Success</td><td>Every attached file is published, e.g. "3 files attached".</td></tr>
     <tr><td>Neutral</td><td>A file is <a href="#held-files">held for review</a>, e.g. "1 of 4 files held for review", or everything was removed from a PR that had uploads.</td></tr>
     <tr><td>Neutral</td><td>The PR changes <a href="#no-uploads">UI files</a> and nothing is attached: "UI files changed, no uploads attached".</td></tr>
+    <tr><td>Failure</td><td>Only when the repo <a href="#required">requires uploads</a> and the PR is missing one.</td></tr>
   </tbody>
 </table>
 
-Otherwise a PR that never had uploads gets no check, so backend-only PRs stay quiet. The check never fails, so it can't block a merge, even
-while a file is held: a hold is about the uploaded file, not the PR's code.
+Otherwise a PR that never had uploads gets no check, so backend-only PRs stay quiet. A held file
+never fails the check, so a hold can't block a merge: a hold is about the uploaded file, not the
+PR's code.
 
 </section>
 
@@ -185,6 +188,36 @@ comment, so the first upload replaces it with the normal screenshots.
 Nothing happens on PRs that don't touch UI files. Deleted files, and files moved without edits, don't count. A repo can turn both the check and the comment off
 with `uiPaths: []`. To keep the check but skip the comment, a workspace admin can turn off **Comment when a PR has no uploads** under
 **Settings → GitHub**, or a repo can set `noUploadsComment: false`.
+
+</section>
+
+<section id="required">
+
+## Required uploads <a class="anchor" href="#required" aria-label="Link to this section">#</a>
+
+A repo can make the [uploads.sh check](#check) fail when a PR changes [UI files](#no-uploads)
+without the uploads it expects, like a linter for screenshots. UI files are the built-in list unless
+the workspace or repo sets its own:
+
+```yaml title=".uploads.yml" frame="code"
+comment:
+  check:
+    require: [uploads, before-after, desktop, mobile]
+```
+
+- `uploads` (or `any`): at least one file of any kind. Every other item implies it.
+- `before-after`: a file with `--state before` and one with `--state after`.
+- `desktop` and `mobile`: a capture of each. The AI label decides when it's set, otherwise the
+  frame's shape (tall reads as mobile, wide as desktop).
+
+The managed comment shows the list with each item ticked or not, and the check's summary repeats it.
+To block merges on it, make `uploads.sh` a required check in the repo's branch protection. With
+`check.require` set, every PR gets the check, and a PR that changes no UI files passes.
+
+A PR that needs no uploads can skip the requirement with a label: `uploads:skip-verify`,
+`skip-uploads`, or `uploads-skip`, in any case. The check turns neutral right away, and the
+comment says the requirement was skipped and by which label. A repo can list its own labels instead under `check.skipLabels`. A held file counts as
+attached and never fails the check.
 
 </section>
 
