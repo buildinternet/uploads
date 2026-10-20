@@ -18,18 +18,9 @@
  */
 import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
-import { classifierEvaluationContext } from "./classifier";
 import type { GhTarget } from "./github-comment-render";
-import type { WorkspaceRecord } from "./workspace";
 
 export const CHECK_NAME = "uploads.sh";
-
-/**
- * Operator kill switch. Flagship `pr-checks`, evaluated with the same
- * `{ org, workspace }` context as `upload-holds`. Fails closed: no binding,
- * flag off, or a thrown evaluation means no check runs.
- */
-export const PR_CHECKS_FLAG = "pr-checks";
 
 const DENIED_TTL = 3600;
 
@@ -84,23 +75,6 @@ export function checkRunContent(
   };
 }
 
-async function checksAllowed(
-  env: Env,
-  ws: WorkspaceRecord,
-  workspaceName: string,
-): Promise<boolean> {
-  if (!env.FLAGS) return false;
-  try {
-    return await env.FLAGS.getBooleanValue(
-      PR_CHECKS_FLAG,
-      false,
-      classifierEvaluationContext(ws, workspaceName),
-    );
-  } catch {
-    return false;
-  }
-}
-
 /** The PR's current head commit, uncached (it moves on every push). */
 async function prHeadSha(
   fetchImpl: typeof fetch,
@@ -125,8 +99,6 @@ export async function syncUploadsCheck(
   env: Env,
   cfg: GithubAppConfig,
   installationId: number,
-  ws: WorkspaceRecord,
-  workspaceName: string,
   target: GhTarget,
   gathered: { count: number; heldCount: number },
   opts: { headSha?: string; commentUrl?: string | null; fetchImpl?: typeof fetch } = {},
@@ -134,7 +106,6 @@ export async function syncUploadsCheck(
   if (target.kind !== "pull") return;
   const fetchImpl = opts.fetchImpl ?? fetch;
   try {
-    if (!(await checksAllowed(env, ws, workspaceName))) return;
     if ((await env.GITHUB_CACHE.get(checksDeniedKey(installationId))) !== null) return;
 
     const token = await installationToken(env, cfg, installationId, fetchImpl);

@@ -256,7 +256,7 @@ export async function postManagedComment(
     if (result.degrade === "forbidden") return forbiddenDecline(target.repo, installId);
     return { posted: false, reason: result.degrade };
   }
-  await syncUploadsCheck(env, cfg, installId, ws, workspaceName, target, gathered, {
+  await syncUploadsCheck(env, cfg, installId, target, gathered, {
     commentUrl: "commentUrl" in result ? result.commentUrl : null,
   });
   // Empty + no existing comment: nothing posted, nothing to claim.

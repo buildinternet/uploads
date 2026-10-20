@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { checkRunContent, checksDeniedKey, syncUploadsCheck } from "./github-check-run";
 import type { GithubAppConfig } from "./github-app";
-import type { WorkspaceRecord } from "./workspace";
 import { FakeKv } from "../test/fake-kv";
 
 const CFG: GithubAppConfig = { appId: "12345", privateKey: "unused", homeInstallationId: "777" };
-const WS = { name: "acme" } as WorkspaceRecord;
 const TARGET = { repo: "acme/web", kind: "pull" as const, num: 12 };
 const COMMENT = "https://github.com/acme/web/pull/12#issuecomment-1";
 
@@ -35,7 +33,7 @@ describe("checkRunContent", () => {
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
-function harness(opts: { flag?: boolean; existing?: number[]; listStatus?: number } = {}) {
+function harness(opts: { existing?: number[]; listStatus?: number } = {}) {
   const kv = new FakeKv();
   kv.store.set("ghtok:42", { value: "tok" });
   const calls: Call[] = [];
@@ -54,10 +52,7 @@ function harness(opts: { flag?: boolean; existing?: number[]; listStatus?: numbe
     }
     return Response.json({ id: 9 }, { status: method === "POST" ? 201 : 200 });
   }) as typeof fetch;
-  const env = {
-    GITHUB_CACHE: kv,
-    FLAGS: { getBooleanValue: async () => opts.flag ?? true },
-  } as unknown as Env;
+  const env = { GITHUB_CACHE: kv } as unknown as Env;
   return { env, kv, calls, fetchImpl };
 }
 
@@ -68,8 +63,6 @@ describe("syncUploadsCheck", () => {
       h.env,
       CFG,
       42,
-      WS,
-      "acme",
       TARGET,
       { count: 2, heldCount: 0 },
       {
@@ -95,8 +88,6 @@ describe("syncUploadsCheck", () => {
       h.env,
       CFG,
       42,
-      WS,
-      "acme",
       TARGET,
       { count: 0, heldCount: 0 },
       {
@@ -116,8 +107,6 @@ describe("syncUploadsCheck", () => {
       h.env,
       CFG,
       42,
-      WS,
-      "acme",
       TARGET,
       { count: 0, heldCount: 0 },
       {
@@ -128,32 +117,17 @@ describe("syncUploadsCheck", () => {
     expect(h.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
-  it("does nothing while the flag is off, or for issues", async () => {
-    const off = harness({ flag: false });
+  it("does nothing for issues", async () => {
+    const h = harness();
     await syncUploadsCheck(
-      off.env,
+      h.env,
       CFG,
       42,
-      WS,
-      "acme",
-      TARGET,
-      { count: 1, heldCount: 0 },
-      {
-        fetchImpl: off.fetchImpl,
-      },
-    );
-    const issue = harness();
-    await syncUploadsCheck(
-      issue.env,
-      CFG,
-      42,
-      WS,
-      "acme",
       { ...TARGET, kind: "issues" },
       { count: 1, heldCount: 0 },
-      { fetchImpl: issue.fetchImpl },
+      { fetchImpl: h.fetchImpl },
     );
-    expect([...off.calls, ...issue.calls]).toEqual([]);
+    expect(h.calls).toEqual([]);
   });
 
   it("remembers an installation without Checks permission", async () => {
@@ -162,8 +136,6 @@ describe("syncUploadsCheck", () => {
       h.env,
       CFG,
       42,
-      WS,
-      "acme",
       TARGET,
       { count: 1, heldCount: 0 },
       {
@@ -178,8 +150,6 @@ describe("syncUploadsCheck", () => {
       h.env,
       CFG,
       42,
-      WS,
-      "acme",
       TARGET,
       { count: 1, heldCount: 0 },
       {
@@ -197,8 +167,6 @@ describe("syncUploadsCheck", () => {
         h.env,
         CFG,
         42,
-        WS,
-        "acme",
         TARGET,
         { count: 1, heldCount: 0 },
         {
