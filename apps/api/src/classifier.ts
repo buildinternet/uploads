@@ -49,6 +49,16 @@
  * earlier labels. New bytes clear every classifier row first
  * (`CLASSIFIER_ROW_KEYS`), so old labels never describe new bytes.
  *
+ * Before that call, a finished classification already stored for this
+ * workspace can stand in for it. Identical bytes reuse the donor's rows,
+ * including safety flags, and a new key is held from those flags the same
+ * way a fresh decision would be. A PNG or JPEG whose 63-bit DCT pHash
+ * (`ai.phash`) is exactly equal reuses only `ai.kind`, `ai.surface`, and
+ * `ai.screen`. Safety flags and holds stay unset on that path: the
+ * Decisions request is one image, so a safety-only follow-up would not
+ * skip the call, and a missing flag is not a stored `none`. Both lookups
+ * stay inside the workspace.
+ *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
  * `openai/gpt-6-luna-decisions` on the same endpoint. Luna does not use
@@ -65,12 +75,18 @@
  * classification. The weekly digest still uses the Workers AI binding.
  */
 
+import { contentHashDonorKeys, contentHashForKey } from "./content-hash";
 import {
+  PHASH_META_KEY,
   SAFETY_FLAG_KEYS,
+  classifierRowsOf,
   deleteServerFileMetadataKeys,
+  findObjectsByMetadata,
   getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
+import { imagePhash } from "./phash";
+import { contentSha256Hex } from "./provenance";
 import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./classifier-admin-wire";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
@@ -1334,6 +1350,115 @@ async function storeHoldArea(
   }
 }
 
+const REUSE_LABEL_KEYS = ["ai.kind", "ai.surface", "ai.screen"] as const;
+const EXACT_REUSE_KEYS = [
+  "ai.classifier",
+  ...REUSE_LABEL_KEYS,
+  "ai.tags",
+  "ai.summary",
+  HOLD_AREA_KEY,
+  ...SAFETY_FLAG_KEYS,
+] as const;
+
+function reusableClassifier(value: string | undefined): value is string {
+  return value !== undefined && value !== CLASSIFIER_SKIPPED && value !== CLASSIFIER_FAILED;
+}
+
+function pickMeta(source: Record<string, string>, keys: readonly string[]): Record<string, string> {
+  const meta: Record<string, string> = {};
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined) meta[key] = value;
+  }
+  return meta;
+}
+
+function hasReuseBody(meta: Record<string, string>): boolean {
+  if (!reusableClassifier(meta["ai.classifier"])) return false;
+  if (REUSE_LABEL_KEYS.some((key) => meta[key] !== undefined)) return true;
+  if (meta["ai.tags"] !== undefined || meta["ai.summary"] !== undefined) return true;
+  for (const key of SAFETY_FLAG_KEYS) if (meta[key] !== undefined) return true;
+  return false;
+}
+
+/** Exact bytes reuse safety flags. A pHash hit reuses display labels only. */
+function exactReuseMeta(
+  donor: Record<string, string>,
+  phash: string | undefined,
+): Record<string, string> | undefined {
+  if (!hasReuseBody(donor)) return undefined;
+  const meta = pickMeta(donor, EXACT_REUSE_KEYS);
+  if (phash) meta[PHASH_META_KEY] = phash;
+  return meta;
+}
+
+function perceptualReuseMeta(
+  donor: Record<string, string>,
+  phash: string,
+): Record<string, string> | undefined {
+  const version = donor["ai.classifier"];
+  if (!reusableClassifier(version)) return undefined;
+  const meta = pickMeta(donor, REUSE_LABEL_KEYS);
+  if (Object.keys(meta).length === 0) return undefined;
+  meta["ai.classifier"] = version;
+  meta[PHASH_META_KEY] = phash;
+  return meta;
+}
+
+/**
+ * A prior result that can replace the Decisions call, plus the pHash to
+ * store when the call still has to run. Fail-soft: a lookup error falls
+ * through to the model.
+ */
+async function tryReuseClassification(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<{ meta?: Record<string, string>; hold: boolean; phash?: string }> {
+  try {
+    const db = dbFor(env);
+    const [sha, recorded, own] = await Promise.all([
+      contentSha256Hex(bytes),
+      contentHashForKey(db, workspaceName, key),
+      getFileMetadata(db, workspaceName, key),
+    ]);
+    if (recorded === sha && hasReuseBody(own)) {
+      console.log({ event: "classifier_reused", match: "sha256", workspace: workspaceName });
+      return { meta: classifierRowsOf(own), hold: true };
+    }
+
+    const phash = imagePhash(bytes, contentType);
+    for (const donorKey of await contentHashDonorKeys(db, workspaceName, sha, key)) {
+      const meta = exactReuseMeta(await getFileMetadata(db, workspaceName, donorKey), phash);
+      if (!meta) continue;
+      console.log({ event: "classifier_reused", match: "sha256", workspace: workspaceName });
+      return { meta: await storeDecision(env, workspaceName, key, meta), hold: true };
+    }
+
+    if (phash) {
+      const hits = await findObjectsByMetadata(
+        db,
+        workspaceName,
+        { [PHASH_META_KEY]: phash },
+        { limit: 8 },
+      );
+      for (const hit of hits) {
+        if (hit.key === key) continue;
+        const meta = perceptualReuseMeta(hit.metadata, phash);
+        if (!meta) continue;
+        console.log({ event: "classifier_reused", match: "phash", workspace: workspaceName });
+        return { meta: await storeDecision(env, workspaceName, key, meta), hold: false };
+      }
+    }
+    return { hold: false, phash };
+  } catch (err) {
+    console.error({ event: "classifier_reuse_failed", workspace: workspaceName, err });
+    return { hold: false };
+  }
+}
+
 export async function classifyAndStore(
   env: Env,
   ws: WorkspaceRecord,
@@ -1356,6 +1481,17 @@ export async function classifyAndStore(
     const provider = await resolveClassifierProvider(env, ws, workspaceName);
     const trivial = trivialImageSkip(contentType, bytes);
     if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider);
+
+    const reused = await tryReuseClassification(env, workspaceName, key, bytes, contentType);
+    if (reused.meta) {
+      if (reused.hold) {
+        const { applyUploadHold } = await import("./upload-hold-service");
+        await applyUploadHold(env, ws, workspaceName, key, reused.meta, {
+          enforce: deps?.enforceHold === true,
+        });
+      }
+      return reused.meta;
+    }
 
     const transform =
       deps?.transform ?? (env.IMAGES ? imagesClassifierTransform(env.IMAGES) : undefined);
@@ -1414,6 +1550,7 @@ export async function classifyAndStore(
     if (!meta) {
       return await storeFailure(env, workspaceName, key, CLASSIFIER_ERROR_NO_ANSWER, provider);
     }
+    if (reused.phash) meta[PHASH_META_KEY] = reused.phash;
     const stored = await storeDecision(env, workspaceName, key, meta);
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.

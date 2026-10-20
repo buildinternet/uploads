@@ -110,6 +110,43 @@ export async function recordContentHash(
 }
 
 /**
+ * Other keys in this workspace with the same stored bytes and a finished
+ * `ai.classifier` (`failed` and `skipped` do not qualify). Oldest first.
+ * Empty when the index is missing or the read fails: a miss costs a model
+ * call, not the upload.
+ */
+export async function contentHashDonorKeys(
+  db: D1Queryable,
+  workspace: string,
+  contentSha256: string,
+  selfKey: string,
+): Promise<string[]> {
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT h.object_key AS object_key
+         FROM file_content_hash h
+         INNER JOIN file_metadata m
+           ON m.workspace = h.workspace
+          AND m.object_key = h.object_key
+          AND m.meta_key = 'ai.classifier'
+         WHERE h.workspace = ?
+           AND h.content_sha256 = ?
+           AND h.object_key != ?
+           AND m.meta_value != 'failed'
+           AND m.meta_value != 'skipped'
+         ORDER BY h.updated_at ASC, h.object_key ASC
+         LIMIT 8`,
+      )
+      .bind(workspace, contentSha256, selfKey)
+      .all<{ object_key: string }>();
+    return rows.results.map((row) => row.object_key);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Derived metadata to inherit for `contentSha256`, or `{}` when there is
  * nothing to inherit.
  *
