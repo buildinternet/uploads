@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.59.6
+
+### Patch Changes
+
+- 36ad5cd: Update the bundled MCP server SDK so `uploads mcp` includes the October 2026 protocol fixes for shared connections and tool-input validation
+
 ## 0.59.5
 
 ### Patch Changes
