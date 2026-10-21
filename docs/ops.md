@@ -1372,7 +1372,7 @@ timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
 ### Held uploads
 
 A stored decision with a `high` `ai.secret` other than `none`, or a `high`
-`ai.pii` of `identity_document`, `financial`, or `other`, writes
+`ai.pii` of `identity_document` or `financial`, writes
 `ai.hold=pending` (`applyUploadHold`, `upload-hold-service.ts`), but only
 for an upload from a client that can approve it: the uploads CLI or local
 MCP at `HOLD_MIN_CLI_VERSION` (0.59.0) or newer, read from the PUT's
