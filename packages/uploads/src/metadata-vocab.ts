@@ -1,7 +1,8 @@
 /**
  * The canonical upload metadata vocabulary: a small closed set of keys that
  * `uploads find` can rely on being spelled consistently. Most are derived (see
- * capture-facts.ts / image-facts.ts); only `state` and `app` are typed by hand.
+ * capture-facts.ts / image-facts.ts); only `state`, `app` and `screen` are
+ * typed by hand. `screen` names an app view with no route (mobile, desktop).
  *
  * Design: .context/2026-07-21-upload-metadata-vocabulary-design.md
  */
@@ -11,6 +12,7 @@ import { validateMetaMap } from "./metadata.js";
 export const CANONICAL_META_KEYS = [
   "url",
   "path",
+  "screen",
   "env",
   "theme",
   "viewport",
@@ -77,7 +79,7 @@ export function validateStateValue(raw: string): MetaStateValue {
 const META_KEY_ALIASES: Readonly<Record<string, CanonicalMetaKey>> = {
   route: "path",
   page: "path",
-  screen: "path",
+  view: "screen",
   pathname: "path",
   mode: "theme",
   appearance: "theme",

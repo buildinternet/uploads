@@ -63,6 +63,7 @@ import {
 } from "../github-gh.js";
 import {
   appProp,
+  screenProp,
   canonicalMetaFromArgs,
   METADATA_PATH_CUE,
   metadataArgWithCanonical,
@@ -623,6 +624,7 @@ export function createUploadsMcpTools(opts: {
           metadata: metadataProp,
           state: stateProp,
           app: appProp,
+          screen: screenProp,
           workspace: workspaceProp,
         },
         additionalProperties: false,
@@ -1092,6 +1094,7 @@ export function createUploadsMcpTools(opts: {
           metadata: metadataProp,
           state: stateProp,
           app: appProp,
+          screen: screenProp,
           workspace: workspaceProp,
         },
         required: ["target"],
@@ -1439,6 +1442,7 @@ export function createUploadsMcpTools(opts: {
           metadata: metadataProp,
           state: stateProp,
           app: appProp,
+          screen: screenProp,
           workspace: workspaceProp,
         },
         required: ["files"],

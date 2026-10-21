@@ -288,6 +288,7 @@ Options:
                         preserved. Use "uploads meta set" to edit individual keys.
   --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
   --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
+  --screen <name>       App screen shown when there's no route, e.g. "Chat" (sets meta screen=)
   --replace             Allow overwriting an existing object on a strict (--key/default) key
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
@@ -504,7 +505,7 @@ export function warnNearMissMeta(
 }
 
 /**
- * Canonical `state`/`app` pairs from their dedicated flags. Shared by put,
+ * Canonical `state`/`app`/`screen` pairs from their dedicated flags. Shared by put,
  * attach and screenshot. These are sugar for the matching `--meta` keys; the
  * point is `--help` discoverability and `--state` validation.
  */
@@ -517,6 +518,11 @@ export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<stri
     const normalized = app.trim().toLowerCase();
     if (normalized.length === 0) throw new UsageError("--app requires a value");
     meta.app = normalized;
+  }
+  const screen = flagString(flags, "--screen");
+  if (screen !== undefined) {
+    if (screen.trim().length === 0) throw new UsageError("--screen requires a value");
+    meta.screen = screen.trim();
   }
   return meta;
 }
@@ -1218,6 +1224,7 @@ Options:
                         (never preserves) — use "uploads meta set" to add to it instead.
   --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
   --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
+  --screen <name>       App screen shown when there's no route, e.g. "Chat" (sets meta screen=)
 
 Examples:
   uploads attach ./before.png ./after.png
@@ -1240,6 +1247,9 @@ Examples:
  * forget. Fires once per batch (not per file). Non-image uploads (zips,
  * PDFs, etc.) are exempt — "findable by page" doesn't apply to them.
  *
+ * A `screen` counts as well; when every such shot is from a non-web `app`,
+ * the tip suggests `--screen` instead.
+ *
  * Checks the *resolved* metadata each upload actually sent (`--meta` pairs +
  * sidecar manifest + derived image facts, index-aligned with `uploads`) —
  * NOT `PutResult.metadata`. That field is the API's echo of the object's R2
@@ -1253,10 +1263,16 @@ export function pathMetaHintFor(
   /** Index-aligned with `uploads` — see `uploadPuts`/`uploadAttachments`. */
   sentMetadata: readonly (Record<string, string> | undefined)[],
 ): string | undefined {
-  const missingPath = uploads.some(
-    (u, i) => u.contentType.startsWith("image/") && !sentMetadata[i]?.path,
-  );
-  return missingPath ? "tip: add --meta path=/route so this shot is findable by page" : undefined;
+  const missing = uploads.flatMap((u, i) => {
+    const meta = sentMetadata[i];
+    return u.contentType.startsWith("image/") && !meta?.path && !meta?.screen ? [meta] : [];
+  });
+  if (missing.length === 0) return undefined;
+  // A non-web app has screens, not routes.
+  const appScreen = missing.every((meta) => meta?.app && meta.app !== "web");
+  return appScreen
+    ? "tip: add --screen <name> so this shot is findable by screen"
+    : "tip: add --meta path=/route so this shot is findable by page";
 }
 
 export type AttachUploadItem = PutResult & {
@@ -2765,6 +2781,7 @@ export async function resolveStaged(opts: {
       ...(fileBranch ? { branch: fileBranch } : {}),
       ...(meta?.state ? { state: meta.state } : {}),
       ...(meta?.path ? { path: meta.path } : {}),
+      ...(meta?.screen ? { screen: meta.screen } : {}),
       ...(meta?.["ai.hold"] === "pending" ? { held: true as const } : {}),
     });
   }
@@ -4446,7 +4463,7 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
 }
 
 /** The metadata keys the managed comment renders (path/state, PR #370). */
-const COMMENT_RENDERED_META_KEYS = ["path", "state"];
+const COMMENT_RENDERED_META_KEYS = ["screen", "path", "state"];
 
 /**
  * Best-effort managed-comment refresh after `meta set` touches a

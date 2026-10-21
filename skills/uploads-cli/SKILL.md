@@ -617,7 +617,7 @@ provenance) — tag uploads at put time, then find them later.
 
 ### The canonical vocabulary
 
-Metadata is only useful if it is spelled the same way every time. These ten keys
+Metadata is only useful if it is spelled the same way every time. These eleven keys
 are the agreed vocabulary; **most are derived for you**, so the main job is not
 to fight them by inventing a different spelling.
 
@@ -633,15 +633,23 @@ to fight them by inventing a different spelling.
 | `captured` | auto — image EXIF          | `2026-07-20T20:35:39`          |
 | `state`    | **you** — `--state`        | `before` \| `after`            |
 | `app`      | **you** — `--app`          | `web` \| `ios`                 |
+| `screen`   | **you** — `--screen`       | `Chat`                         |
 
 **`path` and `state` are the two highest-value keys — pass both, every time,
 as a habit.** `path` is the key most worth getting right (the one agents most
-often misspell as `route`, `page`, or `screen` — a near-miss warns on stderr
+often misspell as `route` or `page` — a near-miss warns on stderr
 and suggests the canonical spelling, but is never rewritten for you, so fix it
 at the source) and `state` captures the before/after pattern that dominates
 PR screenshots — nothing can infer either one from the image alone. `state` is
 a closed set: `before`, `after`, `empty`, `error`, `loading` (a near-miss like
 `--state post` fails fast and suggests `after`).
+
+**Mobile and desktop app shots have screens, not routes.** Name the screen
+with `--screen` (sets `screen=`), using the name your app or team uses for
+it, e.g. `--app ios --screen "Chat"`. If the app has real routes (Expo
+Router, a deep link path), pass `path` as well. The PR comment shows
+`screen` and `path` under the image whenever they are set (both when both
+are), and before/after shots pair on them.
 
 `uploads screenshot` derives `path` automatically from the captured URL, so
 you only need to add `--state`. `uploads put`/`uploads attach` of an
@@ -649,13 +657,15 @@ already-existing file have nothing to derive `path` from, so pass it
 explicitly with `--meta path=/route` — and `attach`/`put --pr`/`put --issue`
 print a `tip: add --meta path=/route so this shot is findable by page` on
 stderr (plus a JSON `hint` field) when an image lands with no `path` meta, as
-a reminder (respects `--quiet`).
+a reminder (respects `--quiet`). A `screen` counts too, and when the image
+is from a non-web `--app` the tip suggests `--screen <name>` instead.
 
 ```bash
 uploads screenshot https://app.example/settings --state before
 # → stamps url, path=/settings, viewport, state=before
 
 uploads put ./after.png --pr 123 --meta path=/settings --state after --app web
+uploads put ./chat.png --pr 123 --app ios --screen "Chat" --state after
 uploads find path=/settings state=after        # what it was all for
 ```
 
@@ -685,7 +695,7 @@ lens serial numbers, `Artist`/`Copyright`/`OwnerName`, and free-form user
 comments. Note the flip side: `device` and `software` were previously discarded
 and now become queryable metadata that renders on the public `/f/` page.
 
-**Precedence:** explicit `--meta`/`--state`/`--app` > screenshot capture facts >
+**Precedence:** explicit `--meta`/`--state`/`--app`/`--screen` > screenshot capture facts >
 sidecar manifest > EXIF > unset. Derived keys are also dropped first if the
 24-key cap is reached — your own keys are never dropped, and a full key
 budget never fails an upload.

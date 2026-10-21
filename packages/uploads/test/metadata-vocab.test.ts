@@ -40,6 +40,13 @@ describe("nearMissMetaWarnings", () => {
     expect(nearMissMetaWarnings(["path", "state", "gh.repo"])).toEqual([]);
   });
 
+  it("treats screen as canonical and view as its near-miss", () => {
+    expect(nearMissMetaWarnings(["screen"])).toEqual([]);
+    expect(nearMissMetaWarnings(["view"])).toEqual([
+      'metadata key "view" is not canonical — did you mean "screen"?',
+    ]);
+  });
+
   it("is silent for unrecognized custom keys", () => {
     expect(nearMissMetaWarnings(["commit", "ticket"])).toEqual([]);
   });

@@ -124,6 +124,10 @@ Don't wait for the PR. After each meaningful visual change:
 
   uploads put ./shot.png --meta path=/route --state after
 
+For a mobile or desktop app screen with no route, name the screen instead:
+
+  uploads put ./shot.png --app ios --screen "Chat" --state after
+
 On a branch, that stages the file for the PR. After opening the PR, run
 `uploads attach --promote` to post everything staged. It's safe to run
 even if the GitHub App already posted them.

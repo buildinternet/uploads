@@ -280,12 +280,13 @@ export interface AttachmentItem {
   pageUrl?: string | null;
   /**
    * The only canonical metadata the managed comment renders (issue #365).
-   * Deliberately two named fields rather than `Record<string, string>`: the
+   * `screen` names an app view that has no route (a mobile or desktop
+   * screen). Deliberately named fields rather than `Record<string, string>`: the
    * comment is posted publicly, and keeping the set narrow at the type level
    * mirrors the server-side query filter that never fetches EXIF-derived
    * keys like `device`/`software` for this path.
    */
-  meta?: { path?: string; state?: string };
+  meta?: { screen?: string; path?: string; state?: string };
   /**
    * Poster frame for a video (issue #299) or a PDF first page (issue #1009).
    * Server-computed like `embedUrl` — never taken from client-settable
@@ -439,12 +440,23 @@ function escapeMarkdownText(s: string): string {
   return s.replace(/([\\`*_[\]~])/g, "\\$1");
 }
 
+/** Screen and path joined, for before/after pairing. Empty when neither is usable. */
+function pairLocation(item: AttachmentItem): string {
+  const screen = item.meta?.screen?.trim() ?? "";
+  const path = item.meta?.path?.trim() ?? "";
+  return [screen, path === "/" ? "" : path].filter(Boolean).join("\n");
+}
+
 /**
- * Collect path then state for a caption (issue #365). Bare `/` and
- * whitespace-only values are omitted (issue #375). Empty when nothing usable.
+ * Collect screen, path, then state for a caption (issue #365). `screen`
+ * shares the `metaPath` toggle: both say where the shot was taken. Bare `/`
+ * and whitespace-only values are omitted (issue #375). Empty when nothing
+ * usable.
  */
 function metaCaptionValues(meta: AttachmentItem["meta"], options: CommentRenderOptions): string[] {
   const values: string[] = [];
+  const screen = meta?.screen?.trim();
+  if (options.metaPath && screen) values.push(screen);
   const path = meta?.path?.trim();
   if (options.metaPath && path && path !== "/") values.push(path);
   const state = meta?.state?.trim();
@@ -589,16 +601,16 @@ function pairAttachments(
     roleOf.set(afterIdx, "after");
   };
 
-  // Priority 1: same path metadata, exactly one before + one after.
+  // Priority 1: same screen/path metadata, exactly one before + one after.
   const pathGroups = new Map<string, { before: number[]; after: number[] }>();
   items.forEach((item, i) => {
     const kind = kindAt[i];
     if (!kind) return;
-    const path = item.meta?.path?.trim();
-    if (!path || path === "/") return;
+    const where = pairLocation(item);
+    if (!where) return;
     const state = item.meta?.state?.trim().toLowerCase();
     if (state !== "before" && state !== "after") return;
-    const key = `${kind}:${path}`;
+    const key = `${kind}:${where}`;
     const g = pathGroups.get(key) ?? { before: [], after: [] };
     g[state].push(i);
     pathGroups.set(key, g);
@@ -611,8 +623,7 @@ function pairAttachments(
   const stemGroups = new Map<string, { before: number[]; after: number[] }>();
   items.forEach((item, i) => {
     if (!kindAt[i] || partnerOf.has(i)) return;
-    const path = item.meta?.path?.trim();
-    if (path && path !== "/") return; // usable path metadata — rule 1 owns this item
+    if (pairLocation(item)) return; // usable screen/path metadata — rule 1 owns this item
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const tok = filenameStemToken(name);
     if (!tok) return;
@@ -657,7 +668,11 @@ function renderPairCell(
       parts.push(formatDuration(item.videoMeta.durationSeconds));
     }
   }
-  const caption = formatMetaCaption({ path: item.meta?.path }, options, "html");
+  const caption = formatMetaCaption(
+    { screen: item.meta?.screen, path: item.meta?.path },
+    options,
+    "html",
+  );
   if (caption) parts.push(caption);
   const captionHtml = parts.length > 0 ? `<br>${parts.join(" · ")}` : "";
   return `<td align="center"><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
