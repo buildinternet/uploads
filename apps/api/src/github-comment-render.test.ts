@@ -801,6 +801,46 @@ describe("live link line", () => {
     expect(body.indexOf("**Required:**")).toBeGreaterThan(body.indexOf("shot.png"));
   });
 
+  it("shows AI notes as a block, open only when one warns", () => {
+    const warn = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        aiNotes: [
+          {
+            label: "Before and after look the same",
+            outcome: "warning",
+            details: ["`before.png` and `after.png` look the same"],
+          },
+        ],
+      },
+    );
+    expect(warn).toContain(
+      "<details open><summary>AI notes · 1 warning</summary>\n\n- ⚠️ Before and after look the same\n  - `before.png` and `after.png` look the same\n\n</details>\n\n",
+    );
+    const quiet = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        aiNotes: [
+          {
+            label: "After screens not checked",
+            outcome: "skipped",
+            details: ["No files are marked as after."],
+          },
+        ],
+      },
+    );
+    expect(quiet).toContain("<details><summary>AI notes · nothing to flag</summary>");
+    expect(quiet).toContain("- ➖ After screens not checked\n  - No files are marked as after.");
+  });
+
   it("shows the skip label in place of the checklist", () => {
     const body = attachmentsCommentBody(
       one,

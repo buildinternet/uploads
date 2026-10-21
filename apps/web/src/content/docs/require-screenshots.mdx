@@ -14,6 +14,7 @@ toc:
   - { id: more, label: Ask for more than one screenshot }
   - { id: what-counts, label: What counts }
   - { id: skip, label: Skip a pull request }
+  - { id: ai-notes, label: AI notes }
   - { id: no-uploads-comment, label: The how-to comment }
   - { id: web-settings, label: Manage it from uploads.sh }
   - { id: results, label: Check results }
@@ -181,6 +182,53 @@ comment:
     require: [uploads]
     skipLabels: ["no-screenshots"]
 ```
+
+</section>
+
+<section id="ai-notes">
+
+## AI notes <a class="anchor" href="#ai-notes" aria-label="Link to this section">#</a>
+
+AI notes are a second look at the screenshots themselves. They show up under the checklist in the
+check's summary and in the PR comment, and a warning is named in the check's title. They never fail
+the check.
+
+```yaml title=".uploads.yml" frame="code"
+comment:
+  check:
+    ai: all
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Note</th>
+      <th>Warns when</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code>ready-screen</code>
+      </td>
+      <td>
+        A capture uploaded with <code>--state after</code> looks like it is still loading, blank, or
+        showing an error. Before captures are never judged, since a broken screen is a fine before.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>identical-before-after</code>
+      </td>
+      <td>A before and an after are the same picture.</td>
+    </tr>
+  </tbody>
+</table>
+
+Each note says ok, warning, or skipped. A note is skipped with a reason when it has nothing to look
+at, like no files marked as after. The notes read the [AI labels](/docs/agents#experimental-ai-tags)
+uploads.sh adds to each image, so they need AI labels on for the workspace. Add the
+`uploads:no-ai` label to a PR to hide them.
 
 </section>
 

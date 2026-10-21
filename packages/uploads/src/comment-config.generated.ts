@@ -21,6 +21,7 @@ export interface RepoCommentConfig {
   noUploadsComment?: boolean;
   checkRequire?: CheckRequirement[];
   checkSkipLabels?: string[];
+  checkAi?: CheckAiNote[];
 }
 export interface WorkspaceCommentDefaults {
   imageWidth?: "full" | number;
@@ -57,11 +58,17 @@ export interface ResolvedCommentOptions {
   checkRequire: CheckRequirement[];
   /** Labels (matched case-insensitively) that excuse a PR from `checkRequire`. */
   checkSkipLabels: string[];
+  /** AI notes the check adds (`check.ai`). Advisory: they never fail the check. */
+  checkAi: CheckAiNote[];
 }
 
 /** The `check.require` items, in the order the checklist shows them. */
 export const CHECK_REQUIREMENTS = ["uploads", "before-after", "desktop", "mobile"] as const;
 export type CheckRequirement = (typeof CHECK_REQUIREMENTS)[number];
+
+/** The `check.ai` items, in the order the notes show them. `all` turns on every one. */
+export const CHECK_AI_NOTES = ["ready-screen", "identical-before-after"] as const;
+export type CheckAiNote = (typeof CHECK_AI_NOTES)[number];
 
 /** Skip labels used when a repo doesn't list its own. */
 export const DEFAULT_CHECK_SKIP_LABELS = ["uploads:skip-verify", "skip-uploads", "uploads-skip"];
@@ -86,6 +93,7 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   noUploadsComment: true,
   checkRequire: [],
   checkSkipLabels: DEFAULT_CHECK_SKIP_LABELS,
+  checkAi: [],
 };
 
 export const NOTE_MAX_CHARS = 500;
@@ -226,6 +234,20 @@ export function parseRepoCommentConfig(
           warnings.push(`check.skipLabels: expected a list of labels; dropped`);
         }
       }
+      if ("ai" in check) {
+        const ai = typeof check.ai === "string" ? [check.ai] : check.ai;
+        if (Array.isArray(ai)) {
+          const wanted = new Set<unknown>(ai.includes("all") ? CHECK_AI_NOTES : ai);
+          const known = CHECK_AI_NOTES.filter((n) => wanted.has(n));
+          if (!ai.includes("all") && known.length < ai.length)
+            warnings.push(
+              `check.ai: dropped unknown items (use ${CHECK_AI_NOTES.join(", ")}, or all)`,
+            );
+          config.checkAi = known;
+        } else {
+          warnings.push(`check.ai: expected a list; dropped`);
+        }
+      }
     } else {
       warnings.push(`check: expected an object; dropped`);
     }
@@ -310,6 +332,7 @@ export function resolveCommentOptions(
       "noUploadsComment",
       "checkRequire",
       "checkSkipLabels",
+      "checkAi",
     ] as const) {
       if (cfg[key] !== undefined && source[key] === "auto") {
         (options as Record<string, unknown>)[key] = cfg[key];

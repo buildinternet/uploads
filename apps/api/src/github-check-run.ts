@@ -19,7 +19,13 @@
  */
 import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
-import { checklistLine, type GhTarget } from "./github-comment-render";
+import {
+  aiNotesHeadline,
+  aiNotesList,
+  checklistLine,
+  type AiNote,
+  type GhTarget,
+} from "./github-comment-render";
 import type { Requirement } from "./github-check-requirements";
 import { webOrigin } from "./web-url";
 
@@ -61,6 +67,8 @@ export interface CheckFacts {
   githubAttachments?: number;
   /** The repo imports GitHub attachments, so the check needn't suggest it. */
   importsAttachments?: boolean;
+  /** The repo's AI notes (`check.ai`). Advisory: they never change the conclusion. */
+  aiNotes?: readonly AiNote[];
 }
 
 /** " · before and after, mobile": the met requirements beyond plain uploads, for a passing title. */
@@ -84,9 +92,26 @@ function githubAttachmentsLine(n: number, imports: boolean): string {
  * What the check says for a comment that carries `count` items (attachments,
  * galleries and held files), `heldCount` of them held, for a PR that changed
  * `uiFiles`. Fails only when the repo requires uploads, UI files changed,
- * nothing excuses the PR, and a requirement is unmet. Pure.
+ * nothing excuses the PR, and a requirement is unmet. AI notes go under the
+ * summary, and a warning is named in the title, but never change the
+ * conclusion. Pure.
  */
 export function checkRunContent(gathered: CheckFacts, commentUrl: string | null): CheckRunContent {
+  const content = factsContent(gathered, commentUrl);
+  const notes = gathered.aiNotes ?? [];
+  if (notes.length === 0) return content;
+  const headline = aiNotesHeadline(notes);
+  const warns = notes.some((note) => note.outcome === "warning");
+  return {
+    conclusion: content.conclusion,
+    title: warns ? `${content.title} · AI notes: ${headline}` : content.title,
+    summary:
+      `${content.summary}\n\n### AI notes · ${headline}\n\n${aiNotesList(notes)}\n\n` +
+      "_AI notes are a second look from image labels. They never fail this check._",
+  };
+}
+
+function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRunContent {
   const { count, heldCount } = gathered;
   const uiFiles = gathered.uiFiles ?? [];
   const onGithub = count === 0 ? (gathered.githubAttachments ?? 0) : 0;

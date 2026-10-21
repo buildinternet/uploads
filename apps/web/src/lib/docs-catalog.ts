@@ -70,6 +70,7 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "linter",
     "skip label",
     "ui paths",
+    "ai notes",
   ],
   "comment-config": ["uploads.yml", "comment", "yaml", "yml", "width"],
   agents: [
@@ -82,6 +83,7 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "ai labels",
     "ai tags",
     "ai.screen",
+    "ai.ready",
     "ai.kind",
     "ai.rating",
     "ai.secret",

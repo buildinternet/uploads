@@ -2564,6 +2564,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       noUploadsComment: true,
       checkRequire: [],
       checkSkipLabels: ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+      checkAi: [],
     });
     expect(body.source).toMatchObject({ imageWidth: "auto" });
     expect(typeof body.body).toBe("string");

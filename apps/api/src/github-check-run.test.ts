@@ -16,6 +16,39 @@ describe("checkRunContent", () => {
     expect(checkRunContent({ count: 1, heldCount: 0 }, null).title).toBe("1 file attached");
   });
 
+  it("adds AI notes under the summary without changing the conclusion", () => {
+    const content = checkRunContent(
+      {
+        count: 2,
+        heldCount: 0,
+        aiNotes: [
+          {
+            label: "An after screen may not show the change",
+            outcome: "warning",
+            details: ["`after.png` looks blank"],
+          },
+          { label: "Before and after differ", outcome: "ok", details: [] },
+        ],
+      },
+      COMMENT,
+    );
+    expect(content.conclusion).toBe("success");
+    expect(content.title).toBe("2 files attached · AI notes: 1 warning");
+    expect(content.summary).toContain(
+      "### AI notes · 1 warning\n\n- ⚠️ An after screen may not show the change\n  - `after.png` looks blank\n- ✅ Before and after differ",
+    );
+    const quiet = checkRunContent(
+      {
+        count: 2,
+        heldCount: 0,
+        aiNotes: [{ label: "Before and after differ", outcome: "ok", details: [] }],
+      },
+      COMMENT,
+    );
+    expect(quiet.title).toBe("2 files attached");
+    expect(quiet.summary).toContain("### AI notes · nothing to flag");
+  });
+
   it("reports held files as neutral, never blocking", () => {
     expect(checkRunContent({ count: 4, heldCount: 1 }, COMMENT)).toMatchObject({
       conclusion: "neutral",

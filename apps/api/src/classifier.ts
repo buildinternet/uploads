@@ -11,7 +11,7 @@
  * Presigned (`POST /sign`) uploads never reach this hook.
  *
  * One Decisions call when the provider can see an image. The model picks
- * `kind`, `surface`, and `screen` from the closed enums, plus four
+ * `kind`, `surface`, `screen`, and `ready` from the closed enums, plus four
  * internal safety flags (`rating`, `content`, `secret`, `pii`). Flag
  * lifetime is `SAFETY_FLAG_KEYS`. Decisions models do not write free
  * text, so this path does not write `ai.tags` or `ai.summary`.
@@ -33,7 +33,7 @@
  * `small`, `unsupported`, `resize_failed`, and `resize_timeout`. `small`
  * is a trivially small image (either known side under 64 px, or an image
  * file under 2 KiB), on Jev or Luna. Unknown dimensions do not count as
- * small. A skip removes a previous kind, surface, and screen. It does
+ * small. A skip removes a previous kind, surface, screen, and ready. It does
  * not write safety values. New bytes clear those rows before this runs,
  * so a skip leaves them clear. Identical bytes keep them.
  *
@@ -53,11 +53,11 @@
  * workspace can stand in for it. Identical bytes reuse the donor's rows,
  * including safety flags, and a new key is held from those flags the same
  * way a fresh decision would be. A PNG or JPEG whose 63-bit DCT pHash
- * (`ai.phash`) is exactly equal reuses only `ai.kind`, `ai.surface`, and
- * `ai.screen`. Safety flags and holds stay unset on that path: the
- * Decisions request is one image, so a safety-only follow-up would not
- * skip the call, and a missing flag is not a stored `none`. Both lookups
- * stay inside the workspace.
+ * (`ai.phash`) is exactly equal reuses only `ai.kind`, `ai.surface`,
+ * `ai.screen`, and `ai.ready`. Safety flags and holds stay unset on that
+ * path: the Decisions request is one image, so a safety-only follow-up
+ * would not skip the call, and a missing flag is not a stored `none`. Both
+ * lookups stay inside the workspace.
  *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
@@ -323,6 +323,21 @@ export const SCREEN_CRITERIA: Record<string, string> = {
 };
 
 /**
+ * Closed enum for `ai.ready`: whether a screen had finished loading when it
+ * was captured. The `check.ai` `ready-screen` note warns on an after file
+ * that is `loading`, `blank`, or `error`; it never judges a before.
+ */
+export const READY_CRITERIA: Record<string, string> = {
+  ready: "The screen has finished loading and shows its real content.",
+  loading:
+    "The screen is still loading: a spinner, skeleton placeholders, or a progress bar stand in for the content.",
+  blank: "The frame is empty or nearly empty: a white or solid page with no content or controls.",
+  error:
+    "The screen shows a failure instead of its content: an error page, a crash or dev error overlay, a stack trace, or a failed request.",
+  other: "The file is not a capture of an app or website screen.",
+};
+
+/**
  * Closed enum for `ai.rating`. Sexual content only. Violence is `safe`
  * here; `ai.content` says why a file is unsafe.
  */
@@ -397,6 +412,11 @@ const CLASSIFIER_FIELDS: Record<
     instructions:
       "Which product screen does the content show? Pick `other` when the file is not an interface.",
     criteria: SCREEN_CRITERIA,
+  },
+  ready: {
+    instructions:
+      "Had the screen finished loading when it was captured? Pick `other` when the file is not an app or website screen.",
+    criteria: READY_CRITERIA,
   },
   rating: {
     instructions:
@@ -1166,7 +1186,7 @@ function classifierVersionMarker(provider: ClassifierProvider, resized: boolean)
 }
 
 /** Display labels a skip must not leave behind from an earlier classification. */
-const CLASSIFIER_DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen"] as const;
+const CLASSIFIER_DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen", "ai.ready"] as const;
 
 function skipMeta(reason: string, provider: ClassifierProvider): Record<string, string> {
   // Two keys, and only these. Display and safety keys stay off the write
@@ -1364,7 +1384,7 @@ async function storeHoldArea(
   }
 }
 
-const REUSE_LABEL_KEYS = ["ai.kind", "ai.surface", "ai.screen"] as const;
+const REUSE_LABEL_KEYS = ["ai.kind", "ai.surface", "ai.screen", "ai.ready"] as const;
 const EXACT_REUSE_KEYS = [
   "ai.classifier",
   ...REUSE_LABEL_KEYS,
@@ -1498,12 +1518,15 @@ export async function classifyAndStore(
 
     const reused = await tryReuseClassification(env, workspaceName, key, bytes, contentType);
     if (reused.meta) {
-      if (reused.hold) {
-        const { applyUploadHold } = await import("./upload-hold-service");
-        await applyUploadHold(env, ws, workspaceName, key, reused.meta, {
-          enforce: deps?.enforceHold === true,
-        });
-      }
+      const { applyUploadHold, resyncCommentAfterClassification } =
+        await import("./upload-hold-service");
+      const placed = reused.hold
+        ? await applyUploadHold(env, ws, workspaceName, key, reused.meta, {
+            enforce: deps?.enforceHold === true,
+          })
+        : false;
+      // A hold re-syncs the comment itself.
+      if (!placed) await resyncCommentAfterClassification(env, ws, workspaceName, key);
       return reused.meta;
     }
 
@@ -1568,10 +1591,13 @@ export async function classifyAndStore(
     const stored = await storeDecision(env, workspaceName, key, meta);
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.
-    const { applyUploadHold } = await import("./upload-hold-service");
+    const { applyUploadHold, resyncCommentAfterClassification } =
+      await import("./upload-hold-service");
     const placed = await applyUploadHold(env, ws, workspaceName, key, stored, {
       enforce: deps?.enforceHold === true,
     });
+    // A hold re-syncs the comment itself; otherwise the AI notes need the new labels.
+    if (!placed) await resyncCommentAfterClassification(env, ws, workspaceName, key);
     const reason = placed ? holdReason(stored) : undefined;
     // Box questions need Jev 1.14, and Luna's image may be one Jev rejects.
     if (reason && provider === "jev") {
