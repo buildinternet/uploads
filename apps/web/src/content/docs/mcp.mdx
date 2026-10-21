@@ -161,6 +161,33 @@ and `promote` is safe to call again.
 
 </section>
 
+<section id="cloud-sandboxes">
+
+## Upload from a sandbox <a class="anchor" href="#cloud-sandboxes" aria-label="Link to this section">#</a>
+
+An agent in a cloud sandbox has its screenshots on disk but no CLI. Sending them through `put`
+means typing every byte as base64. Call `sign_upload_url` instead. It returns a short-lived URL
+and a `curl` line per file, and the agent uploads straight from disk:
+
+```json title="sign_upload_url arguments" frame="code"
+{ "files": [{ "filename": "settings-after.png" }], "repo": "acme/web", "pr": 12 }
+```
+
+```bash title="Run in the sandbox" frame="code"
+curl -sS --fail-with-body -T 'settings-after.png' 'https://agents.uploads.sh/u/…'
+```
+
+Each upload answers with the same JSON as `put`, including `markdown`. With `pr` or `issue`, call
+`comment` once after the uploads to update the attachments comment. URLs expire after 15 minutes
+and take files up to 25 MiB.
+
+<div class="pointer">
+  The sandbox has to reach agents.uploads.sh. If curl fails with a 403 from a proxy, add
+  agents.uploads.sh to the environment's allowed domains.
+</div>
+
+</section>
+
 <section id="hosted-vs-local">
 
 ## Hosted vs. local <a class="anchor" href="#hosted-vs-local" aria-label="Link to this section">#</a>
@@ -170,7 +197,7 @@ fills in `repo` and `branch` from git. Most tools are the same on both servers.
 
 | Server  | Only this server has                                               |
 | ------- | ------------------------------------------------------------------ |
-| Hosted  | `promote`, `list_activity`, `list_repo_files`, `repo_link_status` |
+| Hosted  | `sign_upload_url`, `promote`, `list_activity`, `list_repo_files`, `repo_link_status` |
 | Local   | `attach`, `staged`, `screenshot`, `doctor`, `report`               |
 
 To register the local server instead, see [Skill vs. MCP](/docs/agents#skill-vs-mcp).

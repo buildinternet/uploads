@@ -424,6 +424,102 @@
     ]
   },
   {
+    "name": "sign_upload_url",
+    "title": "Sign upload URLs",
+    "description": "Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of `put` when the files are on a local or sandbox disk and you can run curl. Takes `put`'s arguments without the bytes, plus `files: [{ filename, alt? }]` (max 20). Run each returned `curl` line from the folder holding the file (or swap in its path); the response is the same JSON `put` returns, including `markdown`. URLs expire after 15 minutes and take files up to 25 MiB. With `pr`/`issue`, call `comment` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to `put` with contentBase64. All uploads are public.",
+    "access": "destructive",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "files",
+        "type": "object[]",
+        "required": true,
+        "description": "Files to upload, one URL each (max 20)."
+      },
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Key prefix for the default key layout (default: screenshots)."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc)."
+      },
+      {
+        "name": "ref",
+        "type": "string",
+        "required": false,
+        "description": "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Attach to this pull request (stable `gh/` key). Mutually exclusive with `issue` and `branch`. Requires `repo`."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Attach to this issue (stable `gh/` key). Mutually exclusive with `pr` and `branch`. Requires `repo`."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Git branch to stage under, before the PR exists. Requires `repo`. Call `promote` once the PR is open."
+      },
+      {
+        "name": "alt",
+        "type": "string",
+        "required": false,
+        "description": "Alt text for the markdown (default: filename)."
+      },
+      {
+        "name": "width",
+        "type": "number",
+        "required": false,
+        "description": "Emit <img width=…> markdown instead of a plain image embed."
+      },
+      {
+        "name": "metadata",
+        "type": "object",
+        "required": false,
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page/screen. Omit to leave existing tags; pass an object (even {}) to replace them. `state` and `app` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+      },
+      {
+        "name": "state",
+        "type": "\"before\" | \"after\" | \"empty\" | \"error\" | \"loading\"",
+        "required": false,
+        "description": "The UI state this image shows. Set it whenever the image is one side of a comparison — before/after is the most useful pair in a PR, and is what makes `find_files` with state=after work later."
+      },
+      {
+        "name": "app",
+        "type": "string",
+        "required": false,
+        "description": "Which surface is shown: web, ios, android, cli. Worth setting only when the same route exists on more than one surface."
+      },
+      {
+        "name": "replace",
+        "type": "boolean",
+        "required": false,
+        "description": "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite."
+      }
+    ],
+    "returns": [
+      "workspace",
+      "expiresAt",
+      "uploads",
+      "next",
+      "hint"
+    ]
+  },
+  {
     "name": "list",
     "title": "List files",
     "description": "List uploaded objects in the workspace, optionally filtered by key prefix. Paginate with cursor; each item includes its public URL when the workspace has one.",

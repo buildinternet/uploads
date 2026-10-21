@@ -593,6 +593,29 @@ export const feedResultSchema: JsonSchema = objectSchema({
 });
 
 /** Hosted catalog — every tool must have an entry. */
+/** Hosted-only `sign_upload_url`: one upload URL and curl line per file. */
+const signUploadUrlResultSchema: JsonSchema = objectSchema(
+  {
+    workspace: { type: "string" },
+    expiresAt: { type: "string" },
+    uploads: {
+      type: "array",
+      items: objectSchema(
+        {
+          file: { type: "string" },
+          uploadUrl: { type: "string" },
+          curl: { type: "string" },
+          maxBytes: { type: "number" },
+        },
+        ["file", "uploadUrl", "curl", "maxBytes"],
+      ),
+    },
+    next: { type: "string" },
+    hint: { type: "string" },
+  },
+  ["workspace", "expiresAt", "uploads", "hint"],
+);
+
 export const hostedOutputSchemas: Record<string, JsonSchema> = {
   gallery_create: galleryResultSchema,
   gallery_get: galleryResultSchema,
@@ -602,6 +625,7 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   feed_create: feedResultSchema,
   feed_get: feedResultSchema,
   put: putResultSchema,
+  sign_upload_url: signUploadUrlResultSchema,
   list: listResultSchema,
   list_activity: listActivityResultSchema,
   list_repo_files: listRepoFilesResultSchema,

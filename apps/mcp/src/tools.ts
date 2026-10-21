@@ -63,7 +63,13 @@ import {
   SEARCH_DOCS_INPUT_SCHEMA,
   runSearchDocsTool,
 } from "@buildinternet/uploads/mcp";
-import { AppError, InsufficientScopeError, NotFoundError, ValidationError } from "@uploads/errors";
+import {
+  AppError,
+  InsufficientScopeError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import { attachmentCommentTarget, assertDeleteAllowed } from "@uploads/api/delete-auth";
 import { unstageGithubFiles } from "@uploads/api/github-unstage";
 import { postManagedComment, type PostCommentResult } from "@uploads/api/github-comment-service";
@@ -124,6 +130,7 @@ import { activeContentAllowed } from "@uploads/api/active-content";
 import {
   allowWrite,
   contentTypeFromKey,
+  DEFAULT_MAX_UPLOAD_BYTES,
   isGatedContentType,
   maxBytesForContentType,
   uploadLimits,
@@ -141,6 +148,7 @@ import {
   attachmentTargetFor,
 } from "@uploads/api/upload-hold-service";
 import { activityReadTools } from "./activity-tools";
+import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
 
 export interface RemoteToolContext {
   env: Env;
@@ -193,6 +201,86 @@ async function bytesFromPutSource(
   }
   return decodeBase64(source.contentBase64!, maxBytes);
 }
+
+/**
+ * Where a non-tool `put` gets its bytes: a ticketed request body, or none
+ * at all when `sign_upload_url` only validates the arguments.
+ */
+type PutUpload = { bytes: Uint8Array } | { validateOnly: true };
+
+/**
+ * Ceiling for one ticketed upload. The PUT buffers the body in the isolate
+ * like `put` does, so this stays well under Workers' 128 MB of memory even
+ * on plans whose upload limit is higher; bigger files go through the CLI.
+ */
+const SIGNED_UPLOAD_MAX_BYTES = DEFAULT_MAX_UPLOAD_BYTES;
+
+/** Single-quote a filename for the curl line we hand back. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** `sign_upload_url`'s `files`: 1–MAX_PUT_FILES unique filenames. */
+function signUploadFileItems(args: Record<string, unknown>): { filename: string; alt?: string }[] {
+  const v = args.files;
+  if (!Array.isArray(v) || v.length === 0) usage("files must be a non-empty array of { filename }");
+  if (v.length > MAX_PUT_FILES) usage(`files supports at most ${MAX_PUT_FILES} items per call`);
+  const seen = new Set<string>();
+  return v.map((entry, i) => {
+    const rec = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
+      string,
+      unknown
+    >;
+    const { filename, alt } = rec;
+    if (typeof filename !== "string" || !filename) usage(`files[${i}].filename is required`);
+    if (alt !== undefined && typeof alt !== "string") usage(`files[${i}].alt must be a string`);
+    if (seen.has(filename)) usage(`files[${i}] repeats filename ${filename}`);
+    seen.add(filename);
+    return alt === undefined ? { filename } : { filename, alt };
+  });
+}
+
+/** Key layout arguments shared by `put` and `sign_upload_url`. */
+const keyLayoutProps = {
+  prefix: {
+    type: "string",
+    description: "Key prefix for the default key layout (default: screenshots).",
+  },
+  repo: {
+    type: "string",
+    description:
+      "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
+  },
+  ref: {
+    type: "string",
+    description:
+      "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`.",
+  },
+};
+
+/** Markdown and metadata arguments shared by `put` and `sign_upload_url`. */
+const putFormatProps = {
+  alt: {
+    type: "string",
+    description: "Alt text for the markdown (default: filename).",
+  },
+  width: {
+    type: "number",
+    description: "Emit <img width=…> markdown instead of a plain image embed.",
+  },
+  metadata: {
+    type: "object",
+    additionalProperties: { type: "string" },
+    description: METADATA_DESCRIPTION + " On `pr`/`issue`/`branch`, `gh.*` is set for you.",
+  },
+  state: stateProp,
+  app: appProp,
+  replace: {
+    type: "boolean",
+    description:
+      "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite.",
+  },
+};
 
 /** Max items per multi-file put call — bounds decoded bytes held in isolate memory. */
 export const MAX_PUT_FILES = 20;
@@ -327,6 +415,22 @@ function errorDetail(err: unknown): {
 }
 
 export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
+  return createRemoteToolkit(ctx).tools;
+}
+
+/**
+ * One file through the `put` path with bytes from a ticketed request body
+ * (`PUT /u/<ticket>`, issue #1242). `args` are the ticket's `put` arguments.
+ */
+export function runTicketedPut(
+  ctx: RemoteToolContext,
+  args: Record<string, unknown>,
+  bytes: Uint8Array,
+) {
+  return createRemoteToolkit(ctx).runPut(args, { bytes });
+}
+
+function createRemoteToolkit(ctx: RemoteToolContext) {
   const { env, workspace, workspaceName } = ctx;
   const mintingUserId = mintingUserIdOf(ctx.uploaderIdentity);
 
@@ -338,9 +442,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
   }
 
   async function requireWriteBudget(): Promise<void> {
-    // Mirrors the REST API's writeRateLimit middleware (guards.ts): plain
-    // Error, not usage() — over-budget is not a caller mistake.
-    if (!(await allowWrite(env, workspaceName))) throw new Error("rate limit exceeded");
+    // Mirrors the REST API's writeRateLimit middleware (guards.ts): not
+    // usage() — over-budget is not a caller mistake. Typed so the ticketed
+    // PUT route answers 429.
+    if (!(await allowWrite(env, workspaceName))) throw new RateLimitedError("rate limit exceeded");
   }
 
   /**
@@ -447,6 +552,324 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       record,
       await listGalleryItems(env.DB, workspaceName, id),
     );
+  }
+
+  /**
+   * The `put` tool body, shared with the ticketed `PUT /u/<ticket>` route
+   * (issue #1242). With `upload`, the bytes come from the request body
+   * instead of `contentBase64`/`contentUrl`; `validateOnly` (used by
+   * `sign_upload_url`) runs every argument check and stops before any write.
+   */
+  async function runPut(args: Record<string, unknown>, upload?: PutUpload) {
+    requireScope("files:write");
+    const validateOnly = upload !== undefined && "validateOnly" in upload;
+    const ticketBytes = upload !== undefined && "bytes" in upload ? upload.bytes : undefined;
+    // One limiter hit per tool call, single or batch — the batch's cost
+    // ceiling is bounded by MAX_PUT_FILES instead. A ticketed upload is
+    // charged on its PUT, not when the URL is signed.
+    if (!validateOnly) await requireWriteBudget();
+    const contentBase64 = optString(args, "contentBase64");
+    const contentUrl = optString(args, "contentUrl");
+    let filename = optString(args, "filename");
+    const items = optPutFileItems(args);
+    const multi = items !== undefined;
+    if (upload) {
+      // Ticketed: `sign_upload_url` built these args, one file, no content.
+      if (multi || contentBase64 !== undefined || contentUrl !== undefined) {
+        usage("a signed upload carries no contentBase64, contentUrl, or files");
+      }
+      if (!filename) usage("filename is required");
+    } else if (multi) {
+      if (contentBase64 !== undefined || contentUrl !== undefined || filename !== undefined) {
+        usage("contentBase64/contentUrl/filename cannot be combined with files");
+      }
+      if (items.length === 0) usage("files must be a non-empty array");
+      if (items.length > MAX_PUT_FILES) {
+        usage(`files supports at most ${MAX_PUT_FILES} items per call`);
+      }
+      if (optString(args, "key")) usage("key cannot be combined with files");
+    } else {
+      const hasB64 = Boolean(contentBase64);
+      const hasUrl = Boolean(contentUrl);
+      if (hasB64 === hasUrl) {
+        usage("exactly one of contentBase64 or contentUrl is required");
+      }
+      if (hasUrl) {
+        try {
+          filename = resolveUploadFilename(contentUrl!, filename, "contentUrl");
+        } catch (err) {
+          usage(err instanceof Error ? err.message : String(err));
+        }
+      } else if (!filename) {
+        usage("filename is required");
+      }
+    }
+
+    // Destinations (no git on this server — repo is always required when
+    // the key layout needs it):
+    // - pr/issue → stable gh/…/pull|issues/… keys + optional comment (#392)
+    // - branch alone → stage under gh/…/branch/… (CLI attach --branch)
+    // - pr + branch → PR key, then best-effort promote that branch
+    const target = ghTargetFromArgs(args);
+    const branch = branchFromArgs(args);
+    const explicitKey = optString(args, "key");
+    const prefix = optString(args, "prefix");
+    const repo = optString(args, "repo");
+    const ref = optString(args, "ref");
+
+    if (branch !== undefined && target?.kind === "issues") {
+      usage("branch cannot be combined with issue (promotion only applies to pull requests)");
+    }
+    // Branch-only staging vs pr+branch promote-after.
+    const staging = branch !== undefined && !target;
+    const promoteBranch = branch !== undefined && target?.kind === "pull" ? branch : undefined;
+    if (staging) {
+      if (!repo) usage("repo is required with branch (no git context on the hosted server)");
+      if (!validRepoGrammar(repo)) usage("repo must be owner/name");
+    }
+
+    // Stable gh layouts (PR/issue or branch stage) own the key path.
+    const ghLayout = target ? "pr/issue" : staging ? "branch" : null;
+    if (ghLayout) {
+      if (explicitKey) usage(`key cannot be combined with ${ghLayout}`);
+      if (prefix) usage(`prefix cannot be combined with ${ghLayout}`);
+      if (ref) usage(`ref cannot be combined with ${ghLayout}`);
+    } else if (explicitKey && (prefix ?? repo ?? ref) !== undefined) {
+      usage("key cannot be combined with prefix/repo/ref");
+    }
+
+    // optBool collapses "absent" to false; absent vs explicit false matters
+    // for default-on comment with pr/issue.
+    const commentArg = args.comment == null ? undefined : optBool(args, "comment");
+    if (commentArg && !target) usage("comment requires pr or issue");
+    // Comment gather needs files:read (same as REST). Check up front so a
+    // write-only token is rejected before any bytes are written when the
+    // caller explicitly asked for comment: true.
+    if (commentArg === true) requireScope("files:read");
+    // Default-on with pr/issue when the token has files:read (#537);
+    // write-only tokens still upload, just skip the sync unless comment:true.
+    const wantComment =
+      commentArg ?? (target !== undefined && ctx.authScopes.includes("files:read"));
+
+    // state/app win over same-named metadata. No EXIF derivation on Workers.
+    let metadata = metadataArgWithCanonical(args);
+    if (metadata) {
+      try {
+        validateMetadataEntries(metadata);
+      } catch (err) {
+        usage(err instanceof Error ? err.message : String(err));
+      }
+    }
+    // Canonical gh.* stamps win over caller pairs (attach parity).
+    if (target) metadata = { ...metadata, ...ghMetadataFromTarget(target) };
+    else if (staging && repo && branch) {
+      metadata = { ...metadata, ...branchMetadata(repo, branch) };
+    }
+    // Ceilings only, no admission decision — `putObject` is what gates
+    // SVG/XML acceptance (see `uploadLimits`, guards.ts).
+    const limits = uploadLimits(workspace);
+    /**
+     * Pre-decode ceiling for one file: the loosest the workspace allows
+     * (since video may exceed `maxBytes`), *tightened* only when the
+     * filename claims a gated type (the SVG/XML rows cap at 4 MiB
+     * however high the workspace ceiling is, issue #929). A name
+     * claiming an ordinary, ungated type never narrows below the
+     * workspace's general ceiling. `putObject`'s `inspectUpload`
+     * enforces the content-specific limit against the decoded bytes
+     * either way.
+     */
+    const maxBytesFor = (name: string | undefined): number => {
+      const claimed = name ? contentTypeFromKey(name) : undefined;
+      const general = Math.max(limits.maxBytes, limits.maxVideoBytes);
+      return claimed !== undefined && isGatedContentType(claimed)
+        ? Math.min(general, maxBytesForContentType(limits, claimed))
+        : general;
+    };
+    if (validateOnly) return { maxBytes: maxBytesFor(filename) };
+
+    // Uploader attribution (#345): server tags after caller pairs so they
+    // can't be spoofed; drop if they'd exceed the key cap.
+    // Service tokens (#1026) attribute to their label.
+    if (metadata) {
+      metadata = await withUploaderTags(env, metadata, ctx.uploaderIdentity, META_MAX_KEYS);
+    }
+    const alt = optString(args, "alt");
+    const width = optPosInt(args, "width");
+    // Strict overwrite (issue #174) only on non-gh/ keys.
+    const replaceArg = optBool(args, "replace") === true;
+    const putOpts =
+      metadata !== undefined || replaceArg
+        ? { metadata, replace: replaceArg, surface: "mcp" as const }
+        : { surface: "mcp" as const };
+
+    // Resolved at most once per tool call and shared by every file in a
+    // batch (same memo shape as `resolveGhPrefixOnce` below): the gate is
+    // a workspace-level answer — a Flagship evaluation plus a KV read —
+    // so a 20-SVG batch shouldn't pay for it 20 times. Never resolved at
+    // all unless some file actually claims a gated type.
+    let activeContentPromise: Promise<boolean> | undefined;
+    function activeContentOnce(): Promise<boolean> {
+      activeContentPromise ??= activeContentAllowed(env, workspace);
+      return activeContentPromise;
+    }
+
+    /**
+     * `putObject` options for one file: the shared bag, plus the
+     * active-content gate result when this file's name claims one of the
+     * gated SVG/XML types (issue #929). Any other name leaves the gate
+     * unresolved — `putObject` wouldn't consult it either.
+     */
+    async function putOptsForFile(name: string) {
+      const claimed = contentTypeFromKey(name);
+      if (claimed === undefined || !isGatedContentType(claimed)) return putOpts;
+      return { ...putOpts, activeContent: await activeContentOnce() };
+    }
+
+    // Resolved once per tool call, cached across every file in a batch
+    // (issue #631) — `resolveGhKeyContext` itself is fail-open (any
+    // failure degrades to `{ mode: "plain" }`), so this never blocks an
+    // upload; it just avoids resolving it once per file.
+    let ghPrefixPromise: Promise<GhKeyMode> | undefined;
+    function resolveGhPrefixOnce(req: {
+      repo: string;
+      branch?: string;
+      target?: { kind: "pull" | "issues"; num: number };
+    }): Promise<GhKeyMode> {
+      ghPrefixPromise ??= resolveGhKeyContext(env, workspaceName, mintingUserId, req);
+      return ghPrefixPromise;
+    }
+
+    /** Resolve the object key for one filename (+ bytes for the dated layout). */
+    async function resolveKey(name: string, bytes: Uint8Array): Promise<string> {
+      if (explicitKey) return explicitKey;
+      if (target) {
+        const ghPrefix = await resolveGhPrefixOnce({
+          repo: target.repo,
+          target: { kind: target.kind, num: target.num },
+        });
+        return ghAttachmentKeyForMode(ghPrefix, target, name);
+      }
+      if (staging && repo && branch) {
+        const ghPrefix = await resolveGhPrefixOnce({ repo, branch });
+        return ghBranchAttachmentKeyForMode(ghPrefix, repo, branch, name);
+      }
+      // deriveRepoFromGit: false — no git on a worker.
+      return buildScreenshotKey({
+        filename: name,
+        fileBytes: bytes,
+        prefix,
+        repo,
+        ref,
+        deriveRepoFromGit: false,
+      });
+    }
+
+    /** After successful write(s): optional promote, then comment (CLI order). */
+    async function afterUploadExtras(hadSuccess: boolean): Promise<Record<string, unknown>> {
+      if (!hadSuccess || !target) return {};
+      const promoteResult =
+        promoteBranch !== undefined
+          ? await attemptPromote(target.repo, target.num, promoteBranch)
+          : undefined;
+      const commentResult = wantComment ? await attachComment(target) : undefined;
+      return { ...promoteResult, ...commentResult };
+    }
+
+    if (multi) {
+      // Resolve every item before any write so a bad batch fails whole.
+      // Bounded fan-out: 20 parallel Worker fetches would pin isolate RAM.
+      const decoded = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
+        try {
+          return await bytesFromPutSource(item, maxBytesFor(item.filename));
+        } catch (err) {
+          usage(
+            `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      });
+      const keys = await Promise.all(
+        items.map((item, i) => resolveKey(item.filename, decoded[i]!)),
+      );
+      // Deterministic keys can collide (same file twice). Reject first.
+      const firstIndexByKey = new Map<string, number>();
+      keys.forEach((key, i) => {
+        const first = firstIndexByKey.get(key);
+        if (first === undefined) {
+          firstIndexByKey.set(key, i);
+          return;
+        }
+        usage(
+          `files[${i}] (${items[i]!.filename}) resolves to the same key as files[${first}] (${items[first]!.filename}): ${key}`,
+        );
+      });
+      type Slot =
+        | { ok: true; upload: Record<string, unknown> }
+        | { ok: false; file: string; err: unknown };
+      const slots: Slot[] = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
+        try {
+          const result = await putObject(
+            env,
+            workspace,
+            keys[i]!,
+            decoded[i]!,
+            workspaceName,
+            await putOptsForFile(item.filename),
+          );
+          const markdown =
+            result.url === null
+              ? undefined
+              : buildAttachmentMarkdown(item.filename, result.url, {
+                  alt: item.alt ?? alt ?? item.filename,
+                  width,
+                  contentType: result.contentType,
+                });
+          return {
+            ok: true,
+            upload: { file: item.filename, ...result, markdown },
+          };
+        } catch (err) {
+          return { ok: false, file: item.filename, err };
+        }
+      });
+      const uploads = slots.flatMap((slot) => (slot.ok ? [slot.upload] : []));
+      const failures = slots.flatMap((slot) =>
+        slot.ok ? [] : [{ file: slot.file, error: errorDetail(slot.err) }],
+      );
+      if (uploads.length === 0 && failures.length > 0) {
+        throw new ToolBatchError(batchFailureMessage(failures), {
+          workspace: workspaceName,
+          uploads,
+          failures,
+        });
+      }
+      const extras = await afterUploadExtras(uploads.length > 0);
+      return { workspace: workspaceName, uploads, failures, ...extras };
+    }
+
+    const bytes =
+      ticketBytes ??
+      (await bytesFromPutSource({ contentBase64, contentUrl }, maxBytesFor(filename)));
+    const key = await resolveKey(filename!, bytes);
+    const result = await putObject(
+      env,
+      workspace,
+      key,
+      bytes,
+      workspaceName,
+      await putOptsForFile(filename!),
+    );
+    const markdown =
+      result.url === null
+        ? undefined
+        : buildAttachmentMarkdown(filename!, result.url, {
+            alt: alt ?? filename!,
+            width,
+            contentType: result.contentType,
+          });
+    // A ticketed upload never syncs the comment: parallel PUTs on a new PR
+    // would each create one. The agent calls `comment` once afterwards.
+    const extras = ticketBytes ? {} : await afterUploadExtras(true);
+    return { workspace: workspaceName, ...result, markdown, ...extras };
   }
 
   const tools: McpTool[] = [
@@ -821,20 +1244,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "string",
             description: "Override the object key. Cannot combine with `pr`/`issue`/`branch`.",
           },
-          prefix: {
-            type: "string",
-            description: "Key prefix for the default key layout (default: screenshots).",
-          },
-          repo: {
-            type: "string",
-            description:
-              "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
-          },
-          ref: {
-            type: "string",
-            description:
-              "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`.",
-          },
+          ...keyLayoutProps,
           pr: {
             type: "number",
             description:
@@ -855,26 +1265,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             description:
               "With `pr` or `issue`: create or update the managed attachments comment after upload. Default true. Pass false to skip. A comment failure never fails the upload.",
           },
-          alt: {
-            type: "string",
-            description: "Alt text for the markdown (default: filename).",
-          },
-          width: {
-            type: "number",
-            description: "Emit <img width=…> markdown instead of a plain image embed.",
-          },
-          metadata: {
-            type: "object",
-            additionalProperties: { type: "string" },
-            description: METADATA_DESCRIPTION + " On `pr`/`issue`/`branch`, `gh.*` is set for you.",
-          },
-          state: stateProp,
-          app: appProp,
-          replace: {
-            type: "boolean",
-            description:
-              "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite.",
-          },
+          ...putFormatProps,
         },
         additionalProperties: false,
         examples: [
@@ -909,304 +1300,123 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         ],
       },
       async handler(args) {
+        return runPut(args);
+      },
+    },
+    {
+      name: "sign_upload_url",
+      title: "Sign upload URLs",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
+      description: `Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of \`put\` when the files are on a local or sandbox disk and you can run curl. Takes \`put\`'s arguments without the bytes, plus \`files: [{ filename, alt? }]\` (max ${MAX_PUT_FILES}). Run each returned \`curl\` line from the folder holding the file (or swap in its path); the response is the same JSON \`put\` returns, including \`markdown\`. URLs expire after 15 minutes and take files up to ${SIGNED_UPLOAD_MAX_BYTES / 1024 / 1024} MiB. With \`pr\`/\`issue\`, call \`comment\` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to \`put\` with contentBase64. All uploads are public.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          files: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                filename: {
+                  type: "string",
+                  description: "File name, extension included (drives the key and content type).",
+                },
+                alt: {
+                  type: "string",
+                  description:
+                    "Alt text for this file's markdown (default: top-level alt, then filename).",
+                },
+              },
+              required: ["filename"],
+              additionalProperties: false,
+            },
+            description: `Files to upload, one URL each (max ${MAX_PUT_FILES}).`,
+          },
+          ...keyLayoutProps,
+          pr: {
+            type: "number",
+            description:
+              "Attach to this pull request (stable `gh/` key). Mutually exclusive with `issue` and `branch`. Requires `repo`.",
+          },
+          issue: {
+            type: "number",
+            description:
+              "Attach to this issue (stable `gh/` key). Mutually exclusive with `pr` and `branch`. Requires `repo`.",
+          },
+          branch: {
+            type: "string",
+            description:
+              "Git branch to stage under, before the PR exists. Requires `repo`. Call `promote` once the PR is open.",
+          },
+          ...putFormatProps,
+        },
+        required: ["files"],
+        additionalProperties: false,
+        examples: [
+          {
+            files: [{ filename: "settings-before.png" }, { filename: "settings-after.png" }],
+            pr: 12,
+            repo: "acme/web",
+          },
+        ],
+      },
+      async handler(args) {
         requireScope("files:write");
-        // One limiter hit per tool call, single or batch — the batch's cost
-        // ceiling is bounded by MAX_PUT_FILES instead.
-        await requireWriteBudget();
-        const contentBase64 = optString(args, "contentBase64");
-        const contentUrl = optString(args, "contentUrl");
-        let filename = optString(args, "filename");
-        const items = optPutFileItems(args);
-        const multi = items !== undefined;
-        if (multi) {
-          if (contentBase64 !== undefined || contentUrl !== undefined || filename !== undefined) {
-            usage("contentBase64/contentUrl/filename cannot be combined with files");
-          }
-          if (items.length === 0) usage("files must be a non-empty array");
-          if (items.length > MAX_PUT_FILES) {
-            usage(`files supports at most ${MAX_PUT_FILES} items per call`);
-          }
-          if (optString(args, "key")) usage("key cannot be combined with files");
-        } else {
-          const hasB64 = Boolean(contentBase64);
-          const hasUrl = Boolean(contentUrl);
-          if (hasB64 === hasUrl) {
-            usage("exactly one of contentBase64 or contentUrl is required");
-          }
-          if (hasUrl) {
-            try {
-              filename = resolveUploadFilename(contentUrl!, filename, "contentUrl");
-            } catch (err) {
-              usage(err instanceof Error ? err.message : String(err));
-            }
-          } else if (!filename) {
-            usage("filename is required");
-          }
+        if (!canSignUploadTickets(env)) {
+          throw new Error("signed uploads are not available on this server; use put");
         }
-
-        // Destinations (no git on this server — repo is always required when
-        // the key layout needs it):
-        // - pr/issue → stable gh/…/pull|issues/… keys + optional comment (#392)
-        // - branch alone → stage under gh/…/branch/… (CLI attach --branch)
-        // - pr + branch → PR key, then best-effort promote that branch
-        const target = ghTargetFromArgs(args);
-        const branch = branchFromArgs(args);
-        const explicitKey = optString(args, "key");
-        const prefix = optString(args, "prefix");
-        const repo = optString(args, "repo");
-        const ref = optString(args, "ref");
-
-        if (branch !== undefined && target?.kind === "issues") {
-          usage("branch cannot be combined with issue (promotion only applies to pull requests)");
+        const items = signUploadFileItems(args);
+        if (args.branch !== undefined && (args.pr !== undefined || args.issue !== undefined)) {
+          usage("branch cannot be combined with pr or issue here; call promote after uploading");
         }
-        // Branch-only staging vs pr+branch promote-after.
-        const staging = branch !== undefined && !target;
-        const promoteBranch = branch !== undefined && target?.kind === "pull" ? branch : undefined;
-        if (staging) {
-          if (!repo) usage("repo is required with branch (no git context on the hosted server)");
-          if (!validRepoGrammar(repo)) usage("repo must be owner/name");
-        }
-
-        // Stable gh layouts (PR/issue or branch stage) own the key path.
-        const ghLayout = target ? "pr/issue" : staging ? "branch" : null;
-        if (ghLayout) {
-          if (explicitKey) usage(`key cannot be combined with ${ghLayout}`);
-          if (prefix) usage(`prefix cannot be combined with ${ghLayout}`);
-          if (ref) usage(`ref cannot be combined with ${ghLayout}`);
-        } else if (explicitKey && (prefix ?? repo ?? ref) !== undefined) {
-          usage("key cannot be combined with prefix/repo/ref");
-        }
-
-        // optBool collapses "absent" to false; absent vs explicit false matters
-        // for default-on comment with pr/issue.
-        const commentArg = args.comment == null ? undefined : optBool(args, "comment");
-        if (commentArg && !target) usage("comment requires pr or issue");
-        // Comment gather needs files:read (same as REST). Check up front so a
-        // write-only token is rejected before any bytes are written when the
-        // caller explicitly asked for comment: true.
-        if (commentArg === true) requireScope("files:read");
-        // Default-on with pr/issue when the token has files:read (#537);
-        // write-only tokens still upload, just skip the sync unless comment:true.
-        const wantComment =
-          commentArg ?? (target !== undefined && ctx.authScopes.includes("files:read"));
-
-        // state/app win over same-named metadata. No EXIF derivation on Workers.
-        let metadata = metadataArgWithCanonical(args);
-        if (metadata) {
-          try {
-            validateMetadataEntries(metadata);
-          } catch (err) {
-            usage(err instanceof Error ? err.message : String(err));
-          }
-        }
-        // Canonical gh.* stamps win over caller pairs (attach parity).
-        if (target) metadata = { ...metadata, ...ghMetadataFromTarget(target) };
-        else if (staging && repo && branch) {
-          metadata = { ...metadata, ...branchMetadata(repo, branch) };
-        }
-        // Uploader attribution (#345): server tags after caller pairs so they
-        // can't be spoofed; drop if they'd exceed the key cap.
-        // Service tokens (#1026) attribute to their label.
-        if (metadata) {
-          metadata = await withUploaderTags(env, metadata, ctx.uploaderIdentity, META_MAX_KEYS);
-        }
-
-        // Ceilings only, no admission decision — `putObject` is what gates
-        // SVG/XML acceptance (see `uploadLimits`, guards.ts).
-        const limits = uploadLimits(workspace);
-        /**
-         * Pre-decode ceiling for one file: the loosest the workspace allows
-         * (since video may exceed `maxBytes`), *tightened* only when the
-         * filename claims a gated type (the SVG/XML rows cap at 4 MiB
-         * however high the workspace ceiling is, issue #929). A name
-         * claiming an ordinary, ungated type never narrows below the
-         * workspace's general ceiling. `putObject`'s `inspectUpload`
-         * enforces the content-specific limit against the decoded bytes
-         * either way.
-         */
-        const maxBytesFor = (name: string | undefined): number => {
-          const claimed = name ? contentTypeFromKey(name) : undefined;
-          const general = Math.max(limits.maxBytes, limits.maxVideoBytes);
-          return claimed !== undefined && isGatedContentType(claimed)
-            ? Math.min(general, maxBytesForContentType(limits, claimed))
-            : general;
-        };
-        const alt = optString(args, "alt");
-        const width = optPosInt(args, "width");
-        // Strict overwrite (issue #174) only on non-gh/ keys.
-        const replaceArg = optBool(args, "replace") === true;
-        const putOpts =
-          metadata !== undefined || replaceArg
-            ? { metadata, replace: replaceArg, surface: "mcp" as const }
-            : { surface: "mcp" as const };
-
-        // Resolved at most once per tool call and shared by every file in a
-        // batch (same memo shape as `resolveGhPrefixOnce` below): the gate is
-        // a workspace-level answer — a Flagship evaluation plus a KV read —
-        // so a 20-SVG batch shouldn't pay for it 20 times. Never resolved at
-        // all unless some file actually claims a gated type.
-        let activeContentPromise: Promise<boolean> | undefined;
-        function activeContentOnce(): Promise<boolean> {
-          activeContentPromise ??= activeContentAllowed(env, workspace);
-          return activeContentPromise;
-        }
-
-        /**
-         * `putObject` options for one file: the shared bag, plus the
-         * active-content gate result when this file's name claims one of the
-         * gated SVG/XML types (issue #929). Any other name leaves the gate
-         * unresolved — `putObject` wouldn't consult it either.
-         */
-        async function putOptsForFile(name: string) {
-          const claimed = contentTypeFromKey(name);
-          if (claimed === undefined || !isGatedContentType(claimed)) return putOpts;
-          return { ...putOpts, activeContent: await activeContentOnce() };
-        }
-
-        // Resolved once per tool call, cached across every file in a batch
-        // (issue #631) — `resolveGhKeyContext` itself is fail-open (any
-        // failure degrades to `{ mode: "plain" }`), so this never blocks an
-        // upload; it just avoids resolving it once per file.
-        let ghPrefixPromise: Promise<GhKeyMode> | undefined;
-        function resolveGhPrefixOnce(req: {
-          repo: string;
-          branch?: string;
-          target?: { kind: "pull" | "issues"; num: number };
-        }): Promise<GhKeyMode> {
-          ghPrefixPromise ??= resolveGhKeyContext(env, workspaceName, mintingUserId, req);
-          return ghPrefixPromise;
-        }
-
-        /** Resolve the object key for one filename (+ bytes for the dated layout). */
-        async function resolveKey(name: string, bytes: Uint8Array): Promise<string> {
-          if (explicitKey) return explicitKey;
-          if (target) {
-            const ghPrefix = await resolveGhPrefixOnce({
-              repo: target.repo,
-              target: { kind: target.kind, num: target.num },
-            });
-            return ghAttachmentKeyForMode(ghPrefix, target, name);
-          }
-          if (staging && repo && branch) {
-            const ghPrefix = await resolveGhPrefixOnce({ repo, branch });
-            return ghBranchAttachmentKeyForMode(ghPrefix, repo, branch, name);
-          }
-          // deriveRepoFromGit: false — no git on a worker.
-          return buildScreenshotKey({
-            filename: name,
-            fileBytes: bytes,
-            prefix,
-            repo,
-            ref,
-            deriveRepoFromGit: false,
-          });
-        }
-
-        /** After successful write(s): optional promote, then comment (CLI order). */
-        async function afterUploadExtras(hadSuccess: boolean): Promise<Record<string, unknown>> {
-          if (!hadSuccess || !target) return {};
-          const promoteResult =
-            promoteBranch !== undefined
-              ? await attemptPromote(target.repo, target.num, promoteBranch)
-              : undefined;
-          const commentResult = wantComment ? await attachComment(target) : undefined;
-          return { ...promoteResult, ...commentResult };
-        }
-
-        if (multi) {
-          // Resolve every item before any write so a bad batch fails whole.
-          // Bounded fan-out: 20 parallel Worker fetches would pin isolate RAM.
-          const decoded = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
-            try {
-              return await bytesFromPutSource(item, maxBytesFor(item.filename));
-            } catch (err) {
-              usage(
-                `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
-          });
-          const keys = await Promise.all(
-            items.map((item, i) => resolveKey(item.filename, decoded[i]!)),
-          );
-          // Deterministic keys can collide (same file twice). Reject first.
-          const firstIndexByKey = new Map<string, number>();
-          keys.forEach((key, i) => {
-            const first = firstIndexByKey.get(key);
-            if (first === undefined) {
-              firstIndexByKey.set(key, i);
-              return;
-            }
-            usage(
-              `files[${i}] (${items[i]!.filename}) resolves to the same key as files[${first}] (${items[first]!.filename}): ${key}`,
+        const { files: _files, ...shared } = args;
+        // Every argument check `put` makes, per file, before anything is signed.
+        const planned = await Promise.all(
+          items.map(async (item) => {
+            const fileArgs: Record<string, unknown> = { ...shared, filename: item.filename };
+            if (item.alt !== undefined) fileArgs.alt = item.alt;
+            const checked = await runPut(fileArgs, { validateOnly: true });
+            const maxBytes = Math.min(
+              (checked as { maxBytes: number }).maxBytes,
+              SIGNED_UPLOAD_MAX_BYTES,
             );
-          });
-          type Slot =
-            | { ok: true; upload: Record<string, unknown> }
-            | { ok: false; file: string; err: unknown };
-          const slots: Slot[] = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
-            try {
-              const result = await putObject(
-                env,
-                workspace,
-                keys[i]!,
-                decoded[i]!,
-                workspaceName,
-                await putOptsForFile(item.filename),
-              );
-              const markdown =
-                result.url === null
-                  ? undefined
-                  : buildAttachmentMarkdown(item.filename, result.url, {
-                      alt: item.alt ?? alt ?? item.filename,
-                      width,
-                      contentType: result.contentType,
-                    });
-              return {
-                ok: true,
-                upload: { file: item.filename, ...result, markdown },
-              };
-            } catch (err) {
-              return { ok: false, file: item.filename, err };
-            }
-          });
-          const uploads = slots.flatMap((slot) => (slot.ok ? [slot.upload] : []));
-          const failures = slots.flatMap((slot) =>
-            slot.ok ? [] : [{ file: slot.file, error: errorDetail(slot.err) }],
-          );
-          if (uploads.length === 0 && failures.length > 0) {
-            throw new ToolBatchError(batchFailureMessage(failures), {
-              workspace: workspaceName,
-              uploads,
-              failures,
-            });
-          }
-          const extras = await afterUploadExtras(uploads.length > 0);
-          return { workspace: workspaceName, uploads, failures, ...extras };
-        }
-
-        const bytes = await bytesFromPutSource(
-          { contentBase64, contentUrl },
-          maxBytesFor(filename),
+            return { item, fileArgs, maxBytes };
+          }),
         );
-        const key = await resolveKey(filename!, bytes);
-        const result = await putObject(
-          env,
-          workspace,
-          key,
-          bytes,
-          workspaceName,
-          await putOptsForFile(filename!),
+        // The upload origin is the one this request came in on (agents.uploads.sh
+        // in production), so the sandbox only needs the MCP host allowed.
+        const origin = new URL(ctx.resourceMetadataUrl).origin;
+        const now = Date.now();
+        const expiresAt = new Date(now + UPLOAD_TICKET_TTL_S * 1000).toISOString();
+        const uploads = await Promise.all(
+          planned.map(async ({ item, fileArgs, maxBytes }) => {
+            const signed = await signUploadTicket(
+              env,
+              { ws: workspaceName, who: ctx.uploaderIdentity, args: fileArgs, maxBytes },
+              now,
+            );
+            const uploadUrl = `${origin}/u/${signed.ticket}`;
+            return {
+              file: item.filename,
+              uploadUrl,
+              curl: `curl -sS --fail-with-body -T ${shellQuote(item.filename)} '${uploadUrl}'`,
+              maxBytes,
+            };
+          }),
         );
-        const markdown =
-          result.url === null
-            ? undefined
-            : buildAttachmentMarkdown(filename!, result.url, {
-                alt: alt ?? filename!,
-                width,
-                contentType: result.contentType,
-              });
-        const extras = await afterUploadExtras(true);
-        return { workspace: workspaceName, ...result, markdown, ...extras };
+        const next =
+          args.pr !== undefined || args.issue !== undefined
+            ? "After every upload succeeds, call `comment` with the same repo and pr/issue to update the attachments comment."
+            : args.branch !== undefined
+              ? "Files are staged for the branch. Once the PR is open, call `promote` with repo, pr, and branch."
+              : undefined;
+        return {
+          workspace: workspaceName,
+          expiresAt,
+          uploads,
+          ...(next ? { next } : {}),
+          hint: "If curl fails with a 403 from a proxy, this sandbox blocks agents.uploads.sh. Ask the person to allow it in the environment's network settings, or fall back to put with contentBase64.",
+        };
       },
     },
     {
@@ -1894,5 +2104,5 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
     },
   ];
-  return withOutputSchemas(tools, hostedOutputSchemas, { required: true });
+  return { tools: withOutputSchemas(tools, hostedOutputSchemas, { required: true }), runPut };
 }
