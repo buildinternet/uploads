@@ -5,7 +5,12 @@
  * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
  * `message` in the tool error.
  */
-import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  UnsupportedMediaTypeError,
+  ValidationError,
+} from "@uploads/errors";
 import { createStorage, type Files, type StoredFile } from "@uploads/storage";
 import { sanitizeFilename } from "@uploads/comment-render";
 import { activeContentAllowed, activeContentAllowedForCopy } from "./active-content";
@@ -43,6 +48,7 @@ import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { noteStorageFailure, noteStorageSuccess } from "./storage-health";
 import {
   DEFAULT_MAX_UPLOAD_BYTES,
+  detectContentType,
   detectImageDimensions,
   inspectUpload,
   isGatedContentType,
@@ -100,6 +106,9 @@ import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibi
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
+import { openStreamedBody, type StreamedBody } from "./streamed-body";
+
+export type { StreamedBody };
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
 // for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
@@ -527,7 +536,7 @@ export async function putObject(
   env: Env,
   ws: WorkspaceRecord,
   key: string,
-  bytes: Uint8Array,
+  body: Uint8Array | StreamedBody,
   workspaceName: string,
   opts?: {
     provenance?: Record<string, string>;
@@ -654,7 +663,11 @@ export async function putObject(
   visibility?: Visibility;
 }> {
   const finalKey = finalizeUploadKey(key, ws);
-  if (bytes.byteLength === 0) throw new ValidationError("empty body", { code: "empty_body" });
+  // A streamed body (`streamed-body.ts`) is checked by its first bytes and
+  // its declared size; `bytes` is only set for a buffered one.
+  const bytes = body instanceof Uint8Array ? body : undefined;
+  const newSize = bytes?.byteLength ?? (body as StreamedBody).size;
+  if (newSize === 0) throw new ValidationError("empty body", { code: "empty_body" });
 
   // Validate custom metadata before any write so a bad key/value or a
   // cap breach rejects the whole upload instead of landing bytes first.
@@ -677,7 +690,17 @@ export async function putObject(
         : (opts?.activeContent ?? (await activeContentAllowed(env, ws)));
   }
   const policy = resolveUploadPolicy(ws, { activeContent });
-  const inspection = inspectUpload(bytes, policy, declared);
+  const streamed = bytes ? undefined : await openStreamedBody(body as StreamedBody);
+  const head = bytes ?? streamed!.head;
+  // Text types are verified against the whole body (`inspectDeclared`), so
+  // only types recognized from their magic bytes can stream.
+  if (streamed && detectContentType(head) === null) {
+    throw new UnsupportedMediaTypeError(
+      "Files this large must be an image, video, PDF, or archive. Upload other types with the uploads CLI.",
+      { code: "stream_type_unsupported" },
+    );
+  }
+  const inspection = inspectUpload(head, policy, declared, newSize);
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
@@ -720,7 +743,6 @@ export async function putObject(
     );
   }
 
-  const newSize = bytes.byteLength;
   const deltaBytes = newSize - (prior?.size ?? 0);
   const uploadedAt = resolveUploadedAtMeta(prior);
 
@@ -776,20 +798,20 @@ export async function putObject(
   // (never trust a client-supplied hash). Visibility lives alongside provenance
   // in the same custom-metadata bag but is tracked separately (not client-free-form).
   // `uploaded-at` is server-only — set on the final bag, never via sanitizeProvenance.
-  const contentSha256 = opts?.contentSha256 ?? (await contentSha256Hex(bytes));
+  // A streamed body's hash is only known after the write, too late for the
+  // R2 bag, so its `content-sha256` lives in the D1 hash index alone.
+  let contentSha256 = bytes ? (opts?.contentSha256 ?? (await contentSha256Hex(bytes))) : undefined;
   // Started here rather than where it is consumed, so this D1 read overlaps the
   // R2 write and usage accounting instead of adding its latency after them. Safe
   // to leave in flight: inheritableMetaForHash never rejects (it resolves to `{}`
   // on any failure), so an upload that throws below cannot orphan a rejection.
-  const inheritedPromise = inheritableMetaForHash(
-    dbFor(env),
-    workspaceName,
-    contentSha256,
-    finalKey,
-  );
+  const inheritedPromise =
+    contentSha256 === undefined
+      ? undefined
+      : inheritableMetaForHash(dbFor(env), workspaceName, contentSha256, finalKey);
   const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
-    "content-sha256": contentSha256,
+    ...(contentSha256 ? { "content-sha256": contentSha256 } : {}),
   };
   const storedVisibility = opts?.visibility === "private" ? "private" : undefined;
   const storageMetadata: Record<string, string> = {
@@ -802,7 +824,7 @@ export async function putObject(
   };
 
   try {
-    await store.upload(finalKey, bytes, {
+    await store.upload(finalKey, bytes ?? streamed!.stream, {
       contentType: inspection.contentType,
       cacheControl: UPLOAD_CACHE_CONTROL,
       metadata: storageMetadata,
@@ -823,6 +845,8 @@ export async function putObject(
     });
     throw err;
   }
+
+  contentSha256 ??= streamed!.sha256();
 
   // The write landed, so whatever flagged this lane unhealthy is over —
   // clear it (issue #826). Returns without touching KV when nothing is
@@ -895,8 +919,10 @@ export async function putObject(
   // Derived metadata from a content-identical earlier upload in this workspace
   // (issue #479) — rescues the paths the CLI sidecar cannot reach: the hosted
   // MCP, CI, a second machine. Never fires in the communal workspace; see
-  // inheritableMetaForHash. Issued back at the hash, awaited here.
-  const inherited = await inheritedPromise;
+  // inheritableMetaForHash. Issued back at the hash (or, streamed, only now),
+  // awaited here.
+  const inherited = await (inheritedPromise ??
+    inheritableMetaForHash(dbFor(env), workspaceName, contentSha256, finalKey));
 
   // What actually landed in the queryable tier, echoed on the response (#511).
   let storedMetadata: Record<string, string> | undefined;
@@ -942,16 +968,20 @@ export async function putObject(
 
   // After the metadata replace, never before: replaceFileMetadata deletes
   // client rows and would wipe the server-owned video.*/image.* rows.
-  await storeImageDimensions(env, workspaceName, finalKey, bytes, inspection.contentType);
-  await generateAndStorePoster(
-    env,
-    ws,
-    finalKey,
-    bytes,
-    inspection.contentType,
-    workspaceName,
-    storedVisibility,
-  );
+  await storeImageDimensions(env, workspaceName, finalKey, head, inspection.contentType);
+  // Posters and PDF previews read the whole file, so a streamed body gets
+  // neither (the MCP worker that streams has no MEDIA binding anyway).
+  if (bytes) {
+    await generateAndStorePoster(
+      env,
+      ws,
+      finalKey,
+      bytes,
+      inspection.contentType,
+      workspaceName,
+      storedVisibility,
+    );
+  }
 
   // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so the
   // object this put just wrote goes straight back out of the public bucket.
@@ -978,16 +1008,19 @@ export async function putObject(
 
   // Experimental: after durable storage + server metadata, never on the
   // critical path. Fail-open inside classifyAndStore.
-  const classifying = scheduleFileClassification(
-    env,
-    ws,
-    workspaceName,
-    finalKey,
-    bytes,
-    inspection.contentType,
-    opts?.waitUntil,
-    { enforceHold: opts?.enforceHold },
-  );
+  // Not for a streamed body, whose bytes were never held in memory.
+  const classifying =
+    bytes !== undefined &&
+    scheduleFileClassification(
+      env,
+      ws,
+      workspaceName,
+      finalKey,
+      bytes,
+      inspection.contentType,
+      opts?.waitUntil,
+      { enforceHold: opts?.enforceHold },
+    );
 
   const cfg = await storageConfig(env, ws);
   const urls = objectPublicUrls(env, cfg, finalKey);

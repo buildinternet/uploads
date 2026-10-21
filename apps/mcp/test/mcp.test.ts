@@ -2737,6 +2737,84 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     expect(bucket.store.size).toBe(0);
   });
 
+  describe("bodies over the buffer limit", () => {
+    const LARGE = 25 * 1024 * 1024 + 1;
+    const video = { maxVideoUploadBytes: 100_000_000 };
+    // An mp4 `ftyp` box up front, zeros after.
+    function mp4(size: number): Uint8Array {
+      const bytes = new Uint8Array(size);
+      bytes.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
+      return bytes;
+    }
+    // A request body that arrives in pieces, like one off the network.
+    function chunked(bytes: Uint8Array, chunkSize = 1024 * 1024): ReadableStream<Uint8Array> {
+      let offset = 0;
+      return new ReadableStream({
+        pull(controller) {
+          if (offset >= bytes.byteLength) return controller.close();
+          controller.enqueue(bytes.slice(offset, (offset += chunkSize)));
+        },
+      });
+    }
+    function streamTo(env: Env, uploadUrl: string, bytes: Uint8Array) {
+      return app.request(
+        new URL(uploadUrl).pathname,
+        {
+          method: "PUT",
+          body: chunked(bytes),
+          headers: { "Content-Length": String(bytes.byteLength) },
+          duplex: "half",
+        } as RequestInit,
+        env,
+      );
+    }
+
+    it("signs URLs up to the workspace's video limit", async () => {
+      const { env } = await signedEnv({ record: video });
+      const signed = await sign(env, { files: [{ filename: "demo.mp4" }] });
+      expect(signed.uploads[0]!.maxBytes).toBe(100_000_000);
+    });
+
+    it("streams a large video to storage", async () => {
+      const { env, bucket } = await signedEnv({ record: video });
+      const signed = await sign(env, { files: [{ filename: "demo.mp4" }], repo: "acme/web" });
+      const bytes = mp4(LARGE);
+      const response = await streamTo(env, signed.uploads[0]!.uploadUrl, bytes);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({ size: LARGE, contentType: "video/mp4" });
+      expect(body.key).toMatch(/^screenshots\/acme-web\/[\d-]+\/demo-[0-9a-f]+\.mp4$/);
+      const stored = bucket.store.get(body.key as string)!;
+      expect(stored.data.byteLength).toBe(LARGE);
+      expect(stored.data.subarray(0, 12)).toEqual(bytes.subarray(0, 12));
+      // The hash is only known after the write, so it isn't in the R2 bag.
+      expect(body.provenance).not.toHaveProperty("content-sha256");
+    });
+
+    it("refuses a large file it can only verify in full", async () => {
+      const { env, bucket } = await signedEnv({ record: { maxUploadBytes: 100_000_000 } });
+      const signed = await sign(env, { files: [{ filename: "log.txt" }] });
+      const response = await streamTo(
+        env,
+        signed.uploads[0]!.uploadUrl,
+        new Uint8Array(LARGE).fill(0x61),
+      );
+      expect(response.status).toBe(415);
+      expect(bucket.store.size).toBe(0);
+    });
+
+    it("applies the type's own limit to the declared length", async () => {
+      // Images stay at the general limit even when video may be larger.
+      const { env, bucket } = await signedEnv({ record: video });
+      const signed = await sign(env, { files: [{ filename: "huge.png" }] });
+      const png = new Uint8Array(LARGE);
+      png.set(PNG_BYTES);
+      const response = await streamTo(env, signed.uploads[0]!.uploadUrl, png);
+      expect(response.status).toBe(413);
+      expect(bucket.store.size).toBe(0);
+    });
+  });
+
   it("charges the write rate limit on each PUT", async () => {
     const { env, bucket } = await signedEnv({ rateLimitOk: false });
     // Signing doesn't spend budget, so this succeeds even when it's gone.

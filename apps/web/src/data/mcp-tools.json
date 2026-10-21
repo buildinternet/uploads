@@ -426,7 +426,7 @@
   {
     "name": "sign_upload_url",
     "title": "Sign upload URLs",
-    "description": "Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of `put` when the files are on a local or sandbox disk and you can run curl. Takes `put`'s arguments without the bytes, plus `files: [{ filename, alt? }]` (max 20). Run each returned `curl` line from the folder holding the file (or swap in its path); the response is the same JSON `put` returns, including `markdown`. URLs expire after 15 minutes and take files up to 25 MiB. With `pr`/`issue`, call `comment` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to `put` with contentBase64. All uploads are public.",
+    "description": "Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of `put` when the files are on a local or sandbox disk and you can run curl. Takes `put`'s arguments without the bytes, plus `files: [{ filename, alt? }]` (max 20). Run each returned `curl` line from the folder holding the file (or swap in its path); the response is the same JSON `put` returns, including `markdown`. URLs expire after 15 minutes; each takes a file up to its `maxBytes` (the workspace's upload limit, at most 100 MB). With `pr`/`issue`, call `comment` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to `put` with contentBase64. All uploads are public.",
     "access": "destructive",
     "scopes": [
       "files:write"

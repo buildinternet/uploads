@@ -41,6 +41,8 @@ import {
   type WorkspaceVars,
 } from "@uploads/api/workspace";
 import { userUploaderIdentity } from "@uploads/api/uploader-identity";
+import type { StreamedBody } from "@uploads/api/files";
+import { DEFAULT_MAX_UPLOAD_BYTES } from "@uploads/api/guards";
 import { mcpClientInfo, recordClient, userClientPrincipal } from "@uploads/api/client-activity";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context, type Next } from "hono";
@@ -298,6 +300,9 @@ function respondError(c: Context, err: unknown): Response {
   return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);
 }
 
+/** Largest `PUT /u/<ticket>` body read into memory; anything bigger streams. */
+const TICKET_BUFFER_MAX_BYTES = DEFAULT_MAX_UPLOAD_BYTES;
+
 /**
  * `PUT /u/<ticket>`: one file from a `sign_upload_url` URL (issue #1242).
  * The ticket is the only credential — it names the workspace, the uploader,
@@ -325,8 +330,16 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
   if (!record) throw new UnauthorizedError();
   setIssueContext({ workspace: claims.ws });
 
-  const bytes = new Uint8Array(await c.req.arrayBuffer());
-  if (bytes.byteLength > claims.maxBytes) throw tooLarge();
+  // Small bodies are buffered so they get every check `put` makes; larger
+  // ones stream to storage (`streamed-body.ts`) to stay inside the isolate's
+  // 128 MB, which concurrent requests share.
+  let body: Uint8Array | StreamedBody;
+  if (length <= TICKET_BUFFER_MAX_BYTES || !c.req.raw.body) {
+    body = new Uint8Array(await c.req.arrayBuffer());
+    if (body.byteLength > claims.maxBytes) throw tooLarge();
+  } else {
+    body = { stream: c.req.raw.body, size: length };
+  }
   const result = await runTicketedPut(
     {
       env: c.env,
@@ -338,7 +351,7 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
     },
     claims.args,
-    bytes,
+    body,
   );
   return c.json(result);
 }
