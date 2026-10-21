@@ -115,13 +115,13 @@
   // docs/ops.md ("Auth worker: Secrets Store → plain secret cutover").
   //
   // This validates the SAME underlying Worker script's secrets that prod
-  // uses — not a `previews`-scoped set. Per docs/previews.md, the
-  // automatic per-branch "Branch Preview URL" that Workers Builds deploys
-  // for every PR runs against production bindings (it is NOT the
-  // `npx wrangler preview` / `previews` block flow below), so it sees these
-  // same secrets and is unaffected by this list. A manual `wrangler preview`
-  // inherits the same worker-level secrets unless a branch explicitly
-  // overrides one with `wrangler preview secret put`.
+  // uses — not a `previews`-scoped set. Workers Builds no longer deploys a
+  // branch preview of this worker on every push. A manual
+  // `wrangler versions upload` still targets this script and sees these
+  // secrets. It does not mint a Version URL: this worker exports a Durable
+  // Object. A manual `wrangler preview` inherits the same worker-level
+  // secrets unless a branch explicitly overrides one with
+  // `wrangler preview secret put`.
   "secrets": {
     "required": [
       "BETTER_AUTH_SECRET",

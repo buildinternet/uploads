@@ -196,11 +196,19 @@ migrations when `apps/api/migrations/**` changes. Manual deploys
 `deploy:auth`) need `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in
 `.env`. Use `pnpm run deploy`, not bare `pnpm deploy` — that is pnpm's built-in.
 
-For a branch environment, run `npx wrangler preview` from the app's directory
-(Workers Previews; enabled on the account). Each app's `wrangler.jsonc` has a
-`previews` block that re-points stateful bindings at preview-tier resources —
-previews never touch production KV/D1/R2. Which app to preview for a given
-change, per-branch overrides, migrations, seeding, and secrets are all in
+Pushing a branch does not create a preview deploy for the web, auth, or api
+workers. Non-production branch builds are off for those three. The mcp,
+viewer, and slack workers are unchanged. Do not upload a preview unless the
+change needs a live worker.
+
+When it does, upload a version with a preview alias from the app directory.
+The command, the alias rules, and the auth Durable Object exception are in
+[AGENTS.md](AGENTS.md) and [docs/previews.md](docs/previews.md). That upload
+uses production bindings. It does not move production traffic.
+
+An isolated preview (its own KV, D1, and R2) is still `npx wrangler preview`
+from the app directory. It is not automatic. Which app to preview, per-branch
+overrides, migrations, seeding, and secrets are in
 [docs/previews.md](docs/previews.md).
 
 Full setup is in [docs/deploy.md](docs/deploy.md); the operator runbook is

@@ -109,11 +109,42 @@ Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
 `wrangler deploy`. On merge to main, `.github/workflows/d1-migrations.yml`
 also applies remote migrations when `apps/api/migrations/**` changes
 (secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
-worker deploys normally happen via Workers Builds on push to main. For an
-isolated branch environment, `npx wrangler preview` from an app directory —
-playbook in [docs/previews.md](docs/previews.md); the Workers Builds bot's
-"Branch Preview URL" on PRs is a different, legacy mechanism that runs
-against production bindings.
+worker deploys still happen via Workers Builds on push to main.
+
+Pushing a branch does not create a preview deploy for `uploads-web`,
+`uploads-auth`, or `uploads-api`. Non-production branch builds are off for
+those three. `uploads-mcp`, `uploads-viewer`, and `uploads-slack` are
+unchanged. Do not upload a preview by default. Upload one only when the
+change needs a live worker, for example a UI change that `pnpm dev:web`
+cannot show.
+
+From the app directory, upload a version with a preview alias. Web must
+build first, because the worker serves `./dist`. `--env-file-if-exists`
+loads `CLOUDFLARE_API_TOKEN` from the repo-root `.env`, the same way each
+app's deploy script does. The alias is a DNS label: lowercase letters,
+digits, and dashes, starting with a letter.
+`<alias>-<worker-name>` must be at most 63 characters. A slash is invalid.
+Replace `/` in the branch name with `-` (`cursor/fix-header-8abc` becomes
+`cursor-fix-header-8abc`). Wrangler prints a Version Preview Alias URL on
+`workers.dev`. The upload uses production bindings and does not move
+production traffic.
+
+```bash
+# apps/web
+pnpm build
+node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js versions upload --preview-alias <alias>
+
+# apps/api
+node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js versions upload --preview-alias <alias>
+```
+
+`uploads-auth` exports a Durable Object, and Cloudflare does not mint
+Version URLs for those workers. A live auth preview is `npx wrangler preview`
+from `apps/auth`. That same command is the isolated preview tier (separate
+KV, D1, and R2) for any app. Playbook in
+[docs/previews.md](docs/previews.md). Neither path runs on push. The root
+`upload:web` / `upload:api` / `upload:auth` scripts upload a version without
+an alias and do not load `.env`.
 
 Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
 worker; BYO secrets use `WORKSPACE_SECRETS_KEY`, set on both `uploads-api` and
