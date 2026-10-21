@@ -2733,9 +2733,14 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     const signed = await sign(env, { files: [{ filename: "shot.png" }] });
     const url = signed.uploads[0]!.uploadUrl;
 
+    // Change the signature's first character: its last one carries base64url
+    // padding bits, so swapping A for B there can leave the signature valid.
     const tampered = await putTo(
       env,
-      url.replace(/.$/, (c) => (c === "A" ? "B" : "A")),
+      url.replace(
+        /\.([^.])([^.]*)$/,
+        (_, c: string, rest: string) => `.${c === "A" ? "B" : "A"}${rest}`,
+      ),
       PNG_BYTES,
     );
     expect(tampered.status).toBe(401);
