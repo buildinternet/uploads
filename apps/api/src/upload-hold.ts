@@ -92,13 +92,10 @@ export function parseHoldArea(value: string | undefined): HoldArea | undefined {
 /**
  * `ai.pii` values that hold a file. `contact` is left out: product
  * screenshots show forms and directories all the time, and a held
- * screenshot breaks a PR comment.
+ * screenshot breaks a PR comment. `other` is left out too: it held
+ * ordinary screenshots.
  */
-export const HOLD_PII_VALUES: ReadonlySet<string> = new Set([
-  "identity_document",
-  "financial",
-  "other",
-]);
+export const HOLD_PII_VALUES: ReadonlySet<string> = new Set(["identity_document", "financial"]);
 
 export type HoldReason = "secret" | "pii";
 

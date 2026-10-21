@@ -1352,7 +1352,10 @@ Internal safety enums, on the same request:
 - `ai.pii` is `none|contact|identity_document|financial|other`. `contact` is
   an email, phone, or street address that is content of the screen. A
   signed-in user's name or email that only appears in a header, nav, or
-  account menu is `none`.
+  account menu is `none`. `identity_document` also covers a government ID
+  number written out on screen (Social Security, national ID, passport, or
+  tax number). `other` is other personal data, such as a medical record,
+  and never holds a file.
 
 When the bytes are unchanged, a stored flag stays until a later
 classification writes that key. A confident `none` replaces the old
@@ -1372,7 +1375,7 @@ timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
 ### Held uploads
 
 A stored decision with a `high` `ai.secret` other than `none`, or a `high`
-`ai.pii` of `identity_document`, `financial`, or `other`, writes
+`ai.pii` of `identity_document` or `financial`, writes
 `ai.hold=pending` (`applyUploadHold`, `upload-hold-service.ts`), but only
 for an upload from a client that can approve it: the uploads CLI or local
 MCP at `HOLD_MIN_CLI_VERSION` (0.59.0) or newer, read from the PUT's

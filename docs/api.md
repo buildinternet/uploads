@@ -342,7 +342,7 @@ upload. Presigned uploads never get labels. See
 [docs/ops.md](ops.md#experimental-llm-file-classifier).
 
 A high-confidence `ai.secret` (not `none`), or a high-confidence `ai.pii` of
-`identity_document`, `financial`, or `other`, holds the file: the server
+`identity_document` or `financial`, holds the file: the server
 writes `ai.hold=pending`. Only an upload whose User-Agent is the uploads CLI
 (or its local MCP) at 0.59.0 or newer is held, since older clients cannot
 approve; other uploads log `upload_hold_skipped` and are left alone. The managed PR comment leaves a held file out and

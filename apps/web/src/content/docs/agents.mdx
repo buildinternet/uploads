@@ -238,7 +238,7 @@ The same call also records four internal flags. They are not chips. They do not 
 | `ai.rating`             | `safe` `suggestive` `explicit`                                                                                                                  |
 | `ai.content`            | `none` `sexual` `violence` `gore` `drugs` `hate` `self_harm` `other`                                                                            |
 | `ai.secret`             | `none` `api_key` `password` `private_key` `token` `connection_string` `other`. A credential that grants access. A name or an email is not one. Its confidence answers "does this show at least one credential?", so several credentials on one screen don't lower it. |
-| `ai.pii`                | `none` `contact` `identity_document` `financial` `other`. A signed-in name or email in a header stays `none`.                                   |
+| `ai.pii`                | `none` `contact` `identity_document` `financial` `other`. `identity_document` includes a government ID number written out on screen, such as a Social Security or passport number. `other` is other personal data, such as a medical record. A signed-in name or email in a header stays `none`. |
 | `ai.rating.confidence`  | `high` at 0.85 or above. `medium` from 0.70 up to 0.85. `low` from 0.50 up to 0.70.                                                             |
 | `ai.content.confidence` | Same buckets as `ai.rating.confidence`.                                                                                                         |
 | `ai.secret.confidence`  | Same buckets as `ai.rating.confidence`.                                                                                                         |
@@ -252,7 +252,7 @@ The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `s
 
 ### Held uploads <a class="anchor" href="#held-uploads" aria-label="Link to this section">#</a>
 
-A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document`, `financial`, or `other`, holds the file for review when it was uploaded with `uploads` 0.59.0 or newer, the first release that can approve it. The server writes `ai.hold=pending`. An upload from an older CLI or another client is not held. A held file works like a staged one:
+A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document` or `financial`, holds the file for review when it was uploaded with `uploads` 0.59.0 or newer, the first release that can approve it. The server writes `ai.hold=pending`. An upload from an older CLI or another client is not held. A held file works like a staged one:
 
 - The managed pull request comment leaves it out. One line says how many files are held and how to approve them. The line never names a file.
 - Public feeds and galleries show it as withheld. Its page asks for sign-in, and shows a signed-in member why it's held, with **Approve**. For an image on hosted storage, the page shows the held copy with the flagged area outlined. The outline is approximate, so check the whole image.
@@ -277,7 +277,7 @@ With the [Slack app](/docs/slack#held-uploads) connected, the uploader (or, with
 
 Workspace admins can turn labels, or just holds, off under **Settings → AI labels**.
 
-Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` never holds a file, and the `ai.rating` and `ai.content` flags never hold one.
+Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` and `ai.pii=other` never hold a file, and the `ai.rating` and `ai.content` flags never hold one.
 
 Labels aren't in the upload's response. Read them afterward, or search by them:
 
