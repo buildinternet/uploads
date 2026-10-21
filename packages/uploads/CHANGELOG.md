@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.59.5
+
+### Patch Changes
+
+- e92c63e: `uploads approve` now ends with a line saying a workspace admin can turn holds off in Settings → AI labels, with the link.
+- e8a9855: Classify hosted MCP `put` and `sign_upload_url` uploads, so a file showing a likely secret or ID is held for review like a CLI upload
+- a841413: Require files-sdk 3.1.1 for the optional agent file tools
+- 5465087: Stop holding uploads flagged `ai.pii=other`; only identity documents and payment or bank numbers hold for personal data
+- 4249cb2: Count images committed to the repo and linked from a PR toward the uploads.sh check
+
 ## 0.59.4
 
 ### Patch Changes
