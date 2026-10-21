@@ -49,6 +49,7 @@ import { githubLink } from "./routes/github-link";
 import { githubHealth } from "./routes/github-health";
 import { githubActivity } from "./routes/github-activity";
 import { internalBilling } from "./routes/internal-billing";
+import { internalClassify } from "./routes/internal-classify";
 import { internalSlack } from "./routes/internal-slack";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 import { ROBOTS_TXT } from "./robots";
@@ -236,6 +237,9 @@ export const app = new Hono<WorkspaceVars>()
   // uploads-slack's Approve button on a held-upload DM. Service-binding only
   // (host api.internal); see routes/internal-slack.ts.
   .route("/internal/slack", internalSlack)
+  // uploads-mcp hands hosted uploads over to be classified here. Same
+  // service-binding-only guard; see routes/internal-classify.ts.
+  .route("/internal/classify", internalClassify)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 

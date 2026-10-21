@@ -131,6 +131,7 @@ import {
   finalizeUploadKey,
   listObjects,
   putObject,
+  type ClassifierHandoff,
   type StreamedBody,
 } from "@uploads/api/files";
 import { activeContentAllowed } from "@uploads/api/active-content";
@@ -176,10 +177,12 @@ export interface RemoteToolContext {
    */
   uploaderIdentity: UploaderIdentity;
   /**
-   * The request's `executionCtx.waitUntil`, so the classifier can finish
+   * The request's `executionCtx.waitUntil`, so classification can finish
    * after the tool answers (issue #1148). Absent skips classification.
    */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** Sends a stored file to uploads-api to classify (`classifierHandoff`). */
+  classifierHandoff?: ClassifierHandoff;
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -709,7 +712,11 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
     // Every hosted MCP client can approve a hold with the `approve` tool on
     // this same server, whatever app or version is connecting, so a flagged
     // upload is held here as it is for the CLI (`clientCanApprove`).
-    const classify = { waitUntil: ctx.waitUntil, enforceHold: true };
+    const classify = {
+      waitUntil: ctx.waitUntil,
+      enforceHold: true,
+      classifierHandoff: ctx.classifierHandoff,
+    };
     const putOpts =
       metadata !== undefined || replaceArg
         ? { metadata, replace: replaceArg, surface: "mcp" as const, ...classify }

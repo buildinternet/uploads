@@ -440,6 +440,20 @@ const CLASSIFIER_ALLOWLISTS: Record<string, Set<string>> = Object.fromEntries(
 
 export type ClassifierWaitUntil = (promise: Promise<unknown>) => void;
 
+/**
+ * Sends a stored file to another worker to classify, in place of running the
+ * classifier here. uploads-mcp uses it to hand off to uploads-api
+ * (`routes/internal-classify.ts`), which holds the OpenRouter key and the
+ * Flagship, Images, email, and Slack bindings a classification and a hold use.
+ */
+export type ClassifierHandoff = (job: {
+  workspaceName: string;
+  key: string;
+  bytes: Uint8Array;
+  contentType: string;
+  enforceHold: boolean;
+}) => Promise<unknown>;
+
 /** A Decisions choice question. */
 export interface JevChoiceQuestion {
   type: "choice";
@@ -1575,7 +1589,9 @@ export async function classifyAndStore(
 /**
  * Fire-and-forget after a successful put. REST and the hosted MCP pass
  * `executionCtx.waitUntil` so the isolate stays alive; callers without a ctx
- * (ingest/tests) skip rather than block the upload. Returns whether the work was scheduled.
+ * (ingest/tests) skip rather than block the upload. With `opts.handoff`, the
+ * work is the handoff, and the receiving worker checks the key and flags.
+ * Returns whether the work was scheduled.
  */
 export function scheduleFileClassification(
   env: Env,
@@ -1585,16 +1601,24 @@ export function scheduleFileClassification(
   bytes: Uint8Array,
   contentType: string,
   waitUntil?: ClassifierWaitUntil,
-  opts: { enforceHold?: boolean } = {},
+  opts: { enforceHold?: boolean; handoff?: ClassifierHandoff } = {},
 ): boolean {
   if (!waitUntil) return false;
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
-  if (!env.OPENROUTER_API_KEY?.trim()) return false;
+  if (!opts.handoff && !env.OPENROUTER_API_KEY?.trim()) return false;
   if (ws.llmClassifierEnabled === false) return false;
   if (ws.classifyUploads === false) return false;
-  const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType, {
-    enforceHold: opts.enforceHold,
-  });
+  const work = opts.handoff
+    ? opts.handoff({
+        workspaceName,
+        key,
+        bytes,
+        contentType,
+        enforceHold: opts.enforceHold === true,
+      })
+    : classifyAndStore(env, ws, workspaceName, key, bytes, contentType, {
+        enforceHold: opts.enforceHold,
+      });
   try {
     waitUntil(work);
     return true;

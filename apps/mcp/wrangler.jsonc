@@ -99,30 +99,17 @@
       "binding": "AUTH",
       "service": "uploads-auth",
     },
-    // uploads-slack: DM the people who can approve a new hold, as
-    // uploads-api does. Production only, like uploads-api's binding.
+    // uploads-api classifies hosted `put` and `sign_upload_url` uploads
+    // (issue #1148, apps/api/src/routes/internal-classify.ts), where the
+    // OpenRouter key and the Flagship, Images, email, and Slack bindings
+    // already live, so none of them are copied here. Production only:
+    // a service binding calls production, and a preview's files live in
+    // the preview database, so previews leave uploads unclassified.
     {
-      "binding": "SLACK",
-      "service": "uploads-slack",
+      "binding": "API",
+      "service": "uploads-api",
     },
   ],
-  // The file classifier runs on hosted `put` and `sign_upload_url` uploads
-  // (issue #1148), with the same bindings as uploads-api: Flagship for
-  // `llm-file-classifier` and the `upload-holds` kill switch, Images to fit
-  // screenshots into the model's window, and email for hold notices. It
-  // also needs the OPENROUTER_API_KEY secret (same key as uploads-api):
-  //   wrangler secret put OPENROUTER_API_KEY --config apps/mcp/wrangler.jsonc
-  // Unset, uploads still succeed and are not classified.
-  "flagship": [
-    {
-      "binding": "FLAGS",
-      "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
-    },
-  ],
-  "images": {
-    "binding": "IMAGES",
-  },
-  "send_email": [{ "name": "EMAIL" }],
   // Per-workspace write rate limit for the put/delete tools — this worker's
   // own budget (distinct namespace_id from uploads-api's), with the same
   // semantics as uploads-api's WRITE_LIMITER: keyed by workspace name,
@@ -210,16 +197,6 @@
         "service": "uploads-auth",
       },
     ],
-    "flagship": [
-      {
-        "binding": "FLAGS",
-        "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
-      },
-    ],
-    "images": {
-      "binding": "IMAGES",
-    },
-    "send_email": [{ "name": "EMAIL" }],
     // Previews declare rate limiters via the dedicated `ratelimits` field
     // (same values as the production `unsafe` entry above).
     "ratelimits": [

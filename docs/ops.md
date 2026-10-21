@@ -979,9 +979,10 @@ recommend removing.
 | `IMAGES`                                                                       | api       | The file classifier cannot resize images into Jev's pixel window. Oversized PNG/JPEG and WebP/GIF/AVIF are skipped (`ai.skip=resize_failed`). A PNG or JPEG that already fits is still sent.                                                                                                                                                                                                            |
 | `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, the attachment index shadow, and the experimental LLM file classifier — same effect as never enabling them.                                                                                                                                                                                    |
 | `AI`                                                                           | api       | Weekly digest still sends. Without AI, the highlight is the newest screenshot instead of the one Jev picks from captions. The file classifier does not use this binding.                                                                                                                                                                                                                                |
-| `OPENROUTER_API_KEY`                                                           | api, mcp  | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
+| `OPENROUTER_API_KEY`                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
+| `API`                                                                          | mcp       | Hosted MCP `put` and `sign_upload_url` uploads are not classified, so they are never held. Uploads still succeed.                                                                                                                                                                                                                                                                                       |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
 | `RENDER_LIMITER`                                                               | api       | No burst limit on `POST /v1/render` independent of the monthly upload budget.                                                                                                                                                                                                                                                                                                                           |
 | `WS_CREATE_LIMITER`                                                            | api       | No burst limit on self-serve workspace creation (the 3-per-user cap itself still applies).                                                                                                                                                                                                                                                                                                              |
@@ -1229,6 +1230,11 @@ errors never fail the upload. The labeler does not write `ai.tags` or
 not chips, and public file, gallery, feed, embed, and pull-request
 responses omit every `ai.*` key. They do not change who can view a file.
 
+uploads-mcp does not classify in-process. It posts the stored bytes to
+uploads-api's `POST /internal/classify` (`routes/internal-classify.ts`) over
+its `API` service binding, so the OpenRouter key and the classifier's
+Flagship, Images, email, and Slack bindings live only on uploads-api.
+
 ### One Decisions call
 
 The worker `POST`s `https://openrouter.ai/api/alpha/decisions` with
@@ -1321,7 +1327,6 @@ Both providers need the OpenRouter key. A missing key skips classification.
 
 ```bash
 cd apps/api && pnpm exec wrangler secret put OPENROUTER_API_KEY
-cd apps/mcp && pnpm exec wrangler secret put OPENROUTER_API_KEY   # hosted MCP uploads
 ```
 
 The key is billed on the OpenRouter account. Output tokens are free. Jev

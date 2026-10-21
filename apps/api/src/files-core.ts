@@ -74,7 +74,13 @@ import {
   posterGenerationAllowed,
   posterKeyFor,
 } from "./poster";
-import { scheduleFileClassification, type ClassifierWaitUntil } from "./classifier";
+import {
+  scheduleFileClassification,
+  type ClassifierHandoff,
+  type ClassifierWaitUntil,
+} from "./classifier";
+
+export type { ClassifierHandoff };
 import { holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
 import {
@@ -636,6 +642,8 @@ export async function putObject(
      * would-be hold is only logged.
      */
     enforceHold?: boolean;
+    /** Classify on another worker instead (`ClassifierHandoff`): the hosted MCP. */
+    classifierHandoff?: ClassifierHandoff;
   },
 ): Promise<{
   key: string;
@@ -1019,7 +1027,7 @@ export async function putObject(
       bytes,
       inspection.contentType,
       opts?.waitUntil,
-      { enforceHold: opts?.enforceHold },
+      { enforceHold: opts?.enforceHold, handoff: opts?.classifierHandoff },
     );
 
   const cfg = await storageConfig(env, ws);
