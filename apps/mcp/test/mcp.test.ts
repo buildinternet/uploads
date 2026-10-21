@@ -2708,6 +2708,19 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     expect(prAndBranch.isError).toBe(true);
   });
 
+  it("refuses a prefix the workspace's key policy disallows before signing", async () => {
+    const { env } = await signedEnv({ record: { allowedKeyPrefixes: ["screenshots/"] } });
+    const refused = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      prefix: "tests",
+    });
+    expect(refused.isError).toBe(true);
+    expect((refused.content[0] as { text: string }).text).toContain("key prefix not allowed");
+
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    expect(signed.uploads).toHaveLength(1);
+  });
+
   it("is unavailable without WORKSPACE_SECRETS_KEY", async () => {
     const { env } = await makeEnv();
     const result = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });
@@ -2720,9 +2733,14 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     const signed = await sign(env, { files: [{ filename: "shot.png" }] });
     const url = signed.uploads[0]!.uploadUrl;
 
+    // Change the signature's first character: its last one carries base64url
+    // padding bits, so swapping A for B there can leave the signature valid.
     const tampered = await putTo(
       env,
-      url.replace(/.$/, (c) => (c === "A" ? "B" : "A")),
+      url.replace(
+        /\.([^.])([^.]*)$/,
+        (_, c: string, rest: string) => `.${c === "A" ? "B" : "A"}${rest}`,
+      ),
       PNG_BYTES,
     );
     expect(tampered.status).toBe(401);

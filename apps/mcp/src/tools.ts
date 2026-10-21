@@ -128,6 +128,7 @@ import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
 import {
   badKey,
   deleteObject,
+  finalizeUploadKey,
   listObjects,
   putObject,
   type StreamedBody,
@@ -690,12 +691,10 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         ? Math.min(general, maxBytesForContentType(limits, claimed))
         : general;
     };
-    if (validateOnly) return { maxBytes: maxBytesFor(filename) };
-
     // Uploader attribution (#345): server tags after caller pairs so they
     // can't be spoofed; drop if they'd exceed the key cap.
     // Service tokens (#1026) attribute to their label.
-    if (metadata) {
+    if (metadata && !validateOnly) {
       metadata = await withUploaderTags(env, metadata, ctx.uploaderIdentity, META_MAX_KEYS);
     }
     const alt = optString(args, "alt");
@@ -769,6 +768,16 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         ref,
         deriveRepoFromGit: false,
       });
+    }
+
+    if (validateOnly) {
+      // Run the workspace's key policy now, so a disallowed prefix fails when
+      // the URL is signed rather than after the whole body has been sent.
+      finalizeUploadKey(
+        await resolveKey(filename!, crypto.getRandomValues(new Uint8Array(32))),
+        workspace,
+      );
+      return { maxBytes: maxBytesFor(filename) };
     }
 
     /** After successful write(s): optional promote, then comment (CLI order). */
