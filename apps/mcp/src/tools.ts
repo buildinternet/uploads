@@ -125,12 +125,17 @@ import { createFeed, getFeed } from "@uploads/api/feeds";
 import { hydrateOwnerFeed, unwrapFeedMutation } from "@uploads/api/feed-service";
 import { parseExternalReference } from "@uploads/api/external-references";
 import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
-import { badKey, deleteObject, listObjects, putObject } from "@uploads/api/files";
+import {
+  badKey,
+  deleteObject,
+  listObjects,
+  putObject,
+  type StreamedBody,
+} from "@uploads/api/files";
 import { activeContentAllowed } from "@uploads/api/active-content";
 import {
   allowWrite,
   contentTypeFromKey,
-  DEFAULT_MAX_UPLOAD_BYTES,
   isGatedContentType,
   maxBytesForContentType,
   uploadLimits,
@@ -206,14 +211,14 @@ async function bytesFromPutSource(
  * Where a non-tool `put` gets its bytes: a ticketed request body, or none
  * at all when `sign_upload_url` only validates the arguments.
  */
-type PutUpload = { bytes: Uint8Array } | { validateOnly: true };
+type PutUpload = { bytes: Uint8Array | StreamedBody } | { validateOnly: true };
 
 /**
- * Ceiling for one ticketed upload. The PUT buffers the body in the isolate
- * like `put` does, so this stays well under Workers' 128 MB of memory even
- * on plans whose upload limit is higher; bigger files go through the CLI.
+ * Ceiling for one ticketed upload, on top of the workspace's own limit:
+ * Cloudflare refuses request bodies over 100 MB. The `PUT /u/<ticket>` route
+ * streams large bodies to storage rather than holding them in memory.
  */
-const SIGNED_UPLOAD_MAX_BYTES = DEFAULT_MAX_UPLOAD_BYTES;
+const SIGNED_UPLOAD_MAX_BYTES = 100_000_000;
 
 /** Single-quote a filename for the curl line we hand back. */
 function shellQuote(value: string): string {
@@ -425,7 +430,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 export function runTicketedPut(
   ctx: RemoteToolContext,
   args: Record<string, unknown>,
-  bytes: Uint8Array,
+  bytes: Uint8Array | StreamedBody,
 ) {
   return createRemoteToolkit(ctx).runPut(args, { bytes });
 }
@@ -740,7 +745,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
     }
 
     /** Resolve the object key for one filename (+ bytes for the dated layout). */
-    async function resolveKey(name: string, bytes: Uint8Array): Promise<string> {
+    async function resolveKey(name: string, bytes: Uint8Array | StreamedBody): Promise<string> {
       if (explicitKey) return explicitKey;
       if (target) {
         const ghPrefix = await resolveGhPrefixOnce({
@@ -756,7 +761,9 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       // deriveRepoFromGit: false — no git on a worker.
       return buildScreenshotKey({
         filename: name,
-        fileBytes: bytes,
+        // A streamed body isn't hashed until it's written, so its key gets a
+        // random suffix in place of the content-hash one.
+        fileBytes: bytes instanceof Uint8Array ? bytes : crypto.getRandomValues(new Uint8Array(32)),
         prefix,
         repo,
         ref,
@@ -1308,7 +1315,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       title: "Sign upload URLs",
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
-      description: `Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of \`put\` when the files are on a local or sandbox disk and you can run curl. Takes \`put\`'s arguments without the bytes, plus \`files: [{ filename, alt? }]\` (max ${MAX_PUT_FILES}). Run each returned \`curl\` line from the folder holding the file (or swap in its path); the response is the same JSON \`put\` returns, including \`markdown\`. URLs expire after 15 minutes and take files up to ${SIGNED_UPLOAD_MAX_BYTES / 1024 / 1024} MiB. With \`pr\`/\`issue\`, call \`comment\` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to \`put\` with contentBase64. All uploads are public.`,
+      description: `Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of \`put\` when the files are on a local or sandbox disk and you can run curl. Takes \`put\`'s arguments without the bytes, plus \`files: [{ filename, alt? }]\` (max ${MAX_PUT_FILES}). Run each returned \`curl\` line from the folder holding the file (or swap in its path); the response is the same JSON \`put\` returns, including \`markdown\`. URLs expire after 15 minutes; each takes a file up to its \`maxBytes\` (the workspace's upload limit, at most 100 MB). With \`pr\`/\`issue\`, call \`comment\` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to \`put\` with contentBase64. All uploads are public.`,
       inputSchema: {
         type: "object",
         properties: {

@@ -902,13 +902,15 @@ export function inspectUpload(
   bytes: Uint8Array,
   policy: UploadPolicy,
   declaredType?: string,
+  /** Whole-body size when `bytes` is only its head (a streamed upload). */
+  size = bytes.byteLength,
 ): UploadInspection {
   const detected = detectContentType(bytes);
   if (detected !== null) {
     if (!policy.allowed.has(detected))
       return unsupported(policy, declaredType, laneReason(policy, declaredType));
     const maxBytes = maxBytesForContentType(policy, detected);
-    return bytes.byteLength > maxBytes
+    return size > maxBytes
       ? tooLarge(maxBytes, { contentType: detected, kind: uploadKind(detected) })
       : { ok: true, contentType: detected };
   }
