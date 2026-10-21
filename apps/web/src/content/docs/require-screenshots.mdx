@@ -157,9 +157,10 @@ A repo's `check.require` replaces the workspace's **Require screenshots on UI ch
 
 - **Files uploaded with uploads.sh**, from the CLI, the [MCP server](/docs/mcp), or an agent,
   including ones [staged before the PR existed](/docs/github-app#staging).
-- **Images and videos dragged into the PR on GitHub**, in the description or a comment. These pass
-  `uploads`, so contributors without uploads.sh are never stuck. The other items need files uploaded
-  with uploads.sh.
+- **Images and videos dragged into the PR on GitHub**, in the description or a comment. Links to
+  images committed to the same repo (`blob/…/shot.png?raw=true`) count too. These pass `uploads`,
+  so contributors without uploads.sh are never stuck. The other items need files uploaded with
+  uploads.sh.
 - **Held files.** A file [held for review](/docs/github-app#held-files) counts as attached, so a
   hold never blocks a merge.
 

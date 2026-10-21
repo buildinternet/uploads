@@ -3,10 +3,12 @@ import {
   attachmentKeyBasename,
   extractCursorContentAttachments,
   extractIngestAttachments,
+  extractRepoMediaLinks,
   extractUnimportableCursorRefs,
   extractUserAttachments,
   hasCursorContentUrl,
   hasIngestableAttachmentUrl,
+  hasRepoMediaUrl,
   hasUserAttachmentUrl,
 } from "./github-attachment-extract";
 
@@ -143,5 +145,29 @@ describe("hasIngestableAttachmentUrl", () => {
     expect(hasIngestableAttachmentUrl(CURSOR_V)).toBe(false);
     expect(hasIngestableAttachmentUrl(CURSOR_AGENT)).toBe(false);
     expect(hasIngestableAttachmentUrl("no attachments here")).toBe(false);
+  });
+});
+
+describe("extractRepoMediaLinks", () => {
+  it("finds blob, raw and raw.githubusercontent media in the same repo", () => {
+    const text = [
+      "![a](https://github.com/Acme/Web/blob/e8f02ef/.github/shots/a.png?raw=true)",
+      '<img src="https://github.com/acme/web/raw/main/docs/b.JPG">',
+      "https://raw.githubusercontent.com/acme/web/abc123/c.mp4.",
+      "![dup](https://github.com/acme/web/blob/e8f02ef/.github/shots/a.png?raw=true)",
+      "![other](https://github.com/acme/other/blob/main/d.png?raw=true)",
+      "[code](https://github.com/acme/web/blob/main/src/e.tsx)",
+      "[png-ish](https://github.com/acme/web/blob/main/f.png.ts)",
+      "https://github.com/user-attachments/assets/0a1b2c3d-1111-2222-3333-444455556666",
+    ].join("\n");
+    expect(extractRepoMediaLinks(text, "acme/web")).toHaveLength(3);
+    expect(extractRepoMediaLinks(text, "acme/other")).toHaveLength(1);
+    expect(extractRepoMediaLinks("no links here", "acme/web")).toEqual([]);
+  });
+
+  it("gates on repo-hosted links only", () => {
+    expect(hasRepoMediaUrl("https://github.com/acme/web/blob/main/a.png?raw=true")).toBe(true);
+    expect(hasRepoMediaUrl("https://raw.githubusercontent.com/acme/web/main/a.png")).toBe(true);
+    expect(hasRepoMediaUrl("https://github.com/acme/web/pull/3")).toBe(false);
   });
 });

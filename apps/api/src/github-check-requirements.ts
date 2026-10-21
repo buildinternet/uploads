@@ -10,7 +10,7 @@ import type { ChecklistEntry, GhTarget } from "./github-comment-render";
 import { githubFetch, githubHeaders, repoInstallationToken } from "./github-app";
 import { getMetadataForKeys } from "./file-metadata";
 import { dbFor } from "./db-session";
-import { extractIngestAttachments } from "./github-attachment-extract";
+import { extractIngestAttachments, extractRepoMediaLinks } from "./github-attachment-extract";
 
 const LABELS: Record<CheckRequirement, string> = {
   uploads: "Uploads",
@@ -147,10 +147,17 @@ export async function skipLabelOnPr(
   }
 }
 
-/** Images and videos linked from one GitHub body, or none for a bot's post (import skips bots too). */
-function attachmentsIn(post: { body?: unknown; user?: { type?: unknown } } | null): number {
+/**
+ * Images and videos linked from one GitHub body, or none for a bot's post
+ * (import skips bots too). Media committed to the repo and linked by URL
+ * counts as well, since some agents attach screenshots that way.
+ */
+function attachmentsIn(
+  post: { body?: unknown; user?: { type?: unknown } } | null,
+  repo: string,
+): number {
   if (!post || post.user?.type === "Bot" || typeof post.body !== "string") return 0;
-  return extractIngestAttachments(post.body).length;
+  return extractIngestAttachments(post.body).length + extractRepoMediaLinks(post.body, repo).length;
 }
 
 /**
@@ -175,8 +182,8 @@ export async function githubAttachmentCount(
         return res.ok ? await res.json().catch(() => null) : null;
       }),
     );
-    let count = attachmentsIn(issue as Parameters<typeof attachmentsIn>[0]);
-    if (Array.isArray(comments)) for (const c of comments) count += attachmentsIn(c);
+    let count = attachmentsIn(issue as Parameters<typeof attachmentsIn>[0], target.repo);
+    if (Array.isArray(comments)) for (const c of comments) count += attachmentsIn(c, target.repo);
     return count;
   } catch {
     return 0;

@@ -167,6 +167,33 @@ describe("extractWebhookEvent", () => {
     expect(ev).toBeNull();
   });
 
+  it("issue_comment created with only a repo-hosted image re-syncs the check", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: {
+        id: 44,
+        body: "![after](https://github.com/acme/app/blob/abc/after.png?raw=true)",
+        user: { login: "octocat", type: "User" },
+      },
+    });
+    expect(ev?.ingest).toBeUndefined();
+    expect(ev?.recheck).toEqual({ repo: "acme/app", num: 7 });
+
+    const onIssue = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7 },
+      comment: {
+        id: 44,
+        body: "![after](https://github.com/acme/app/blob/abc/after.png?raw=true)",
+        user: { login: "octocat", type: "User" },
+      },
+    });
+    expect(onIssue?.recheck).toBeUndefined();
+  });
+
   it("issue_comment edited always sets ingest; deleted sets ingest only when the removed body had a url", () => {
     const edited = extractWebhookEvent("issue_comment", {
       action: "edited",
