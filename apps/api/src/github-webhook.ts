@@ -61,7 +61,7 @@
  * degraded rather than dropping deliveries.
  */
 
-import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
+import { hasIngestableAttachmentUrl, hasRepoMediaUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { checksDeniedKey, syncUploadsCheck } from "./github-check-run";
@@ -490,6 +490,10 @@ export interface WebhookEvent {
   /** `pull_request` labeled/unlabeled → re-sync the check, since a skip
    * label can excuse required uploads (`check.skipLabels`). */
   labels?: { repo: string; num: number; label: string };
+  /** PR comment created/deleted with repo-hosted media and no ingestable
+   * url → re-sync the check, which counts those links too. Edits already
+   * re-sync through `ingest`. */
+  recheck?: { repo: string; num: number };
 }
 
 /**
@@ -657,6 +661,13 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
         (ip.action === "deleted" && hasUrl);
       if (gated) {
         ev.ingest = { repo, kind, num, source };
+      } else if (
+        kind === "pull" &&
+        (ip.action === "created" || ip.action === "deleted") &&
+        typeof body === "string" &&
+        hasRepoMediaUrl(body)
+      ) {
+        ev.recheck = { repo, num };
       }
 
       // Adopt gating (issue #701): mirrors the ingest gate above, but a
@@ -683,7 +694,8 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ev.privacy ||
     ev.privatized ||
     ev.prActivity ||
-    ev.labels
+    ev.labels ||
+    ev.recheck
     ? ev
     : null;
 }
@@ -747,8 +759,9 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
     await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
   }
   // The PR's own promote above already re-synced the check.
-  if (ev.ingest?.kind === "pull" && !ev.promote) {
-    await recheckForGithubAttachments(env, ev.ingest.repo, ev.ingest.num);
+  const recheck = ev.ingest?.kind === "pull" ? ev.ingest : ev.recheck;
+  if (recheck && !ev.promote) {
+    await recheckForGithubAttachments(env, recheck.repo, recheck.num);
   }
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);

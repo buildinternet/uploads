@@ -139,6 +139,57 @@ describe("gatherCommentBody", () => {
     }
   });
 
+  it("counts images committed to the repo and linked from the PR", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    kv.store.set("repocfg:acme/web", {
+      value: JSON.stringify({
+        found: true,
+        path: ".uploads.yml",
+        config: { uiPaths: ["apps/web/**"], checkRequire: ["uploads"] },
+        warnings: [],
+      }),
+    });
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    const body = [
+      "![page](https://github.com/acme/web/blob/e8f02ef/.github/pr-screenshots/12/page.png?raw=true)",
+      '<img width="260" src="https://github.com/acme/web/blob/e8f02ef/.github/pr-screenshots/12/mobile.png?raw=true">',
+      "![other repo](https://github.com/acme/elsewhere/blob/main/shot.png?raw=true)",
+      "[source](https://github.com/acme/web/blob/main/apps/web/a.astro)",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () => Response.json([{ filename: "apps/web/a.astro" }]),
+        "/issues/12/labels": () => Response.json([]),
+        "/issues/12/comments": () =>
+          Response.json([
+            {
+              body: "https://raw.githubusercontent.com/acme/web/e8f02ef/docs/after.gif",
+              user: { type: "User" },
+            },
+          ]),
+        "/issues/12": () => Response.json({ body }),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      // Two in the description and one in a comment; the other repo's image and the source link don't count.
+      expect(result).toMatchObject({ count: 0, githubAttachments: 3, noUploads: false });
+      expect(result.requirement?.checklist).toEqual([{ label: "Uploads", met: true }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("counts screenshots attached on GitHub in place of uploads", async () => {
     const { env, ws, workspaceName, kv } = makeTestEnv();
     Object.assign(env, {
