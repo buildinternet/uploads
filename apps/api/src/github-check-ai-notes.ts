@@ -133,10 +133,18 @@ export async function evaluateAiNotes(
       getMetadataForKeys(dbFor(env), workspaceName, [...keys], { metaKeys: AI_NOTE_META_KEYS }),
     ]);
     if (skipped) return [];
-    return aiNotesFor(
+    const notes = aiNotesFor(
       enabled,
       keys.map((key) => ({ name: key.slice(key.lastIndexOf("/") + 1), meta: metaByKey.get(key) })),
     );
+    console.log({
+      event: "ai_notes_evaluated",
+      workspace: workspaceName,
+      repo: target.repo,
+      pr: target.num,
+      notes: Object.fromEntries(enabled.map((id, i) => [id, notes[i]?.outcome])),
+    });
+    return notes;
   } catch (err) {
     // Fail open: a failed read drops the notes, never the comment or the check.
     console.error({ event: "ai_notes_failed", workspace: workspaceName, err });
