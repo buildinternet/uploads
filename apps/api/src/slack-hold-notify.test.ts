@@ -103,6 +103,7 @@ describe("notifySlackOfHold", () => {
     } as unknown as Env;
     const sent = await notifySlackOfHold(env, "acme", "shots/a b.png", "secret", {
       "gh.uploader-id": "u-member",
+      "ai.secret": "api_key",
     });
     expect(sent).toBe(1);
     expect(calls).toHaveLength(1);
@@ -113,6 +114,7 @@ describe("notifySlackOfHold", () => {
       workspace: "acme",
       key: "shots/a b.png",
       reason: "secret",
+      kind: "api_key",
       isUploader: true,
       pageUrl: "https://uploads.sh/f/acme/shots/a%20b.png",
     });

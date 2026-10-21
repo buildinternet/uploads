@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { ListItem, UploadsClient } from "../src/client.js";
-import { approveHeldFiles } from "../src/commands.js";
+import { approveHeldFiles, holdSettingsHint } from "../src/commands.js";
 
 const TARGET = { repo: "o/r", kind: "pull" as const, num: 12 };
 const PREFIX = "gh/o/r/pull/12/";
@@ -131,5 +131,13 @@ describe("approveHeldFiles", () => {
     );
     await expect(approveHeldFiles({ client, keys: ["a"], all: true })).rejects.toThrow(UsageError);
     await expect(approveHeldFiles({ client })).rejects.toThrow(UsageError);
+  });
+});
+
+describe("holdSettingsHint", () => {
+  it("points at the workspace's AI labels settings on the app origin", () => {
+    expect(holdSettingsHint({ apiUrl: "https://api.uploads.sh", workspace: "acme" })).toBe(
+      "a workspace admin can turn holds off in Settings → AI labels: https://uploads.sh/account/workspaces/acme/settings/ai-labels",
+    );
   });
 });

@@ -94,6 +94,8 @@ export interface SlackHoldMessage {
   workspace: string;
   key: string;
   reason: HoldReason;
+  /** The flagged `ai.secret` or `ai.pii` value, such as `api_key`. */
+  kind?: string;
   /** Signed-in `/f/` page; asks for sign-in while the file is held. */
   pageUrl: string;
   /** Whether this person uploaded it (changes the wording). */
@@ -118,6 +120,7 @@ export async function notifySlackOfHold(
     const recipients = await slackHoldRecipients(dbFor(env), workspaceName, uploaderId);
     if (recipients.length === 0) return 0;
     const pageUrl = filePageUrl(env, workspaceName, key);
+    const kind = meta[reason === "pii" ? "ai.pii" : "ai.secret"] || undefined;
     const sent = await Promise.all(
       recipients.map(async (r) => {
         const body: SlackHoldMessage = {
@@ -126,6 +129,7 @@ export async function notifySlackOfHold(
           workspace: workspaceName,
           key,
           reason,
+          kind,
           pageUrl,
           isUploader: r.userId === uploaderId,
         };

@@ -138,6 +138,21 @@ describe("hold notices", () => {
     expect(JSON.parse(actions.elements[0]!.value)).toEqual({ w: "acme", k: NOTICE.key });
   });
 
+  it("names the flagged kind and links the settings", () => {
+    const named = JSON.stringify(
+      holdMessage(parseHoldNotice({ ...NOTICE, kind: "api_key" }, "https://uploads.sh/")!).blocks,
+    );
+    expect(named).toContain("Held because it may show an API key.");
+    expect(named).toContain(
+      "<https://uploads.sh/account/workspaces/acme/settings/ai-labels|Settings → AI labels>",
+    );
+    expect(named).toContain("<https://uploads.sh/account/profile|your profile>");
+    // A value without wording, or one from the other field, reads as the generic reason.
+    const unknown = parseHoldNotice({ ...NOTICE, kind: "financial" }, "https://uploads.sh")!;
+    expect(unknown.kind).toBeUndefined();
+    expect(JSON.stringify(holdMessage(unknown).blocks)).toContain("such as an API key, password");
+  });
+
   it("DMs the user over the internal route", async () => {
     const env = await setup();
     const slack = fakeSlack();
