@@ -172,7 +172,7 @@ export function holdMessage(notice: HoldNotice): { text: string; blocks: Block[]
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `🔒 *${escapeMrkdwn(lead)}*\n${fileLine(notice.workspace, notice.key, notice.pageUrl)}\nHeld because ${reasonText(notice.reason, notice.kind)}.`,
+        text: `*${escapeMrkdwn(lead)}*\n${fileLine(notice.workspace, notice.key, notice.pageUrl)}\nHeld because ${reasonText(notice.reason, notice.kind)}.`,
       },
     },
     {
@@ -320,10 +320,10 @@ export async function resolveHoldMessages(
         ? {
             pageUrl: pageUrlFor(ctx.env.WEB_ORIGIN || "https://uploads.sh", workspace, key),
             line: resolved.by
-              ? `✅ Approved by ${escapeMrkdwn(resolved.by)}. The file is back at its link.`
-              : "✅ Approved. The file is back at its link.",
+              ? `Approved by ${escapeMrkdwn(resolved.by)}. The file is back at its link.`
+              : "Approved. The file is back at its link.",
           }
-        : { pageUrl: "", line: "🗑️ Deleted while it was held. There's nothing left to review." };
+        : { pageUrl: "", line: "Deleted while it was held. There's nothing left to review." };
     const body = resolvedMessage(workspace, key, message.line, message.pageUrl);
     const tokens = new Map<string, string | null>();
     let updated = 0;
@@ -411,7 +411,7 @@ export async function handleHoldAction(input: HoldActionInput, ctx: HoldContext)
   const { workspace, key } = target;
   let line: string;
   if (input.actionId === HOLD_KEEP_ACTION) {
-    line = `🔒 Kept held. ${approveLater(key)}`;
+    line = `Kept held. ${approveLater(key)}`;
   } else {
     const outcome = await approveViaApi(ctx.env, {
       teamId: input.teamId,
@@ -421,7 +421,7 @@ export async function handleHoldAction(input: HoldActionInput, ctx: HoldContext)
     });
     console.log("slack.holds: approve", { outcome });
     line = {
-      approved: "✅ Approved by you. The file is back at its link.",
+      approved: "Approved by you. The file is back at its link.",
       not_held: "This file isn't held any more. Someone already approved it, or it was removed.",
       not_allowed:
         "Couldn't approve: connect this Slack account to an uploads.sh account that's a member of the workspace, from the app's Home tab.",
