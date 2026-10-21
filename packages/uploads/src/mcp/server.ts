@@ -183,6 +183,14 @@ export interface McpTool {
  */
 const TOOLS_LIST_CACHE_HINT: CacheHint = { ttlMs: 3_600_000, cacheScope: "private" };
 
+/**
+ * Bound on array elements plus object members in one `tools/call` arguments
+ * object. The SDK leaves this off, so one request inside the body cap can
+ * exhaust memory while the schema walks a nested payload. Real calls stay
+ * far under it (at most 20 files, 24 metadata keys).
+ */
+const MAX_TOOL_INPUT_ELEMENTS = 10_000;
+
 /** Tool failures become tool results (isError), never JSON-RPC errors. */
 function toolErrorText(err: unknown): string {
   if (err instanceof UploadsError) return `${err.message} (${err.code})`;
@@ -282,6 +290,7 @@ export function createMcpServer(opts: {
   const { serverInfo, tools, apiUrl, validator } = opts;
   const server = new McpServer(serverInfo, {
     cacheHints: { "tools/list": TOOLS_LIST_CACHE_HINT },
+    maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
   });
   for (const tool of tools) {
     server.registerTool(

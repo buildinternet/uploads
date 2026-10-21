@@ -1980,6 +1980,7 @@ describe("modern-era (2026-07-28) requests", () => {
           Authorization: `Bearer ${token}`,
           Accept: "application/json, text/event-stream",
           "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
           ...extraHeaders,
         },
       },
@@ -2092,6 +2093,50 @@ describe("modern-era (2026-07-28) requests", () => {
       {},
     );
     expect(response.status).toBe(400);
+  });
+
+  it("accepts a put larger than the SDK 4 MiB default on the legacy and modern paths", async () => {
+    const { env, bucket } = await makeEnv();
+    // ~6 MiB of base64, past the SDK's 4 MiB default. A missing
+    // maxRequestBodySize on isLegacyRequest, the legacy transport, or
+    // createMcpHandler rejects one of these two calls.
+    const bytes = new Uint8Array(4_500_000);
+    bytes.set(PNG_BYTES);
+    const contentBase64 = Buffer.from(bytes).toString("base64");
+    const legacyBody = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "put",
+        arguments: { contentBase64, filename: "big.png", key: "shots/big-legacy.png" },
+      },
+    };
+    expect(JSON.stringify(legacyBody).length).toBeGreaterThan(4 * 1024 * 1024);
+
+    const legacy = await rpc(env, legacyBody);
+    expect(legacy.status).toBe(200);
+    expect(((await legacy.json()) as { result: { isError: boolean } }).result.isError).toBe(false);
+    expect(bucket.store.has("shots/big-legacy.png")).toBe(true);
+
+    const modernBody = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "put",
+        arguments: { contentBase64, filename: "big.png", key: "shots/big-modern.png" },
+        _meta: MODERN_META,
+      },
+    };
+    expect(JSON.stringify(modernBody).length).toBeGreaterThan(4 * 1024 * 1024);
+    const modern = await modernRpc(env, modernBody, {
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": "put",
+    });
+    expect(modern.status).toBe(200);
+    expect(((await modern.json()) as { result: { isError: boolean } }).result.isError).toBe(false);
+    expect(bucket.store.has("shots/big-modern.png")).toBe(true);
   });
 
   it("still 401s an unauthenticated modern request — auth runs before any MCP processing", async () => {
