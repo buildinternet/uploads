@@ -2708,6 +2708,19 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     expect(prAndBranch.isError).toBe(true);
   });
 
+  it("refuses a prefix the workspace's key policy disallows before signing", async () => {
+    const { env } = await signedEnv({ record: { allowedKeyPrefixes: ["screenshots/"] } });
+    const refused = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      prefix: "tests",
+    });
+    expect(refused.isError).toBe(true);
+    expect((refused.content[0] as { text: string }).text).toContain("key prefix not allowed");
+
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    expect(signed.uploads).toHaveLength(1);
+  });
+
   it("is unavailable without WORKSPACE_SECRETS_KEY", async () => {
     const { env } = await makeEnv();
     const result = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });

@@ -180,7 +180,9 @@ curl -sS --fail-with-body -T 'settings-after.png' 'https://agents.uploads.sh/u/â
 Each upload answers with the same JSON as `put`, including `markdown`. With `pr` or `issue`, call
 `comment` once after the uploads to update the attachments comment. URLs expire after 15 minutes
 and take files up to the workspace's upload limit (each URL's `maxBytes`, at most 100 MB), so
-videos work too.
+videos work too. Files over 25 MiB stream straight to storage, so they get no video poster or PDF
+preview. Uploads through the hosted server don't get AI labels or hold checks yet, whatever their
+size.
 
 <div class="pointer">
   The sandbox has to reach agents.uploads.sh. If curl fails with a 403 from a proxy, add
