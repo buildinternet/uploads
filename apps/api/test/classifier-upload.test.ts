@@ -1626,6 +1626,37 @@ describe("held uploads move out of the public bucket", () => {
     expect((await rows(harness.env))?.["ai.hold"]).toBeUndefined();
   });
 
+  /** Records `/slack/internal/hold-resolved` calls on a fake SLACK binding. */
+  function withSlack(env: Env) {
+    const resolved: unknown[] = [];
+    (env as unknown as { SLACK: Fetcher }).SLACK = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/slack/internal/hold-resolved")) {
+          resolved.push(JSON.parse(String(init?.body)));
+        }
+        return new Response(null, { status: 204 });
+      },
+    } as unknown as Fetcher;
+    return resolved;
+  }
+
+  it("tells Slack when a hold is approved or the held file is deleted", async () => {
+    const approved = heldHarness();
+    const approvedCalls = withSlack(approved.env);
+    await putFlagged(approved, FITTING_PNG, { enforceHold: true });
+    await approveUpload(approved.env, approved.ws, WORKSPACE, key, "Zach");
+    expect(approvedCalls).toEqual([{ workspace: WORKSPACE, key, outcome: "approved", by: "Zach" }]);
+    // Deleting it once approved has no hold left to report.
+    await deleteObject(approved.env, approved.ws, key, WORKSPACE);
+    expect(approvedCalls).toHaveLength(1);
+
+    const deleted = heldHarness();
+    const deletedCalls = withSlack(deleted.env);
+    await putFlagged(deleted, FITTING_PNG, { enforceHold: true });
+    await deleteObject(deleted.env, deleted.ws, key, WORKSPACE);
+    expect(deletedCalls).toEqual([{ workspace: WORKSPACE, key, outcome: "deleted" }]);
+  });
+
   it("deletes the held copy with the file", async () => {
     const harness = heldHarness();
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });

@@ -16,12 +16,19 @@
  *
  * Either way the DM is rewritten through the button's `response_url`, so
  * the buttons can't be pressed twice.
+ *
+ * Each DM's channel and ts are saved (`slack_hold_messages`). When the hold
+ * ends anywhere else (approved on the web, CLI, or MCP, or the held file is
+ * deleted), uploads-api calls `/slack/internal/hold-resolved` and every
+ * saved DM for the file is rewritten without its buttons, so nobody follows
+ * a dead link or presses Approve on a file that is gone.
  */
 import { botTokenFor, type SlackEnv } from "./config";
 import { installedScopes } from "./installs";
 import { canRun } from "./scopes";
 import {
   chatPostMessage,
+  chatUpdate,
   openDm,
   respondToAction,
   type Block,
@@ -241,11 +248,110 @@ export async function sendHoldNotice(notice: HoldNotice, ctx: HoldContext): Prom
     console.error("slack.holds: conversations.open failed", { team: notice.teamId });
     return false;
   }
-  const result = await chatPostMessage({ channel, ...holdMessage(notice) }, options);
+  const result = (await chatPostMessage({ channel, ...holdMessage(notice) }, options)) as {
+    ok: boolean;
+    error?: string;
+    ts?: string;
+  };
   if (!result.ok) {
     console.error("slack.holds: chat.postMessage failed", { error: result.error });
+    return false;
   }
-  return result.ok;
+  if (ctx.env.DB && result.ts) {
+    // Best effort: without the row the DM just isn't rewritten later.
+    await ctx.env.DB.prepare(
+      `INSERT OR IGNORE INTO slack_hold_messages (channel, ts, team_id, workspace, object_key)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(channel, result.ts, notice.teamId, notice.workspace, notice.key)
+      .run()
+      .catch((err: unknown) => console.error("slack.holds: save message failed", err));
+  }
+  return true;
+}
+
+/** What uploads-api sends to `/slack/internal/hold-resolved`. */
+export interface HoldResolved {
+  workspace: string;
+  key: string;
+  outcome: "approved" | "deleted";
+  /** Who approved it (`ai.hold.by`), when known. */
+  by?: string;
+}
+
+/** Validates the internal request body; null when anything is off. */
+export function parseHoldResolved(input: unknown): HoldResolved | null {
+  if (!input || typeof input !== "object") return null;
+  const v = input as Record<string, unknown>;
+  if (typeof v.workspace !== "string" || !WORKSPACE.test(v.workspace)) return null;
+  if (typeof v.key !== "string" || !v.key || v.key.length > 1024) return null;
+  if (v.outcome !== "approved" && v.outcome !== "deleted") return null;
+  const by = typeof v.by === "string" && v.by.trim() ? v.by.trim().slice(0, 80) : undefined;
+  return { workspace: v.workspace, key: v.key, outcome: v.outcome, by };
+}
+
+function pageUrlFor(webOrigin: string, workspace: string, key: string): string {
+  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+  return `${webOrigin.replace(/\/+$/, "")}/f/${encodeURIComponent(workspace)}/${encodedKey}`;
+}
+
+/**
+ * Rewrites every saved DM for the file to say how its hold ended, then
+ * forgets them. Returns how many were rewritten. Never throws.
+ */
+export async function resolveHoldMessages(
+  resolved: HoldResolved,
+  ctx: HoldContext,
+): Promise<number> {
+  const db = ctx.env.DB;
+  if (!db) return 0;
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT channel, ts, team_id FROM slack_hold_messages
+          WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(resolved.workspace, resolved.key)
+      .all<{ channel: string; ts: string; team_id: string }>();
+    if (!results?.length) return 0;
+    const { workspace, key } = resolved;
+    const message =
+      resolved.outcome === "approved"
+        ? {
+            pageUrl: pageUrlFor(ctx.env.WEB_ORIGIN || "https://uploads.sh", workspace, key),
+            line: resolved.by
+              ? `✅ Approved by ${escapeMrkdwn(resolved.by)}. The file is back at its link.`
+              : "✅ Approved. The file is back at its link.",
+          }
+        : { pageUrl: "", line: "🗑️ Deleted while it was held. There's nothing left to review." };
+    const body = resolvedMessage(workspace, key, message.line, message.pageUrl);
+    const tokens = new Map<string, string | null>();
+    let updated = 0;
+    for (const row of results) {
+      if (!tokens.has(row.team_id))
+        tokens.set(row.team_id, await botTokenFor(ctx.env, row.team_id));
+      const token = tokens.get(row.team_id);
+      if (token) {
+        const result = await chatUpdate(
+          { channel: row.channel, ts: row.ts, ...body },
+          { token, fetch: ctx.slackFetch },
+        );
+        if (result.ok) updated += 1;
+        else console.error("slack.holds: chat.update failed", { error: result.error });
+      }
+    }
+    // Forget them either way: a message that can't be edited now (deleted,
+    // app uninstalled) won't become editable later.
+    await db
+      .prepare("DELETE FROM slack_hold_messages WHERE workspace = ? AND object_key = ?")
+      .bind(workspace, key)
+      .run();
+    console.log("slack.holds: resolved", { outcome: resolved.outcome, updated });
+    return updated;
+  } catch (err) {
+    console.error("slack.holds: resolve failed", err);
+    return 0;
+  }
 }
 
 type ApproveOutcome = "approved" | "not_held" | "not_allowed" | "failed";
@@ -277,13 +383,14 @@ function resolvedMessage(
   workspace: string,
   key: string,
   line: string,
+  pageUrl = "",
 ): { text: string; blocks: Block[] } {
   return {
     text: line.replace(/[*`]/g, ""),
     blocks: [
       {
         type: "section",
-        text: { type: "mrkdwn", text: `${fileLine(workspace, key, "")}\n${line}` },
+        text: { type: "mrkdwn", text: `${fileLine(workspace, key, pageUrl)}\n${line}` },
       },
     ],
   };

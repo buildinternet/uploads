@@ -113,6 +113,7 @@ import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
 import { openStreamedBody, type StreamedBody } from "./streamed-body";
+import { notifySlackHoldResolved } from "./slack-hold-notify";
 
 export type { StreamedBody };
 
@@ -1533,6 +1534,8 @@ export async function deleteObject(
   });
   if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
+  // A held file going away ends its hold: rewrite the Slack DMs about it.
+  if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 
   if (hits.length > 0) {
     // Single-winner claim (issue #570): concurrent DELETEs can both observe

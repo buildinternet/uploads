@@ -23,7 +23,10 @@ afterEach(() => {
 });
 
 async function setup(overrides: Partial<SlackEnv> = {}) {
-  sqlite = new SqliteD1("migrations/20261018160000_slack_installations.sql");
+  sqlite = new SqliteD1([
+    "migrations/20261018160000_slack_installations.sql",
+    "migrations/20261021130000_slack_hold_messages.sql",
+  ]);
   const env: SlackEnv = {
     WEB_ORIGIN: "https://uploads.sh",
     SLACK_TOKENS_KEY: KEY,
@@ -64,6 +67,9 @@ function fakeSlack() {
     calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
     if (url.endsWith("/conversations.open")) {
       return Response.json({ ok: true, channel: { id: "D123" } });
+    }
+    if (url.endsWith("/chat.postMessage")) {
+      return Response.json({ ok: true, channel: "D123", ts: "1700000000.000100" });
     }
     return Response.json({ ok: true });
   }) as unknown as typeof globalThis.fetch;
@@ -191,6 +197,99 @@ describe("hold notices", () => {
       ctx().ctx,
     );
     expect(res.status).toBe(502);
+    expect(slack.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolved holds", () => {
+  async function sendDm(env: SlackEnv) {
+    const slack = fakeSlack();
+    await createApp({ slackFetch: slack.fetch }).fetch(
+      internal("/slack/internal/hold", NOTICE),
+      env,
+      ctx().ctx,
+    );
+  }
+  const saved = (env: SlackEnv) =>
+    env.DB!.prepare("SELECT channel, ts, workspace, object_key FROM slack_hold_messages").all();
+
+  it("saves the DM so it can be rewritten later", async () => {
+    const env = await setup();
+    await sendDm(env);
+    expect((await saved(env)).results).toEqual([
+      { channel: "D123", ts: "1700000000.000100", workspace: "acme", object_key: NOTICE.key },
+    ]);
+  });
+
+  it("rewrites the DM when the hold is approved elsewhere, then forgets it", async () => {
+    const env = await setup();
+    await sendDm(env);
+    const slack = fakeSlack();
+    const res = await createApp({ slackFetch: slack.fetch }).fetch(
+      internal("/slack/internal/hold-resolved", {
+        workspace: "acme",
+        key: NOTICE.key,
+        outcome: "approved",
+        by: "Zach",
+      }),
+      env,
+      ctx().ctx,
+    );
+    expect(res.status).toBe(204);
+    expect(slack.calls).toHaveLength(1);
+    expect(slack.calls[0]!.url).toMatch(/\/chat\.update$/);
+    expect(slack.calls[0]!.body).toMatchObject({ channel: "D123", ts: "1700000000.000100" });
+    const body = JSON.stringify(slack.calls[0]!.body);
+    expect(body).toContain("Approved by Zach");
+    expect(body).toContain(NOTICE.pageUrl);
+    expect(body).not.toContain(HOLD_APPROVE_ACTION);
+    expect((await saved(env)).results).toEqual([]);
+  });
+
+  it("says the file was deleted, without a link", async () => {
+    const env = await setup();
+    await sendDm(env);
+    const slack = fakeSlack();
+    await createApp({ slackFetch: slack.fetch }).fetch(
+      internal("/slack/internal/hold-resolved", {
+        workspace: "acme",
+        key: NOTICE.key,
+        outcome: "deleted",
+      }),
+      env,
+      ctx().ctx,
+    );
+    const body = JSON.stringify(slack.calls[0]!.body);
+    expect(body).toContain("Deleted while it was held");
+    expect(body).not.toContain("https://uploads.sh/f/");
+  });
+
+  it("does nothing for a file with no saved DM, and is internal only", async () => {
+    const env = await setup();
+    const slack = fakeSlack();
+    const app = createApp({ slackFetch: slack.fetch });
+    const body = { workspace: "acme", key: NOTICE.key, outcome: "deleted" };
+    expect(
+      (await app.fetch(internal("/slack/internal/hold-resolved", body), env, ctx().ctx)).status,
+    ).toBe(204);
+    expect(
+      (
+        await app.fetch(
+          internal("/slack/internal/hold-resolved", body, "agents.uploads.sh"),
+          env,
+          ctx().ctx,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await app.fetch(
+          internal("/slack/internal/hold-resolved", { ...body, outcome: "kept" }),
+          env,
+          ctx().ctx,
+        )
+      ).status,
+    ).toBe(400);
     expect(slack.fetch).not.toHaveBeenCalled();
   });
 });

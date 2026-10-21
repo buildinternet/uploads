@@ -15,6 +15,10 @@
  *
  * Best effort, like the hold itself: no binding, no recipients, or a failed
  * send all leave the hold in place and never throw.
+ *
+ * When the hold ends (approved anywhere, or the held file deleted),
+ * `notifySlackHoldResolved` asks uploads-slack to rewrite those DMs so
+ * their buttons and link don't outlive the file.
  */
 
 import { dbFor, type D1Queryable } from "./db-session";
@@ -156,5 +160,39 @@ export async function notifySlackOfHold(
   } catch (err) {
     console.error({ event: "upload_hold_slack_failed", workspace: workspaceName, err });
     return 0;
+  }
+}
+
+/** What uploads-slack's `/slack/internal/hold-resolved` takes. */
+export interface SlackHoldResolved {
+  workspace: string;
+  key: string;
+  outcome: "approved" | "deleted";
+  by?: string;
+}
+
+/**
+ * Tell uploads-slack the hold on `key` ended, so it rewrites the DMs it sent
+ * about it. Never throws.
+ */
+export async function notifySlackHoldResolved(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  outcome: SlackHoldResolved["outcome"],
+  by?: string | null,
+): Promise<void> {
+  const slack = (env as { SLACK?: Fetcher }).SLACK;
+  if (!slack) return;
+  const body: SlackHoldResolved = { workspace: workspaceName, key, outcome };
+  if (by) body.by = by;
+  try {
+    await slack.fetch(`${SLACK_INTERNAL_ORIGIN}/slack/internal/hold-resolved`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error({ event: "upload_hold_slack_resolve_failed", workspace: workspaceName, err });
   }
 }

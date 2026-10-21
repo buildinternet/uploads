@@ -147,6 +147,14 @@ export function chatPostMessage(
   );
 }
 
+/** `chat.update` (needs `chat:write`): rewrites a message this app posted. https://docs.slack.dev/reference/methods/chat.update */
+export function chatUpdate(
+  message: { channel: string; ts: string; text: string; blocks: Block[] },
+  options: SlackApiOptions,
+): Promise<SlackApiResult> {
+  return call("chat.update", message, options);
+}
+
 /**
  * Replies to a button press through the payload's `response_url`: replaces
  * the message the button sat on, (`replace: false`) adds a reply only the
