@@ -869,6 +869,7 @@ describe("mcp worker", () => {
       "repo_link_status",
       "search_docs",
       "set_metadata",
+      "sign_upload_url",
       "unstage",
       "usage",
       "whoami",
@@ -2609,5 +2610,139 @@ describe("uploader attribution (issue #345)", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
+  const SECRET = "test-workspace-secrets-key";
+
+  async function signedEnv(options: Parameters<typeof makeEnv>[0] = {}) {
+    const made = await makeEnv(options);
+    (made.env as unknown as Record<string, unknown>).WORKSPACE_SECRETS_KEY = SECRET;
+    return made;
+  }
+
+  type Signed = {
+    workspace: string;
+    expiresAt: string;
+    uploads: { file: string; uploadUrl: string; curl: string; maxBytes: number }[];
+    next?: string;
+    hint: string;
+  };
+
+  async function sign(env: Env, args: Record<string, unknown>): Promise<Signed> {
+    const result = await callTool(env, "sign_upload_url", args);
+    expect(result.isError).toBe(false);
+    return result.structuredContent as unknown as Signed;
+  }
+
+  function putTo(env: Env, uploadUrl: string, body: Uint8Array, headers?: Record<string, string>) {
+    const { pathname } = new URL(uploadUrl);
+    return app.request(
+      pathname,
+      {
+        method: "PUT",
+        body,
+        headers: headers ?? { "Content-Length": String(body.byteLength) },
+      },
+      env,
+    );
+  }
+
+  it("signs a URL per file and uploads the PUT body through the put path", async () => {
+    const { env, bucket } = await signedEnv();
+    const signed = await sign(env, {
+      files: [{ filename: "before.png" }, { filename: "after.png", alt: "After" }],
+      repo: "acme/web",
+    });
+    expect(signed.uploads.map((u) => u.file)).toEqual(["before.png", "after.png"]);
+    expect(signed.next).toBeUndefined();
+    const [, after] = signed.uploads;
+    expect(after!.uploadUrl).toMatch(/^http:\/\/localhost\/u\/[\w-]+\.[\w-]+$/);
+    expect(after!.curl).toBe(`curl -sS --fail-with-body -T 'after.png' '${after!.uploadUrl}'`);
+
+    const response = await putTo(env, after!.uploadUrl, PNG_BYTES);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    expect(body).toMatchObject({ workspace: "test-ws", size: 11, contentType: "image/png" });
+    expect(body.key).toMatch(/^screenshots\/acme-web\//);
+    expect(body.markdown).toBe(`![After](${body.url})`);
+    expect(bucket.store.get(body.key!)?.data).toEqual(PNG_BYTES);
+  });
+
+  it("attaches to a PR without syncing the comment and says to call comment", async () => {
+    const { env, bucket } = await signedEnv();
+    const signed = await sign(env, { files: [{ filename: "shot.png" }], pr: 12, repo: "acme/web" });
+    expect(signed.next).toContain("call `comment`");
+
+    // The fetch stub throws on any GitHub call, so a comment sync would fail here.
+    const response = await putTo(env, signed.uploads[0]!.uploadUrl, PNG_BYTES);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.key).toBe("gh/acme/web/pull/12/shot.png");
+    expect(body).not.toHaveProperty("comment");
+    expect(body).not.toHaveProperty("commentError");
+    expect(bucket.store.has("gh/acme/web/pull/12/shot.png")).toBe(true);
+  });
+
+  it("checks put's arguments before signing anything", async () => {
+    const { env } = await signedEnv();
+    const missingRepo = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      pr: 12,
+    });
+    expect(missingRepo.isError).toBe(true);
+    expect((missingRepo.content[0] as { text: string }).text).toContain("repo is required");
+
+    const dupes = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }, { filename: "shot.png" }],
+    });
+    expect(dupes.isError).toBe(true);
+
+    const prAndBranch = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      pr: 12,
+      branch: "feat",
+      repo: "acme/web",
+    });
+    expect(prAndBranch.isError).toBe(true);
+  });
+
+  it("is unavailable without WORKSPACE_SECRETS_KEY", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toContain("use put");
+  });
+
+  it("rejects a tampered ticket, other methods, and bodies it can't size", async () => {
+    const { env, bucket } = await signedEnv();
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    const url = signed.uploads[0]!.uploadUrl;
+
+    const tampered = await putTo(
+      env,
+      url.replace(/.$/, (c) => (c === "A" ? "B" : "A")),
+      PNG_BYTES,
+    );
+    expect(tampered.status).toBe(401);
+
+    const get = await app.request(new URL(url).pathname, { method: "GET" }, env);
+    expect(get.status).toBe(405);
+
+    const tooBig = await putTo(env, url, PNG_BYTES, {
+      "Content-Length": String(signed.uploads[0]!.maxBytes + 1),
+    });
+    expect(tooBig.status).toBe(413);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("charges the write rate limit on each PUT", async () => {
+    const { env, bucket } = await signedEnv({ rateLimitOk: false });
+    // Signing doesn't spend budget, so this succeeds even when it's gone.
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    const response = await putTo(env, signed.uploads[0]!.uploadUrl, PNG_BYTES);
+    expect(response.status).toBe(429);
+    expect(bucket.store.size).toBe(0);
   });
 });

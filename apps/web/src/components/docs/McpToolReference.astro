@@ -10,7 +10,11 @@ import localTools from "../../data/mcp-tools-local.json";
 type Tool = (typeof hostedTools)[number];
 
 const GROUPS: { id: string; title: string; tools: string[] }[] = [
-  { id: "upload", title: "Upload and attach", tools: ["put", "promote", "comment"] },
+  {
+    id: "upload",
+    title: "Upload and attach",
+    tools: ["put", "sign_upload_url", "promote", "comment"],
+  },
   {
     id: "files",
     title: "Files and metadata",

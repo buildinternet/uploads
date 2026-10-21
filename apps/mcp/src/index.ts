@@ -8,6 +8,7 @@
  * bearer-token middleware; the protocol core is the CLI package's
  * `createMcpServer`, shared verbatim.
  */
+import { UploadsError } from "@buildinternet/uploads";
 import {
   createMcpServer,
   MCP_SERVER_DISPLAY,
@@ -27,7 +28,10 @@ import {
   isAppError,
   MethodNotAllowedError,
   NotFoundError,
+  PayloadTooLargeError,
+  RateLimitedError,
   UnauthorizedError,
+  ValidationError,
 } from "@uploads/errors";
 import { reportHandledError } from "@uploads/observability";
 import { setIssueContext } from "@uploads/observability/issues";
@@ -43,7 +47,8 @@ import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-know
 import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { version as uploadsVersion } from "../../../packages/uploads/package.json";
-import { createRemoteTools } from "./tools";
+import { createRemoteTools, runTicketedPut } from "./tools";
+import { verifyUploadTicket } from "./upload-ticket";
 import {
   invalidTokenChallenge,
   isJwtShaped,
@@ -288,6 +293,64 @@ function respondError(c: Context, err: unknown): Response {
   return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);
 }
 
+/**
+ * `PUT /u/<ticket>`: one file from a `sign_upload_url` URL (issue #1242).
+ * The ticket is the only credential — it names the workspace, the uploader,
+ * and the `put` arguments — so no bearer is read here. The body goes through
+ * the same `put` path as the tool, minus the comment sync.
+ */
+async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> {
+  const claims = await verifyUploadTicket(c.env, c.req.param("ticket") ?? "");
+  if (!claims) {
+    throw new UnauthorizedError(
+      "This upload URL is invalid or expired. Call sign_upload_url again.",
+    );
+  }
+  // Checked before reading so an oversized or chunked body is never buffered.
+  const length = Number(c.req.header("Content-Length") ?? Number.NaN);
+  if (!Number.isInteger(length) || length < 0) {
+    throw new ValidationError("Content-Length is required (curl -T sends it).", {
+      code: "length_required",
+    });
+  }
+  if (length > claims.maxBytes) {
+    throw new PayloadTooLargeError(`This upload URL accepts up to ${claims.maxBytes} bytes.`);
+  }
+  const record = await loadWorkspaceRecord(c.env, claims.ws);
+  if (!record) throw new UnauthorizedError();
+  setIssueContext({ workspace: claims.ws });
+
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength > claims.maxBytes) {
+    throw new PayloadTooLargeError(`This upload URL accepts up to ${claims.maxBytes} bytes.`);
+  }
+  try {
+    const result = await runTicketedPut(
+      {
+        env: c.env,
+        workspace: record,
+        workspaceName: claims.ws,
+        // Minting required files:write; that's all the PUT does.
+        authScopes: ["files:write"],
+        uploaderIdentity: claims.who,
+        resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+      },
+      claims.args,
+      bytes,
+    );
+    return c.json(result);
+  } catch (err) {
+    // The tool path's plain errors, as HTTP statuses instead of a 500.
+    if (err instanceof UploadsError && err.code === "USAGE") {
+      throw new ValidationError(err.message, { cause: err });
+    }
+    if (err instanceof Error && err.message === "rate limit exceeded") {
+      throw new RateLimitedError(err.message, { cause: err });
+    }
+    throw err;
+  }
+}
+
 const methodNotAllowed = (_c: Context<WorkspaceVars>) => {
   throw new MethodNotAllowedError();
 };
@@ -394,6 +457,10 @@ const app = new Hono<WorkspaceVars>()
   // `workspace` claim — so clients only need the URL and the token.
   .post("/mcp", mcpBearerAuth, handleMcp)
   .on(["GET", "DELETE"], "/mcp", methodNotAllowed)
+  // Signed uploads (issue #1242). Before `/:workspace/*`, which would
+  // otherwise treat `u` as a workspace and demand a bearer.
+  .put("/u/:ticket", handleTicketUpload)
+  .all("/u/:ticket", methodNotAllowed)
   // Workspace-prefixed alternate, kept for existing clients.
   .use("/:workspace/*", workspacePathAuth)
   .post("/:workspace/mcp", handleMcp)
