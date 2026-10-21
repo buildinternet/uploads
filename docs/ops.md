@@ -933,13 +933,8 @@ they're never mismatched.
 
 **Previews.** This validates the same underlying `uploads-auth` Worker
 script's secrets that production uses, not a separate `previews`-scoped set.
-Workers Builds no longer deploys a branch preview of this worker on every
-push. A manual `wrangler versions upload` still targets this script and sees
-the same eight secrets. Cloudflare does not mint a Version URL for it,
-because the worker exports a Durable Object. A manual `wrangler preview`
-inherits the same worker-level secrets too, unless a branch explicitly
-overrides one with `wrangler preview secret put`. See
-[previews.md](previews.md#no-automatic-branch-preview).
+A manual `wrangler preview` inherits the same worker-level secrets too,
+unless a branch explicitly overrides one with `wrangler preview secret put`.
 
 ## Minimal-binding profile (self-hosting, uploads#754 item 3)
 

@@ -164,7 +164,4 @@ the preview base config.
   by design, not a gap to fix — see the "Which app to preview" table above
   for what "realistic, signed out" means for UI review.
 - `preview_urls: true` stays on `uploads-web`, `uploads-auth`, and
-  `uploads-api` so a manual `wrangler versions upload` can still mint a
-  Version URL where Cloudflare allows one. Workers Builds does not run that
-  upload on branch pushes for those three workers. Auth still has no Version
-  URL, because it exports a Durable Object.
+  `uploads-api` so a manual `wrangler versions upload` can mint a Version URL.

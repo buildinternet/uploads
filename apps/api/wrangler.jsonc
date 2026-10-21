@@ -15,9 +15,7 @@
   // Secrets that degrade gracefully when unset (GITHUB_APP_PRIVATE_KEY,
   // GITHUB_APP_WEBHOOK_SECRET, OPENAI_APPS_CHALLENGE) are deliberately absent:
   // this list is for secrets whose absence silently breaks core function.
-  // Like apps/auth's list, these are worker-level. A manual
-  // `wrangler versions upload` uses production bindings and sees them.
-  // Workers Builds does not run non-production branch builds for this worker.
+  // Like apps/auth's list, these are worker-level.
   "secrets": {
     "required": ["WORKSPACE_SECRETS_KEY"],
   },

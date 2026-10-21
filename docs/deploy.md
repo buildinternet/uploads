@@ -92,11 +92,8 @@ that path too. Prefer **additive** migrations so “migrate then deploy” stays
 safe; destructive changes need a deliberate reverse order and should not rely
 on the default pipeline.
 
-Non-production branch builds are off for `uploads-web`, `uploads-auth`, and
-`uploads-api`. A push does not deploy a preview of those workers. Production
-builds on `main` are unchanged. `uploads-mcp`, `uploads-viewer`, and
-`uploads-slack` are unchanged. Upload a preview only when the change needs a
-live worker. See [previews.md](previews.md#no-automatic-branch-preview).
+A push does not preview `uploads-web`, `uploads-auth`, or `uploads-api`. See
+[previews.md](previews.md#no-automatic-branch-preview).
 
 Use `pnpm run deploy`, not `pnpm deploy` — the bare form is pnpm's own
 command.
