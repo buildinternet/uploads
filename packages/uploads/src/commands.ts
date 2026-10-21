@@ -26,6 +26,7 @@ import {
   type CommandFlags,
 } from "./cli-args.js";
 import {
+  authUrlFromApi,
   resolvePutDefaults,
   workspaceMismatch,
   workspaceFromToken,
@@ -3161,6 +3162,12 @@ async function listHeldUnder(
   }
 }
 
+/** Where a workspace admin turns holds off. */
+export function holdSettingsHint(config: { apiUrl: string; workspace: string }): string {
+  const url = `${authUrlFromApi(config.apiUrl)}/account/workspaces/${encodeURIComponent(config.workspace)}/settings/ai-labels`;
+  return `a workspace admin can turn holds off in Settings → AI labels: ${url}`;
+}
+
 const APPROVE_HELP = `uploads approve (--pr <n> | --issue <n>) [--repo <owner/name>] [--all] [--dry-run]
 uploads approve <key...> [--dry-run]
 
@@ -3234,6 +3241,9 @@ export async function runApprove(
       process.stderr.write(
         `check each file, then run: uploads approve ${flag} ${target.num} --all\n`,
       );
+    }
+    if (result.files.some((file) => file.action !== "not_held")) {
+      process.stderr.write(`${holdSettingsHint(ctx.config)}\n`);
     }
   }
   return 0;

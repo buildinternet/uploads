@@ -41,8 +41,12 @@ export interface HoldNotice {
   workspace: string;
   key: string;
   reason: HoldReason;
+  /** The flagged `ai.secret` or `ai.pii` value; see `KIND_TEXT`. */
+  kind?: string;
   pageUrl: string;
   isUploader: boolean;
+  /** uploads.sh origin, for the settings links. */
+  webOrigin: string;
 }
 
 const TEAM_ID = /^[TE][A-Z0-9]{1,20}$/;
@@ -67,7 +71,11 @@ export function parseHoldNotice(input: unknown, webOrigin: string): HoldNotice |
     reason: v.reason === "pii" ? "pii" : "secret",
     pageUrl: str(v.pageUrl),
     isUploader: v.isUploader === true,
+    webOrigin: webOrigin.replace(/\/+$/, ""),
   };
+  // Only a value we have words for; anything else reads as the generic reason.
+  const kind = str(v.kind);
+  if (Object.hasOwn(KIND_TEXT[notice.reason], kind)) notice.kind = kind;
   if (
     !TEAM_ID.test(notice.teamId) ||
     !SLACK_USER_ID.test(notice.slackUserId) ||
@@ -92,7 +100,24 @@ function fileName(key: string): string {
   return key.split("/").pop() || key;
 }
 
-function reasonText(reason: HoldReason): string {
+/** Classifier values (`SECRET_CRITERIA`, `PII_CRITERIA` in uploads-api) we can name. */
+const KIND_TEXT: Record<HoldReason, Record<string, string>> = {
+  secret: {
+    api_key: "an API key",
+    password: "a password",
+    private_key: "a private key",
+    token: "an access token",
+    connection_string: "a connection string with a credential in it",
+  },
+  pii: {
+    identity_document: "an ID document or ID number",
+    financial: "a card or bank account number",
+  },
+};
+
+function reasonText(reason: HoldReason, kind?: string): string {
+  const named = kind ? KIND_TEXT[reason][kind] : undefined;
+  if (named) return `it may show ${named}`;
   return reason === "pii"
     ? "it may show personal information, such as an ID document or financial details"
     : "it may show a secret, such as an API key, password, or token";
@@ -124,6 +149,11 @@ function approveLater(key: string): string {
   return `Approve it later with \`uploads approve ${escapeMrkdwn(key)}\`.`;
 }
 
+function settingsLine(webOrigin: string, workspace: string): string {
+  const aiLabels = `${webOrigin}/account/workspaces/${encodeURIComponent(workspace)}/settings/ai-labels`;
+  return `A workspace admin can turn holds off in <${aiLabels}|Settings → AI labels>. Turn these messages off in <${webOrigin}/account/profile|your profile>.`;
+}
+
 /** The DM for a new hold. */
 export function holdMessage(notice: HoldNotice): { text: string; blocks: Block[] } {
   const lead = notice.isUploader
@@ -135,7 +165,7 @@ export function holdMessage(notice: HoldNotice): { text: string; blocks: Block[]
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `🔒 *${escapeMrkdwn(lead)}*\n${fileLine(notice.workspace, notice.key, notice.pageUrl)}\nHeld because ${reasonText(notice.reason)}.`,
+        text: `🔒 *${escapeMrkdwn(lead)}*\n${fileLine(notice.workspace, notice.key, notice.pageUrl)}\nHeld because ${reasonText(notice.reason, notice.kind)}.`,
       },
     },
     {
@@ -146,6 +176,10 @@ export function holdMessage(notice: HoldNotice): { text: string; blocks: Block[]
           text: `While it's held, its public link returns 404 and pull request comments leave it out. Check the file before you approve it. If it does show a credential, rotate the credential. <${DOCS_URL}|About held uploads>`,
         },
       ],
+    },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: settingsLine(notice.webOrigin, notice.workspace) }],
     },
   ];
   if (value.length <= MAX_BUTTON_VALUE) {
