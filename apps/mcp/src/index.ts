@@ -190,6 +190,18 @@ async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise
   return workspaceAuth(c, next);
 }
 
+/** The request's `waitUntil`, or `undefined` without an execution context (tests). */
+function requestWaitUntil(
+  c: Context<WorkspaceVars>,
+): ((promise: Promise<unknown>) => void) | undefined {
+  try {
+    const ctx = c.executionCtx;
+    return (promise) => ctx.waitUntil(promise);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
 function buildServer(c: Context<WorkspaceVars>): McpServer {
   return createMcpServer({
@@ -203,6 +215,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
       authScopes: c.get("authScopes"),
       uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+      waitUntil: requestWaitUntil(c),
     }),
     validator,
   });
@@ -349,6 +362,7 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
       authScopes: ["files:write"],
       uploaderIdentity: claims.who,
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+      waitUntil: requestWaitUntil(c),
     },
     claims.args,
     body,

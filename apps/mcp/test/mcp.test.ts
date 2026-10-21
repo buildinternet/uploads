@@ -2842,3 +2842,88 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     expect(bucket.store.size).toBe(0);
   });
 });
+
+describe("classifying hosted uploads (issue #1148)", () => {
+  /** An execution context that records what was handed to `waitUntil`. */
+  function executionCtx() {
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => void pending.push(promise),
+      passThroughOnException: () => undefined,
+      props: {},
+    } as unknown as ExecutionContext;
+    return { ctx, pending };
+  }
+
+  async function classifyingEnv() {
+    const made = await makeEnv();
+    const env = made.env as unknown as Record<string, unknown>;
+    env.OPENROUTER_API_KEY = "test-key";
+    env.WORKSPACE_SECRETS_KEY = "test-workspace-secrets-key";
+    return made;
+  }
+
+  it("schedules classification for put and says a hold may follow", async () => {
+    const { env } = await classifyingEnv();
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      "/test-ws/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "put",
+            arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+      },
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as {
+      result: { structuredContent: Record<string, unknown> };
+    };
+    expect(body.result.structuredContent).toMatchObject({
+      key: "shots/shot.png",
+      holdCheck: "pending",
+    });
+    expect(pending).toHaveLength(1);
+    // No FLAGS binding here, so the classifier stops at its flag check.
+    await Promise.all(pending);
+  });
+
+  it("schedules classification for a signed upload", async () => {
+    const { env } = await classifyingEnv();
+    const signed = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });
+    const [upload] = (signed.structuredContent as { uploads: { uploadUrl: string }[] }).uploads;
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      new URL(upload!.uploadUrl).pathname,
+      { method: "PUT", body: PNG_BYTES, headers: { "Content-Length": String(PNG_BYTES.length) } },
+      env,
+      ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ holdCheck: "pending" });
+    expect(pending).toHaveLength(1);
+    await Promise.all(pending);
+  });
+
+  it("skips classification without an execution context", async () => {
+    const { env } = await classifyingEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(result.structuredContent).not.toHaveProperty("holdCheck");
+  });
+});

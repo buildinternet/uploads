@@ -175,6 +175,11 @@ export interface RemoteToolContext {
    * (#340/#344, #345) and the user id the GitHub gates check.
    */
   uploaderIdentity: UploaderIdentity;
+  /**
+   * The request's `executionCtx.waitUntil`, so the classifier can finish
+   * after the tool answers (issue #1148). Absent skips classification.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -701,10 +706,14 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
     const width = optPosInt(args, "width");
     // Strict overwrite (issue #174) only on non-gh/ keys.
     const replaceArg = optBool(args, "replace") === true;
+    // Every hosted MCP client can approve a hold with the `approve` tool on
+    // this same server, whatever app or version is connecting, so a flagged
+    // upload is held here as it is for the CLI (`clientCanApprove`).
+    const classify = { waitUntil: ctx.waitUntil, enforceHold: true };
     const putOpts =
       metadata !== undefined || replaceArg
-        ? { metadata, replace: replaceArg, surface: "mcp" as const }
-        : { surface: "mcp" as const };
+        ? { metadata, replace: replaceArg, surface: "mcp" as const, ...classify }
+        : { surface: "mcp" as const, ...classify };
 
     // Resolved at most once per tool call and shared by every file in a
     // batch (same memo shape as `resolveGhPrefixOnce` below): the gate is
@@ -1207,7 +1216,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
+        'Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). A result with `holdCheck: "pending"` may still be held for review if it shows a secret; `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace\'s storage settings); HTML is rejected.',
       inputSchema: {
         type: "object",
         properties: {

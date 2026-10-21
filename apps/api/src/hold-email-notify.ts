@@ -17,7 +17,7 @@ const FROM = { name: "uploads.sh", email: "noreply@uploads.sh" } as const;
 
 const UPLOADER_ID_KEY = "gh.uploader-id";
 
-/** apps/mcp shares this module and its Env has no EMAIL binding. */
+/** Typed here so the module doesn't depend on either worker's generated Env. */
 type EmailBinding = {
   send: (message: {
     to: string;

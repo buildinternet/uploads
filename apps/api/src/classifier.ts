@@ -1573,9 +1573,9 @@ export async function classifyAndStore(
 }
 
 /**
- * Fire-and-forget after a successful put. REST passes `executionCtx.waitUntil`
- * so the isolate stays alive; callers without a ctx (MCP/ingest/tests) skip
- * rather than block the upload. Returns whether the work was scheduled.
+ * Fire-and-forget after a successful put. REST and the hosted MCP pass
+ * `executionCtx.waitUntil` so the isolate stays alive; callers without a ctx
+ * (ingest/tests) skip rather than block the upload. Returns whether the work was scheduled.
  */
 export function scheduleFileClassification(
   env: Env,

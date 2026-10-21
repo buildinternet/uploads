@@ -624,10 +624,10 @@ export async function putObject(
      */
     attachment?: { source: AttachmentSource; repo?: string };
     /**
-     * Experimental classifier scheduling. REST handlers pass
-     * `executionCtx.waitUntil` so the model call can finish after the 201.
-     * Absent (MCP/ingest/most tests) means classification is skipped rather
-     * than awaited on the upload path.
+     * Experimental classifier scheduling. REST handlers and the hosted MCP
+     * pass `executionCtx.waitUntil` so the model call can finish after the
+     * response. Absent (ingest, server-side copies, most tests) means
+     * classification is skipped rather than awaited on the upload path.
      */
     waitUntil?: ClassifierWaitUntil;
     /**
