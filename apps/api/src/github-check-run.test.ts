@@ -30,7 +30,7 @@ describe("checkRunContent", () => {
     );
     expect(content).toMatchObject({
       conclusion: "neutral",
-      title: "UI files changed, no uploads attached",
+      title: "UI changed, no visuals attached",
     });
     expect(content.summary).toContain("- `apps/web/a.astro`\n- `b.css`");
   });
@@ -63,7 +63,7 @@ describe("checkRunContent", () => {
       );
       expect(content).toMatchObject({
         conclusion: "failure",
-        title: "UI files changed, no uploads attached",
+        title: "UI changed, no visuals attached",
       });
       expect(content.summary).toContain("add the `uploads:skip-verify` label");
       expect(content.summary).toContain("**Required:** ⬜ Uploads");
@@ -87,8 +87,26 @@ describe("checkRunContent", () => {
       );
       expect(content).toMatchObject({
         conclusion: "success",
-        title: "2 files attached, requirements met",
+        title: "2 files attached",
       });
+    });
+
+    it("names the met requirements beyond uploads in a passing title", () => {
+      const content = checkRunContent(
+        {
+          ...req,
+          count: 4,
+          heldCount: 0,
+          requirement: requirement([
+            { label: "Uploads", met: true },
+            { label: "Before and after", met: true },
+            { label: "Desktop", met: true },
+            { label: "Mobile", met: true },
+          ]),
+        },
+        null,
+      );
+      expect(content.title).toBe("4 files attached · before and after, desktop, mobile");
     });
 
     it("goes neutral for a skip label", () => {
@@ -98,7 +116,7 @@ describe("checkRunContent", () => {
       );
       expect(content).toMatchObject({
         conclusion: "neutral",
-        title: "Required uploads skipped",
+        title: "Skipped by the Uploads:Skip-Verify label",
       });
       expect(content.summary).toContain("`Uploads:Skip-Verify`");
     });
@@ -124,7 +142,7 @@ describe("checkRunContent", () => {
       );
       expect(content).toMatchObject({
         conclusion: "success",
-        title: "2 files attached on GitHub, requirements met",
+        title: "2 files attached on GitHub",
       });
       expect(content.summary).toContain("turn on importing GitHub attachments");
     });
@@ -148,7 +166,7 @@ describe("checkRunContent", () => {
     it("passes a PR that changes no UI files", () => {
       expect(
         checkRunContent({ required: true, count: 0, heldCount: 0, uiFiles: [] }, null),
-      ).toMatchObject({ conclusion: "success", title: "No UI files changed" });
+      ).toMatchObject({ conclusion: "success", title: "No UI changes" });
     });
   });
 
@@ -174,14 +192,16 @@ describe("checkRunContent", () => {
   it("goes neutral when nothing is attached", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
       conclusion: "neutral",
-      title: "No uploads on this PR",
+      title: "Nothing attached",
     });
   });
 });
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
-function harness(opts: { existing?: number[]; listStatus?: number } = {}) {
+function harness(
+  opts: { existing?: (number | { id: number; name: string })[]; listStatus?: number } = {},
+) {
   const kv = new FakeKv();
   kv.store.set("ghtok:42", { value: "tok" });
   const calls: Call[] = [];
@@ -196,11 +216,15 @@ function harness(opts: { existing?: number[]; listStatus?: number } = {}) {
     if (url.endsWith("/pulls/12")) return Response.json({ head: { sha: "abc123" } });
     if (url.includes("/check-runs?")) {
       if (opts.listStatus) return new Response("", { status: opts.listStatus });
-      return Response.json({ check_runs: (opts.existing ?? []).map((id) => ({ id })) });
+      return Response.json({
+        check_runs: (opts.existing ?? []).map((r) =>
+          typeof r === "number" ? { id: r, name: "Check for visuals" } : r,
+        ),
+      });
     }
     return Response.json({ id: 9 }, { status: method === "POST" ? 201 : 200 });
   }) as typeof fetch;
-  const env = { GITHUB_CACHE: kv } as unknown as Env;
+  const env = { GITHUB_CACHE: kv, WEB_ORIGIN: "https://uploads.test" } as unknown as Env;
   return { env, kv, calls, fetchImpl };
 }
 
@@ -221,13 +245,13 @@ describe("syncUploadsCheck", () => {
     const post = h.calls.find((c) => c.method === "POST");
     expect(post?.url).toBe("https://api.github.com/repos/acme/web/check-runs");
     expect(post?.body).toMatchObject({
-      name: "uploads.sh",
+      name: "Check for visuals",
       head_sha: "abc123",
       status: "completed",
       conclusion: "success",
       details_url: COMMENT,
     });
-    expect(h.calls[1]?.url).toContain("check_name=uploads.sh&app_id=12345");
+    expect(h.calls[1]?.url).toContain("check-runs?app_id=12345");
   });
 
   it("patches the existing run and uses a known head sha", async () => {
@@ -247,6 +271,43 @@ describe("syncUploadsCheck", () => {
     const patch = h.calls.find((c) => c.method === "PATCH");
     expect(patch?.url).toBe("https://api.github.com/repos/acme/web/check-runs/77");
     expect(patch?.body).toMatchObject({ conclusion: "neutral" });
+  });
+
+  it("renames a run still carrying the old name", async () => {
+    const h = harness({ existing: [{ id: 5, name: "uploads.sh" }] });
+    await syncUploadsCheck(
+      h.env,
+      CFG,
+      42,
+      TARGET,
+      { count: 1, heldCount: 0 },
+      {
+        fetchImpl: h.fetchImpl,
+      },
+    );
+    const patch = h.calls.find((c) => c.method === "PATCH");
+    expect(patch?.url).toBe("https://api.github.com/repos/acme/web/check-runs/5");
+    expect(patch?.body).toMatchObject({ name: "Check for visuals" });
+  });
+
+  it("links details to the workspace's files page for the PR", async () => {
+    const h = harness();
+    await syncUploadsCheck(
+      h.env,
+      CFG,
+      42,
+      TARGET,
+      { count: 1, heldCount: 0 },
+      {
+        commentUrl: COMMENT,
+        workspaceName: "acme",
+        fetchImpl: h.fetchImpl,
+      },
+    );
+    const post = h.calls.find((c) => c.method === "POST");
+    expect(post?.body?.details_url).toBe(
+      "https://uploads.test/account/workspaces/acme/files/acme/web/pull/12",
+    );
   });
 
   it("never creates a run just to say empty", async () => {

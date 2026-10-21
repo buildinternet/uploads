@@ -35,7 +35,7 @@ under a top-level `comment:` map and is optional. With it you can set:
 - **Whether uploads.sh links pasted into a PR or comment are adopted** into that PR/issue's
   attachment context.
 - **Which files count as UI changes**, and **which screenshots a UI change must have** before the
-  uploads.sh check passes. See [Require screenshots on pull requests](/docs/require-screenshots).
+  "Check for visuals" check passes. See [Require screenshots on pull requests](/docs/require-screenshots).
 
 <div class="note">
   The file only reshapes the comment for a repo that's already allowed to receive one — it can't
@@ -91,7 +91,7 @@ comment:
 
   # Files that count as UI changes. A PR that changes one and has nothing
   # attached gets a short comment on how to add screenshots, and the
-  # uploads.sh check says UI files changed. A pattern without a slash matches
+  # "Check for visuals" check says UI files changed. A pattern without a slash matches
   # a file name anywhere (*.css); one with a slash starts at the repo root.
   # ** crosses folders, * doesn't. Replaces the workspace's UI file paths
   # setting. With neither set, a built-in list drives the check only, with
@@ -104,7 +104,7 @@ comment:
   # set. Overrides the workspace setting.
   noUploadsComment: true
 
-  # Make the uploads.sh check fail when a PR changes uiPaths without these.
+  # Make the "Check for visuals" check fail when a PR changes uiPaths without these.
   # Items: uploads (or any), before-after, desktop, mobile. Any item implies uploads.
   # skipLabels excuse a PR (any case); it defaults to uploads:skip-verify,
   # skip-uploads and uploads-skip. Replaces the workspace's Require

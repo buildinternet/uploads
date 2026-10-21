@@ -12,7 +12,7 @@ toc:
   - { id: install, label: Install it }
   - { id: staging, label: Staging before a PR exists }
   - { id: ingest, label: Imported attachments }
-  - { id: check, label: The uploads.sh check }
+  - { id: check, label: Check for visuals }
   - { id: permissions, label: Permissions & events }
   - { id: bindings, label: Repo bindings }
   - { id: self-healing, label: Self-healing comments }
@@ -47,8 +47,8 @@ loop hands-off. Seven things change:
 - **Images dropped directly on GitHub get mirrored in.** Attachments people drag into PR and issue
   text, and public Cursor `art-*` rewrite URLs, are imported into the workspace. See
   [Imported attachments](#ingest).
-- **PRs get an uploads.sh check.** One row in the checks list says what's attached and whether
-  anything is held for review. See [The uploads.sh check](#check).
+- **PRs get a "Check for visuals" check.** One row in the checks list says what's attached and
+  whether anything is held for review. See [Check for visuals](#check).
 - **UI changes can require screenshots.** The check notes a PR that changes UI files with nothing
   attached, and can fail until screenshots arrive. See
   [Require screenshots on pull requests](/docs/require-screenshots).
@@ -135,9 +135,9 @@ Two filters keep low-value files out:
 
 <section id="check">
 
-## The uploads.sh check <a class="anchor" href="#check" aria-label="Link to this section">#</a>
+## Check for visuals <a class="anchor" href="#check" aria-label="Link to this section">#</a>
 
-The App adds an `uploads.sh` row to a pull request's checks, next to your tests and builds. It says
+The App adds an **Uploads.sh / Check for visuals** row to a pull request's checks, next to your tests and builds. It says
 what's attached and whether anything is held for review, and notes when a PR changes UI files with
 nothing attached. It can also fail until a UI change has screenshots, so you can require it before
 merging. See [Require screenshots on pull requests](/docs/require-screenshots).
@@ -174,7 +174,7 @@ The App asks for three permissions:
 
 - **Issues and Pull requests, read & write.** Reads titles and state, and posts the one managed
   attachments comment. It never touches other comments, PR descriptions, or your code.
-- **Checks, read & write.** Shows the [uploads.sh check](#check) on pull requests. It only creates
+- **Checks, read & write.** Shows the [Check for visuals](#check) check on pull requests. It only creates
   and updates its own check. It can't change, re-run, or cancel your CI.
 - **Single file, read.** Reads the repo's comment settings file (`.uploads.yml` and its five
   sibling paths) and nothing else.
@@ -238,7 +238,7 @@ the file out and shows one line instead:
 ```
 
 The line never names the file. A workspace member checks the file, then runs
-`uploads approve --pr 12 --all`, and the comment and the [uploads.sh check](#check) update. While a
+`uploads approve --pr 12 --all`, and the comment and the [Check for visuals](#check) check update. While a
 file is held, the comment's **View on uploads.sh** button turns golden yellow. If the file does show a real credential,
 rotate it and delete the file instead. See [Held uploads](/docs/agents#held-uploads).
 
