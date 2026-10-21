@@ -20,7 +20,7 @@ import {
 import { parseAttachmentKey } from "./github-attachment-index";
 import { moveToHeld, restoreFromHeld } from "./held-storage";
 import { emailHold } from "./hold-email-notify";
-import { notifySlackOfHold } from "./slack-hold-notify";
+import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
 import {
@@ -152,7 +152,10 @@ export async function approveUpload(
     ...(by ? { [HOLD_BY_KEY]: by } : {}),
   });
   console.log({ event: "upload_approved", workspace: workspaceName });
-  await resyncAttachmentComment(env, ws, workspaceName, key, existing);
+  await Promise.all([
+    resyncAttachmentComment(env, ws, workspaceName, key, existing),
+    notifySlackHoldResolved(env, workspaceName, key, "approved", by),
+  ]);
   return { approved: true };
 }
 

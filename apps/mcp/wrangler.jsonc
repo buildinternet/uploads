@@ -109,6 +109,13 @@
       "binding": "API",
       "service": "uploads-api",
     },
+    // uploads-slack: the `approve` and `delete` tools end holds, and the
+    // shared code (apps/api/src/slack-hold-notify.ts) asks this worker to
+    // rewrite the Slack DMs about them. Production only, like API.
+    {
+      "binding": "SLACK",
+      "service": "uploads-slack",
+    },
   ],
   // Per-workspace write rate limit for the put/delete tools — this worker's
   // own budget (distinct namespace_id from uploads-api's), with the same

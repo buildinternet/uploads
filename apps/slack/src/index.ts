@@ -16,7 +16,8 @@
  *   - POST /slack/commands   slash commands, e.g. an agent search command
  *   - POST /slack/internal/* service-binding-only calls from uploads-api
  *                            (host slack.internal): Home refresh after a
- *                            connect, and held-upload DMs
+ *                            connect, held-upload DMs, and rewriting
+ *                            those DMs once the hold ends
  * Every public Slack-facing route verifies the request signature first.
  */
 import { Hono, type Context } from "hono";
@@ -30,6 +31,8 @@ import {
   HOLD_KEEP_ACTION,
   handleHoldAction,
   parseHoldNotice,
+  parseHoldResolved,
+  resolveHoldMessages,
   sendHoldNotice,
 } from "./holds";
 import { handleCallback, handleInstall } from "./oauth";
@@ -265,6 +268,23 @@ export function createApp(options: AppOptions = {}) {
         if (!notice) return c.json({ error: "invalid_notice" }, 400);
         const sent = await sendHoldNotice(notice, { env: c.env, slackFetch: options.slackFetch });
         return sent ? c.body(null, 204) : c.json({ error: "not_delivered" }, 502);
+      })
+      // Service-binding only (uploads-api, when a hold is approved or the
+      // held file is deleted): rewrite the DMs sent about it. Same host guard.
+      .post("/slack/internal/hold-resolved", async (c) => {
+        if (new URL(c.req.url).hostname !== INTERNAL_HOST) {
+          return c.json({ error: "not_found" }, 404);
+        }
+        let input: unknown = null;
+        try {
+          input = await c.req.json();
+        } catch {
+          return c.json({ error: "invalid_json" }, 400);
+        }
+        const resolved = parseHoldResolved(input);
+        if (!resolved) return c.json({ error: "invalid_body" }, 400);
+        await resolveHoldMessages(resolved, { env: c.env, slackFetch: options.slackFetch });
+        return c.body(null, 204);
       })
       .notFound((c) => c.json({ error: "not_found" }, 404))
   );

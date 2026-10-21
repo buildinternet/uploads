@@ -298,6 +298,10 @@ The PR shape (five sections) and title convention live in
 
 What agents get wrong most often, so it bears repeating here:
 
+- **Use conventional-commit format for PR titles and commit messages**, e.g.
+  `feat(slack): rewrite hold DMs once the hold ends` or `fix: …`. This applies to
+  every commit you make, not only the squash title, and to cloud agents as much as
+  local ones. Types and subject style are in CONTRIBUTING.md.
 - **Write for humans first**, not only for reviewers who already know the code.
   Lead with the problem and the outcome in plain language. Do not open with file
   paths, type names, or a flag list, and do not pad the description with a bullet
