@@ -25,21 +25,13 @@ import {
   projectPublicGallery,
 } from "./galleries";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
-import type { StorageConfig } from "@uploads/storage";
+import type { FileInfo, StorageConfig } from "@uploads/storage";
 import { HELD_FILENAME } from "./upload-hold";
 import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
-
-/** Fields we read from a Files SDK head when hydrating gallery items. */
-type GalleryObjectHead = {
-  type?: string;
-  size?: number;
-  lastModified?: number;
-  metadata?: Record<string, string>;
-};
 
 export interface GalleryItemDto {
   id: string;
@@ -301,14 +293,14 @@ export async function hydrateGalleryItems(
     items,
     8,
     async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
-      let meta: GalleryObjectHead | null;
+      let meta: FileInfo | null;
       let itemConfig: StorageConfig | null = null;
       try {
         const lane = await resolver.resolve(item.object_key);
         if (lane) {
           itemConfig = lane.config;
           laneConfigByKey.set(item.object_key, lane.config);
-          meta = (await lane.store.head(item.object_key)) as GalleryObjectHead;
+          meta = await lane.store.head(item.object_key);
         } else {
           meta = null;
         }
@@ -339,7 +331,7 @@ export async function hydrateGalleryItems(
         status: withheld ? "withheld" : meta ? "available" : "missing",
         url: urls.url,
         embedUrl: urls.embedUrl,
-        contentType: withheld ? null : (meta?.type ?? null),
+        contentType: withheld ? null : (meta?.contentType ?? null),
         size: withheld ? null : (meta?.size ?? null),
         uploaded: dates.uploaded ?? null,
         modified: dates.modified ?? null,

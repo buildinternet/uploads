@@ -271,7 +271,8 @@ export const internalSlack = new Hono<WorkspaceVars>()
               const urls = objectPublicUrls(c.env, lane.config, m.key);
               if (!urls.url || objectVisibility(lane.head.metadata ?? undefined)) return null;
               const hit: SlackSearchResult = { workspace, key: m.key };
-              if (lane.head.type.startsWith("image/")) hit.imageUrl = urls.embedUrl ?? urls.url;
+              if (lane.head.contentType.startsWith("image/"))
+                hit.imageUrl = urls.embedUrl ?? urls.url;
               if (m.uploaded) hit.uploaded = m.uploaded;
               return hit;
             }),

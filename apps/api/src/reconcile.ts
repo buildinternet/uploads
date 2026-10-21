@@ -65,7 +65,7 @@ export async function reconcileWorkspaceUsage(
       const store = createStorage(config);
       let bytes = 0;
       let objects = 0;
-      // listAll follows list() cursors; each item is a StoredFile with size metadata.
+      // listAll follows list() cursors; each item is a FileInfo with size metadata.
       for await (const item of store.listAll()) {
         bytes += item.size ?? 0;
         objects += 1;

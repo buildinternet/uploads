@@ -1,4 +1,4 @@
-import { Files, type StoredFile } from "files-sdk";
+import { Files, type FileInfo, type StoredFile } from "files-sdk";
 export { createFilesRouter } from "files-sdk/api";
 import { r2 } from "files-sdk/r2";
 import { s3Fetch } from "files-sdk/s3-fetch";
@@ -279,4 +279,4 @@ export async function signedDownloadUrl(
   });
 }
 
-export type { Files, StoredFile };
+export type { FileInfo, Files, StoredFile };

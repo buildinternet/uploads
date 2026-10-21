@@ -41,7 +41,7 @@ vi.mock("../storage", () => ({
     return {
       config: {},
       head: {
-        type: key.endsWith(".png") ? "image/png" : "video/mp4",
+        contentType: key.endsWith(".png") ? "image/png" : "video/mp4",
         metadata: o.private ? { visibility: "private" } : {},
       },
     };
