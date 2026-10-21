@@ -1352,7 +1352,10 @@ Internal safety enums, on the same request:
 - `ai.pii` is `none|contact|identity_document|financial|other`. `contact` is
   an email, phone, or street address that is content of the screen. A
   signed-in user's name or email that only appears in a header, nav, or
-  account menu is `none`.
+  account menu is `none`. `identity_document` also covers a government ID
+  number written out on screen (Social Security, national ID, passport, or
+  tax number). `other` is other personal data, such as a medical record,
+  and never holds a file.
 
 When the bytes are unchanged, a stored flag stays until a later
 classification writes that key. A confident `none` replaces the old

@@ -370,10 +370,10 @@ export const PII_CRITERIA: Record<string, string> = {
   none: "No personal data as the subject. A signed-in user's name, avatar, or email that appears only as interface chrome (a header, a nav bar, or an account menu) is none. An empty field labeled Email is none. A display name alone is none.",
   contact:
     "An email address, phone number, or street address that is content of the screen, such as a form, a directory, a message, or a shipping block. Not a name or email that only labels the signed-in account in the chrome.",
-  identity_document: "A passport, driver's license, or other government identity document.",
+  identity_document:
+    "A passport, driver's license, or other government identity document, or a government identity number written out on screen, such as a Social Security, national ID, passport, or tax number.",
   financial: "A payment card number or a bank account number.",
-  other:
-    "Other personal data, such as a government identifier or a medical record. A display name alone is not this.",
+  other: "Other personal data, such as a medical record. A display name alone is not this.",
 };
 
 /**
@@ -1275,7 +1275,7 @@ async function decideImage(
 export const HOLD_AREA_INSTRUCTIONS: Record<HoldReason, string> = {
   secret:
     "The area of the image that shows credentials: one region around every visible secret value.",
-  pii: "The area of the image that shows personal information: one region around every visible identity document, card, or account detail.",
+  pii: "The area of the image that shows personal information: one region around every visible identity document, ID number, card, or account detail.",
 };
 
 /**
