@@ -109,11 +109,11 @@ Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
 `wrangler deploy`. On merge to main, `.github/workflows/d1-migrations.yml`
 also applies remote migrations when `apps/api/migrations/**` changes
 (secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
-worker deploys normally happen via Workers Builds on push to main. For an
-isolated branch environment, `npx wrangler preview` from an app directory —
-playbook in [docs/previews.md](docs/previews.md); the Workers Builds bot's
-"Branch Preview URL" on PRs is a different, legacy mechanism that runs
-against production bindings.
+worker deploys still happen via Workers Builds on push to main. Pushing a
+branch does not preview `uploads-web`, `uploads-auth`, or `uploads-api`.
+`uploads-mcp`, `uploads-viewer`, and `uploads-slack` are unchanged. Do not
+upload a preview by default. The command is in
+[docs/previews.md](docs/previews.md#no-automatic-branch-preview).
 
 Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
 worker; BYO secrets use `WORKSPACE_SECRETS_KEY`, set on both `uploads-api` and

@@ -28,10 +28,46 @@ isn't, add an Access app for `*.preview.uploads.sh` matching the existing
 preview setup (Cloudflare IdP, restricted to Build Internet account members,
 instant auth).
 
-Do not confuse a Preview with the Workers Builds bot's "Branch Preview URL"
-comment on PRs. That URL is the legacy aliased-version mechanism
-(`preview_urls: true`) and runs against **production bindings**. Only
-`npx wrangler preview` uses the preview tier described here.
+## No automatic branch preview
+
+Pushing a branch does not create a preview deploy for `uploads-web`,
+`uploads-auth`, or `uploads-api`. Non-production branch builds are off for
+those workers. Production builds on `main` are unchanged. `uploads-mcp`,
+`uploads-viewer`, and `uploads-slack` are unchanged.
+
+Do not upload a preview by default. Upload one only when the change needs a
+live worker to verify. Local `pnpm dev:web` is the usual check for UI.
+
+The old Workers Builds "Branch Preview URL" was an aliased Version URL
+(`preview_urls: true`). That URL serves the uploaded version with production
+bindings. The rest of this document describes `npx wrangler preview`, which
+uses a separate preview tier. To mint a Version URL by hand, run the
+following from the app directory. `--env-file-if-exists` loads
+`CLOUDFLARE_API_TOKEN` from the repo-root `.env`, the same way each app's
+deploy script does.
+
+```bash
+# apps/web — the worker serves ./dist
+pnpm build
+node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js versions upload --preview-alias <alias>
+
+# apps/api
+node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js versions upload --preview-alias <alias>
+```
+
+The alias is a DNS label. Use lowercase letters, digits, and dashes, and
+start with a letter. `<alias>-<worker-name>` must be at most 63 characters.
+A branch name that contains `/` is not a valid alias. Replace each `/` with
+`-`. Wrangler prints `Version Preview Alias URL` when the upload succeeds.
+The hostname is `https://<alias>-<worker-name>.<subdomain>.workers.dev`. The
+upload does not move production traffic.
+
+`uploads-auth` exports the `RateLimitCounter` Durable Object. Cloudflare does
+not generate Version URLs for a worker that exports a Durable Object. Run
+`npx wrangler preview` from `apps/auth` when an auth change needs a live
+preview. That command is the preview tier below. A push does not run it.
+
+Only `npx wrangler preview` uses the preview tier described below.
 
 ## The two layers
 
@@ -127,4 +163,5 @@ the preview base config.
   and the dev-session escape hatch doesn't exist outside local dev. This is
   by design, not a gap to fix — see the "Which app to preview" table above
   for what "realistic, signed out" means for UI review.
-- The legacy `preview_urls: true` flags stay during the transition.
+- `preview_urls: true` stays on `uploads-web`, `uploads-auth`, and
+  `uploads-api` so a manual `wrangler versions upload` can mint a Version URL.

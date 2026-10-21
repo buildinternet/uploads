@@ -92,6 +92,9 @@ that path too. Prefer **additive** migrations so “migrate then deploy” stays
 safe; destructive changes need a deliberate reverse order and should not rely
 on the default pipeline.
 
+A push does not preview `uploads-web`, `uploads-auth`, or `uploads-api`. See
+[previews.md](previews.md#no-automatic-branch-preview).
+
 Use `pnpm run deploy`, not `pnpm deploy` — the bare form is pnpm's own
 command.
 

@@ -933,13 +933,8 @@ they're never mismatched.
 
 **Previews.** This validates the same underlying `uploads-auth` Worker
 script's secrets that production uses, not a separate `previews`-scoped set.
-The automatic per-branch "Branch Preview URL" that Workers Builds deploys for
-every PR runs against production bindings (see
-[previews.md](previews.md#the-two-layers) — it is not the
-`npx wrangler preview` / `previews` block flow), so it already sees the same
-eight secrets and needed no changes here. A manual `wrangler preview`
-inherits the same worker-level secrets too, unless a branch explicitly
-overrides one with `wrangler preview secret put`.
+A manual `wrangler preview` inherits the same worker-level secrets too,
+unless a branch explicitly overrides one with `wrangler preview secret put`.
 
 ## Minimal-binding profile (self-hosting, uploads#754 item 3)
 
