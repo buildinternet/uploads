@@ -261,6 +261,7 @@ export async function postManagedComment(
   }
   await syncUploadsCheck(env, cfg, installId, target, gathered, {
     commentUrl: "commentUrl" in result ? result.commentUrl : null,
+    workspaceName,
   });
   // Empty + no existing comment: nothing posted, nothing to claim.
   if (result.action === "skipped") return { posted: true, action: "skipped", count: 0 };

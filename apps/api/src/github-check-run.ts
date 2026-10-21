@@ -1,5 +1,5 @@
 /**
- * The `uploads.sh` check run on a pull request's head commit: one row in the
+ * The "Check for visuals" check run on a pull request's head commit: one row in the
  * PR's checks list saying what the managed comment holds — files attached,
  * files held for review, or nothing any more. It mirrors the comment and is
  * synced right after every comment upsert (webhook promote/reconcile and
@@ -21,8 +21,11 @@ import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
 import { checklistLine, type GhTarget } from "./github-comment-render";
 import type { Requirement } from "./github-check-requirements";
+import { webOrigin } from "./web-url";
 
-export const CHECK_NAME = "uploads.sh";
+export const CHECK_NAME = "Check for visuals";
+/** Names the check had before; a run still carrying one is renamed in place. */
+const LEGACY_CHECK_NAMES: readonly string[] = ["uploads.sh"];
 
 const DENIED_TTL = 3600;
 /** Changed UI files the check's summary lists by name. */
@@ -60,6 +63,14 @@ export interface CheckFacts {
   importsAttachments?: boolean;
 }
 
+/** " · before and after, mobile": the met requirements beyond plain uploads, for a passing title. */
+function metSuffix(checklist: readonly { label: string; met: boolean }[]): string {
+  const met = checklist
+    .filter((c) => c.met && c.label !== "Uploads")
+    .map((c) => c.label.toLowerCase());
+  return met.length ? ` · ${met.join(", ")}` : "";
+}
+
 /** The summary line for screenshots attached on GitHub, nudging toward import when it's off. */
 function githubAttachmentsLine(n: number, imports: boolean): string {
   const line = `${files(n)} attached on GitHub.`;
@@ -87,7 +98,7 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
   if (requirement?.skipLabel) {
     return {
       conclusion: "neutral",
-      title: "Required uploads skipped",
+      title: `Skipped by the ${requirement.skipLabel} label`,
       summary: `The \`${requirement.skipLabel}\` label excuses this pull request.`,
     };
   }
@@ -103,7 +114,7 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
         conclusion: "failure",
         title:
           count === 0 && onGithub === 0
-            ? "UI files changed, no uploads attached"
+            ? "UI changed, no visuals attached"
             : `Missing: ${missing.map((c) => c.label.toLowerCase()).join(", ")}`,
         summary:
           (onGithubLine ? `${onGithubLine}\n\n` : "") +
@@ -118,20 +129,20 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
     if (onGithub > 0) {
       return {
         conclusion: "success",
-        title: `${files(onGithub)} attached on GitHub, requirements met`,
+        title: `${files(onGithub)} attached on GitHub`,
         summary: `${onGithubLine}\n\n${line}`,
       };
     }
     return {
       conclusion: "success",
-      title: `${files(count)} attached, requirements met`,
+      title: `${files(count)} attached${metSuffix(requirement.checklist)}`,
       summary: `Screenshots and recordings for this pull request are published.${commentLink}\n\n${line}`,
     };
   }
   if (gathered.required && count === 0 && uiFiles.length === 0) {
     return {
       conclusion: "success",
-      title: "No UI files changed",
+      title: "No UI changes",
       summary:
         "This pull request changes no files that count as UI changes, so no uploads are required.",
     };
@@ -153,7 +164,7 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
       shown.push(`- and ${uiFiles.length - UI_FILES_LISTED} more`);
     return {
       conclusion: "neutral",
-      title: "UI files changed, no uploads attached",
+      title: "UI changed, no visuals attached",
       summary:
         "This pull request changes files that count as UI changes, and nothing is " +
         "attached yet. Add screenshots with `uploads put`." +
@@ -165,7 +176,7 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
   if (count === 0) {
     return {
       conclusion: "neutral",
-      title: "No uploads on this PR",
+      title: "Nothing attached",
       summary: "Nothing is attached to this pull request any more.",
     };
   }
@@ -188,6 +199,22 @@ export function checkRunContent(gathered: CheckFacts, commentUrl: string | null)
   };
 }
 
+/**
+ * Where "View more details on Uploads.sh" goes: the workspace's files page
+ * for the PR, else the comment, else the PR itself.
+ */
+function detailsUrl(
+  env: Env,
+  target: GhTarget,
+  opts: { commentUrl?: string | null; workspaceName?: string },
+): string {
+  if (opts.workspaceName) {
+    const [owner, repo] = target.repo.split("/").map(encodeURIComponent);
+    return `${webOrigin(env)}/account/workspaces/${encodeURIComponent(opts.workspaceName)}/files/${owner}/${repo}/pull/${target.num}`;
+  }
+  return opts.commentUrl || `https://github.com/${target.repo}/pull/${target.num}`;
+}
+
 /** The PR's current head commit, uncached (it moves on every push). */
 async function prHeadSha(
   fetchImpl: typeof fetch,
@@ -204,7 +231,7 @@ async function prHeadSha(
 }
 
 /**
- * Create or update the `uploads.sh` check run for `target` (pull requests
+ * Create or update the "Check for visuals" check run for `target` (pull requests
  * only) to match the comment just synced. `headSha` skips a PR lookup when
  * the caller already has it (the webhook payload carries it).
  */
@@ -214,7 +241,13 @@ export async function syncUploadsCheck(
   installationId: number,
   target: GhTarget,
   gathered: CheckFacts,
-  opts: { headSha?: string; commentUrl?: string | null; fetchImpl?: typeof fetch } = {},
+  opts: {
+    headSha?: string;
+    commentUrl?: string | null;
+    /** The bound workspace, whose files page for the PR is the run's details link. */
+    workspaceName?: string;
+    fetchImpl?: typeof fetch;
+  } = {},
 ): Promise<void> {
   if (target.kind !== "pull") return;
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -228,7 +261,7 @@ export async function syncUploadsCheck(
     const base = `https://api.github.com/repos/${target.repo}`;
     const list = await githubFetch(
       fetchImpl,
-      `${base}/commits/${sha}/check-runs?check_name=${encodeURIComponent(CHECK_NAME)}&app_id=${cfg.appId}&filter=latest`,
+      `${base}/commits/${sha}/check-runs?app_id=${cfg.appId}&filter=latest&per_page=100`,
       { headers: githubHeaders(token) },
     );
     if (list.status === 403) {
@@ -239,9 +272,11 @@ export async function syncUploadsCheck(
     }
     if (!list.ok) throw new Error(`check run lookup failed: ${list.status}`);
     const listed = (await list.json().catch(() => null)) as {
-      check_runs?: { id?: unknown }[];
+      check_runs?: { id?: unknown; name?: unknown }[];
     } | null;
-    const existingId = listed?.check_runs?.find((r) => typeof r.id === "number")?.id as
+    const ours = (r: { name?: unknown }) =>
+      r.name === CHECK_NAME || LEGACY_CHECK_NAMES.includes(r.name as string);
+    const existingId = listed?.check_runs?.find((r) => typeof r.id === "number" && ours(r))?.id as
       | number
       | undefined;
 
@@ -262,7 +297,7 @@ export async function syncUploadsCheck(
       status: "completed",
       conclusion: content.conclusion,
       completed_at: new Date().toISOString(),
-      details_url: opts.commentUrl || `https://github.com/${target.repo}/pull/${target.num}`,
+      details_url: detailsUrl(env, target, opts),
       output: { title: content.title, summary: content.summary },
     };
     const res = await githubFetch(

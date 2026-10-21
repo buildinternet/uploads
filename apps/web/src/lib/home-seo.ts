@@ -44,7 +44,7 @@ export const HOME_FAQ: HomeFaqItem[] = [
   },
   {
     q: "Can I require screenshots on pull requests?",
-    a: `<p>Yes. The <a href="/docs/github-app">uploads GitHub App</a> adds a check called <code>uploads.sh</code> to pull requests that change UI files. Turn on <strong>Require screenshots on UI changes</strong> in workspace Settings, or add <code>check.require</code> to <code>.uploads.yml</code>, and the check fails until the PR has a screenshot or recording.</p>
+    a: `<p>Yes. The <a href="/docs/github-app">uploads GitHub App</a> adds a check called <code>Check for visuals</code> to pull requests that change UI files. Turn on <strong>Require screenshots on UI changes</strong> in workspace Settings, or add <code>check.require</code> to <code>.uploads.yml</code>, and the check fails until the PR has a screenshot or recording.</p>
 <p>Make it a required check in GitHub branch protection to block merges. Images dragged into the PR on GitHub count too. See <a href="/docs/require-screenshots">Require screenshots on pull requests</a>.</p>`,
   },
   {

@@ -26,12 +26,12 @@ import { GITHUB_APP_INSTALL_URL } from "../../lib/github-app";
 
 ## How it works <a class="anchor" href="#how-it-works" aria-label="Link to this section">#</a>
 
-Once the [uploads.sh GitHub App](/docs/github-app) is installed, a check called `uploads.sh` shows up
+Once the [uploads.sh GitHub App](/docs/github-app) is installed, a check called **Check for visuals** shows up
 in a pull request's checks whenever the PR changes UI files. It sits next to your tests and builds,
 and looks for screenshots or recordings on the PR from your coding agent, the
 [uploads CLI](/docs/attach-pull-request-images), or images dragged into the PR on GitHub.
 
-Out of the box the check only reports. It goes neutral ("UI files changed, no uploads attached"), so
+Out of the box the check only reports. It goes neutral ("UI changed, no visuals attached"), so
 nobody is blocked or notified. Turn on a requirement and it fails until the screenshots are there,
 then passes on its own when they arrive. Make it a required check in GitHub and it works like a
 linter for UI changes.
@@ -66,8 +66,9 @@ Make sure every pull request that changes your UI has at least one screenshot or
    ```
 
 3. **Make it required in GitHub.** In the repo's **Settings → Branches** (or **Rules**), require
-   status checks to pass before merging and add `uploads.sh`. GitHub only lists a check after it
-   has run once, so open or update a pull request first.
+   status checks to pass before merging and add `Check for visuals`. GitHub only lists a check after
+   it has run once, so open or update a pull request first. The check used to be called
+   `uploads.sh`; if a rule still requires that name, swap it for the new one.
 
 With a requirement on, every pull request gets the check, and one that changes no UI files passes
 straight away.
@@ -257,7 +258,7 @@ backend-only PRs stay quiet.
 - **No check on the PR.** The App isn't installed on the repo, or the PR changes no UI files and no
   requirement is on. If your org installed the App before checks existed, an org admin has to
   approve the new Checks permission first. See [Permissions & events](/docs/github-app#permissions).
-- **`uploads.sh` isn't listed in branch protection.** GitHub lists a check only after it has run on
+- **`Check for visuals` isn't listed in branch protection.** GitHub lists a check only after it has run on
   the repo once. Open or update a pull request, then add it.
 - **A mobile capture reads as desktop.** Without an AI label, the shape decides. Crop a phone capture
   to its viewport, or use `uploads screenshot --frame` for device chrome.

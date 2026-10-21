@@ -250,6 +250,7 @@ async function gatherAndUpsert(
   await syncUploadsCheck(env, cfg, installId, target, gathered, {
     headSha: opts.headSha,
     commentUrl: "commentUrl" in result ? result.commentUrl : null,
+    workspaceName: link.workspaceName,
   });
 }
 
