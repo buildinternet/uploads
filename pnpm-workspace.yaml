@@ -2,6 +2,8 @@ packages:
   - apps/*
   - packages/*
   - scripts/demos
+overrides:
+  "@modelcontextprotocol/sdk": ^1.32.0
 allowBuilds:
   "@parcel/watcher": false
   esbuild: true

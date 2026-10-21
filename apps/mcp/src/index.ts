@@ -257,6 +257,12 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
 }
 
 /**
+ * The SDK defaults this to 4 MiB. `put` inlines file bytes as base64, and
+ * Cloudflare already accepts a 100 MB request on this zone.
+ */
+const MCP_MAX_REQUEST_BODY_BYTES = 100_000_000;
+
+/**
  * Routes the two protocol eras explicitly rather than leaning on
  * `createMcpHandler`'s own legacy fallback, because that fallback constructs
  * its transport without `enableJsonResponse` and answers with an SSE stream
@@ -269,11 +275,16 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
  */
 async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   await recordMcpClient(c);
-  if (await isLegacyRequest(c.req.raw)) {
+  if (
+    await isLegacyRequest(c.req.raw, undefined, {
+      maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
+    })
+  ) {
     const server = buildServer(c);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
     });
     try {
       await server.connect(transport);
@@ -301,7 +312,10 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
     }
   }
 
-  const handler = createMcpHandler(() => buildServer(c), { legacy: "reject" });
+  const handler = createMcpHandler(() => buildServer(c), {
+    legacy: "reject",
+    maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
+  });
   try {
     return await handler.fetch(c.req.raw);
   } finally {

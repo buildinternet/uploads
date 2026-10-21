@@ -1980,6 +1980,7 @@ describe("modern-era (2026-07-28) requests", () => {
           Authorization: `Bearer ${token}`,
           Accept: "application/json, text/event-stream",
           "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
           ...extraHeaders,
         },
       },

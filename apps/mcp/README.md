@@ -28,8 +28,9 @@ picks the era per request:
 - **`2026-07-28` (modern).** No `initialize` handshake. Each request carries
   its protocol version and client capabilities in a per-request `_meta`
   envelope (`io.modelcontextprotocol/protocolVersion`,
-  `io.modelcontextprotocol/clientCapabilities`), and the `Mcp-Method` and
-  `Mcp-Name` headers are required — a request missing either gets a 400. A
+  `io.modelcontextprotocol/clientCapabilities`), and the
+  `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` headers are required —
+  a request missing a required one gets a 400. A
   client can call `server/discover` to read back supported versions and
   capabilities before sending anything else. `tools/list` responses carry
   cache hints (`ttlMs: 3600000`, `cacheScope: "private"`): the tool catalog is
