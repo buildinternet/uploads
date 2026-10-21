@@ -5,9 +5,9 @@ import {
   publicAndEmbedUrls,
   publicUrl,
   type EmbedUrlOptions,
+  type FileInfo,
   type Files,
   type StorageConfig,
-  type StoredFile,
 } from "@uploads/storage";
 import {
   openCredentialFields,
@@ -231,7 +231,7 @@ export interface ResolvedLane extends LaneConfig {
 
 /** A fresh metadata read from the same lookup that selected the storage lane. */
 export interface ResolvedLaneWithHead extends ResolvedLane {
-  head: StoredFile;
+  head: FileInfo;
 }
 
 /**

@@ -246,7 +246,7 @@ describe("resolveObjectLaneWithHead", () => {
 
     expect(await resolver.resolveWithHead(key)).toMatchObject({
       role: "active",
-      head: { size: 1, type: "image/png" },
+      head: { size: 1, contentType: "image/png" },
     });
     expect(headSpy).toHaveBeenCalledTimes(1);
 
@@ -254,7 +254,7 @@ describe("resolveObjectLaneWithHead", () => {
       httpMetadata: { contentType: "image/webp" },
     });
     expect(await resolver.resolveWithHead(key)).toMatchObject({
-      head: { size: 2, type: "image/webp" },
+      head: { size: 2, contentType: "image/webp" },
     });
     expect(headSpy).toHaveBeenCalledTimes(2);
 

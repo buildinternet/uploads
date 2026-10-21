@@ -6,7 +6,7 @@ import {
   slowOpThresholdMs,
   timeOp,
 } from "@uploads/observability";
-import type { Files, StorageConfig } from "@uploads/storage";
+import type { FileInfo, Files, StorageConfig } from "@uploads/storage";
 import {
   findCounterpartCandidate,
   isPairableImageContentType,
@@ -98,13 +98,7 @@ type Measure = <T>(name: string, work: () => Promise<T>) => Promise<T>;
 interface ResolvedPublicObject {
   metadata: Record<string, string>;
   store: Files;
-  meta: {
-    size?: number;
-    type?: string;
-    etag?: string;
-    lastModified?: number;
-    metadata?: Record<string, string>;
-  };
+  meta: FileInfo;
   urls: { url: string | null; embedUrl: string | null };
   env: Env;
   cfg: StorageConfig;
@@ -255,7 +249,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     // (CodeRabbit review, PR #771): the counterpart is resolved via its OWN
     // lane, not the primary object's `store`/`cfg` — a before/after pair can
     // straddle a storage switch just like any other pair of keys.
-    const ownContentType = meta.type ?? "application/octet-stream";
+    const ownContentType = meta.contentType ?? "application/octet-stream";
     const counterpart = await measure("file_pair", async () => {
       let result:
         | { key: string; url: string; previewUrl: string; state: BeforeAfterState }
@@ -267,7 +261,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
         const counterpartLane = await resolveObjectLaneWithHead(env, record, candidate.key);
         if (counterpartLane) {
           const counterpartMeta = counterpartLane.head;
-          const counterpartType = counterpartMeta.type ?? "application/octet-stream";
+          const counterpartType = counterpartMeta.contentType ?? "application/octet-stream";
           if (
             isPairableImageContentType(counterpartType) &&
             !objectVisibility(counterpartMeta.metadata ?? undefined) &&
@@ -332,7 +326,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
       previewUrl: previewUrl(urls.url!, meta.etag),
       embedUrl: urls.embedUrl,
       size: meta.size ?? 0,
-      contentType: meta.type ?? "application/octet-stream",
+      contentType: meta.contentType ?? "application/octet-stream",
       ...publicObjectDateFields(meta),
       ...(publicMetadata ? { metadata: publicMetadata } : {}),
       ...(github ? { github } : {}),

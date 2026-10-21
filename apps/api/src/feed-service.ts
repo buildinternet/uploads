@@ -35,7 +35,7 @@ import type {
   PublicFeedItemPage,
 } from "./scope-wire";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
-import type { StorageConfig } from "@uploads/storage";
+import type { FileInfo, StorageConfig } from "@uploads/storage";
 import { HELD_FILENAME } from "./upload-hold";
 import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
@@ -44,13 +44,6 @@ import { FEED_ITEM_ID_RE, feedItemIdFor } from "@uploads/comment-render/scope";
 import { type WorkspaceRecord } from "./workspace";
 import { dbFor, type D1Queryable } from "./db-session";
 import { findLiveLinkItem } from "./live-link-index";
-
-type FeedObjectHead = {
-  type?: string;
-  size?: number;
-  lastModified?: number;
-  metadata?: Record<string, string>;
-};
 
 export type { FeedItemDto, FeedSummaryDto, PublicFeedItemDto };
 
@@ -261,14 +254,14 @@ export async function hydrateFeedItems(
         )
       : new Set<string>();
   const hydrated = await mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
-    let meta: FeedObjectHead | null;
+    let meta: FileInfo | null;
     let itemConfig: StorageConfig | null = null;
     try {
       const lane = await resolver.resolve(match.key);
       if (lane) {
         itemConfig = lane.config;
         laneConfigByKey.set(match.key, lane.config);
-        meta = (await lane.store.head(match.key)) as FeedObjectHead;
+        meta = await lane.store.head(match.key);
       } else {
         meta = null;
       }
@@ -296,7 +289,7 @@ export async function hydrateFeedItems(
       status: withheld ? "withheld" : meta ? "available" : "missing",
       url: urls.url,
       embedUrl: urls.embedUrl,
-      contentType: withheld ? null : (meta?.type ?? null),
+      contentType: withheld ? null : (meta?.contentType ?? null),
       size: withheld ? null : (meta?.size ?? null),
       uploaded: dates.uploaded ?? null,
       modified: dates.modified ?? null,
@@ -386,8 +379,8 @@ export async function countPrivateScopeItems(
     flags = await mapBounded(unchecked, 8, async (key) => {
       const lane = await resolver.resolve(key);
       if (!lane) return false;
-      const head = (await lane.store.head(key)) as FeedObjectHead | null;
-      return objectVisibility(head?.metadata) === "private";
+      const head = await lane.store.head(key);
+      return objectVisibility(head.metadata) === "private";
     });
   } catch (cause) {
     throw new ServiceUnavailableError("Feed storage unavailable.", {

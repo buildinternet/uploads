@@ -1130,14 +1130,14 @@ async function rewriteVisibility(store: Files, key: string, visibility: Visibili
  * subset shared by HEAD and list responses. Normalizes the epoch `lastModified`
  * to an ISO `uploaded` and applies the fallback size/content type.
  */
-function storedMetaJson(meta: { size?: number; type?: string; lastModified?: number }): {
+function storedMetaJson(meta: { size?: number; contentType?: string; lastModified?: number }): {
   size: number;
   contentType: string;
   uploaded?: string;
 } {
   return {
     size: meta.size ?? 0,
-    contentType: meta.type ?? "application/octet-stream",
+    contentType: meta.contentType ?? "application/octet-stream",
     ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
   };
 }
@@ -1152,7 +1152,7 @@ export function headObjectJson(
   key: string,
   meta: {
     size?: number;
-    type?: string;
+    contentType?: string;
     lastModified?: number;
     metadata?: Record<string, string>;
   },
@@ -1211,7 +1211,7 @@ export function filePageUrl(env: Env, workspace: string, key: string): string {
 interface RawListedItem {
   key: string;
   size?: number;
-  type?: string;
+  contentType?: string;
   lastModified?: number;
   metadata?: Record<string, string>;
 }
