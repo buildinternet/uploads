@@ -288,25 +288,25 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
     });
     try {
       await server.connect(transport);
-      // Parse the body ourselves and hand it to the transport as
-      // `parsedBody` (rather than letting it read `c.req.raw` itself): this
-      // transport, unlike the retired hand-rolled core, does not reject a
-      // JSON-RPC batch (array) body — the 2026-07-28 spec removed batching,
-      // but this leg exists precisely to keep 2025-era callers byte-identical
-      // to their pre-SDK behavior, so that rejection is preserved here.
-      let parsedBody: unknown = null;
+      // Reject a JSON-RPC batch here. This transport accepts a short array,
+      // and the legacy leg keeps the pre-SDK -32600. Rebuild the request so
+      // the transport reads the bytes; `parsedBody` would skip maxRequestBodySize.
+      const text = await c.req.text();
+      let parsed: unknown = null;
       try {
-        parsedBody = JSON.parse(await c.req.text());
+        parsed = JSON.parse(text);
       } catch {
-        parsedBody = null;
+        parsed = null;
       }
-      if (Array.isArray(parsedBody)) {
+      if (Array.isArray(parsed)) {
         return c.json(
           { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } },
           200,
         );
       }
-      return await transport.handleRequest(c.req.raw, { parsedBody });
+      return await transport.handleRequest(
+        new Request(c.req.url, { method: "POST", headers: c.req.raw.headers, body: text }),
+      );
     } finally {
       await server.close();
     }
