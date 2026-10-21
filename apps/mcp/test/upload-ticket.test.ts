@@ -23,13 +23,13 @@ describe("upload tickets", () => {
     const { ticket } = await signUploadTicket({ WORKSPACE_SECRETS_KEY: "current" }, claims);
     expect(await verifyUploadTicket({ WORKSPACE_SECRETS_KEY: "other" }, ticket)).toBeNull();
 
-    const [, sig] = ticket.split(".");
-    const forged = btoa(JSON.stringify({ v: 1, ...claims, ws: "victim", iat: 0, exp: 9e9 }))
+    const [header, , sig] = ticket.split(".");
+    const forged = btoa(JSON.stringify({ ...claims, ws: "victim", exp: 9e9 }))
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
     expect(
-      await verifyUploadTicket({ WORKSPACE_SECRETS_KEY: "current" }, `${forged}.${sig}`),
+      await verifyUploadTicket({ WORKSPACE_SECRETS_KEY: "current" }, `${header}.${forged}.${sig}`),
     ).toBeNull();
   });
 

@@ -29,7 +29,6 @@ import {
   MethodNotAllowedError,
   NotFoundError,
   PayloadTooLargeError,
-  RateLimitedError,
   UnauthorizedError,
   ValidationError,
 } from "@uploads/errors";
@@ -286,7 +285,13 @@ async function recordMcpClient(c: Context<WorkspaceVars>): Promise<void> {
 }
 
 function respondError(c: Context, err: unknown): Response {
-  const appErr = isAppError(err) ? err : AppError.from(err);
+  // A tool's `usage()` error reached over plain HTTP (the `/u/` route) is a
+  // bad request, not a 500.
+  const appErr = isAppError(err)
+    ? err
+    : err instanceof UploadsError && err.code === "USAGE"
+      ? new ValidationError(err.message, { cause: err })
+      : AppError.from(err);
   if (appErr.status >= 500 && appErr.type !== "insufficient_storage") {
     reportHandledError(appErr.cause instanceof Error ? appErr.cause : appErr);
   }
@@ -313,42 +318,29 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
       code: "length_required",
     });
   }
-  if (length > claims.maxBytes) {
-    throw new PayloadTooLargeError(`This upload URL accepts up to ${claims.maxBytes} bytes.`);
-  }
+  const tooLarge = () =>
+    new PayloadTooLargeError(`This upload URL accepts up to ${claims.maxBytes} bytes.`);
+  if (length > claims.maxBytes) throw tooLarge();
   const record = await loadWorkspaceRecord(c.env, claims.ws);
   if (!record) throw new UnauthorizedError();
   setIssueContext({ workspace: claims.ws });
 
   const bytes = new Uint8Array(await c.req.arrayBuffer());
-  if (bytes.byteLength > claims.maxBytes) {
-    throw new PayloadTooLargeError(`This upload URL accepts up to ${claims.maxBytes} bytes.`);
-  }
-  try {
-    const result = await runTicketedPut(
-      {
-        env: c.env,
-        workspace: record,
-        workspaceName: claims.ws,
-        // Minting required files:write; that's all the PUT does.
-        authScopes: ["files:write"],
-        uploaderIdentity: claims.who,
-        resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
-      },
-      claims.args,
-      bytes,
-    );
-    return c.json(result);
-  } catch (err) {
-    // The tool path's plain errors, as HTTP statuses instead of a 500.
-    if (err instanceof UploadsError && err.code === "USAGE") {
-      throw new ValidationError(err.message, { cause: err });
-    }
-    if (err instanceof Error && err.message === "rate limit exceeded") {
-      throw new RateLimitedError(err.message, { cause: err });
-    }
-    throw err;
-  }
+  if (bytes.byteLength > claims.maxBytes) throw tooLarge();
+  const result = await runTicketedPut(
+    {
+      env: c.env,
+      workspace: record,
+      workspaceName: claims.ws,
+      // Minting required files:write; that's all the PUT does.
+      authScopes: ["files:write"],
+      uploaderIdentity: claims.who,
+      resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+    },
+    claims.args,
+    bytes,
+  );
+  return c.json(result);
 }
 
 const methodNotAllowed = (_c: Context<WorkspaceVars>) => {

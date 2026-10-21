@@ -2658,7 +2658,7 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     expect(signed.uploads.map((u) => u.file)).toEqual(["before.png", "after.png"]);
     expect(signed.next).toBeUndefined();
     const [, after] = signed.uploads;
-    expect(after!.uploadUrl).toMatch(/^http:\/\/localhost\/u\/[\w-]+\.[\w-]+$/);
+    expect(after!.uploadUrl).toMatch(/^http:\/\/localhost\/u\/[\w-]+\.[\w-]+\.[\w-]+$/);
     expect(after!.curl).toBe(`curl -sS --fail-with-body -T 'after.png' '${after!.uploadUrl}'`);
 
     const response = await putTo(env, after!.uploadUrl, PNG_BYTES);

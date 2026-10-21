@@ -63,7 +63,13 @@ import {
   SEARCH_DOCS_INPUT_SCHEMA,
   runSearchDocsTool,
 } from "@buildinternet/uploads/mcp";
-import { AppError, InsufficientScopeError, NotFoundError, ValidationError } from "@uploads/errors";
+import {
+  AppError,
+  InsufficientScopeError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import { attachmentCommentTarget, assertDeleteAllowed } from "@uploads/api/delete-auth";
 import { unstageGithubFiles } from "@uploads/api/github-unstage";
 import { postManagedComment, type PostCommentResult } from "@uploads/api/github-comment-service";
@@ -142,7 +148,7 @@ import {
   attachmentTargetFor,
 } from "@uploads/api/upload-hold-service";
 import { activityReadTools } from "./activity-tools";
-import { canSignUploadTickets, signUploadTicket } from "./upload-ticket";
+import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
 
 export interface RemoteToolContext {
   env: Env;
@@ -233,6 +239,48 @@ function signUploadFileItems(args: Record<string, unknown>): { filename: string;
     return alt === undefined ? { filename } : { filename, alt };
   });
 }
+
+/** Key layout arguments shared by `put` and `sign_upload_url`. */
+const keyLayoutProps = {
+  prefix: {
+    type: "string",
+    description: "Key prefix for the default key layout (default: screenshots).",
+  },
+  repo: {
+    type: "string",
+    description:
+      "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
+  },
+  ref: {
+    type: "string",
+    description:
+      "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`.",
+  },
+};
+
+/** Markdown and metadata arguments shared by `put` and `sign_upload_url`. */
+const putFormatProps = {
+  alt: {
+    type: "string",
+    description: "Alt text for the markdown (default: filename).",
+  },
+  width: {
+    type: "number",
+    description: "Emit <img width=…> markdown instead of a plain image embed.",
+  },
+  metadata: {
+    type: "object",
+    additionalProperties: { type: "string" },
+    description: METADATA_DESCRIPTION + " On `pr`/`issue`/`branch`, `gh.*` is set for you.",
+  },
+  state: stateProp,
+  app: appProp,
+  replace: {
+    type: "boolean",
+    description:
+      "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite.",
+  },
+};
 
 /** Max items per multi-file put call — bounds decoded bytes held in isolate memory. */
 export const MAX_PUT_FILES = 20;
@@ -394,9 +442,10 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
   }
 
   async function requireWriteBudget(): Promise<void> {
-    // Mirrors the REST API's writeRateLimit middleware (guards.ts): plain
-    // Error, not usage() — over-budget is not a caller mistake.
-    if (!(await allowWrite(env, workspaceName))) throw new Error("rate limit exceeded");
+    // Mirrors the REST API's writeRateLimit middleware (guards.ts): not
+    // usage() — over-budget is not a caller mistake. Typed so the ticketed
+    // PUT route answers 429.
+    if (!(await allowWrite(env, workspaceName))) throw new RateLimitedError("rate limit exceeded");
   }
 
   /**
@@ -1195,20 +1244,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             type: "string",
             description: "Override the object key. Cannot combine with `pr`/`issue`/`branch`.",
           },
-          prefix: {
-            type: "string",
-            description: "Key prefix for the default key layout (default: screenshots).",
-          },
-          repo: {
-            type: "string",
-            description:
-              "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
-          },
-          ref: {
-            type: "string",
-            description:
-              "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`.",
-          },
+          ...keyLayoutProps,
           pr: {
             type: "number",
             description:
@@ -1229,26 +1265,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             description:
               "With `pr` or `issue`: create or update the managed attachments comment after upload. Default true. Pass false to skip. A comment failure never fails the upload.",
           },
-          alt: {
-            type: "string",
-            description: "Alt text for the markdown (default: filename).",
-          },
-          width: {
-            type: "number",
-            description: "Emit <img width=…> markdown instead of a plain image embed.",
-          },
-          metadata: {
-            type: "object",
-            additionalProperties: { type: "string" },
-            description: METADATA_DESCRIPTION + " On `pr`/`issue`/`branch`, `gh.*` is set for you.",
-          },
-          state: stateProp,
-          app: appProp,
-          replace: {
-            type: "boolean",
-            description:
-              "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite.",
-          },
+          ...putFormatProps,
         },
         additionalProperties: false,
         examples: [
@@ -1315,11 +1332,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             },
             description: `Files to upload, one URL each (max ${MAX_PUT_FILES}).`,
           },
-          repo: {
-            type: "string",
-            description:
-              "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
-          },
+          ...keyLayoutProps,
           pr: {
             type: "number",
             description:
@@ -1335,35 +1348,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             description:
               "Git branch to stage under, before the PR exists. Requires `repo`. Call `promote` once the PR is open.",
           },
-          prefix: {
-            type: "string",
-            description: "Key prefix for the default key layout (default: screenshots).",
-          },
-          ref: {
-            type: "string",
-            description:
-              "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`.",
-          },
-          alt: {
-            type: "string",
-            description: "Alt text for the markdown (default: filename).",
-          },
-          width: {
-            type: "number",
-            description: "Emit <img width=…> markdown instead of a plain image embed.",
-          },
-          metadata: {
-            type: "object",
-            additionalProperties: { type: "string" },
-            description: METADATA_DESCRIPTION + " On `pr`/`issue`/`branch`, `gh.*` is set for you.",
-          },
-          state: stateProp,
-          app: appProp,
-          replace: {
-            type: "boolean",
-            description:
-              "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite.",
-          },
+          ...putFormatProps,
         },
         required: ["files"],
         additionalProperties: false,
@@ -1401,16 +1386,15 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         // The upload origin is the one this request came in on (agents.uploads.sh
         // in production), so the sandbox only needs the MCP host allowed.
         const origin = new URL(ctx.resourceMetadataUrl).origin;
-        let expiresAt = "";
+        const now = Date.now();
+        const expiresAt = new Date(now + UPLOAD_TICKET_TTL_S * 1000).toISOString();
         const uploads = await Promise.all(
           planned.map(async ({ item, fileArgs, maxBytes }) => {
-            const signed = await signUploadTicket(env, {
-              ws: workspaceName,
-              who: ctx.uploaderIdentity,
-              args: fileArgs,
-              maxBytes,
-            });
-            expiresAt = signed.expiresAt;
+            const signed = await signUploadTicket(
+              env,
+              { ws: workspaceName, who: ctx.uploaderIdentity, args: fileArgs, maxBytes },
+              now,
+            );
             const uploadUrl = `${origin}/u/${signed.ticket}`;
             return {
               file: item.filename,

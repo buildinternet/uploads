@@ -439,10 +439,22 @@
         "description": "Files to upload, one URL each (max 20)."
       },
       {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Key prefix for the default key layout (default: screenshots)."
+      },
+      {
         "name": "repo",
         "type": "string",
         "required": false,
         "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc)."
+      },
+      {
+        "name": "ref",
+        "type": "string",
+        "required": false,
+        "description": "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`."
       },
       {
         "name": "pr",
@@ -461,18 +473,6 @@
         "type": "string",
         "required": false,
         "description": "Git branch to stage under, before the PR exists. Requires `repo`. Call `promote` once the PR is open."
-      },
-      {
-        "name": "prefix",
-        "type": "string",
-        "required": false,
-        "description": "Key prefix for the default key layout (default: screenshots)."
-      },
-      {
-        "name": "ref",
-        "type": "string",
-        "required": false,
-        "description": "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`."
       },
       {
         "name": "alt",
