@@ -40,6 +40,7 @@ import { type D1Queryable } from "./db-session";
 export const INHERITABLE_META_KEYS = [
   "url",
   "path",
+  "screen",
   "env",
   "theme",
   "viewport",

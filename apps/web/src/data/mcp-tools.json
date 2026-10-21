@@ -376,7 +376,7 @@
         "name": "metadata",
         "type": "object",
         "required": false,
-        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page/screen. Omit to leave existing tags; pass an object (even {}) to replace them. `state` and `app` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
       },
       {
         "name": "state",
@@ -389,6 +389,12 @@
         "type": "string",
         "required": false,
         "description": "Which surface is shown: web, ios, android, cli. Worth setting only when the same route exists on more than one surface."
+      },
+      {
+        "name": "screen",
+        "type": "string",
+        "required": false,
+        "description": "The app screen shown, for views with no route (a mobile or desktop screen), e.g. \"Chat\". Shown under the image in the PR comment. Use `path` in metadata for web routes."
       },
       {
         "name": "replace",
@@ -490,7 +496,7 @@
         "name": "metadata",
         "type": "object",
         "required": false,
-        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page/screen. Omit to leave existing tags; pass an object (even {}) to replace them. `state` and `app` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
       },
       {
         "name": "state",
@@ -503,6 +509,12 @@
         "type": "string",
         "required": false,
         "description": "Which surface is shown: web, ios, android, cli. Worth setting only when the same route exists on more than one surface."
+      },
+      {
+        "name": "screen",
+        "type": "string",
+        "required": false,
+        "description": "The app screen shown, for views with no route (a mobile or desktop screen), e.g. \"Chat\". Shown under the image in the PR comment. Use `path` in metadata for web routes."
       },
       {
         "name": "replace",
@@ -932,7 +944,7 @@
         "name": "set",
         "type": "object",
         "required": false,
-        "description": "Keys to set or overwrite. Use `path` for the route (e.g. /settings), not route/page/screen."
+        "description": "Keys to set or overwrite. Use `path` for the route (e.g. /settings), not route/page."
       },
       {
         "name": "delete",
@@ -958,7 +970,7 @@
         "name": "filters",
         "type": "object",
         "required": false,
-        "description": "Equality filters; all must match. Use `path` for the route (e.g. /settings), not route/page/screen. Optional when `name` is set."
+        "description": "Equality filters; all must match. Use `path` for the route (e.g. /settings), not route/page. Optional when `name` is set."
       },
       {
         "name": "name",

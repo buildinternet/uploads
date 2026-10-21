@@ -31,6 +31,7 @@ import {
 } from "@buildinternet/uploads";
 import {
   appProp,
+  screenProp,
   METADATA_DESCRIPTION,
   METADATA_PATH_CUE,
   MCP_EXAMPLE_PNG_BASE64,
@@ -289,6 +290,7 @@ const putFormatProps = {
   },
   state: stateProp,
   app: appProp,
+  screen: screenProp,
   replace: {
     type: "boolean",
     description:

@@ -286,12 +286,13 @@ is separate from optimize/frame provenance.
 
 Suggested pairs for screenshots:
 
-| Key     | Example                             | Meaning                                                                                         |
-| ------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`   | `https://app.example/settings`      | Page URL the shot was taken from                                                                |
-| `path`  | `/settings` or `Settings > Profile` | In-app route or nav path                                                                        |
-| `app`   | `web`, `ios`, `android`             | Surface / product shown                                                                         |
-| `state` | `before`, `after`                   | UI state shown (`before`, `after`, `empty`, `error`, `loading`); `--state <s>` is the shorthand |
+| Key      | Example                             | Meaning                                                                                         |
+| -------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`    | `https://app.example/settings`      | Page URL the shot was taken from                                                                |
+| `path`   | `/settings` or `Settings > Profile` | In-app route or nav path                                                                        |
+| `screen` | `Chat`                              | App screen with no route (mobile, desktop); `--screen <name>` is the shorthand                  |
+| `app`    | `web`, `ios`, `android`             | Surface / product shown                                                                         |
+| `state`  | `before`, `after`                   | UI state shown (`before`, `after`, `empty`, `error`, `loading`); `--state <s>` is the shorthand |
 
 ```bash
 uploads put ./settings.png \

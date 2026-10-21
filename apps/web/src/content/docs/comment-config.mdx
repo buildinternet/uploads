@@ -26,7 +26,7 @@ under a top-level `comment:` map and is optional. With it you can set:
 
 - **Image width** for inline images, pair cells, and video posters.
 - **How many images** render inline before the rest collapse to links.
-- **Caption metadata** — the path and state labels under each image.
+- **Caption metadata** — the screen, path, and state labels under each image.
 - **Whether images link** to a share page, and whether the comment links to the PR's
   [live link](/docs/feeds).
 - **A short note** shown at the top of the comment.
@@ -63,7 +63,7 @@ comment:
   maxInlineImages: 16
 
   # Caption metadata under each image. Each key can be forced on or off.
-  # An omitted key follows the workspace default.
+  # An omitted key follows the workspace default. `path` also covers `screen`.
   meta:
     path: true
     state: true

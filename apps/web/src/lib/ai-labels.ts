@@ -38,7 +38,7 @@ export const AI_CHIP_FIELDS = ["screen", "surface", "kind"] as const;
 export type AiChipField = (typeof AI_CHIP_FIELDS)[number];
 
 /** Human `path` / `state` stay primary when both are present. */
-export const USER_PRIMARY_META_KEYS = ["path", "state"] as const;
+export const USER_PRIMARY_META_KEYS = ["screen", "path", "state"] as const;
 
 export interface FileDetailMeta {
   /** `path` then `state`, only when set. */

@@ -198,6 +198,7 @@ export async function gatherCommentBody(
  * narrowness rationale still holds for a surface that posts publicly.
  */
 const COMMENT_META_KEYS = [
+  "screen",
   "path",
   "state",
   "video.poster",
@@ -392,7 +393,7 @@ async function gatherAttachments(
 }
 
 /**
- * Captions (path/state), posters and image dimensions for the items the
+ * Captions (screen/path/state), posters and image dimensions for the items the
  * comment renders. Shared with the settings preview (`commentPreviewHandler`)
  * so a video or PDF previews as the poster it will get on GitHub.
  */
@@ -419,9 +420,13 @@ export async function addCommentMetadata(
   for (const item of items) {
     const meta = metaByKey.get(item.key);
     if (!meta) continue;
-    const { path, state } = meta;
-    if (path || state) {
-      item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
+    const { screen, path, state } = meta;
+    if (screen || path || state) {
+      item.meta = {
+        ...(screen ? { screen } : {}),
+        ...(path ? { path } : {}),
+        ...(state ? { state } : {}),
+      };
     }
     // Presence flags only. The URL is always recomputed from the object key
     // (never trusted from a stored row), and only rendered when the poster

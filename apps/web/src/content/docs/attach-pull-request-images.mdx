@@ -93,6 +93,9 @@ Common flags:
 - `--pr <n>` also posts the file to that PR.
 - `--url <url>` uploads a file from the web instead of a local path.
 - `--no-optimize` keeps the original bytes.
+- `--meta path=/settings` names the page a screenshot shows. The comment shows it under the image.
+- `--screen "Chat"` names a mobile or desktop app screen that has no page path. The comment shows it
+  under the image too, next to the path if both are set.
 
 `put` converts images to WebP and strips their EXIF data. It keeps a few capture details, like
 viewport and device, and shows them on the file's public page. See
@@ -112,8 +115,8 @@ uploads put ./hero-before.webp --state before
 uploads put ./hero-after.webp --state after
 ```
 
-If one comment has several pairs, give each pair the same `--meta path=<page>` value so they match
-up. Without a `path`, files pair by name, so `hero-before.webp` matches `hero-after.webp`.
+If one comment has several pairs, give each pair the same `--meta path=<page>` or `--screen <name>`
+value so they match up. Without either, files pair by name, so `hero-before.webp` matches `hero-after.webp`.
 Several pairs share one table, a row each. A file with no before shows on its own, as usual.
 
 A repo can [require a before and after](/docs/require-screenshots#more) on every pull request that
