@@ -2842,3 +2842,139 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
     expect(bucket.store.size).toBe(0);
   });
 });
+
+describe("classifying hosted uploads (issue #1148)", () => {
+  /** An execution context that records what was handed to `waitUntil`. */
+  function executionCtx() {
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => void pending.push(promise),
+      passThroughOnException: () => undefined,
+      props: {},
+    } as unknown as ExecutionContext;
+    return { ctx, pending };
+  }
+
+  /** An env whose `API` binding records each handoff to uploads-api. */
+  async function classifyingEnv() {
+    const made = await makeEnv();
+    const handoffs: { url: URL; contentType: string | null; size: number }[] = [];
+    const env = made.env as unknown as Record<string, unknown>;
+    env.WORKSPACE_SECRETS_KEY = "test-workspace-secrets-key";
+    env.API = {
+      fetch: async (input: URL, init: RequestInit) => {
+        handoffs.push({
+          url: new URL(input),
+          contentType: new Headers(init.headers).get("Content-Type"),
+          size: (init.body as Uint8Array).byteLength,
+        });
+        return new Response(null, { status: 202 });
+      },
+    };
+    return { ...made, handoffs };
+  }
+
+  it("hands put's bytes to uploads-api and says a hold may follow", async () => {
+    const { env, handoffs } = await classifyingEnv();
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      "/test-ws/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "put",
+            arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+      },
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as {
+      result: { structuredContent: Record<string, unknown> };
+    };
+    expect(body.result.structuredContent).toMatchObject({
+      key: "shots/shot.png",
+      holdCheck: "pending",
+    });
+    await Promise.all(pending);
+    expect(handoffs).toHaveLength(1);
+    const [handoff] = handoffs;
+    expect(handoff!.url.host).toBe("api.internal");
+    expect(handoff!.url.pathname).toBe("/internal/classify");
+    expect(Object.fromEntries(handoff!.url.searchParams)).toEqual({
+      workspace: "test-ws",
+      key: "shots/shot.png",
+      enforceHold: "1",
+    });
+    expect(handoff!.contentType).toBe("image/png");
+    expect(handoff!.size).toBe(PNG_BYTES.length);
+  });
+
+  it("hands a signed upload to uploads-api", async () => {
+    const { env, handoffs } = await classifyingEnv();
+    const signed = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });
+    const [upload] = (signed.structuredContent as { uploads: { uploadUrl: string }[] }).uploads;
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      new URL(upload!.uploadUrl).pathname,
+      { method: "PUT", body: PNG_BYTES, headers: { "Content-Length": String(PNG_BYTES.length) } },
+      env,
+      ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ holdCheck: "pending" });
+    await Promise.all(pending);
+    expect(handoffs).toHaveLength(1);
+  });
+
+  it("skips classification without the API binding or an execution context", async () => {
+    const { env, handoffs } = await classifyingEnv();
+    const noCtx = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(noCtx.structuredContent).not.toHaveProperty("holdCheck");
+    expect(handoffs).toHaveLength(0);
+
+    delete (env as unknown as Record<string, unknown>).API;
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      "/test-ws/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "put",
+            arguments: { contentBase64: PNG_B64, filename: "b.png", key: "shots/b.png" },
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+      },
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as {
+      result: { structuredContent: Record<string, unknown> };
+    };
+    expect(body.result.structuredContent).not.toHaveProperty("holdCheck");
+    expect(pending).toHaveLength(0);
+  });
+});

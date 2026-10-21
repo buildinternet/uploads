@@ -99,6 +99,16 @@
       "binding": "AUTH",
       "service": "uploads-auth",
     },
+    // uploads-api classifies hosted `put` and `sign_upload_url` uploads
+    // (issue #1148, apps/api/src/routes/internal-classify.ts), where the
+    // OpenRouter key and the Flagship, Images, email, and Slack bindings
+    // already live, so none of them are copied here. Production only:
+    // a service binding calls production, and a preview's files live in
+    // the preview database, so previews leave uploads unclassified.
+    {
+      "binding": "API",
+      "service": "uploads-api",
+    },
   ],
   // Per-workspace write rate limit for the put/delete tools — this worker's
   // own budget (distinct namespace_id from uploads-api's), with the same

@@ -41,7 +41,7 @@ import {
   type WorkspaceVars,
 } from "@uploads/api/workspace";
 import { userUploaderIdentity } from "@uploads/api/uploader-identity";
-import type { StreamedBody } from "@uploads/api/files";
+import type { ClassifierHandoff, StreamedBody } from "@uploads/api/files";
 import { DEFAULT_MAX_UPLOAD_BYTES } from "@uploads/api/guards";
 import { mcpClientInfo, recordClient, userClientPrincipal } from "@uploads/api/client-activity";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
@@ -190,6 +190,52 @@ async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise
   return workspaceAuth(c, next);
 }
 
+/**
+ * Hosted uploads are classified on uploads-api, over the `API` service
+ * binding (`routes/internal-classify.ts` there), so this worker needs no
+ * OpenRouter key or classifier bindings of its own. Unbound (previews,
+ * self-hosters), uploads are not classified. Never throws: classification
+ * fails open.
+ */
+function classifierHandoff(env: Env): ClassifierHandoff | undefined {
+  const api = env.API;
+  if (!api) return undefined;
+  return async ({ workspaceName, key, bytes, contentType, enforceHold }) => {
+    const url = new URL("https://api.internal/internal/classify");
+    url.searchParams.set("workspace", workspaceName);
+    url.searchParams.set("key", key);
+    if (enforceHold) url.searchParams.set("enforceHold", "1");
+    try {
+      const res = await api.fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body: bytes,
+      });
+      if (!res.ok) {
+        console.error({
+          event: "classifier_handoff_failed",
+          workspace: workspaceName,
+          status: res.status,
+        });
+      }
+    } catch (err) {
+      console.error({ event: "classifier_handoff_failed", workspace: workspaceName, err });
+    }
+  };
+}
+
+/** The request's `waitUntil`, or `undefined` without an execution context (tests). */
+function requestWaitUntil(
+  c: Context<WorkspaceVars>,
+): ((promise: Promise<unknown>) => void) | undefined {
+  try {
+    const ctx = c.executionCtx;
+    return (promise) => ctx.waitUntil(promise);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
 function buildServer(c: Context<WorkspaceVars>): McpServer {
   return createMcpServer({
@@ -203,6 +249,8 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
       authScopes: c.get("authScopes"),
       uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+      waitUntil: requestWaitUntil(c),
+      classifierHandoff: classifierHandoff(c.env),
     }),
     validator,
   });
@@ -349,6 +397,8 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
       authScopes: ["files:write"],
       uploaderIdentity: claims.who,
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+      waitUntil: requestWaitUntil(c),
+      classifierHandoff: classifierHandoff(c.env),
     },
     claims.args,
     body,

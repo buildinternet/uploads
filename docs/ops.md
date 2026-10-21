@@ -982,6 +982,7 @@ recommend removing.
 | `OPENROUTER_API_KEY`                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
+| `API`                                                                          | mcp       | Hosted MCP `put` and `sign_upload_url` uploads are not classified, so they are never held. Uploads still succeed.                                                                                                                                                                                                                                                                                       |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
 | `RENDER_LIMITER`                                                               | api       | No burst limit on `POST /v1/render` independent of the monthly upload budget.                                                                                                                                                                                                                                                                                                                           |
 | `WS_CREATE_LIMITER`                                                            | api       | No burst limit on self-serve workspace creation (the 3-per-user cap itself still applies).                                                                                                                                                                                                                                                                                                              |
@@ -1214,7 +1215,9 @@ while the flag is on, the same way the video backfill re-PUTs.
 ## Experimental LLM file classifier
 
 **Experimental.** Off by default. After a successful server-mediated put
-(`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
+(`putObject` — REST `PUT /v1/:ws/files/:key`, the hosted MCP `put` tool, and
+`sign_upload_url`'s `PUT /u/<ticket>` up to 25 MiB; not a presigned
+`POST /sign`, a streamed `/u/` body over 25 MiB, or GitHub ingest),
 a Flagship-allowlisted workspace can get server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
 original bytes, `v6` when it sees a resized copy, `skipped` when the model
@@ -1226,6 +1229,11 @@ errors never fail the upload. The labeler does not write `ai.tags` or
 `ai.summary`. Older rows may still have those keys. The safety flags are
 not chips, and public file, gallery, feed, embed, and pull-request
 responses omit every `ai.*` key. They do not change who can view a file.
+
+uploads-mcp does not classify in-process. It posts the stored bytes to
+uploads-api's `POST /internal/classify` (`routes/internal-classify.ts`) over
+its `API` service binding, so the OpenRouter key and the classifier's
+Flagship, Images, email, and Slack bindings live only on uploads-api.
 
 ### One Decisions call
 
@@ -1379,7 +1387,9 @@ A stored decision with a `high` `ai.secret` other than `none`, or a `high`
 `ai.hold=pending` (`applyUploadHold`, `upload-hold-service.ts`), but only
 for an upload from a client that can approve it: the uploads CLI or local
 MCP at `HOLD_MIN_CLI_VERSION` (0.59.0) or newer, read from the PUT's
-User-Agent (`clientCanApprove`). Anything else (an older CLI, which sends a
+User-Agent (`clientCanApprove`), or the hosted MCP (`put` and
+`sign_upload_url`), whose `approve` tool every connected client sees.
+Anything else (an older CLI, which sends a
 bare `node` User-Agent, a script, the web) logs `upload_hold_skipped` with
 the reason and changes nothing, so normal use is not disrupted while old
 CLIs are still in use. Raise or drop the floor in `upload-hold.ts`. The worker
