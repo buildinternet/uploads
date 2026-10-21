@@ -3,8 +3,9 @@
  * visuals" run and the managed comment show under the checklist. They read
  * labels the classifier already stored on each file (`ai.ready`,
  * `ai.phash`), so a sync never calls a model, and they never change the
- * check's conclusion. A note with nothing to read says `skipped` and why,
- * never `ok`. The `uploads:no-ai` label on the PR turns them off.
+ * check's conclusion. A note with nothing to read, including a file the
+ * classifier failed on, says `skipped` and why, never `ok` or `warning`.
+ * Any error drops the notes and leaves the comment and check as before. The `uploads:no-ai` label on the PR turns them off.
  */
 import type { CheckAiNote } from "@uploads/comment-config";
 import type { AiNote, GhTarget } from "./github-comment-render";
@@ -33,7 +34,7 @@ function code(name: string): string {
   return "`" + name.replace(/`/g, "'") + "`";
 }
 
-const NOT_CLASSIFIED = "The classifier hasn't labelled these files yet.";
+const NOT_CLASSIFIED = "No AI labels for these files yet.";
 
 /**
  * Warns on a file marked `after` that looks unfinished. A broken screen is a
@@ -126,13 +127,19 @@ export async function evaluateAiNotes(
   keys: readonly string[],
 ): Promise<AiNote[]> {
   if (target.kind !== "pull" || enabled.length === 0 || keys.length === 0) return [];
-  const [skipped, metaByKey] = await Promise.all([
-    skipLabelOnPr(env, target, [AI_NOTES_SKIP_LABEL]),
-    getMetadataForKeys(dbFor(env), workspaceName, [...keys], { metaKeys: AI_NOTE_META_KEYS }),
-  ]);
-  if (skipped) return [];
-  return aiNotesFor(
-    enabled,
-    keys.map((key) => ({ name: key.slice(key.lastIndexOf("/") + 1), meta: metaByKey.get(key) })),
-  );
+  try {
+    const [skipped, metaByKey] = await Promise.all([
+      skipLabelOnPr(env, target, [AI_NOTES_SKIP_LABEL]),
+      getMetadataForKeys(dbFor(env), workspaceName, [...keys], { metaKeys: AI_NOTE_META_KEYS }),
+    ]);
+    if (skipped) return [];
+    return aiNotesFor(
+      enabled,
+      keys.map((key) => ({ name: key.slice(key.lastIndexOf("/") + 1), meta: metaByKey.get(key) })),
+    );
+  } catch (err) {
+    // Fail open: a failed read drops the notes, never the comment or the check.
+    console.error({ event: "ai_notes_failed", workspace: workspaceName, err });
+    return [];
+  }
 }

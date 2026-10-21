@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { aiNotesFor, identicalBeforeAfterNote, readyScreenNote } from "./github-check-ai-notes";
+import {
+  aiNotesFor,
+  evaluateAiNotes,
+  identicalBeforeAfterNote,
+  readyScreenNote,
+} from "./github-check-ai-notes";
 
 describe("readyScreenNote", () => {
   it("warns on an after file that isn't ready", () => {
@@ -83,5 +88,25 @@ describe("aiNotesFor", () => {
       "Before and after not compared",
     ]);
     expect(aiNotesFor([], [])).toEqual([]);
+  });
+});
+
+describe("evaluateAiNotes", () => {
+  it("fails open: a failed metadata read drops the notes instead of throwing", async () => {
+    const broken = {
+      prepare() {
+        throw new Error("d1 down");
+      },
+    };
+    const env = { DB: broken } as unknown as Env;
+    await expect(
+      evaluateAiNotes(
+        env,
+        "ws",
+        { repo: "acme/web", kind: "pull", num: 1 },
+        ["ready-screen"],
+        ["gh/acme/web/pull/1/after.png"],
+      ),
+    ).resolves.toEqual([]);
   });
 });
