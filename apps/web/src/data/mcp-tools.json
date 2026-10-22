@@ -282,7 +282,7 @@
   {
     "name": "put",
     "title": "Upload file",
-    "description": "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). A result with `holdCheck: \"pending\"` may still be held for review if it shows a secret; `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
+    "description": "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). A result with `holdCheck: \"pending\"` may still be held for review if it shows a secret; `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet; if that branch already has one open PR (repo linked to this workspace), the file attaches to it instead. This server has no git, so in a checkout read `repo` and `branch` from git and always pass them. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
     "access": "destructive",
     "scopes": [
       "files:write"
@@ -328,7 +328,7 @@
         "name": "repo",
         "type": "string",
         "required": false,
-        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc)."
+        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc). This server has no git: in a checkout, read it with `git remote get-url origin`."
       },
       {
         "name": "ref",
@@ -352,7 +352,7 @@
         "name": "branch",
         "type": "string",
         "required": false,
-        "description": "Git branch to stage under (no comment yet). With `pr`, also promote this branch's staged files into the PR. Requires `repo`."
+        "description": "Git branch (`git branch --show-current`). Stages under it, or attaches to its open PR when the repo is linked to this workspace and exactly one is open. With `pr`, also promote this branch's staged files into the PR. Requires `repo`."
       },
       {
         "name": "comment",
@@ -432,7 +432,7 @@
   {
     "name": "sign_upload_url",
     "title": "Sign upload URLs",
-    "description": "Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of `put` when the files are on a local or sandbox disk and you can run curl. Takes `put`'s arguments without the bytes, plus `files: [{ filename, alt? }]` (max 20). Run each returned `curl` line from the folder holding the file (or swap in its path); the response is the same JSON `put` returns, including `markdown`. URLs expire after 15 minutes; each takes a file up to its `maxBytes` (the workspace's upload limit, at most 100 MB). With `pr`/`issue`, call `comment` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to `put` with contentBase64. All uploads are public.",
+    "description": "Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of `put` when the files are on a local or sandbox disk and you can run curl. Takes `put`'s arguments without the bytes, plus `files: [{ filename, alt? }]` (max 20). This server has no git: in a checkout, pass `repo` and `branch` read from git. Run each returned `curl` line from the folder holding the file (or swap in its path); the response is the same JSON `put` returns, including `markdown`. URLs expire after 15 minutes; each takes a file up to its `maxBytes` (the workspace's upload limit, at most 100 MB). With `pr`/`issue`, call `comment` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to `put` with contentBase64. All uploads are public.",
     "access": "destructive",
     "scopes": [
       "files:write"
@@ -454,7 +454,7 @@
         "name": "repo",
         "type": "string",
         "required": false,
-        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc)."
+        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc). This server has no git: in a checkout, read it with `git remote get-url origin`."
       },
       {
         "name": "ref",
@@ -478,7 +478,7 @@
         "name": "branch",
         "type": "string",
         "required": false,
-        "description": "Git branch to stage under, before the PR exists. Requires `repo`. Call `promote` once the PR is open."
+        "description": "Git branch (`git branch --show-current`). Stages under it, or targets its open PR when the repo is linked to this workspace and exactly one is open (the result's `next` says which). Requires `repo`. Call `promote` once a PR opens for staged files."
       },
       {
         "name": "alt",

@@ -81,10 +81,14 @@ Pick one transport and stay on it. This skill is the workflow. The
 | A `localhost` page or a selector annotate                       | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                                                                                                                                     |
 | Neither MCP nor the CLI                                         | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                                                                                                                       |
 
-On the hosted MCP there is no `attach` tool and no git defaults. Stage with
-`put` + `branch` + `repo`. Once the PR exists, `promote` with `repo` + `pr` +
-`branch`, or `put` with `pr` + `repo` (optional `branch` also promotes). The
-managed comment is bot-only on that server.
+On the hosted MCP there is no `attach` tool and the server has no git. If you
+have a checkout, read `repo` (`git remote get-url origin`) and `branch`
+(`git branch --show-current`) and pass both on every call. With `branch` +
+`repo`, the server attaches to the branch's open PR when the repo is linked to
+the workspace and exactly one is open; otherwise it stages. Once the PR
+exists, `promote` with `repo` + `pr` + `branch`, or `put` with `pr` + `repo`
+(optional `branch` also promotes). Without `repo`, files land under `misc/`
+with no GitHub link. The managed comment is bot-only on that server.
 
 ## Step 1 — Capture the visual
 

@@ -554,3 +554,170 @@ describe("hosted put: pr + branch promote-after", () => {
     }
   });
 });
+
+describe("hosted put: GitHub context from repo + branch", () => {
+  async function boundEnv() {
+    const made = await makeEnv({ boundTo: WS });
+    made.githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    made.githubCache.store.set("ghtok:42", { value: "cached-token" });
+    return made;
+  }
+
+  function githubWith(pulls: unknown[], calls: string[] = []) {
+    return stubGithubFetch((url, init) => {
+      calls.push(url);
+      if (url.includes("/pulls?state=open&head=acme%3Afeat")) {
+        return new Response(JSON.stringify(pulls), { status: 200 });
+      }
+      if (url.endsWith("/repos/acme/widgets/issues/12")) {
+        return new Response(
+          JSON.stringify({ title: "Add the hero", state: "open", pull_request: {} }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 7, html_url: "https://github.com/acme/widgets/pull/12#c7" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    });
+  }
+
+  it("attaches to the branch's one open PR, with gh.title and repo", async () => {
+    const { env, bucket, metadata } = await boundEnv();
+    const restore = githubWith([{ number: 12 }]);
+    try {
+      const result = await callTool(env, "put", {
+        contentBase64: PNG_B64,
+        filename: "hero.png",
+        branch: "feat",
+        repo: "acme/widgets",
+        state: "after",
+      });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        key: "gh/acme/widgets/pull/12/hero.png",
+        comment: expect.objectContaining({ posted: true }),
+        hint: expect.stringContaining("open PR #12"),
+      });
+      expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
+      const meta = metadata.get(`${WS} gh/acme/widgets/pull/12/hero.png`);
+      expect(meta?.get("gh.ref")).toBe("acme/widgets#12");
+      expect(meta?.get("gh.title")).toBe("Add the hero");
+      expect(meta?.get("repo")).toBe("acme/widgets");
+      expect(meta?.get("state")).toBe("after");
+    } finally {
+      restore();
+    }
+  });
+
+  it("stamps gh.title on an explicit pr", async () => {
+    const { env, metadata } = await boundEnv();
+    const restore = githubWith([]);
+    try {
+      const result = await callTool(env, "put", {
+        contentBase64: PNG_B64,
+        filename: "hero.png",
+        pr: 12,
+        repo: "acme/widgets",
+      });
+      expect(result.isError).toBe(false);
+      expect(metadata.get(`${WS} gh/acme/widgets/pull/12/hero.png`)?.get("gh.title")).toBe(
+        "Add the hero",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("stages when the branch has no single open PR", async () => {
+    const { env } = await boundEnv();
+    const restore = githubWith([{ number: 12 }, { number: 13 }]);
+    try {
+      const result = await callTool(env, "put", {
+        contentBase64: PNG_B64,
+        filename: "hero.png",
+        branch: "feat",
+        repo: "acme/widgets",
+      });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        key: "gh/acme/widgets/branch/feat/hero.png",
+      });
+      expect(result.structuredContent?.hint).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("never asks GitHub about a repo bound elsewhere", async () => {
+    const { env, githubCache } = await makeEnv({ boundTo: "other-ws" });
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    const calls: string[] = [];
+    const restore = githubWith([{ number: 12 }], calls);
+    try {
+      const result = await callTool(env, "put", {
+        contentBase64: PNG_B64,
+        filename: "hero.png",
+        branch: "feat",
+        repo: "acme/widgets",
+      });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        key: "gh/acme/widgets/branch/feat/hero.png",
+      });
+      expect(calls.filter((url) => url.includes("/pulls"))).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("sign_upload_url targets the open PR and says so", async () => {
+    const { env, bucket, metadata } = await boundEnv();
+    (env as unknown as Record<string, unknown>).WORKSPACE_SECRETS_KEY = "test-secrets-key";
+    const restore = githubWith([{ number: 12 }]);
+    try {
+      const result = await callTool(env, "sign_upload_url", {
+        files: [{ filename: "hero.png" }],
+        branch: "feat",
+        repo: "acme/widgets",
+      });
+      expect(result.isError).toBe(false);
+      const signed = result.structuredContent as { next: string; uploads: { uploadUrl: string }[] };
+      expect(signed.next).toEqual(expect.stringContaining("open PR #12"));
+      expect(signed.next).toEqual(expect.stringContaining("call `comment`"));
+
+      const response = await app.request(
+        new URL(signed.uploads[0]!.uploadUrl).pathname,
+        {
+          method: "PUT",
+          body: PNG_BYTES,
+          headers: { "Content-Length": String(PNG_BYTES.byteLength) },
+        },
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
+      expect(metadata.get(`${WS} gh/acme/widgets/pull/12/hero.png`)?.get("gh.title")).toBe(
+        "Add the hero",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("hints when an upload has no repo", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent?.hint).toEqual(expect.stringContaining("No repo was given"));
+  });
+});
