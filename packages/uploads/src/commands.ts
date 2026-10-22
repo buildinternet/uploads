@@ -4678,7 +4678,7 @@ Usage:
 
 Scans the PR/issue description and comments for github.com/user-attachments
 media and public cursor.com/artifacts/c/art-* rewrite URLs, mirrors new ones
-into the workspace (indexed, not added to the managed comment), and detaches
+into the workspace (indexed and included in the managed comment), and detaches
 ones no longer referenced. Viewer (/artifacts/v/) and login-walled agent-page
 links are skipped — enable Allow posting artifacts to GitHub so the PR gets a
 public /c/ URL. Works on any repo linked to the workspace; the .uploads.yml

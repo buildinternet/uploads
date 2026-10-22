@@ -1003,7 +1003,7 @@ URLs. The same command also copies public Cursor cloud-agent rewrite URLs
 agent-page links are skipped; enable **Allow posting artifacts to GitHub** so
 the PR gets a public `/c/` URL. `uploads ingest --pr <n>` (or `--issue <n>`)
 scans the description and comments for that media, mirrors any new ones into
-the workspace (indexed, not added to the managed comment), and detaches ones
+the workspace (indexed and included in the managed comment), and detaches ones
 no longer referenced — a reattached one un-detaches without a re-fetch:
 
 ```bash

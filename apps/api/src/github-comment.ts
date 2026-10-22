@@ -26,6 +26,7 @@ import { parseExternalReference } from "./external-references";
 import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listPrefixIdsForTarget } from "./github-private-prefixes";
+import { ingestKeyPrefixes } from "./github-ingest";
 import {
   reportAttachmentIndexShadow,
   startAttachmentIndexShadow,
@@ -313,9 +314,14 @@ async function gatherAttachments(
       ? Promise.resolve(null)
       : startAttachmentIndexShadow(env, workspaceName, target);
 
+  // GitHub attachments imported into this workspace (github-ingest.ts) sit
+  // in their own folders; the detach filter below drops removed ones.
+  const ingestPrefixes = ingestKeyPrefixes(target, activePrefixIds);
+
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
+    ...ingestPrefixes,
   ];
 
   // Independent of the listing below, so it overlaps it. A moved hold
@@ -374,7 +380,10 @@ async function gatherAttachments(
     await indexShadow,
     workspaceName,
     target,
-    items.map((item) => item.key),
+    // The index tracks managed attachments only, never imports.
+    items
+      .map((item) => item.key)
+      .filter((key) => !ingestPrefixes.some((prefix) => key.startsWith(prefix))),
   );
 
   const shown = items.filter((item) => !isHeld(scopeMetaByKey.get(item.key)));

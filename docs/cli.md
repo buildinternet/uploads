@@ -234,7 +234,7 @@ direction: images someone dropped straight into a PR/issue via
 authenticated hosting, and public Cursor cloud-agent rewrite URLs
 (`cursor.com/artifacts/c/art-*`). `uploads ingest --pr <n>` (or `--issue <n>`)
 scans the description and comments, mirrors any new ones into the workspace
-(indexed, not added to the managed comment), and detaches ones no longer
+(indexed and included in the managed comment), and detaches ones no longer
 referenced. Viewer (`/artifacts/v/`) and login-walled agent-page links are
 skipped — enable **Allow posting artifacts to GitHub** so the PR gets a public
 `/c/` URL.

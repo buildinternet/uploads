@@ -759,13 +759,15 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   if (ev.labels) {
     await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
   }
-  // The PR's own promote above already re-synced the check.
-  const recheck = ev.ingest?.kind === "pull" ? ev.ingest : ev.recheck;
-  if (recheck && !ev.promote) {
-    await recheckForGithubAttachments(env, recheck.repo, recheck.num);
-  }
+  // After ingest, so the comment and check include what it just imported.
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);
+  }
+  // The PR's own promote above already re-synced the check, but ran before
+  // this delivery's ingest.
+  const recheck = ev.ingest?.kind === "pull" ? ev.ingest : ev.recheck;
+  if (recheck && (!ev.promote || ev.ingest)) {
+    await recheckForGithubAttachments(env, recheck.repo, recheck.num);
   }
   if (ev.adopt) {
     await adoptLinkedFilesForWebhook(env, ev.adopt);

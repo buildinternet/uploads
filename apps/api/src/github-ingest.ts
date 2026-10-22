@@ -149,25 +149,41 @@ function extensionForKey(contentType: string): string {
 
 /**
  * DELIBERATELY a different layout from github-promote.ts's
- * `gh/<owner>/<name>/pull/<num>/<filename>` attachment prefix: ingested
- * assets are an INDEX only (queryable via `gh.*` metadata, e.g. the "From
- * GitHub" rail), not a source of truth for the managed comment — they must
- * not land under the prefix `gatherCommentBody` lists when rendering it.
+ * `gh/<owner>/<name>/pull/<num>/<filename>` attachment prefix, so promote
+ * never sees ingested assets. The managed comment finds them through the
+ * ledger instead (`gatherAttachments`, github-comment.ts).
  */
 function ingestKey(ref: IngestSourceRef, assetId: string, ext: string): string {
-  const [owner, name] = ref.repo.split("/");
+  return `${ingestKeyPrefix(ref)}${attachmentKeyBasename(assetId)}.${ext}`;
+}
+
+/** `gh/<owner>-<name>/<kind>-<num>/`, the folder `ingestKey` writes into. */
+function ingestKeyPrefix(target: { repo: string; kind: string; num: number }): string {
+  const [owner, name] = target.repo.split("/");
   const repoSeg =
     `${sanitizeKeySegment(owner ?? "")}-${sanitizeKeySegment(name ?? "")}`.toLowerCase();
-  return `gh/${repoSeg}/${ref.kind}-${ref.num}/${attachmentKeyBasename(assetId)}.${ext}`;
+  return `gh/${repoSeg}/${target.kind}-${target.num}/`;
+}
+
+/**
+ * Every folder an ingested asset for `target` can sit in: the plain one,
+ * plus the private `ingest/` folder under each of `prefixIds`.
+ */
+export function ingestKeyPrefixes(
+  target: { repo: string; kind: string; num: number },
+  prefixIds: readonly string[],
+): string[] {
+  return [
+    ingestKeyPrefix(target),
+    ...prefixIds.map((id) => `${GH_PRIVATE_ROOT}${id}/ingest/${target.kind}-${target.num}/`),
+  ];
 }
 
 /**
  * Private-repo ingest key: `gh/private/<id>/ingest/<kind>-<num>/<basename>.<ext>`.
  * Deliberately a distinct `ingest/` segment from `ghPrivateKeyPrefix`'s
- * `<kind>/<num>/` layout (github-comment-render.ts) — same non-collision
- * rationale as the plain `ingestKey` above: an ingested asset must never sit
- * under the prefix `gatherCommentBody` lists when rendering the managed
- * comment (`gh/private/<id>/<kind>/<num>/`), it's an index only.
+ * `<kind>/<num>/` layout (github-comment-render.ts), for the same reason as
+ * the plain `ingestKey` above.
  */
 function privateIngestKey(
   prefixId: string,
@@ -175,7 +191,7 @@ function privateIngestKey(
   assetId: string,
   ext: string,
 ): string {
-  return `${GH_PRIVATE_ROOT}${prefixId}/ingest/${ref.kind}-${ref.num}/${attachmentKeyBasename(assetId)}.${ext}`;
+  return `${ingestKeyPrefixes(ref, [prefixId])[1]}${attachmentKeyBasename(assetId)}.${ext}`;
 }
 
 /** `ingestKey` when `mode` is plain, `privateIngestKey` when private. */

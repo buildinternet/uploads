@@ -368,8 +368,9 @@ describe("gatherCommentBody", () => {
     const result = await gatherCommentBody(env, ws, workspaceName, target);
     expect(result.body).toContain("private.png");
     expect(result.count).toBe(1);
-    // Plain prefix + the one private prefix that holds the object.
-    expect(bucket.listCalls).toBe(2);
+    // Plain prefix + the one private prefix that holds the object, each
+    // with its import folder.
+    expect(bucket.listCalls).toBe(4);
   });
 
   it("never lists another repo's private prefix for the same target number (#934 isolation)", async () => {
@@ -388,8 +389,9 @@ describe("gatherCommentBody", () => {
     const result = await gatherCommentBody(env, ws, workspaceName, targetB);
     expect(result.body).not.toContain("secret.png");
     expect(result.count).toBe(0);
-    // Plain prefix only: repo A's id is not a candidate for repo B.
-    expect(bucket.listCalls).toBe(1);
+    // Plain prefix and its import folder only: repo A's id is not a
+    // candidate for repo B.
+    expect(bucket.listCalls).toBe(2);
   });
 
   it("finds a metadata-less private object under the repo-level prefix for an issue target (#934)", async () => {
@@ -406,7 +408,26 @@ describe("gatherCommentBody", () => {
     const result = await gatherCommentBody(env, ws, workspaceName, target);
     expect(result.body).toContain("shot.png");
     expect(result.count).toBe(1);
-    expect(bucket.listCalls).toBe(2);
+    expect(bucket.listCalls).toBe(4);
+  });
+
+  it("includes imported GitHub attachments, plain and private, but not detached ones", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+    const sentinelId = await getOrMintPrefixId(env.DB, "acme/web", "");
+    const plainKey = "gh/acme-web/pull-12/plain-import.png";
+    const privateKey = `gh/private/${sentinelId}/ingest/pull-12/private-import.png`;
+    const detachedKey = "gh/acme-web/pull-12/removed-import.png";
+    for (const key of [plainKey, privateKey, detachedKey]) {
+      await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    }
+    await replaceFileMetadata(env.DB, workspaceName, detachedKey, { "gh.detached": "true" });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("plain-import.png");
+    expect(result.body).toContain("private-import.png");
+    expect(result.body).not.toContain("removed-import.png");
+    expect(result.count).toBe(2);
   });
 
   it("links an attachment to its /f/ file page by default (flag absent)", async () => {

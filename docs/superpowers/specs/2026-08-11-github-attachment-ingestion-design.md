@@ -19,6 +19,8 @@ index as CLI/MCP uploads.
   on-demand path — see below).
 - **Managed comment:** ingested assets are **index-only**; they never join the
   managed attachments comment (they're already visible inline on GitHub).
+  _Superseded 2026-10-22:_ imports now render in the managed comment, which
+  is the full bundle of a PR's visuals even when they also appear inline.
 - **Media scope:** images and video/GIF — anything GitHub renders as media.
 - **Sources:** PR/issue **bodies + issue/PR comments**. Inline code-review
   comments (`pull_request_review_comment`) are out of scope.
