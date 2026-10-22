@@ -769,11 +769,55 @@ export interface CommentLinks {
   checklist?: ChecklistEntry[];
   /** The PR label that excused it from the checklist; shown in its place. */
   skipLabel?: string | null;
+  /**
+   * The repo's AI notes (`.uploads.yml` `check.ai`), already evaluated.
+   * Advisory only. Absent or empty: byte-identical to before.
+   */
+  aiNotes?: AiNote[];
 }
 
 export interface ChecklistEntry {
   label: string;
   met: boolean;
+}
+
+/** One `check.ai` note: what it looked at, how that went, and any findings. */
+export interface AiNote {
+  label: string;
+  outcome: "ok" | "warning" | "skipped";
+  /** Markdown, one line each: a warning's findings or why the note was skipped. */
+  details: string[];
+}
+
+const AI_NOTE_ICONS: Record<AiNote["outcome"], string> = { ok: "✅", warning: "⚠️", skipped: "➖" };
+
+/** `1 warning` / `2 warnings` / `nothing to flag`, for a summary or a title. */
+export function aiNotesHeadline(notes: readonly AiNote[]): string {
+  const n = notes.filter((note) => note.outcome === "warning").length;
+  if (n === 0) return "nothing to flag";
+  return n === 1 ? "1 warning" : `${n} warnings`;
+}
+
+/** The notes as a Markdown list, the part the comment and the check share. */
+export function aiNotesList(notes: readonly AiNote[]): string {
+  const lines: string[] = [];
+  for (const note of notes) {
+    lines.push(`- ${AI_NOTE_ICONS[note.outcome]} ${note.label}`);
+    for (const detail of note.details) lines.push(`  - ${detail}`);
+  }
+  return lines.join("\n");
+}
+
+/** The comment's collapsible AI notes block, open when a note warns. */
+export function aiNotesBlock(notes: readonly AiNote[]): string {
+  const open = notes.some((note) => note.outcome === "warning") ? " open" : "";
+  return [
+    `<details${open}><summary>AI notes · ${aiNotesHeadline(notes)}</summary>`,
+    "",
+    aiNotesList(notes),
+    "",
+    "</details>",
+  ].join("\n");
 }
 
 /** The line that stands in for the checklist when a label excuses the PR. */
@@ -1075,6 +1119,7 @@ export function attachmentsCommentBody(
   }
   if (links.skipLabel) lines.push(skippedLine(links.skipLabel), "");
   else if (links.checklist?.length) lines.push(checklistLine(links.checklist), "");
+  if (links.aiNotes?.length) lines.push(aiNotesBlock(links.aiNotes), "");
   if (heldCount > 0) lines.push(heldLine(heldCount, target), "");
   // Footer condensed to a single quiet line — the old two-line explainer
   // ("re-uploading updates everywhere", full add-media flags) repeats on

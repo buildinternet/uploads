@@ -443,6 +443,7 @@ describe("buildDecideRequest", () => {
     "kind",
     "surface",
     "screen",
+    "ready",
     "rating",
     "content",
     "secret",
@@ -464,9 +465,9 @@ describe("buildDecideRequest", () => {
       expect(options).toBeGreaterThanOrEqual(2);
       expect(options).toBeLessThanOrEqual(255);
     }
-    // TypeSafe documents no question-count cap (token budget only). Eight
+    // TypeSafe documents no question-count cap (token budget only). Nine
     // short choices stay far inside that budget and inside the 255-option cap.
-    expect(QUESTION_IDS.length).toBe(8);
+    expect(QUESTION_IDS.length).toBe(9);
     expect(Object.keys(buildClassifierQuestions().screen.criteria).length).toBeLessThanOrEqual(255);
   });
 
@@ -551,6 +552,7 @@ describe("openRouterDecisionsRun", () => {
       "kind",
       "surface",
       "screen",
+      "ready",
       "rating",
       "content",
       "secret",

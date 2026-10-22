@@ -109,9 +109,12 @@ comment:
   # skipLabels excuse a PR (any case); it defaults to uploads:skip-verify,
   # skip-uploads and uploads-skip. Replaces the workspace's Require
   # screenshots on UI changes setting. See /docs/require-screenshots.
+  # ai adds advisory AI notes under the checklist: ready-screen,
+  # identical-before-after, or all. They never fail the check.
   check:
     require: [uploads, before-after]
     skipLabels: ["uploads:skip-verify"]
+    ai: all
 
   # Optional short markdown at the top of the comment, before the media —
   # repo-specific context, a link to a contributing guide, and so on.

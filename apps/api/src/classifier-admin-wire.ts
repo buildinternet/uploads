@@ -80,6 +80,8 @@ export interface ClassifierOverview {
   kinds: ClassifierValueCount[];
   surfaces: ClassifierValueCount[];
   screens: ClassifierValueCount[];
+  /** `ai.ready` values: whether a screen had finished loading. */
+  readiness: ClassifierValueCount[];
   flags: ClassifierFlagStats[];
   /** Files with at least one flagged field. */
   flaggedFiles: number;

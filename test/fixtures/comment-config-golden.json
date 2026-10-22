@@ -94,7 +94,7 @@
       }
     },
     {
-      "name": "drops an over-500-char note whole, with a warning \u2014 never truncates",
+      "name": "drops an over-500-char note whole, with a warning — never truncates",
       "text": "comment:\n  note: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n",
       "format": "yaml",
       "expected": {
@@ -303,6 +303,39 @@
         },
         "warnings": []
       }
+    },
+    {
+      "name": "check.ai keeps known notes in order",
+      "text": "comment:\n  check:\n    ai: [identical-before-after, ready-screen, nope]\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkAi": ["ready-screen", "identical-before-after"]
+        },
+        "warnings": [
+          "check.ai: dropped unknown items (use ready-screen, identical-before-after, or all)"
+        ]
+      }
+    },
+    {
+      "name": "check.ai all turns on every note",
+      "text": "comment:\n  check:\n    ai: all\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkAi": ["ready-screen", "identical-before-after"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "check.ai not a list",
+      "text": "comment:\n  check:\n    ai: {ready-screen: true}\n",
+      "format": "yaml",
+      "expected": {
+        "config": {},
+        "warnings": ["check.ai: expected a list; dropped"]
+      }
     }
   ],
   "resolveCases": [
@@ -324,7 +357,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -339,7 +373,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -366,7 +401,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "repo",
@@ -381,7 +417,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -405,7 +442,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -420,7 +458,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -446,7 +485,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -461,7 +501,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -487,7 +528,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -502,7 +544,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -528,7 +571,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -543,7 +587,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -569,7 +614,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -584,7 +630,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -611,7 +658,8 @@
           "uiPaths": ["apps/web/**"],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -626,7 +674,8 @@
           "uiPaths": "repo",
           "noUploadsComment": "repo",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -652,7 +701,8 @@
           "uiPaths": ["src/ui/**"],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -667,7 +717,8 @@
           "uiPaths": "workspace",
           "noUploadsComment": "repo",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -693,7 +744,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -708,7 +760,8 @@
           "uiPaths": "repo",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -733,7 +786,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": ["uploads"],
-          "checkSkipLabels": ["no-ui"]
+          "checkSkipLabels": ["no-ui"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -748,7 +802,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "repo",
-          "checkSkipLabels": "repo"
+          "checkSkipLabels": "repo",
+          "checkAi": "auto"
         }
       }
     },
@@ -772,7 +827,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": ["uploads"],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -787,7 +843,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "workspace",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -813,7 +870,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": ["before-after"],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -828,7 +886,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "repo",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -852,7 +911,8 @@
           "uiPaths": [],
           "noUploadsComment": true,
           "checkRequire": [],
-          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"]
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -867,7 +927,8 @@
           "uiPaths": "auto",
           "noUploadsComment": "auto",
           "checkRequire": "auto",
-          "checkSkipLabels": "auto"
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     }

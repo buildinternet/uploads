@@ -13,6 +13,7 @@ import {
   githubAttachmentCount,
   type Requirement,
 } from "./github-check-requirements";
+import { evaluateAiNotes } from "./github-check-ai-notes";
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
 import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
@@ -42,6 +43,7 @@ import {
   ghPrivateKeyPrefix,
   inferContentType,
   ATTACHMENTS_MARKER,
+  type AiNote,
   type AttachmentItem,
   type CommentRenderOptions,
   type GalleryCommentItem,
@@ -92,6 +94,8 @@ export async function gatherCommentBody(
   githubAttachments: number;
   /** The repo imports GitHub attachments into the workspace. */
   importsAttachments: boolean;
+  /** The repo's AI notes (`check.ai`); empty when it has none on. */
+  aiNotes: AiNote[];
 }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -132,17 +136,22 @@ export async function gatherCommentBody(
     count === 0 && uiFiles.length > 0 && target.kind === "pull"
       ? await githubAttachmentCount(env, target)
       : 0;
-  const requirement =
+  const keys = items.map((item) => item.key);
+  // AI notes read labels the classifier already stored, so a sync never
+  // calls a model for them.
+  const [requirement, aiNotes] = await Promise.all([
     required && uiFiles.length > 0
-      ? await evaluateRequirement(
+      ? evaluateRequirement(
           env,
           workspaceName,
           target,
           options,
-          items.map((item) => item.key),
+          keys,
           galleries.length + heldCount + githubAttachments,
         )
-      : null;
+      : null,
+    evaluateAiNotes(env, workspaceName, target, options.checkAi, keys),
+  ]);
   // A skip label replaces the checklist and the how-to with one "skipped" line.
   const skipLabel = requirement?.skipLabel ?? null;
   const checklist = requirement?.checklist ?? [];
@@ -168,6 +177,7 @@ export async function gatherCommentBody(
       requirement,
       githubAttachments,
       importsAttachments: options.ingestGithubAttachments,
+      aiNotes,
     };
   }
 
@@ -179,6 +189,7 @@ export async function gatherCommentBody(
       heldCount,
       checklist,
       skipLabel,
+      aiNotes,
     }),
     count,
     heldCount,
@@ -188,6 +199,7 @@ export async function gatherCommentBody(
     requirement,
     githubAttachments,
     importsAttachments: options.ingestGithubAttachments,
+    aiNotes,
   };
 }
 

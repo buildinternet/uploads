@@ -53,6 +53,7 @@ const COUNTED_KEYS = [
   "ai.kind",
   "ai.surface",
   "ai.screen",
+  "ai.ready",
   ...CLASSIFIER_SAFETY_FIELDS.map(flagKey),
 ];
 
@@ -236,6 +237,7 @@ export async function buildClassifierOverview(
     kinds: counts("ai.kind"),
     surfaces: counts("ai.surface"),
     screens: counts("ai.screen"),
+    readiness: counts("ai.ready"),
     flags: CLASSIFIER_SAFETY_FIELDS.map((field) => {
       const values = counts(flagKey(field));
       return {

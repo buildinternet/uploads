@@ -229,6 +229,27 @@ export function attachmentTargetFor(
   return { repo, kind: parsed.kind, num: parsed.num };
 }
 
+/**
+ * Re-sync the PR comment for a before or after file whose classification
+ * finished after the comment last rendered, so the `check.ai` notes read its
+ * new labels. Other files change nothing the comment shows. Never throws.
+ */
+export async function resyncCommentAfterClassification(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+): Promise<void> {
+  if (!parseAttachmentKey(key)) return;
+  try {
+    const meta = await getFileMetadata(dbFor(env), workspaceName, key);
+    if (meta.state !== "before" && meta.state !== "after") return;
+    await resyncAttachmentComment(env, ws, workspaceName, key, meta);
+  } catch (err) {
+    console.error({ event: "classifier_comment_resync_failed", workspace: workspaceName, err });
+  }
+}
+
 /** Best-effort. `postManagedComment` already degrades instead of throwing. */
 async function resyncAttachmentComment(
   env: Env,

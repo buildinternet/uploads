@@ -73,6 +73,7 @@ const BREAKDOWNS = [
   ["Kind", "kinds"],
   ["Surface", "surfaces"],
   ["Screen", "screens"],
+  ["Ready", "readiness"],
 ] as const satisfies ReadonlyArray<readonly [string, keyof ClassifierOverview]>;
 
 const FIELD_CLASS =
