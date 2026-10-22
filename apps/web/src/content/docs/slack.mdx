@@ -5,7 +5,7 @@ heading: Slack
 tagline: "Previews for uploads.sh links, answers in threads, and held-upload alerts you can approve from Slack."
 navLabel: Slack
 navSlug: slack
-navOrder: 13
+navOrder: 14
 navGroup: workspace
 toc:
   - { id: what-it-does, label: What it does }
@@ -30,7 +30,7 @@ The uploads.sh Slack app turns uploads.sh links into previews. With it in your w
 - A [gallery](/docs/galleries) link shows its title, description, and cover image.
 
 Connect your account, and the app also messages you when an upload is
-[held for review](/docs/agents#held-uploads). You can approve it from the message.
+[held for review](/docs/ai-labels#held-uploads). You can approve it from the message.
 
 Once search is on, you can also [mention the app with a question](#ask) and it answers in the
 thread with the files it finds.
@@ -105,9 +105,10 @@ a workspace, and connecting Slack doesn't change it.
 
 ## Held-upload messages <a class="anchor" href="#held-uploads" aria-label="Link to this section">#</a>
 
-When an upload is [held for review](/docs/agents#held-uploads) because it may show a secret or
-personal information, the app sends a direct message. It names the file, the workspace, and why
-the file is held, and it has two buttons:
+When an upload is [held for review](/docs/ai-labels#held-uploads) because it may show a secret or
+personal information, the app sends a direct message. It names the file and the workspace, says what was found (an API
+key or a card number, for example), and links **Settings → AI labels**, where a workspace admin can
+turn holds off. It has two buttons:
 
 - **Approve** puts the file back at its public link, the same as `uploads approve`. It acts as
   your connected uploads.sh account, so you must be a member of the workspace.
@@ -163,7 +164,7 @@ Mention the app with a question, in a channel it's in:
 ```
 
 It answers in the thread with a sentence or two and the files that fit. It searches by name and
-by what the [AI labels](/docs/agents#experimental-ai-tags) say a file shows (the kind of file, the screen,
+by what the [AI labels](/docs/ai-labels) say a file shows (the kind of file, the screen,
 and the device), and looks at the images before it answers. Mention it again in the same thread
 to narrow the answer, for example `@uploads.sh just the mobile ones`. It reads the thread first,
 so the follow-up builds on its last answer. Replies that don't mention it get no answer. Answers
