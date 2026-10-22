@@ -112,10 +112,14 @@ export class IngestLedgerTable {
   }
 
   tryAll<T>(normalizedSql: string, args: unknown[]): FakeAllResult<T> | undefined {
-    if (normalizedSql.includes("FROM github_ingested_assets WHERE repo = ? AND source = ?")) {
-      const [repo, source] = args as [string, string];
+    if (
+      normalizedSql.includes(
+        "FROM github_ingested_assets WHERE repo = ? AND kind = ? AND num = ? AND source = ?",
+      )
+    ) {
+      const [repo, kind, num, source] = args as [string, string, number, string];
       const results = [...this.rows.values()].filter(
-        (row) => row.repo === repo && row.source === source,
+        (row) => row.repo === repo && row.kind === kind && row.num === num && row.source === source,
       );
       return { success: true, results: results as T[], meta: {} };
     }

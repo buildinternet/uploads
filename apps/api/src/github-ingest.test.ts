@@ -187,6 +187,28 @@ describe("reconcileIngestSource", () => {
     expect(meta["gh.detached"]).toBe("true");
   });
 
+  it("another PR's body never detaches this PR's body attachments", async () => {
+    const { env } = baseEnv();
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: ASSET_ID,
+      workspace: WS,
+      objectKey: KEY,
+      kind: "pull",
+      num: 7,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+    await replaceFileMetadata(env.DB, WS, KEY, { "gh.detached": "false" });
+    const other: IngestSourceRef = { repo: REPO, kind: "pull", num: 8, source: "body" };
+
+    const summary = await reconcileIngestSource(env, ws, WS, other, "no attachment here", null, {});
+
+    expect(summary.detached).toEqual([]);
+    expect((await ledgerRow(env.DB, REPO, ASSET_ID))?.detachedAt).toBeNull();
+    expect((await getFileMetadata(env.DB, WS, KEY))["gh.detached"]).toBe("false");
+  });
+
   it("re-added after detach: reattaches without re-fetching or re-putting", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
@@ -885,7 +907,7 @@ describe("reconcileIngestTarget", () => {
     expect(commentCalls.filter((u) => u.includes("&page=3"))).toHaveLength(0);
     expect(calls).toHaveLength(1);
     expect(summary.ingested).toHaveLength(1);
-    const rows = await ledgerRowsForSource(env.DB, REPO, "comment:200");
+    const rows = await ledgerRowsForSource(env.DB, REPO, "pull", 7, "comment:200");
     expect(rows).toHaveLength(1);
   });
 
@@ -948,7 +970,7 @@ describe("reconcileIngestTarget", () => {
       // not "we dropped what we already have".
       expect(calls).toHaveLength(1);
       expect(summary.ingested).toHaveLength(1);
-      const rows = await ledgerRowsForSource(env.DB, REPO, `comment:${3000 + 99}`);
+      const rows = await ledgerRowsForSource(env.DB, REPO, "pull", 7, `comment:${3000 + 99}`);
       expect(rows).toHaveLength(1);
 
       expect(logSpy).toHaveBeenCalledWith(

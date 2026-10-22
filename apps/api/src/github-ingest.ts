@@ -535,7 +535,7 @@ export async function reconcileIngestSource(
     summary.ingested.push(result.key);
   }
 
-  const existing = await ledgerRowsForSource(db, ref.repo, ref.source);
+  const existing = await ledgerRowsForSource(db, ref.repo, ref.kind, ref.num, ref.source);
   for (const row of existing) {
     if (row.detachedAt !== null) continue;
     if (foundIds.has(row.assetId)) continue;
