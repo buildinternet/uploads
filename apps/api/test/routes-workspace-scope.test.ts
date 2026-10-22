@@ -327,6 +327,37 @@ describe("GET /v1/workspaces/:ws/pulls", () => {
     });
   });
 
+  it("applies since to the pulls window, thumbnails, repos and scope files", async () => {
+    await putShot("alpha", "gh/acme/app/pull/1/old.png", prMeta("acme/app", 1));
+    await putShot("alpha", "gh/acme/app/pull/1/new.png", prMeta("acme/app", 1));
+    await putShot("alpha", "gh/acme/web/pull/2/old.png", prMeta("acme/web", 2));
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+    const age = sqlite.db.prepare(
+      `UPDATE file_metadata SET updated_at = ? WHERE workspace = 'alpha' AND object_key = ?`,
+    );
+    age.run(daysAgo(10), "gh/acme/app/pull/1/old.png");
+    age.run(daysAgo(10), "gh/acme/web/pull/2/old.png");
+    setRollup("acme/web#2", { lastMediaAt: daysAgo(10) });
+
+    const pulls = await getJson<PullsResponse>("/v1/workspaces/alpha/pulls?since=7d");
+    expect(pulls.pulls.map((p) => [p.ref, p.thumbnails.map((t) => t.key)])).toEqual([
+      ["acme/app#1", ["gh/acme/app/pull/1/new.png"]],
+    ]);
+
+    const repos = await getJson<ReposResponse>("/v1/workspaces/alpha/repos?since=7d");
+    expect(repos.repos.map((r) => r.repo)).toEqual(["acme/app"]);
+
+    const scope = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=1&since=7d",
+    );
+    expect(scope.items.map((item) => item.objectKey)).toEqual(["gh/acme/app/pull/1/new.png"]);
+
+    expect(await errorOf("/v1/workspaces/alpha/repos?since=week")).toEqual({
+      status: 400,
+      code: "invalid_since",
+    });
+  });
+
   it("excludes PRs idle for over 90 days by default and includes them with all=1", async () => {
     await putShot("alpha", "gh/acme/app/pull/1/old.png", prMeta("acme/app", 1));
     await putShot("alpha", "gh/acme/app/pull/2/new.png", prMeta("acme/app", 2));

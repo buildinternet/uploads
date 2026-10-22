@@ -84,7 +84,7 @@ if (query.view === "pulls") {
     const repos = await loadRepos(
       apiOrigin,
       workspace,
-      { type: query.type, surface: query.surface },
+      { type: query.type, surface: query.surface, since: query.since },
       fetchOpts,
     );
     if (repos.ok) {
@@ -92,12 +92,13 @@ if (query.view === "pulls") {
     }
   }
 } else if (query.view === "pages" && fetchOpts) {
-  const { merged, type, surface } = readScreenshotsView(initialSearch);
+  const { merged, type, surface, since } = readScreenshotsView(initialSearch);
   const overview = await getWorkspaceFilesByPath(apiOrigin, workspace, {
     ...fetchOpts,
     merged,
     type: type ?? undefined,
     surface: surface ?? undefined,
+    since: since ?? undefined,
   });
   if (overview.kind === "ok") {
     pagesOverview = {

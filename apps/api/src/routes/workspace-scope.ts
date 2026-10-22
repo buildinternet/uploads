@@ -22,7 +22,7 @@ import {
   unwrapFeedMutation,
 } from "../feed-service";
 import { findFeedByScope, normalizeFeedNumber, normalizeFeedRepo } from "../feeds";
-import { parseFileTypeQuery, parseSurfaceQuery } from "../file-type-sql";
+import { parseFileTypeQuery, parseSinceQuery, parseSurfaceQuery } from "../file-type-sql";
 import {
   backfillPrActivityState,
   countOpenPullsByRepo,
@@ -122,8 +122,10 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
   const surface = parseSurfaceQuery(c.req.query("surface"));
   const cursor = decodeScopeCursor(c.req.query("cursor"));
   // Recency window instead of a row cap: only PRs with media in the last 90
-  // days unless `all=1` (the Files list's "Show older pull requests").
-  const since = pullsSince(c.req.query("all"));
+  // days unless `all=1` (the Files list's "Show older pull requests"). An
+  // explicit `since` replaces the window and also narrows the thumbnails.
+  const uploadedSince = parseSinceQuery(c.req.query("since"));
+  const since = uploadedSince ?? pullsSince(c.req.query("all"));
 
   const [page, linkedRepos, cfg] = await Promise.all([
     boundedDataRead(
@@ -151,6 +153,7 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
             number: row.prNumber,
             type,
             surface,
+            since: uploadedSince,
             limit: THUMBNAIL_LIMIT,
           })),
           { metaKeys: THUMB_META_KEYS },
@@ -202,13 +205,15 @@ export async function reposHandler(c: Context<DualAuthVars>) {
   // Narrows thumbnails only: every repo with GitHub-tagged media stays listed.
   const type = parseFileTypeQuery(c.req.query("type"));
   const surface = parseSurfaceQuery(c.req.query("surface"));
+  // Unlike type/surface, `since` narrows the list too: only repos with media in the window.
+  const since = parseSinceQuery(c.req.query("since"));
   // `thumbnails=0` answers names only (the PR view's repo select), skipping
   // the per-repo thumbnail and open-PR queries.
   const namesOnly = c.req.query("thumbnails") === "0";
   const cursor = decodeScopeCursor(c.req.query("cursor"));
 
   const [page, cfg] = await Promise.all([
-    boundedDataRead(c, () => listWorkspaceRepos(db, workspace, { cursor, limit }), {
+    boundedDataRead(c, () => listWorkspaceRepos(db, workspace, { cursor, limit, since }), {
       name: "d1_repos_list",
     }),
     storageConfig(c.env, c.get("workspace")),
@@ -224,7 +229,7 @@ export async function reposHandler(c: Context<DualAuthVars>) {
             prScopeFirstPages(
               db,
               workspace,
-              repos.map((repo) => ({ repo, type, surface, limit: THUMBNAIL_LIMIT })),
+              repos.map((repo) => ({ repo, type, surface, since, limit: THUMBNAIL_LIMIT })),
               { metaKeys: THUMB_META_KEYS },
             ),
           ]),
@@ -262,6 +267,7 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   const number = unwrapFeedMutation(normalizeFeedNumber(c.req.query("number"))).value;
   const type = parseFileTypeQuery(c.req.query("type"));
   const surface = parseSurfaceQuery(c.req.query("surface"));
+  const since = parseSinceQuery(c.req.query("since"));
   const cursor = decodeScopeCursor(c.req.query("cursor"));
   const limit = parseLimit(c.req.query("limit"), SCOPE_DEFAULT_LIMIT, SCOPE_MAX_LIMIT);
   const scope = { workspace, repo, ...(number > 0 ? { number } : {}) };
@@ -270,7 +276,7 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
     c,
     () =>
       Promise.all([
-        prScopeQuery(db, { ...scope, type, surface, cursor, limit }),
+        prScopeQuery(db, { ...scope, type, surface, since, cursor, limit }),
         number > 0 ? getPrActivityRow(db, workspace, repo, number) : Promise.resolve(null),
         findFeedByScope(db, workspace, repo, "", number),
         linkedRepoSet(db, workspace),
@@ -283,7 +289,13 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   // plus the page plus one: past that, more than PRIVATE_COUNT_PROBE_CAP keys
   // would need a probe, so the count is null whether or not the scan stops.
   const needsScan =
-    !cursor && !(page.nextCursor === null && type === undefined && surface === undefined);
+    !cursor &&
+    !(
+      page.nextCursor === null &&
+      type === undefined &&
+      surface === undefined &&
+      since === undefined
+    );
   const privateKeys = new Set<string>();
   const [items, scanned] = await Promise.all([
     hydrateFeedItems(c.env, record, page.items, {

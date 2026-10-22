@@ -14,7 +14,10 @@ import { FILE_SURFACES, type FileSurface, type FileTypeClass } from "@uploads/co
 import {
   FILE_SURFACE_LABELS,
   FILE_TYPE_LABELS,
+  SINCE_FILTERS,
+  SINCE_LABELS,
   type PrStateFilter,
+  type SinceFilter,
 } from "../../lib/files-view-state";
 
 const FILE_TYPE_ORDER: FileTypeClass[] = ["screenshot", "video", "other"];
@@ -205,6 +208,37 @@ export function typeChips(value: TypeFilter, onChange: (next: TypeFilter) => voi
     });
   }
   return chips;
+}
+
+const SINCE_OPTIONS = SINCE_FILTERS.map((since) => ({ value: since, label: SINCE_LABELS[since] }));
+
+/** Upload-time window; the API reads it as `?since=`. */
+export function SinceSection({
+  value,
+  onChange,
+}: {
+  value: SinceFilter | null;
+  onChange: (since: SinceFilter | null) => void;
+}) {
+  return (
+    <FilterSection label="Uploaded">
+      <ChoicePills
+        label="Filter by upload date"
+        options={SINCE_OPTIONS}
+        value={value}
+        onChange={onChange}
+      />
+    </FilterSection>
+  );
+}
+
+export function sinceChips(
+  value: SinceFilter | null,
+  onChange: (since: SinceFilter | null) => void,
+): FilterChip[] {
+  return value
+    ? [{ key: "since", label: SINCE_LABELS[value], onRemove: () => onChange(null) }]
+    : [];
 }
 
 /** Repo (PR view) or project (By page) picker; "" means all. */

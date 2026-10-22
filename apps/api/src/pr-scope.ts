@@ -62,6 +62,8 @@ export interface ScopeQuery {
   type?: FileTypeClass;
   /** Signed-in views only: the classifier's `ai.surface` label. */
   surface?: FileSurface;
+  /** Signed-in views only: ISO lower bound on upload time (`?since=`). */
+  since?: string;
   cursor?: ScopeResume | null;
   /** Default 50, max 100. */
   limit?: number;
@@ -117,6 +119,12 @@ function scopeFrom(q: Omit<ScopeQuery, "cursor" | "limit">): { sql: string; para
   }
   if (q.type) sql += ` AND ${fileTypeSql("r.object_key", q.type)}`;
   if (q.surface) sql += ` AND ${fileSurfaceSql("r", q.surface)}`;
+  // A range on the gh.repo partial index's updated_at column, so it narrows
+  // the index walk rather than filtering after it.
+  if (q.since) {
+    sql += ` AND r.updated_at >= ?`;
+    params.push(q.since);
+  }
   return { sql, params };
 }
 
@@ -268,7 +276,7 @@ export async function scopeHasKey(
 export async function listWorkspaceRepos(
   db: D1Queryable,
   workspace: string,
-  opts: { cursor?: ScopeCursor | null; limit: number },
+  opts: { cursor?: ScopeCursor | null; limit: number; since?: string },
 ): Promise<{
   repos: Array<{ repo: string; lastUpdatedAt: string }>;
   nextCursor: ScopeCursor | null;
@@ -276,13 +284,18 @@ export async function listWorkspaceRepos(
   const params: unknown[] = [workspace];
   let sql = `SELECT r.meta_value AS repo, MAX(r.updated_at) AS last_updated_at
              FROM file_metadata r
-             WHERE r.workspace = ? AND r.meta_key = 'gh.repo'
-               AND NOT EXISTS (
-                 SELECT 1 FROM file_metadata s
-                 WHERE s.workspace = r.workspace AND s.object_key = r.object_key
-                   AND ${PROMOTED_SHADOW_STATUS_SQL}
-               )
-             GROUP BY r.meta_value`;
+             WHERE r.workspace = ? AND r.meta_key = 'gh.repo'`;
+  // Ahead of the shadow check, so rows outside the window skip its lookup.
+  if (opts.since) {
+    sql += ` AND r.updated_at >= ?`;
+    params.push(opts.since);
+  }
+  sql += ` AND NOT EXISTS (
+             SELECT 1 FROM file_metadata s
+             WHERE s.workspace = r.workspace AND s.object_key = r.object_key
+               AND ${PROMOTED_SHADOW_STATUS_SQL}
+           )
+           GROUP BY r.meta_value`;
   if (opts.cursor) {
     sql += ` HAVING MAX(r.updated_at) < ? OR (MAX(r.updated_at) = ? AND r.meta_value > ?)`;
     params.push(opts.cursor.updatedAt, opts.cursor.updatedAt, opts.cursor.key);

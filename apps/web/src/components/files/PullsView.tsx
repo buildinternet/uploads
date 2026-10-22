@@ -36,8 +36,10 @@ import {
   FilterBar,
   PrStateSection,
   ScopeSelect,
+  SinceSection,
   TypeSections,
   prStateLabel,
+  sinceChips,
   typeChips,
 } from "./FilterControls";
 import { LoadMoreFooter } from "./LoadMoreFooter";
@@ -95,6 +97,7 @@ function PullsViewInner({
       loadPulls(apiOrigin, workspace, {
         type: query.type,
         surface: query.surface,
+        since: query.since,
         repo: query.repo,
         state: query.state,
         all: query.all,
@@ -134,7 +137,7 @@ function PullsViewInner({
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   // Type never empties the list (it narrows thumbnails), so only repo and state count.
   const filtering = query.repo !== "" || query.state !== null;
-  const empty = pullsEmptyCopy({ filtering, showOlder: query.all });
+  const empty = pullsEmptyCopy({ filtering, showOlder: query.all, since: query.since });
   const keptRows =
     list.status === "loading" && olderPending?.key === filesSearch(query)
       ? olderPending.rows
@@ -151,6 +154,7 @@ function PullsViewInner({
       <FilterBar
         chips={[
           ...typeChips(query, (next) => setQuery({ ...query, ...next })),
+          ...sinceChips(query.since, (since) => setQuery({ ...query, since })),
           ...(query.repo
             ? [{ key: "repo", label: query.repo, onRemove: () => setQuery({ ...query, repo: "" }) }]
             : []),
@@ -174,6 +178,7 @@ function PullsViewInner({
           onChange={(repo) => setQuery({ ...query, repo })}
         />
         <PrStateSection value={query.state} onChange={(state) => setQuery({ ...query, state })} />
+        <SinceSection value={query.since} onChange={(since) => setQuery({ ...query, since })} />
       </FilterBar>
 
       {list.status === "loading" && !keptRows && <RowsSkeleton rows={4} />}
@@ -218,7 +223,8 @@ function PullsViewInner({
       {list.status === "ready" && list.nextCursor && (
         <LoadMoreFooter more={list.more} onLoadMore={loadMore} />
       )}
-      {((list.status === "ready" && !list.nextCursor && !query.all) || keptRows) && (
+      {((list.status === "ready" && !list.nextCursor && !query.all && !query.since) ||
+        keptRows) && (
         <div className="flex items-center justify-center">
           <button
             type="button"

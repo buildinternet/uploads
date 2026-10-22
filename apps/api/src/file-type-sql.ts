@@ -71,6 +71,28 @@ export function fileSurfaceSql(alias: string, surface: FileSurface): string {
   )`;
 }
 
+const SINCE_MAX_DAYS = 365;
+
+/**
+ * `?since=Nd` (1 to 365 days back from `now`) as the ISO lower bound for
+ * `updated_at`; undefined when absent or empty; 400 `invalid_since` otherwise.
+ * Relative on purpose, so a shared link keeps meaning "the last N days".
+ */
+export function parseSinceQuery(
+  raw: string | undefined,
+  now: number = Date.now(),
+): string | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const match = /^([1-9]\d{0,2})d$/.exec(raw);
+  const days = match ? Number(match[1]) : 0;
+  if (days >= 1 && days <= SINCE_MAX_DAYS) {
+    return new Date(now - days * 86_400_000).toISOString();
+  }
+  throw new ValidationError(`since must be a day count like 7d (1d to ${SINCE_MAX_DAYS}d).`, {
+    code: "invalid_since",
+  });
+}
+
 /** `?surface=`: undefined when absent or empty; 400 `invalid_surface` for anything else. */
 export function parseSurfaceQuery(raw: string | undefined): FileSurface | undefined {
   if (raw === undefined || raw === "") return undefined;

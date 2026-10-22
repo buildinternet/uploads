@@ -18,7 +18,7 @@ import {
   type SessionOpts,
 } from "./api-client";
 import type { Loaded } from "./cursor-list";
-import type { PrStateFilter } from "./files-view-state";
+import type { PrStateFilter, SinceFilter } from "./files-view-state";
 import type { CreateLiveLinkResult, LiveLinkScope, ScopeShareInfo } from "./live-link-flow";
 
 export type { Loaded } from "./cursor-list";
@@ -38,6 +38,7 @@ export async function loadPulls(
   q: {
     type: FileTypeClass | null;
     surface?: FileSurface | null;
+    since?: SinceFilter | null;
     repo: string;
     state: PrStateFilter | null;
     /** Lift the API's 90-day recency window ("Show older pull requests"). */
@@ -54,6 +55,7 @@ export async function loadPulls(
       ...(q.state ? { state: q.state } : {}),
       ...(q.type ? { type: q.type } : {}),
       ...(q.surface ? { surface: q.surface } : {}),
+      ...(q.since ? { since: q.since } : {}),
       ...(q.all ? { all: true } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
     },
@@ -68,6 +70,7 @@ export async function loadRepos(
   q: {
     type: FileTypeClass | null;
     surface?: FileSurface | null;
+    since?: SinceFilter | null;
     cursor?: string;
     /** Repo names only: the PR view's repo select. */
     namesOnly?: boolean;
@@ -80,6 +83,7 @@ export async function loadRepos(
     {
       ...(q.type ? { type: q.type } : {}),
       ...(q.surface ? { surface: q.surface } : {}),
+      ...(q.since ? { since: q.since } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
       ...(q.namesOnly ? { namesOnly: true } : {}),
     },
@@ -96,6 +100,7 @@ export async function loadScopeFiles(
     number: number | null;
     type: FileTypeClass | null;
     surface?: FileSurface | null;
+    since?: SinceFilter | null;
     cursor?: string;
   },
   opts?: ServerFetchOpts,
@@ -108,6 +113,7 @@ export async function loadScopeFiles(
       ...(q.number !== null ? { number: q.number } : {}),
       ...(q.type ? { type: q.type } : {}),
       ...(q.surface ? { surface: q.surface } : {}),
+      ...(q.since ? { since: q.since } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
     },
     opts,

@@ -217,6 +217,7 @@ describe("screenshots view URL state", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
@@ -250,6 +251,7 @@ describe("screenshots view URL state", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -300,6 +302,7 @@ describe("screenshots view hrefs and history mode", () => {
     merged: false,
     type: null,
     surface: null,
+    since: null,
     by: "path",
   };
 

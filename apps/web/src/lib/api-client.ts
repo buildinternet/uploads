@@ -25,6 +25,7 @@ import type {
   ServiceTokenRow,
 } from "@uploads/api/workspace-service-tokens";
 import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
+import type { SinceFilter } from "./files-view-state";
 import type {
   FeedListResponse,
   FeedSummaryDto,
@@ -1252,6 +1253,7 @@ export async function getWorkspaceFilesByPath(
     merged?: boolean;
     type?: FileTypeClass;
     surface?: FileSurface;
+    since?: SinceFilter;
     fetchImpl?: typeof fetch;
   },
 ): Promise<FilesByPathResult> {
@@ -1261,6 +1263,7 @@ export async function getWorkspaceFilesByPath(
   if (opts?.merged) params.set("merged", "1");
   if (opts?.type) params.set("type", opts.type);
   if (opts?.surface) params.set("surface", opts.surface);
+  if (opts?.since) params.set("since", opts.since);
   const qs = params.toString();
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${qs ? `?${qs}` : ""}`;
   const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie), {
@@ -2929,6 +2932,7 @@ export function fetchPulls(
     state?: string;
     type?: FileTypeClass;
     surface?: FileSurface;
+    since?: SinceFilter;
     all?: boolean;
     cursor?: string;
   } = {},
@@ -2939,6 +2943,7 @@ export function fetchPulls(
     state: q.state,
     type: q.type,
     surface: q.surface,
+    since: q.since,
     all: q.all ? "1" : undefined,
     cursor: q.cursor,
   });
@@ -2953,12 +2958,19 @@ export function fetchPulls(
 export function fetchRepos(
   apiOrigin: string,
   ws: string,
-  q: { type?: FileTypeClass; surface?: FileSurface; cursor?: string; namesOnly?: boolean } = {},
+  q: {
+    type?: FileTypeClass;
+    surface?: FileSurface;
+    since?: SinceFilter;
+    cursor?: string;
+    namesOnly?: boolean;
+  } = {},
   opts?: SessionOpts,
 ): Promise<ApiResult<ReposResponse>> {
   const path = withQuery(`${workspacePath(ws)}/repos`, {
     type: q.type,
     surface: q.surface,
+    since: q.since,
     cursor: q.cursor,
     ...(q.namesOnly ? { thumbnails: "0", limit: 50 } : {}),
   });
@@ -2979,6 +2991,7 @@ export async function fetchScopeFiles(
     number?: number;
     type?: FileTypeClass;
     surface?: FileSurface;
+    since?: SinceFilter;
     cursor?: string;
   },
   opts?: SessionOpts,
@@ -2987,7 +3000,7 @@ export async function fetchScopeFiles(
   if (!owner || !name || rest.length > 0) return { kind: "unavailable", reason: "invalid" };
   const path = withQuery(
     `${workspacePath(ws)}/scope/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/files`,
-    { number: q.number, type: q.type, surface: q.surface, cursor: q.cursor },
+    { number: q.number, type: q.type, surface: q.surface, since: q.since, cursor: q.cursor },
   );
   return getParsed(apiOrigin, path, parseScopeFilesResponse, opts);
 }

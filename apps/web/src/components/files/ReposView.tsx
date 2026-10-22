@@ -16,12 +16,13 @@ import {
   filesRepoHref,
   filesSearch,
   readFilesQuery,
+  sinceEmptySuffix,
   type FilesQuery,
 } from "../../lib/files-view-state";
 import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel } from "../../lib/workspace-screenshots";
-import { CommandEmpty, RowsSkeleton } from "./FilesEmpty";
-import { FilterBar, TypeSections, typeChips } from "./FilterControls";
+import { CommandEmpty, InlineEmpty, RowsSkeleton } from "./FilesEmpty";
+import { FilterBar, SinceSection, TypeSections, sinceChips, typeChips } from "./FilterControls";
 import { GitHubMark } from "./gh-glyphs";
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { RowOverflowMenu, useLiveLink, type LiveLinkControls } from "./LiveLink";
@@ -66,14 +67,18 @@ function ReposViewInner({
     seed: initialPage,
     keyOf: (row) => row.repo,
     load: (cursor) =>
-      loadRepos(apiOrigin, workspace, { type: query.type, surface: query.surface, cursor }).then(
-        (result) =>
-          result.ok
-            ? {
-                ok: true as const,
-                value: { rows: result.value.repos, nextCursor: result.value.nextCursor },
-              }
-            : { ok: false as const },
+      loadRepos(apiOrigin, workspace, {
+        type: query.type,
+        surface: query.surface,
+        since: query.since,
+        cursor,
+      }).then((result) =>
+        result.ok
+          ? {
+              ok: true as const,
+              value: { rows: result.value.repos, nextCursor: result.value.nextCursor },
+            }
+          : { ok: false as const },
       ),
   });
 
@@ -90,8 +95,14 @@ function ReposViewInner({
 
   return (
     <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
-      <FilterBar chips={typeChips(query, (next) => setQuery({ ...query, ...next }))}>
+      <FilterBar
+        chips={[
+          ...typeChips(query, (next) => setQuery({ ...query, ...next })),
+          ...sinceChips(query.since, (since) => setQuery({ ...query, since })),
+        ]}
+      >
         <TypeSections value={query} onChange={(next) => setQuery({ ...query, ...next })} />
+        <SinceSection value={query.since} onChange={(since) => setQuery({ ...query, since })} />
       </FilterBar>
       {list.status === "loading" && <RowsSkeleton rows={4} />}
       {list.status === "error" && (
@@ -102,13 +113,17 @@ function ReposViewInner({
           </button>
         </Callout>
       )}
-      {list.status === "ready" && list.rows.length === 0 && (
-        <CommandEmpty
-          title="No repos with files yet"
-          description="Files with GitHub repo context group here by repo."
-          command="uploads put ./shot.png --pr 123"
-        />
-      )}
+      {list.status === "ready" &&
+        list.rows.length === 0 &&
+        (query.since ? (
+          <InlineEmpty title={`No repos with files${sinceEmptySuffix(query.since)}.`} />
+        ) : (
+          <CommandEmpty
+            title="No repos with files yet"
+            description="Files with GitHub repo context group here by repo."
+            command="uploads put ./shot.png --pr 123"
+          />
+        ))}
       {list.status === "ready" && list.rows.length > 0 && (
         <ul className="m-0 grid list-none p-0">
           {list.rows.map((row) => (

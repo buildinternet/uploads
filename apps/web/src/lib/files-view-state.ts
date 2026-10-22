@@ -13,12 +13,15 @@ import {
 
 export type FilesView = "pulls" | "repos" | "pages";
 export type PrStateFilter = "open" | "closed" | "merged";
+/** Upload-time window (`?since=`), relative so a shared link keeps its meaning. */
+export type SinceFilter = "1d" | "7d" | "30d";
 
 export interface FilesQuery {
   view: FilesView;
   type: FileTypeClass | null;
   /** Device (`?surface=`), from the classifier's `ai.surface` label. */
   surface: FileSurface | null;
+  since: SinceFilter | null;
   /** Lowercased `owner/repo`, "" for all repos. By pull request only. */
   repo: string;
   /** By pull request only. */
@@ -33,6 +36,7 @@ export interface FilesQuery {
 export interface ScopePageQuery {
   type: FileTypeClass | null;
   surface: FileSurface | null;
+  since: SinceFilter | null;
   /** PR page: group tiles by `path` metadata (`?group=path`). */
   groupByPath: boolean;
 }
@@ -47,6 +51,14 @@ export const FILE_SURFACE_LABELS: Record<FileSurface, string> = {
   mobile: "Mobile",
   desktop: "Desktop",
   tablet: "Tablet",
+};
+
+export const SINCE_FILTERS: readonly SinceFilter[] = ["1d", "7d", "30d"];
+
+export const SINCE_LABELS: Record<SinceFilter, string> = {
+  "1d": "Last 24 hours",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
 };
 
 const FILE_TYPES: readonly string[] = ["screenshot", "video", "other"];
@@ -64,6 +76,21 @@ export function parseFileTypeParam(raw: string | null | undefined): FileTypeClas
 
 export function parseSurfaceParam(raw: string | null | undefined): FileSurface | null {
   return raw && (FILE_SURFACES as readonly string[]).includes(raw) ? (raw as FileSurface) : null;
+}
+
+export function parseSinceParam(raw: string | null | undefined): SinceFilter | null {
+  return raw && (SINCE_FILTERS as readonly string[]).includes(raw) ? (raw as SinceFilter) : null;
+}
+
+/** Client-side twin of the API's `since`, for items fetched without it. */
+export function matchesSinceFilter(
+  updatedAt: string | undefined,
+  since: SinceFilter | null,
+  now: number = Date.now(),
+): boolean {
+  if (since === null) return true;
+  if (!updatedAt) return false;
+  return Date.parse(updatedAt) >= now - Number.parseInt(since, 10) * 86_400_000;
 }
 
 export function parsePrStateParam(raw: string | null | undefined): PrStateFilter | null {
@@ -96,6 +123,7 @@ export function readFilesQuery(search: string): FilesQuery {
     view,
     type: parseFileTypeParam(params.get("type")),
     surface: parseSurfaceParam(params.get("surface")),
+    since: parseSinceParam(params.get("since")),
     repo: view === "pulls" ? normalizeRepoFilter(params.get("repo")) : "",
     state: view === "pulls" ? parsePrStateParam(params.get("state")) : null,
     all: view === "pulls" && params.get("all") === "1",
@@ -107,6 +135,7 @@ export function filesSearch(query: FilesQuery): string {
   if (query.view !== "pulls") params.set("view", query.view);
   if (query.type) params.set("type", query.type);
   if (query.surface) params.set("surface", query.surface);
+  if (query.since) params.set("since", query.since);
   if (query.view === "pulls" && query.repo) params.set("repo", query.repo);
   if (query.view === "pulls" && query.state) params.set("state", query.state);
   if (query.view === "pulls" && query.all) params.set("all", "1");
@@ -119,6 +148,7 @@ export function readScopePageQuery(search: string): ScopePageQuery {
   return {
     type: parseFileTypeParam(params.get("type")),
     surface: parseSurfaceParam(params.get("surface")),
+    since: parseSinceParam(params.get("since")),
     groupByPath: params.get("group") === "path",
   };
 }
@@ -127,6 +157,7 @@ export function scopePageSearch(query: ScopePageQuery): string {
   const params = new URLSearchParams();
   if (query.type) params.set("type", query.type);
   if (query.surface) params.set("surface", query.surface);
+  if (query.since) params.set("since", query.since);
   if (query.groupByPath) params.set("group", "path");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -137,7 +168,7 @@ export function filesBasePath(workspace: string): string {
 }
 
 export function filesViewHref(workspace: string, view: FilesView): string {
-  return `${filesBasePath(workspace)}${filesSearch({ view, type: null, surface: null, repo: "", state: null, all: false })}`;
+  return `${filesBasePath(workspace)}${filesSearch({ view, type: null, surface: null, since: null, repo: "", state: null, all: false })}`;
 }
 
 function splitRepo(repo: string): [string, string] | null {
@@ -231,6 +262,11 @@ export function typeEmptyNoun(
   return surface ? `${FILE_SURFACE_LABELS[surface].toLowerCase()} ${noun}` : noun;
 }
 
+/** " in the last 7 days" for empty-state titles; "" without a window. */
+export function sinceEmptySuffix(since: SinceFilter | null): string {
+  return since ? ` in the ${SINCE_LABELS[since].toLowerCase()}` : "";
+}
+
 export type PullsEmptyCopy =
   | { kind: "filtered"; title: string }
   | { kind: "command"; title: string; description: string };
@@ -240,7 +276,18 @@ export type PullsEmptyCopy =
  * `all=1` ("Show older pull requests"), and it never says whether older rows
  * exist, so the copy names the window until the viewer has looked past it.
  */
-export function pullsEmptyCopy(input: { filtering: boolean; showOlder: boolean }): PullsEmptyCopy {
+export function pullsEmptyCopy(input: {
+  filtering: boolean;
+  showOlder: boolean;
+  /** An explicit window replaces the 90-day default. */
+  since?: SinceFilter | null;
+}): PullsEmptyCopy {
+  if (input.since) {
+    return {
+      kind: "filtered",
+      title: `No pull requests${sinceEmptySuffix(input.since)}${input.filtering ? " match these filters" : ""}.`,
+    };
+  }
   if (input.filtering) {
     return {
       kind: "filtered",

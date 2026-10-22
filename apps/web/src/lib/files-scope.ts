@@ -4,7 +4,7 @@
  */
 import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
 import type { ScopeFilesResponse, ThumbItem } from "./api-client";
-import { typeEmptyNoun } from "./files-view-state";
+import { sinceEmptySuffix, typeEmptyNoun, type SinceFilter } from "./files-view-state";
 import { pairPartners } from "./workspace-screenshots";
 
 export type ScopeItemDto = ScopeFilesResponse["items"][number];
@@ -117,16 +117,17 @@ export function scopeEmptyCopy(input: {
   number: number | null;
   type: FileTypeClass | null;
   surface?: FileSurface | null;
+  since?: SinceFilter | null;
 }): {
   title: string;
   description: string;
   command: string | null;
 } {
   const where = input.number !== null ? "on this pull request" : "in this repo";
-  if (input.type !== null || input.surface) {
+  if (input.type !== null || input.surface || input.since) {
     return {
-      title: `No ${typeEmptyNoun(input.type, input.surface ?? null)} ${where}`,
-      description: "Clear the type filter to see every file.",
+      title: `No ${typeEmptyNoun(input.type, input.surface ?? null)} ${where}${sinceEmptySuffix(input.since ?? null)}`,
+      description: "Clear the filters to see every file.",
       command: null,
     };
   }

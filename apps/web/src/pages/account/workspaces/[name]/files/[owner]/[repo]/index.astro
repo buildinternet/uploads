@@ -35,7 +35,7 @@ if (Astro.url.pathname.replace(/\/$/, "") !== canonical.path) {
 }
 
 const initialSearch = Astro.url.search;
-const { type, surface } = readScopePageQuery(initialSearch);
+const { type, surface, since } = readScopePageQuery(initialSearch);
 const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const props: ScopePageProps = {
@@ -53,7 +53,7 @@ if (cookie.trim()) {
     loadScopeFiles(
       apiOrigin,
       workspace,
-      { repo: canonical.repo, number: null, type, surface },
+      { repo: canonical.repo, number: null, type, surface, since },
       fetchOpts,
     ),
     loadPulls(apiOrigin, workspace, { type: null, repo: canonical.repo, state: null }, fetchOpts),
