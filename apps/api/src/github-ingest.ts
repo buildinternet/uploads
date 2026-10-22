@@ -349,9 +349,19 @@ async function fetchAndStore(
       token = minted;
     }
 
-    const res = await githubFetch(fetchImpl, attachment.url, {
+    let res = await githubFetch(fetchImpl, attachment.url, {
       headers: { authorization: `Bearer ${token}`, "user-agent": "uploads.sh" },
     });
+    if (res.status === 404 || res.status === 403) {
+      // Private repos: GitHub serves user-attachments only to users with
+      // access and 404s an installation token. The rendered body carries a
+      // short-lived signed URL for the same asset instead.
+      const signed = (await signedAttachmentUrls(fetchImpl, token, ref)).get(
+        attachment.id.toLowerCase(),
+      );
+      if (signed)
+        res = await githubFetch(fetchImpl, signed, { headers: { "user-agent": "uploads.sh" } });
+    }
     if (res.status === 404 || res.status === 403 || res.status === 410) {
       return { kind: "skip", reason: "asset_not_found" };
     }
@@ -541,17 +551,45 @@ export async function reconcileIngestSource(
   return summary;
 }
 
+const SIGNED_ATTACHMENT_RE =
+  /https:\/\/private-user-images\.githubusercontent\.com\/[^"'\s<>]*?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[^"'\s<>]*/gi;
+
+/**
+ * Signed `private-user-images.githubusercontent.com` URLs (`?jwt=`, valid a
+ * few minutes) from the source's rendered HTML, keyed by ledger asset id
+ * (`assets/<uuid>`). Empty when the source is gone or has none.
+ */
+async function signedAttachmentUrls(
+  fetchImpl: typeof fetch,
+  token: string,
+  ref: IngestSourceRef,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const res = await githubFetch(fetchImpl, sourceUrl(ref), {
+    headers: { ...githubHeaders(token), accept: "application/vnd.github.html+json" },
+  });
+  if (!res.ok) return out;
+  const { body_html: html } = (await res.json()) as { body_html?: string | null };
+  for (const m of (html ?? "").matchAll(SIGNED_ATTACHMENT_RE)) {
+    const id = `assets/${m[1]!.toLowerCase()}`;
+    if (!out.has(id)) out.set(id, m[0].replaceAll("&amp;", "&"));
+  }
+  return out;
+}
+
+function sourceUrl(ref: IngestSourceRef): string {
+  return ref.source === "body"
+    ? `https://api.github.com/repos/${ref.repo}/issues/${ref.num}`
+    : `https://api.github.com/repos/${ref.repo}/issues/comments/${ref.source.slice("comment:".length)}`;
+}
+
 /** GET the current body/comment text + author from GitHub, or `text: null` on 404. */
 async function fetchSourceText(
   fetchImpl: typeof fetch,
   token: string,
   ref: IngestSourceRef,
 ): Promise<{ text: string | null; author: string | null }> {
-  const url =
-    ref.source === "body"
-      ? `https://api.github.com/repos/${ref.repo}/issues/${ref.num}`
-      : `https://api.github.com/repos/${ref.repo}/issues/comments/${ref.source.slice("comment:".length)}`;
-  const res = await githubFetch(fetchImpl, url, { headers: githubHeaders(token) });
+  const res = await githubFetch(fetchImpl, sourceUrl(ref), { headers: githubHeaders(token) });
   if (res.status === 404) return { text: null, author: null };
   if (!res.ok) throw new Error(`github source fetch failed: ${res.status}`);
   const body = (await res.json()) as { body?: string | null; user?: { login?: string } };
@@ -599,12 +637,26 @@ export async function ingestForWebhook(
   );
 
   const { text, author } = await fetchSourceText(fetchImpl, token, ref);
-  await reconcileIngestSource(env, ws, link.workspaceName, ref, text, author, {
+  const summary = await reconcileIngestSource(env, ws, link.workspaceName, ref, text, author, {
     ...deps,
     token,
     mode,
     ingestBotAuthors: options.ingestBotAttachments,
   });
+  // Skips are permanent and otherwise invisible on the webhook path: nothing
+  // is ledgered and no one sees the summary, so log why.
+  if (summary.skipped.length > 0) {
+    console.warn(
+      JSON.stringify({
+        message: "github ingest skipped attachments",
+        repo: ref.repo,
+        kind: ref.kind,
+        num: ref.num,
+        source: ref.source,
+        skipped: summary.skipped,
+      }),
+    );
+  }
 }
 
 /**
