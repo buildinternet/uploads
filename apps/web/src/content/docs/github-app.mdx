@@ -112,8 +112,9 @@ When someone drags an image or video into a PR or issue on GitHub itself, or att
 Cursor cloud-agent rewrite URLs (`cursor.com/artifacts/c/art-*`) from a linked PR or issue body or
 comment. It does this on create and on edit. Imported files carry the same `gh.*` metadata as CLI
 uploads, so they show up in search and on the "From GitHub" rail of file pages. They survive even
-if the original host's copy goes away. They never appear in the managed attachments comment; they're
-an index, not a source of truth.
+if the original host's copy goes away. They also appear in the managed attachments comment and
+count toward the check, so the comment stays the full set of visuals for the PR, even when the same
+images are inline in the description.
 
 Viewer pages (`/artifacts/v/`) and login-walled agent artifact links are skipped — turn
 on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets a public link.
