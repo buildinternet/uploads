@@ -4,7 +4,7 @@
  * Views depend on `Loaded<T>` and `CreateLiveLinkResult` only, so the view
  * code never branches on api-client's result spelling.
  */
-import type { FileTypeClass } from "@uploads/comment-render/scope";
+import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
 import {
   createWorkspaceFeed,
   fetchPulls,
@@ -37,6 +37,7 @@ export async function loadPulls(
   workspace: string,
   q: {
     type: FileTypeClass | null;
+    surface?: FileSurface | null;
     repo: string;
     state: PrStateFilter | null;
     /** Lift the API's 90-day recency window ("Show older pull requests"). */
@@ -52,6 +53,7 @@ export async function loadPulls(
       ...(q.repo ? { repo: q.repo } : {}),
       ...(q.state ? { state: q.state } : {}),
       ...(q.type ? { type: q.type } : {}),
+      ...(q.surface ? { surface: q.surface } : {}),
       ...(q.all ? { all: true } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
     },
@@ -63,13 +65,24 @@ export async function loadPulls(
 export async function loadRepos(
   apiOrigin: string,
   workspace: string,
-  q: { type: FileTypeClass | null; cursor?: string },
+  q: {
+    type: FileTypeClass | null;
+    surface?: FileSurface | null;
+    cursor?: string;
+    /** Repo names only: the PR view's repo select. */
+    namesOnly?: boolean;
+  },
   opts?: ServerFetchOpts,
 ): Promise<Loaded<ReposResponse>> {
   const result = await fetchRepos(
     apiOrigin,
     workspace,
-    { ...(q.type ? { type: q.type } : {}), ...(q.cursor ? { cursor: q.cursor } : {}) },
+    {
+      ...(q.type ? { type: q.type } : {}),
+      ...(q.surface ? { surface: q.surface } : {}),
+      ...(q.cursor ? { cursor: q.cursor } : {}),
+      ...(q.namesOnly ? { namesOnly: true } : {}),
+    },
     opts,
   );
   return loaded(result);
@@ -78,7 +91,13 @@ export async function loadRepos(
 export async function loadScopeFiles(
   apiOrigin: string,
   workspace: string,
-  q: { repo: string; number: number | null; type: FileTypeClass | null; cursor?: string },
+  q: {
+    repo: string;
+    number: number | null;
+    type: FileTypeClass | null;
+    surface?: FileSurface | null;
+    cursor?: string;
+  },
   opts?: ServerFetchOpts,
 ): Promise<Loaded<ScopeFilesResponse>> {
   const result = await fetchScopeFiles(
@@ -88,6 +107,7 @@ export async function loadScopeFiles(
       repo: q.repo,
       ...(q.number !== null ? { number: q.number } : {}),
       ...(q.type ? { type: q.type } : {}),
+      ...(q.surface ? { surface: q.surface } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
     },
     opts,

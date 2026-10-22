@@ -9,6 +9,12 @@ import "@uploads/ui/styles.css";
 
 interface Props {
   children: ReactNode;
+  /**
+   * Rendered instead of the recovery Callout. A small piece of a larger
+   * island (the sidebar's usage footer) passes `null` so its crash takes
+   * only itself down, quietly, and the rest keeps working.
+   */
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -34,6 +40,7 @@ export class IslandErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
+    if (this.props.fallback !== undefined) return this.props.fallback;
     return (
       <div className="wft-status-block">
         <Callout tone="error">

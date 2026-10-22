@@ -175,13 +175,25 @@
         "operationId": "listFilesByPath",
         "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Group workspace files by GitHub path",
-        "description": "Powers the web Screenshots page's grouped-by-path view. Groups recently uploaded `gh.*`-tagged files by project and path.",
+        "description": "Powers the web Screenshots page's grouped-by-path view. Groups recently uploaded `gh.*`-tagged files by project and path. Files with a `screen` and no `path` group by screen name, marked `by: \"screen\"`.",
         "parameters": [
           {
             "name": "merged",
             "in": "query",
             "schema": { "type": "string", "enum": ["1"] },
             "description": "Set to `1` to include only files tagged from a merged PR."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["screenshot", "video", "other"] },
+            "description": "Keep only files of this type, by key extension."
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["mobile", "desktop", "tablet"] },
+            "description": "Keep only files the classifier labeled with this device (`ai.surface`)."
           }
         ],
         "responses": {

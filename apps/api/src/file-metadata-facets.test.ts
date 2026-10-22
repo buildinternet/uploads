@@ -212,6 +212,47 @@ describe("groupObjectsByPath", () => {
     expect(result.projects).toEqual([{ label: "Other", count: 3, lastUpdated: at(3) }]);
   });
 
+  it("groups screen-only files by screen name; a file with both groups by path", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        { workspace: "acme", key: "a.png", meta: { screen: "Settings" }, at: at(1) },
+        { workspace: "acme", key: "b.png", meta: { path: "/home", screen: "Home" }, at: at(2) },
+      ]),
+      "acme",
+    );
+    expect(result.groups.map((g) => [g.path, g.by ?? "path", g.recent])).toEqual([
+      ["/home", "path", ["b.png"]],
+      ["Settings", "screen", ["a.png"]],
+    ]);
+    expect(result.latest.map((item) => [item.key, item.by ?? "path"])).toEqual([
+      ["b.png", "path"],
+      ["a.png", "screen"],
+    ]);
+  });
+
+  it("keeps only the requested ai.surface when `surface` is set", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        {
+          workspace: "acme",
+          key: "a.png",
+          meta: { path: "/x", "ai.surface": "mobile" },
+          at: at(1),
+        },
+        {
+          workspace: "acme",
+          key: "b.png",
+          meta: { path: "/x", "ai.surface": "desktop" },
+          at: at(2),
+        },
+        { workspace: "acme", key: "c.png", meta: { path: "/x" }, at: at(3) },
+      ]),
+      "acme",
+      { surface: "mobile" },
+    );
+    expect(result.groups.map((g) => g.recent)).toEqual([["a.png"]]);
+  });
+
   it("reads app metadata so local-origin shots group by app, not host (#692)", async () => {
     const result = await groupObjectsByPath(
       timedDb([

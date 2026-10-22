@@ -35,7 +35,7 @@ if (Astro.url.pathname.replace(/\/$/, "") !== canonical.path) {
 }
 
 const initialSearch = Astro.url.search;
-const { type } = readScopePageQuery(initialSearch);
+const { type, surface } = readScopePageQuery(initialSearch);
 const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const props: ScopePageProps = {
@@ -50,7 +50,12 @@ if (cookie.trim()) {
   const fetchOpts = { cookie, fetchImpl: serverApiFetchImpl(env, Astro.request) };
   const [summary, scope, pulls] = await Promise.all([
     getWorkspaceSummary(apiOrigin, workspace, fetchOpts),
-    loadScopeFiles(apiOrigin, workspace, { repo: canonical.repo, number: null, type }, fetchOpts),
+    loadScopeFiles(
+      apiOrigin,
+      workspace,
+      { repo: canonical.repo, number: null, type, surface },
+      fetchOpts,
+    ),
     loadPulls(apiOrigin, workspace, { type: null, repo: canonical.repo, state: null }, fetchOpts),
   ]);
   if (summary.kind === "success") {

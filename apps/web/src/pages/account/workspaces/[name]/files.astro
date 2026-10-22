@@ -71,7 +71,7 @@ if (query.view === "pulls") {
   if (fetchOpts) {
     const [pulls, repos] = await Promise.all([
       loadPulls(apiOrigin, workspace, query, fetchOpts),
-      loadRepos(apiOrigin, workspace, { type: null }, fetchOpts),
+      loadRepos(apiOrigin, workspace, { type: null, namesOnly: true }, fetchOpts),
     ]);
     if (pulls.ok) {
       pullsProps.initialPage = { rows: pulls.value.pulls, nextCursor: pulls.value.nextCursor };
@@ -81,17 +81,23 @@ if (query.view === "pulls") {
 } else if (query.view === "repos") {
   reposProps = { apiOrigin, workspace, initialSearch };
   if (fetchOpts) {
-    const repos = await loadRepos(apiOrigin, workspace, { type: query.type }, fetchOpts);
+    const repos = await loadRepos(
+      apiOrigin,
+      workspace,
+      { type: query.type, surface: query.surface },
+      fetchOpts,
+    );
     if (repos.ok) {
       reposProps.initialPage = { rows: repos.value.repos, nextCursor: repos.value.nextCursor };
     }
   }
 } else if (query.view === "pages" && fetchOpts) {
-  const { merged, type } = readScreenshotsView(initialSearch);
+  const { merged, type, surface } = readScreenshotsView(initialSearch);
   const overview = await getWorkspaceFilesByPath(apiOrigin, workspace, {
     ...fetchOpts,
     merged,
     type: type ?? undefined,
+    surface: surface ?? undefined,
   });
   if (overview.kind === "ok") {
     pagesOverview = {
@@ -125,7 +131,7 @@ const pagesProps = {
 };
 ---
 
-<WorkspaceLayout workspace={workspace} tip={TIPS[query.view]} showUsage showQuickActions={false}>
+<WorkspaceLayout workspace={workspace} tip={TIPS[query.view]} showQuickActions={false}>
   <FilesViewNav workspace={workspace} current={query.view} />
   {
     pullsProps && (

@@ -51,6 +51,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 
@@ -62,6 +64,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "recent",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 
@@ -73,6 +77,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "recent",
       merged: false,
       type: "video",
+      surface: null,
+      by: "path",
     });
   });
 
@@ -84,6 +90,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 
@@ -95,6 +103,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 
@@ -106,6 +116,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 
@@ -117,6 +129,8 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       sort: "grouped",
       merged: true,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 });
@@ -138,6 +152,8 @@ describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less 
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 });

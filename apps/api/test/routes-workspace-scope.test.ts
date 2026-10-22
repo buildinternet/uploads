@@ -297,6 +297,36 @@ describe("GET /v1/workspaces/:ws/pulls", () => {
     });
   });
 
+  it("applies surface (ai.surface) to thumbnails and scope files; repos can skip thumbnails", async () => {
+    await putShot("alpha", "gh/acme/app/pull/1/desk.png", prMeta("acme/app", 1));
+    await seedObject("gh/acme/app/pull/1/phone.png", prMeta("acme/app", 1));
+    // `ai.*` is server-owned (the classifier writes it), so seed the row directly.
+    sqlite.db
+      .prepare(
+        `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+         VALUES ('alpha', ?, 'ai.surface', 'mobile', ?)`,
+      )
+      .run("gh/acme/app/pull/1/phone.png", new Date().toISOString());
+
+    const pulls = await getJson<PullsResponse>("/v1/workspaces/alpha/pulls?surface=mobile");
+    expect(pulls.pulls.map((p) => p.thumbnails.map((t) => t.key))).toEqual([
+      ["gh/acme/app/pull/1/phone.png"],
+    ]);
+
+    const scope = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=1&surface=mobile",
+    );
+    expect(scope.items.map((item) => item.objectKey)).toEqual(["gh/acme/app/pull/1/phone.png"]);
+
+    const names = await getJson<ReposResponse>("/v1/workspaces/alpha/repos?thumbnails=0");
+    expect(names.repos.map((r) => [r.repo, r.thumbnails.length])).toEqual([["acme/app", 0]]);
+
+    expect(await errorOf("/v1/workspaces/alpha/pulls?surface=watch")).toEqual({
+      status: 400,
+      code: "invalid_surface",
+    });
+  });
+
   it("excludes PRs idle for over 90 days by default and includes them with all=1", async () => {
     await putShot("alpha", "gh/acme/app/pull/1/old.png", prMeta("acme/app", 1));
     await putShot("alpha", "gh/acme/app/pull/2/new.png", prMeta("acme/app", 2));

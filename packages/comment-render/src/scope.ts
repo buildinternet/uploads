@@ -9,6 +9,14 @@ export type FileTypeClass = "screenshot" | "video" | "other";
 
 export const FILE_TYPE_CLASSES: readonly FileTypeClass[] = ["screenshot", "video", "other"];
 
+/**
+ * Device filter for the signed-in Files views: the classifier's `ai.surface`
+ * label (its `unknown` value is not a filter). Unclassified files never match.
+ */
+export type FileSurface = "mobile" | "desktop" | "tablet";
+
+export const FILE_SURFACES: readonly FileSurface[] = ["mobile", "desktop", "tablet"];
+
 /** Same sets as `apps/web/src/lib/workspace-screenshots.ts` `shotKindFromKey`. */
 export const IMAGE_EXTENSIONS: readonly string[] = ["png", "jpg", "jpeg", "webp", "gif", "avif"];
 export const VIDEO_EXTENSIONS: readonly string[] = ["mp4", "webm", "mov"];

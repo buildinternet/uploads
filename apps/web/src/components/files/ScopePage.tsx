@@ -110,7 +110,7 @@ function ScopePageInner({
   // failure kind; a slower response for a filter the viewer already left must
   // not win. Declared before useCursorList so the ref is current before its
   // fetch effect runs in the same commit.
-  const queryKey = `${repo}#${number ?? ""}:${query.type ?? ""}`;
+  const queryKey = `${repo}#${number ?? ""}:${query.type ?? ""}:${query.surface ?? ""}`;
   const queryKeyRef = useRef(queryKey);
   useEffect(() => {
     queryKeyRef.current = queryKey;
@@ -127,24 +127,28 @@ function ScopePageInner({
       : undefined,
     keyOf: (tile) => tile.key,
     load: (cursor) =>
-      loadScopeFiles(apiOrigin, workspace, { repo, number, type: query.type, cursor }).then(
-        (result) => {
-          const current = cursor === undefined && queryKeyRef.current === queryKey;
-          if (!result.ok) return { ok: false as const };
-          // privateCount ignores `type`, so any first page carries the scope's share info.
-          if (current) {
-            setShare(shareInfoFromScope(result.value));
-            setPull(result.value.pull);
-          }
-          return {
-            ok: true as const,
-            value: {
-              rows: result.value.items.map(scopeItemToTile),
-              nextCursor: result.value.nextCursor,
-            },
-          };
-        },
-      ),
+      loadScopeFiles(apiOrigin, workspace, {
+        repo,
+        number,
+        type: query.type,
+        surface: query.surface,
+        cursor,
+      }).then((result) => {
+        const current = cursor === undefined && queryKeyRef.current === queryKey;
+        if (!result.ok) return { ok: false as const };
+        // privateCount ignores `type`, so any first page carries the scope's share info.
+        if (current) {
+          setShare(shareInfoFromScope(result.value));
+          setPull(result.value.pull);
+        }
+        return {
+          ok: true as const,
+          value: {
+            rows: result.value.items.map(scopeItemToTile),
+            nextCursor: result.value.nextCursor,
+          },
+        };
+      }),
   });
 
   const scopeLabel = liveLinkScopeLabel(scope);
@@ -202,12 +206,13 @@ function ScopePageInner({
       }
     });
   };
-  const empty = scopeEmptyCopy({ number, type: query.type });
+  const empty = scopeEmptyCopy({ number, type: query.type, surface: query.surface });
   const githubHref =
     number !== null ? githubUrl(repo, "pull", String(number)) : `https://github.com/${repo}`;
   const repoPullsHref = `${filesBasePath(workspace)}${filesSearch({
     view: "pulls",
     type: null,
+    surface: null,
     repo,
     state: null,
     all: false,
@@ -322,7 +327,7 @@ function ScopePageInner({
       )}
 
       <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-        <TypeSelect value={query.type} onChange={(type) => setQuery({ ...query, type })} />
+        <TypeSelect value={query} onChange={(next) => setQuery({ ...query, ...next })} />
         {number !== null && (
           <div
             className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"

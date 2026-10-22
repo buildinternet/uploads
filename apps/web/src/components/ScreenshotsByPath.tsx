@@ -24,13 +24,13 @@
  * drill-in still fetch client-side, unchanged.
  */
 import { Callout } from "@uploads/ui";
-import type { FileTypeClass } from "@uploads/comment-render/scope";
 import "@uploads/ui/styles.css";
 import { PrLabel } from "@uploads/ui/components/pr-label";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import { CommandEmpty, InlineEmpty } from "./files/FilesEmpty";
 import { GhKindIcon, GitHubMark } from "./files/gh-glyphs";
+import type { TypeFilter } from "./files/FilterControls";
 import { PathFilterBar } from "./files/PathFilterBar";
 import { ShotThumb, type PreviewHandlers } from "./files/ShotThumb";
 import { useShotPreview } from "./files/useShotPreview";
@@ -48,7 +48,7 @@ import {
 import type { WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, type FileOpener } from "../lib/file-opener";
-import { matchesTypeFilter, typeEmptyNoun } from "../lib/files-view-state";
+import { matchesSurfaceFilter, matchesTypeFilter, typeEmptyNoun } from "../lib/files-view-state";
 import {
   filterCatalog,
   formatShotCount,
@@ -69,6 +69,7 @@ import {
   shotPrLabelInput,
   ghKindFallbackLabel,
   writeScreenshotsLocation,
+  type GroupBy,
   type RecentView,
   type ScreenshotsView,
 } from "../lib/workspace-screenshots";
@@ -195,6 +196,16 @@ function OverviewLoadingSkeleton() {
   );
 }
 
+/** A group or suggestion the page can drill into. */
+type DrillTarget = { project: string; path: string; by?: GroupBy | "screen" };
+
+/** Marks a group keyed on `screen` (an app view with no URL path). */
+function ScreenTag() {
+  return (
+    <span className="ml-2 align-[1px] text-[11px] font-normal text-muted-foreground">screen</span>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 /**
@@ -279,6 +290,7 @@ function ScreenshotsByPathInner({
       void getWorkspaceFilesByPath(apiOrigin, workspace, {
         merged: view.merged,
         type: view.type ?? undefined,
+        surface: view.surface ?? undefined,
       }).then((result) => {
         if (cancelled) return;
         setOverviewRefreshing(false);
@@ -300,7 +312,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, overviewRetryNonce, view.merged, view.type]);
+  }, [apiOrigin, workspace, overviewRetryNonce, view.merged, view.type, view.surface]);
 
   // GitHub-mirrored screenshots ("From GitHub" section), fetched in parallel
   // with the by-path overview. A failure here must never block or break the
@@ -375,10 +387,12 @@ function ScreenshotsByPathInner({
         apiOrigin,
         workspace,
         [
-          { key: "path", value: view.path },
+          { key: view.by === "screen" ? "screen" : "path", value: view.path },
           // "Merged only" toggle (persisted PR merge-state tagging): gh.merged
           // is a normal ANDed metadata filter, same as any other meta.* term.
           ...(view.merged ? [{ key: "gh.merged", value: "true" }] : []),
+          // Device filter: the classifier's label, ANDed like the rest.
+          ...(view.surface ? [{ key: "ai.surface", value: view.surface }] : []),
         ],
         { collapsePromoted: true },
       ).then((result) => {
@@ -393,7 +407,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, view.path, view.merged, drillRetryNonce]);
+  }, [apiOrigin, workspace, view.path, view.by, view.merged, view.surface, drillRetryNonce]);
 
   // Cmd/Ctrl-K and "/" focus the path filter. Escape and scroll dismissal of
   // the hover preview live in useShotPreview.
@@ -450,12 +464,13 @@ function ScreenshotsByPathInner({
   }
 
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
-  const onDrill = (group: { project: string; path: string }) =>
-    setView({ ...view, project: group.project, path: group.path });
-  const setProject = (project: string) => setView({ ...view, project, path: "" });
-  const setQuery = (q: string) => setView({ ...view, path: "", q });
-  const setSort = (sort: RecentView) => setView({ ...view, path: "", sort });
-  const setType = (type: FileTypeClass | null) => setView({ ...view, type });
+  const onDrill = (group: DrillTarget) =>
+    setView({ ...view, project: group.project, path: group.path, by: group.by ?? "path" });
+  const setProject = (project: string) => setView({ ...view, project, path: "", by: "path" });
+  const setQuery = (q: string) => setView({ ...view, path: "", by: "path", q });
+  const setSort = (sort: RecentView) => setView({ ...view, path: "", by: "path", sort });
+  const setType = (next: TypeFilter) => setView({ ...view, ...next });
+  const typeFiltered = view.type !== null || view.surface !== null;
   const setMerged = (merged: boolean) => setView({ ...view, merged });
 
   // GitHub items bucketed by project label, for both the overview's
@@ -464,6 +479,7 @@ function ScreenshotsByPathInner({
   if (ghState.status === "ready") {
     for (const item of ghState.items) {
       if (!matchesTypeFilter(item.key, view.type)) continue;
+      if (!matchesSurfaceFilter(item.metadata, view.surface)) continue;
       const label = projectLabelFromItemMeta(item.metadata);
       ghByProject.set(label, [...(ghByProject.get(label) ?? []), item]);
     }
@@ -478,14 +494,14 @@ function ScreenshotsByPathInner({
   // workspace with no merged shots would hide the only control that can turn
   // the filter back off.
   const showFilter =
-    projectLabels.length > 0 || overview.catalog.length > 0 || view.merged || view.type !== null;
+    projectLabels.length > 0 || overview.catalog.length > 0 || view.merged || typeFiltered;
   const filterBar = showFilter ? (
     <PathFilterBar
       project={view.project}
       q={view.q}
       path={view.path}
       sort={view.sort}
-      type={view.type}
+      type={{ type: view.type, surface: view.surface }}
       merged={view.merged}
       projects={projectLabels}
       catalog={overview.catalog}
@@ -493,7 +509,7 @@ function ScreenshotsByPathInner({
       onQuery={setQuery}
       onSort={setSort}
       onType={setType}
-      onPickPath={(path) => setView({ ...view, path })}
+      onPickPath={(picked) => setView({ ...view, path: picked.path, by: picked.by })}
       onMerged={setMerged}
     />
   ) : null;
@@ -516,9 +532,10 @@ function ScreenshotsByPathInner({
     const drillPaired = pairedShotKeys(
       drillItems.map((item) => ({ key: item.key, state: item.metadata?.state })),
     );
-    const noun = view.type ? typeEmptyNoun(view.type) : "screenshots";
+    const noun = typeFiltered ? typeEmptyNoun(view.type, view.surface) : "screenshots";
     const scopeFiltered = Boolean(view.project) || view.type !== null;
-    let drillEmptyMessage = `No ${noun} at this path.`;
+    const where = view.by === "screen" ? "on this screen" : "at this path";
+    let drillEmptyMessage = `No ${noun} ${where}.`;
     if (scopeFiltered && drill.status === "ready" && drill.truncated) {
       drillEmptyMessage = view.type
         ? `None of the first 100 files at this path are ${noun}${view.project ? ` from ${view.project}` : ""} — there may be more beyond that.`
@@ -527,7 +544,7 @@ function ScreenshotsByPathInner({
       drillEmptyMessage = `No ${noun} at this path for this project.`;
     }
 
-    const parentView = { ...view, path: "" };
+    const parentView = { ...view, path: "", by: "path" as const };
     return (
       <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
@@ -550,6 +567,7 @@ function ScreenshotsByPathInner({
           </a>
           <h2 className="wsp-drill__heading m-0 text-base font-semibold [overflow-wrap:anywhere]">
             {view.path}
+            {view.by === "screen" && <ScreenTag />}
           </h2>
         </div>
         {drill.status === "loading" && (
@@ -621,7 +639,7 @@ function ScreenshotsByPathInner({
         {filterBar}
         {latestItems.length === 0 ? (
           !view.merged &&
-          view.type === null &&
+          !typeFiltered &&
           overview.latest.length === 0 &&
           overview.catalog.length === 0 ? (
             <EmptyShotsCta title="No screenshots yet" />
@@ -692,17 +710,17 @@ function ScreenshotsByPathInner({
   // catalog under the merged-only or type filter means "no merged shots yet", not "no screenshots
   // ever uploaded" — that's the filtered-empty message below, not the CLI CTA.
   const isEmptyWorkspace =
-    !view.merged && view.type === null && overview.catalog.length === 0 && ghByProject.size === 0;
+    !view.merged && !typeFiltered && overview.catalog.length === 0 && ghByProject.size === 0;
   const isEmptyFilter = !isEmptyWorkspace && sectionLabels.length === 0;
-  const emptyNoun = view.type ? typeEmptyNoun(view.type) : "screenshots";
+  const emptyNoun = typeFiltered ? typeEmptyNoun(view.type, view.surface) : "screenshots";
   const emptyScope = view.project ? " for this project" : "";
   let emptyFilterMessage = view.merged
     ? `No merged ${emptyNoun}${emptyScope} yet.`
     : `No ${emptyNoun}${emptyScope}.`;
   if (qTrim) {
     emptyFilterMessage = overview.catalogTruncated
-      ? `No paths matching ${qTrim} in the most active set.`
-      : `No paths matching ${qTrim}.`;
+      ? `No paths or screens matching ${qTrim} in the most active set.`
+      : `No paths or screens matching ${qTrim}.`;
   }
 
   return (
@@ -728,7 +746,7 @@ function ScreenshotsByPathInner({
                 groups={previewGroups}
                 ghItems={ghItems}
                 ghTruncated={ghTruncated}
-                typeFiltered={view.type !== null}
+                typeFiltered={typeFiltered}
                 showViewProject={!view.project}
                 // Each subsequent project opens with a full-width hairline —
                 // the section boundary is structural, not just whitespace —
@@ -738,14 +756,16 @@ function ScreenshotsByPathInner({
                   ...view,
                   project: label,
                   path: "",
+                  by: "path",
                 })}
-                onViewProject={() => setView({ ...view, project: label, path: "" })}
+                onViewProject={() => setView({ ...view, project: label, path: "", by: "path" })}
                 onDrill={onDrill}
                 drillHref={(group) =>
                   screenshotsViewHref(workspace, {
                     ...view,
                     project: group.project,
                     path: group.path,
+                    by: group.by ?? "path",
                   })
                 }
                 opener={opener}
@@ -826,8 +846,8 @@ function ProjectSection({
   bordered: boolean;
   projectHref: string;
   onViewProject: () => void;
-  onDrill: (group: { project: string; path: string }) => void;
-  drillHref: (group: { project: string; path: string }) => string;
+  onDrill: (group: DrillTarget) => void;
+  drillHref: (group: DrillTarget) => string;
   opener: FileOpener;
   preview: PreviewHandlers;
   titles: GithubTitleMap;
@@ -879,7 +899,7 @@ function ProjectSection({
       </div>
       {groups.map((group) => (
         <PathGroupSection
-          key={group.path}
+          key={`${group.by ?? "path"}\0${group.path}`}
           group={group}
           href={drillHref(group)}
           onDrill={onDrill}
@@ -967,7 +987,7 @@ function PathGroupSection({
 }: {
   group: FilesPathGroup;
   href: string;
-  onDrill: (group: { project: string; path: string }) => void;
+  onDrill: (group: DrillTarget) => void;
   opener: FileOpener;
   preview: PreviewHandlers;
 }) {
@@ -981,6 +1001,7 @@ function PathGroupSection({
       >
         <span className="wsp-group__path font-semibold text-[13px] [overflow-wrap:anywhere]">
           {group.path}
+          {group.by === "screen" && <ScreenTag />}
         </span>
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
           {formatShotCount(group.count)} · {lastUpdatedLabel(group.lastUpdated, new Date())}

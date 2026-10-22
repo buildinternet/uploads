@@ -38,6 +38,7 @@ describe("readFilesQuery / filesSearch", () => {
     expect(query).toEqual({
       view: "pulls",
       type: "video",
+      surface: null,
       repo: "acme/web",
       state: "merged",
       all: false,
@@ -47,19 +48,27 @@ describe("readFilesQuery / filesSearch", () => {
 
   it("round-trips all=1 (Show older pull requests) on the pulls view only", () => {
     const query = readFilesQuery("?repo=acme%2Fweb&all=1");
-    expect(query).toEqual({ view: "pulls", type: null, repo: "acme/web", state: null, all: true });
+    expect(query).toEqual({
+      view: "pulls",
+      type: null,
+      surface: null,
+      repo: "acme/web",
+      state: null,
+      all: true,
+    });
     expect(filesSearch(query)).toBe("?repo=acme%2Fweb&all=1");
     expect(readFilesQuery("?all=yes").all).toBe(false);
     expect(readFilesQuery("?view=repos&all=1").all).toBe(false);
-    expect(filesSearch({ view: "repos", type: null, repo: "", state: null, all: true })).toBe(
-      "?view=repos",
-    );
+    expect(
+      filesSearch({ view: "repos", type: null, surface: null, repo: "", state: null, all: true }),
+    ).toBe("?view=repos");
   });
 
   it("drops unknown values instead of failing", () => {
     expect(readFilesQuery("?type=gif&state=draft&repo=nope")).toEqual({
       view: "pulls",
       type: null,
+      surface: null,
       repo: "",
       state: null,
       all: false,
@@ -70,17 +79,27 @@ describe("readFilesQuery / filesSearch", () => {
     expect(readFilesQuery("?view=repos&type=other&repo=a%2Fb&state=open")).toEqual({
       view: "repos",
       type: "other",
+      surface: null,
       repo: "",
       state: null,
       all: false,
     });
     expect(
-      filesSearch({ view: "repos", type: "other", repo: "a/b", state: "open", all: false }),
+      filesSearch({
+        view: "repos",
+        type: "other",
+        surface: null,
+        repo: "a/b",
+        state: "open",
+        all: false,
+      }),
     ).toBe("?view=repos&type=other");
   });
 
   it("omits every default", () => {
-    expect(filesSearch({ view: "pulls", type: null, repo: "", state: null, all: false })).toBe("");
+    expect(
+      filesSearch({ view: "pulls", type: null, surface: null, repo: "", state: null, all: false }),
+    ).toBe("");
   });
 });
 
@@ -88,13 +107,18 @@ describe("readScopePageQuery / scopePageSearch", () => {
   it("round-trips type and group=path", () => {
     expect(readScopePageQuery("?type=screenshot&group=path")).toEqual({
       type: "screenshot",
+      surface: null,
       groupByPath: true,
     });
-    expect(scopePageSearch({ type: "screenshot", groupByPath: true })).toBe(
+    expect(scopePageSearch({ type: "screenshot", surface: null, groupByPath: true })).toBe(
       "?type=screenshot&group=path",
     );
-    expect(readScopePageQuery("?group=yes")).toEqual({ type: null, groupByPath: false });
-    expect(scopePageSearch({ type: null, groupByPath: false })).toBe("");
+    expect(readScopePageQuery("?group=yes")).toEqual({
+      type: null,
+      surface: null,
+      groupByPath: false,
+    });
+    expect(scopePageSearch({ type: null, surface: null, groupByPath: false })).toBe("");
   });
 });
 
@@ -228,14 +252,56 @@ describe("small mappers", () => {
 describe("Files URLs are never redirected to Storage", () => {
   it("keeps every builder output on /files", () => {
     const searches = [
-      filesSearch({ view: "pulls", type: "video", repo: "acme/web", state: "merged", all: false }),
-      filesSearch({ view: "pulls", type: null, repo: "acme/web", state: null, all: false }),
-      filesSearch({ view: "pulls", type: null, repo: "", state: "open", all: false }),
-      filesSearch({ view: "pulls", type: null, repo: "", state: null, all: true }),
-      filesSearch({ view: "pulls", type: "video", repo: "acme/web", state: null, all: true }),
-      filesSearch({ view: "repos", type: "other", repo: "", state: null, all: false }),
-      filesSearch({ view: "pages", type: "screenshot", repo: "", state: null, all: false }),
-      scopePageSearch({ type: "screenshot", groupByPath: true }),
+      filesSearch({
+        view: "pulls",
+        type: "video",
+        surface: null,
+        repo: "acme/web",
+        state: "merged",
+        all: false,
+      }),
+      filesSearch({
+        view: "pulls",
+        type: null,
+        surface: null,
+        repo: "acme/web",
+        state: null,
+        all: false,
+      }),
+      filesSearch({
+        view: "pulls",
+        type: null,
+        surface: null,
+        repo: "",
+        state: "open",
+        all: false,
+      }),
+      filesSearch({ view: "pulls", type: null, surface: null, repo: "", state: null, all: true }),
+      filesSearch({
+        view: "pulls",
+        type: "video",
+        surface: null,
+        repo: "acme/web",
+        state: null,
+        all: true,
+      }),
+      filesSearch({
+        view: "repos",
+        type: "other",
+        surface: null,
+        repo: "",
+        state: null,
+        all: false,
+      }),
+      filesSearch({
+        view: "pages",
+        type: "screenshot",
+        surface: null,
+        repo: "",
+        state: null,
+        all: false,
+      }),
+      scopePageSearch({ type: "screenshot", surface: null, groupByPath: true }),
     ];
     for (const search of searches) {
       expect(filesRouteRedirect("acme", search)).toBeNull();

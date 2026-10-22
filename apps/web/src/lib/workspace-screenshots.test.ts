@@ -216,6 +216,8 @@ describe("screenshots view URL state", () => {
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
       "?view=pages&project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
@@ -247,6 +249,8 @@ describe("screenshots view URL state", () => {
       sort: "grouped",
       merged: false,
       type: null,
+      surface: null,
+      by: "path",
     });
   });
 
@@ -258,6 +262,19 @@ describe("screenshots view URL state", () => {
     expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?view=pages&merged=1");
     expect(screenshotsSearch("acme/web", "", "", "recent", true, "other")).toBe(
       "?view=pages&sort=recent&project=acme%2Fweb&merged=1&type=other",
+    );
+  });
+
+  it("round-trips the device filter and screen drill-ins", () => {
+    expect(readScreenshotsView("?surface=mobile").surface).toBe("mobile");
+    expect(readScreenshotsView("?surface=watch").surface).toBeNull();
+    const screen = readScreenshotsView("?view=pages&screen=Settings");
+    expect(screen.path).toBe("Settings");
+    expect(screen.by).toBe("screen");
+    // `path` wins when a hand-edited URL carries both.
+    expect(readScreenshotsView("?path=%2Fa&screen=B").by).toBe("path");
+    expect(screenshotsSearch("", "Settings", "", "grouped", false, null, "mobile", "screen")).toBe(
+      "?view=pages&screen=Settings&surface=mobile",
     );
   });
 
@@ -282,6 +299,8 @@ describe("screenshots view hrefs and history mode", () => {
     sort: "grouped",
     merged: false,
     type: null,
+    surface: null,
+    by: "path",
   };
 
   it("builds a Files By page URL with encoded query state", () => {
@@ -343,22 +362,37 @@ describe("pathSuggestions", () => {
   ];
   it("dedupes the same path across projects, summing counts", () => {
     expect(pathSuggestions(catalog, { project: "", q: "" })).toEqual([
-      { path: "/admin", count: 5 },
-      { path: "/catalog/families", count: 5 },
+      { path: "/admin", by: "path", count: 5 },
+      { path: "/catalog/families", by: "path", count: 5 },
     ]);
   });
   it("respects the project scope and path query", () => {
     expect(pathSuggestions(catalog, { project: "acme/web", q: "/admin" })).toEqual([
-      { path: "/admin", count: 3 },
+      { path: "/admin", by: "path", count: 3 },
     ]);
     expect(pathSuggestions(catalog, { project: "", q: "cat" })).toEqual([
-      { path: "/catalog/families", count: 5 },
+      { path: "/catalog/families", by: "path", count: 5 },
+    ]);
+  });
+
+  it("keeps a screen name apart from a path with the same text", () => {
+    expect(
+      pathSuggestions(
+        [
+          { project: "acme/app", path: "Settings", by: "screen" as const, count: 2 },
+          { project: "acme/web", path: "Settings", count: 1 },
+        ],
+        { project: "", q: "sett" },
+      ),
+    ).toEqual([
+      { path: "Settings", by: "screen", count: 2 },
+      { path: "Settings", by: "path", count: 1 },
     ]);
   });
 
   it("matches a half-typed segment by substring, unlike pathQueryMatches", () => {
     expect(pathSuggestions(catalog, { project: "", q: "/ca" })).toEqual([
-      { path: "/catalog/families", count: 5 },
+      { path: "/catalog/families", by: "path", count: 5 },
     ]);
   });
   it("caps the list", () => {

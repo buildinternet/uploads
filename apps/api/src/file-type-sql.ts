@@ -8,9 +8,11 @@
  */
 import { ValidationError } from "@uploads/errors";
 import {
+  FILE_SURFACES,
   FILE_TYPE_CLASSES,
   IMAGE_EXTENSIONS,
   VIDEO_EXTENSIONS,
+  type FileSurface,
   type FileTypeClass,
 } from "@uploads/comment-render/scope";
 
@@ -50,5 +52,31 @@ export function parseFileTypeQuery(raw: string | undefined): FileTypeClass | und
   if (match) return match;
   throw new ValidationError("type must be screenshot, video, or other.", {
     code: "invalid_type",
+  });
+}
+
+/**
+ * The Files `surface` filter: an EXISTS on the classifier's `ai.surface` row
+ * for the object in `alias` (a trusted table alias with `workspace` and
+ * `object_key`). The value is a closed enum checked by `parseSurfaceQuery`,
+ * so it is inlined; the PK (workspace, object_key, meta_key) serves the seek.
+ */
+export function fileSurfaceSql(alias: string, surface: FileSurface): string {
+  if (!COLUMN_RE.test(alias)) throw new Error(`fileSurfaceSql: bad alias ${alias}`);
+  if (!FILE_SURFACES.includes(surface)) throw new Error(`fileSurfaceSql: bad surface ${surface}`);
+  return `EXISTS (
+    SELECT 1 FROM file_metadata sf
+    WHERE sf.workspace = ${alias}.workspace AND sf.object_key = ${alias}.object_key
+      AND sf.meta_key = 'ai.surface' AND sf.meta_value = '${surface}'
+  )`;
+}
+
+/** `?surface=`: undefined when absent or empty; 400 `invalid_surface` for anything else. */
+export function parseSurfaceQuery(raw: string | undefined): FileSurface | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const match = FILE_SURFACES.find((surface) => surface === raw);
+  if (match) return match;
+  throw new ValidationError("surface must be mobile, desktop, or tablet.", {
+    code: "invalid_surface",
   });
 }

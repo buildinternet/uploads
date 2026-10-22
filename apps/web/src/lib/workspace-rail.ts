@@ -1,7 +1,7 @@
 /**
- * Live data for `WorkspaceLayout.astro`'s right rail (connected work / usage /
- * quick actions — see `.context/2026-07-19-settings-overhaul-3a-reference.html`
- * and design doc §5.5). `renderDetailsHtml` also lives here for the settings
+ * Live data for `WorkspaceLayout.astro`'s right rail (connected work / quick
+ * actions — see `.context/2026-07-19-settings-overhaul-3a-reference.html`
+ * and design doc §5.5). Usage meters moved to the sidebar (`SidebarUsage`). `renderDetailsHtml` also lives here for the settings
  * tab's own slug/public-url summary — the rail dropped its copy of it as pure
  * duplication, but the builder stays shared since settings still needs it.
  *
@@ -10,9 +10,8 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - paints the last-known usage value from the workspace snapshot cache
- *    synchronously, then revalidates through the shared `loadWorkspaceSummary`
- *    request once the session gate resolves.
+ *  - hides the GitHub App install CTA once the session resolves and the
+ *    workspace already has the App.
  *
  * Connected-work hook contract (WorkspaceFileTable is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
@@ -23,9 +22,7 @@
  */
 import { getGithubInstalled, type GithubTitleMap } from "./api-client";
 import { onSession } from "./account-shell";
-import { escapeHtml, renderUsageHtml, type UsageSnapshot } from "./workspace-ui";
-import { readWorkspaceSnapshot } from "./workspace-cache";
-import { loadWorkspaceSummary } from "./workspace-summary-source";
+import { escapeHtml } from "./workspace-ui";
 import { filesPrHrefForWorkItem } from "./files-view-state";
 import { applyGhTitles, githubOwnerAvatarUrl, type GhWorkItem } from "./gh-context";
 import { prLabelHtml } from "./pr-label-html";
@@ -204,28 +201,7 @@ export function initWorkspaceRail(
   const setConnectedWork = bindConnectedWorkSetter(root, apiOrigin, workspace);
   setConnectedWork([]);
 
-  const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
   const githubCtaEl = root.querySelector<HTMLElement>("[data-rail-github-cta]");
-
-  // `data-stale` is a diagnostic marker, not a user-facing affordance: nothing
-  // in the app styles or reads it. It exists so warm-paint behavior (this
-  // file's whole point) can be verified in the browser — inspect the usage
-  // element after a Tier 1 paint and confirm the attribute is set, then
-  // confirm it clears once Tier 2 repaints with fresh data.
-  const paint = (usage: UsageSnapshot | undefined, stale: boolean): void => {
-    if (usageEl && usage) {
-      usageEl.innerHTML = renderUsageHtml(usage);
-      usageEl.toggleAttribute("data-stale", stale);
-    }
-  };
-
-  // Tier 1 — last known value, no network. Runs at module-eval time, before
-  // the session gate resolves. The server-rendered placeholder it overwrites
-  // occupies the same height, so this repaint moves nothing on the page.
-  // `usageEl` (and so this whole tier) only exists on tabs that pass
-  // `showUsage` (billing and screenshots).
-  const cached = readWorkspaceSnapshot(workspace);
-  if (cached?.usage) paint(cached.usage, true);
 
   onSession(() => {
     // Suppress the install CTA once this workspace has the App (issue #492).
@@ -236,28 +212,5 @@ export function initWorkspaceRail(
         if (installed) githubCtaEl.hidden = true;
       });
     }
-
-    // Shared per-page-load fetch (workspace-summary-source.ts dedupes with
-    // any other tab consumer), also the source that keeps the cached
-    // snapshot above warm for the *next* visit.
-    void loadWorkspaceSummary(apiOrigin, workspace).then((result) => {
-      if (result.kind !== "success") {
-        // A warm paint is better than an error string: the value on screen
-        // was true recently, and the failure is already surfaced by whatever
-        // the page body does with the same shared result. Only fall back to
-        // the error string when there was nothing warm to keep.
-        if (!cached?.usage && usageEl) usageEl.textContent = "Usage unavailable.";
-        return;
-      }
-      paint(result.usage ?? undefined, false);
-      // `result.usage: null` is a genuinely reachable success shape (e.g. a
-      // plan with no usage record yet) — `paint` above already skips it,
-      // leaving whatever Tier 1 warm-painted, if anything, on screen
-      // untouched (including its `data-stale`, which stays honest: the
-      // displayed value is still the cached one).
-      if (usageEl && !result.usage && !cached?.usage) {
-        usageEl.textContent = "Usage unavailable.";
-      }
-    });
   });
 }

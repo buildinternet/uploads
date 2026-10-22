@@ -87,6 +87,7 @@ function PullsViewInner({
     load: (cursor) =>
       loadPulls(apiOrigin, workspace, {
         type: query.type,
+        surface: query.surface,
         repo: query.repo,
         state: query.state,
         all: query.all,
@@ -111,7 +112,7 @@ function PullsViewInner({
     if (initialRepoOptions !== undefined) return;
     let cancelled = false;
     onSession(() => {
-      void loadRepos(apiOrigin, workspace, { type: null }).then((result) => {
+      void loadRepos(apiOrigin, workspace, { type: null, namesOnly: true }).then((result) => {
         if (!cancelled && result.ok) setRepoOptions(result.value.repos.map((row) => row.repo));
       });
     });
@@ -141,7 +142,7 @@ function PullsViewInner({
   return (
     <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
       <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-        <TypeSelect value={query.type} onChange={(type) => setQuery({ ...query, type })} />
+        <TypeSelect value={query} onChange={(next) => setQuery({ ...query, ...next })} />
         <RepoSelect
           value={query.repo}
           options={repoOptions}

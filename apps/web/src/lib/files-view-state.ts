@@ -4,7 +4,12 @@
  * fetch, so vitest covers it. Top-level views use `?view=` so a GitHub owner
  * named `repos` or `pages` cannot collide with a route.
  */
-import { fileTypeClassFromKey, type FileTypeClass } from "@uploads/comment-render/scope";
+import {
+  FILE_SURFACES,
+  fileTypeClassFromKey,
+  type FileSurface,
+  type FileTypeClass,
+} from "@uploads/comment-render/scope";
 
 export type FilesView = "pulls" | "repos" | "pages";
 export type PrStateFilter = "open" | "closed" | "merged";
@@ -12,6 +17,8 @@ export type PrStateFilter = "open" | "closed" | "merged";
 export interface FilesQuery {
   view: FilesView;
   type: FileTypeClass | null;
+  /** Device (`?surface=`), from the classifier's `ai.surface` label. */
+  surface: FileSurface | null;
   /** Lowercased `owner/repo`, "" for all repos. By pull request only. */
   repo: string;
   /** By pull request only. */
@@ -25,6 +32,7 @@ export interface FilesQuery {
 
 export interface ScopePageQuery {
   type: FileTypeClass | null;
+  surface: FileSurface | null;
   /** PR page: group tiles by `path` metadata (`?group=path`). */
   groupByPath: boolean;
 }
@@ -33,6 +41,12 @@ export const FILE_TYPE_LABELS: Record<FileTypeClass, string> = {
   screenshot: "Screenshots",
   video: "Videos",
   other: "Other",
+};
+
+export const FILE_SURFACE_LABELS: Record<FileSurface, string> = {
+  mobile: "Mobile",
+  desktop: "Desktop",
+  tablet: "Tablet",
 };
 
 const FILE_TYPES: readonly string[] = ["screenshot", "video", "other"];
@@ -46,6 +60,10 @@ function searchParams(search: string): URLSearchParams {
 
 export function parseFileTypeParam(raw: string | null | undefined): FileTypeClass | null {
   return raw && FILE_TYPES.includes(raw) ? (raw as FileTypeClass) : null;
+}
+
+export function parseSurfaceParam(raw: string | null | undefined): FileSurface | null {
+  return raw && (FILE_SURFACES as readonly string[]).includes(raw) ? (raw as FileSurface) : null;
 }
 
 export function parsePrStateParam(raw: string | null | undefined): PrStateFilter | null {
@@ -77,6 +95,7 @@ export function readFilesQuery(search: string): FilesQuery {
   return {
     view,
     type: parseFileTypeParam(params.get("type")),
+    surface: parseSurfaceParam(params.get("surface")),
     repo: view === "pulls" ? normalizeRepoFilter(params.get("repo")) : "",
     state: view === "pulls" ? parsePrStateParam(params.get("state")) : null,
     all: view === "pulls" && params.get("all") === "1",
@@ -87,6 +106,7 @@ export function filesSearch(query: FilesQuery): string {
   const params = new URLSearchParams();
   if (query.view !== "pulls") params.set("view", query.view);
   if (query.type) params.set("type", query.type);
+  if (query.surface) params.set("surface", query.surface);
   if (query.view === "pulls" && query.repo) params.set("repo", query.repo);
   if (query.view === "pulls" && query.state) params.set("state", query.state);
   if (query.view === "pulls" && query.all) params.set("all", "1");
@@ -98,6 +118,7 @@ export function readScopePageQuery(search: string): ScopePageQuery {
   const params = searchParams(search);
   return {
     type: parseFileTypeParam(params.get("type")),
+    surface: parseSurfaceParam(params.get("surface")),
     groupByPath: params.get("group") === "path",
   };
 }
@@ -105,6 +126,7 @@ export function readScopePageQuery(search: string): ScopePageQuery {
 export function scopePageSearch(query: ScopePageQuery): string {
   const params = new URLSearchParams();
   if (query.type) params.set("type", query.type);
+  if (query.surface) params.set("surface", query.surface);
   if (query.groupByPath) params.set("group", "path");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -115,7 +137,7 @@ export function filesBasePath(workspace: string): string {
 }
 
 export function filesViewHref(workspace: string, view: FilesView): string {
-  return `${filesBasePath(workspace)}${filesSearch({ view, type: null, repo: "", state: null, all: false })}`;
+  return `${filesBasePath(workspace)}${filesSearch({ view, type: null, surface: null, repo: "", state: null, all: false })}`;
 }
 
 function splitRepo(repo: string): [string, string] | null {
@@ -182,11 +204,23 @@ export function matchesTypeFilter(key: string, type: FileTypeClass | null): bool
   return type === null || fileTypeClassFromKey(key) === type;
 }
 
+/** Client-side twin of the API's `surface` filter, for items that carry metadata. */
+export function matchesSurfaceFilter(
+  metadata: Record<string, string> | undefined,
+  surface: FileSurface | null,
+): boolean {
+  return surface === null || metadata?.["ai.surface"] === surface;
+}
+
 export function prStateFromTitle(state: string | null | undefined): PrStateFilter | null {
   return parsePrStateParam(state ?? null);
 }
 
-export function typeEmptyNoun(type: FileTypeClass | null): string {
+export function typeEmptyNoun(
+  type: FileTypeClass | null,
+  surface: FileSurface | null = null,
+): string {
+  if (surface) return `${FILE_SURFACE_LABELS[surface].toLowerCase()} files`;
   if (type === "screenshot") return "screenshots";
   if (type === "video") return "videos";
   if (type === "other") return "other files";
