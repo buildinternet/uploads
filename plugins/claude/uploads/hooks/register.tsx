@@ -706,10 +706,30 @@ async function fetchOpenPr($: EngineInterface): Promise<{ number: number; url: s
   }
 }
 
+// The first row with a file held since the last look at the same branch, so
+// the pane opens on its Approve. The first look of a session opens nothing.
+const newHold = (before: Staged | null, view: Staged | null): BandRow | null => {
+  if (!before || !view || before.repo !== view.repo || before.branch !== view.branch) {
+    return null;
+  }
+  const wasHeld = new Set(
+    (Array.isArray(before.rows) ? before.rows : [])
+      .flatMap(filesOf)
+      .filter((f) => f.held)
+      .map((f) => f.key),
+  );
+  return view.rows.find((row) => filesOf(row).some((f) => f.held && !wasHeld.has(f.key))) ?? null;
+};
+
 // Refreshes what the band shows: the session directory's branch.
 async function refreshBand($: EngineInterface): Promise<void> {
+  const before = await read($, staged);
   const view = await fetchStaged($, null);
   await update($, staged, () => view);
+  const newlyHeld = newHold(before, view);
+  if (newlyHeld) {
+    await showRow($, newlyHeld);
+  }
   const pr = view && view.count > 0 ? await fetchOpenPr($) : null;
   if ((await read($, openPr))?.number !== pr?.number) {
     await update($, feedUrl, () => null);

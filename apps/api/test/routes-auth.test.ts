@@ -330,6 +330,17 @@ describe("auth routes", () => {
     expect(remove.status).toBe(403);
   });
 
+  it("tells the client when a D1 credential expires", async () => {
+    const token = "up_default_expiring-token-value";
+    const tokenHash = await sha256Hex(token);
+    const response = await app.request(
+      "/v1/default/files/bad%20key",
+      { headers: { Authorization: `Bearer ${token}` } },
+      env({ d1: { tokenHash, scopes: JSON.stringify(["files:read"]), expiresAt: "2099-01-01" } }),
+    );
+    expect(response.headers.get("Uploads-Token-Expires")).toBe("2099-01-01");
+  });
+
   it("rejects expired and revoked D1 credentials", async () => {
     const token = "up_default_expired-token-value";
     const tokenHash = await sha256Hex(token);

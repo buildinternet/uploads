@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createUploadsClient } from "../src/client.js";
 import { UploadsError } from "../src/errors.js";
-import { fileExpiredTokenStore } from "../src/expired-tokens.js";
+import { fileExpiredTokenStore, tokenExpiryWarner } from "../src/expired-tokens.js";
 
 let dir: string;
 beforeEach(() => {
@@ -89,5 +89,56 @@ describe("expired token memory", () => {
     await failure(client("up_test_revoked", path).list({ limit: 1 }));
     await failure(client("up_test_revoked", path).list({ limit: 1 }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("token expiry warning", () => {
+  const NOW = new Date("2026-10-22T12:00:00Z");
+
+  function warned(expiresAt: string | null, path = join(dir, "warned")) {
+    const lines: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ files: [], cursor: null }), {
+            status: 200,
+            headers: expiresAt ? { "Uploads-Token-Expires": expiresAt } : {},
+          }),
+      ),
+    );
+    const c = createUploadsClient(
+      { apiUrl: "https://api.test", workspace: "test", token: "up_test_live" },
+      {
+        onTokenExpiry: tokenExpiryWarner(
+          path,
+          (line) => lines.push(line),
+          () => NOW,
+        ),
+      },
+    );
+    return { c, lines };
+  }
+
+  it("warns once when the token expires within a week", async () => {
+    const { c, lines } = warned("2026-10-27T09:00:00.000Z");
+    await c.list({ limit: 1 });
+    await c.list({ limit: 1 });
+    expect(lines).toEqual([
+      "uploads: your login expires in 5 days (2026-10-27). Run `uploads login --force` to renew it.\n",
+    ]);
+
+    // A later run the same day stays quiet.
+    const again = warned("2026-10-27T09:00:00.000Z");
+    await again.c.list({ limit: 1 });
+    expect(again.lines).toEqual([]);
+  });
+
+  it("stays quiet further out, or without the header", async () => {
+    const far = warned("2026-12-01T00:00:00.000Z");
+    await far.c.list({ limit: 1 });
+    const none = warned(null);
+    await none.c.list({ limit: 1 });
+    expect([...far.lines, ...none.lines]).toEqual([]);
   });
 });

@@ -1231,6 +1231,8 @@ export interface UploadsClientOptions {
    * file-backed store (`expired-tokens.ts`); omitted, every call asks the server.
    */
   expiredTokens?: ExpiredTokenStore;
+  /** Called with the token's expiry (ISO) when the API reports one. */
+  onTokenExpiry?: (expiresAt: string) => void;
 }
 
 export interface ExpiredTokenStore {
@@ -1286,6 +1288,9 @@ export function createUploadsClient(
       }
       throw mapApiError(res.status, message, code, requiredScope, existingUrl);
     }
+
+    const expiresAt = sendsToken ? res.headers.get("Uploads-Token-Expires") : null;
+    if (expiresAt) clientOpts.onTokenExpiry?.(expiresAt);
 
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

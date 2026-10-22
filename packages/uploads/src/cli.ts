@@ -1,5 +1,5 @@
 import { createUploadsClient } from "./client.js";
-import { fileExpiredTokenStore } from "./expired-tokens.js";
+import { fileExpiredTokenStore, tokenExpiryWarner } from "./expired-tokens.js";
 import { DEFAULT_API_URL, resolveApiUrl, resolveConfig } from "./config.js";
 import { scopeRemedy } from "./client.js";
 import { UploadsError } from "./errors.js";
@@ -102,7 +102,8 @@ function createContext(
   requireToken: boolean,
   commandArgs: string[],
 ): CliContext {
-  const cmdWorkspace = commandWorkspace(parseCommandArgs(commandArgs).flags);
+  const cmdFlags = parseCommandArgs(commandArgs).flags;
+  const cmdWorkspace = commandWorkspace(cmdFlags);
   const config = resolveConfig({
     apiUrl: globals.apiUrl,
     workspace: cmdWorkspace ?? globals.workspace,
@@ -110,10 +111,16 @@ function createContext(
     envFile: globals.envFile,
     requireToken,
   });
+  const json = globals.json ?? false;
+  // JSON callers are scripts and the Claude Code mod; the warning is for people and agents.
+  const machine = json || flagString(cmdFlags, "--format") === "json";
   return {
     config,
-    client: createUploadsClient(config, { expiredTokens: fileExpiredTokenStore() }),
-    json: globals.json ?? false,
+    client: createUploadsClient(config, {
+      expiredTokens: fileExpiredTokenStore(),
+      ...(machine || globals.quiet ? {} : { onTokenExpiry: tokenExpiryWarner() }),
+    }),
+    json,
     quiet: globals.quiet ?? false,
     envFile: globals.envFile,
   };

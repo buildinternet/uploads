@@ -712,6 +712,28 @@ describe("staged pane", () => {
     expect(await ui.find({ type: "Button", text: "Approve" })).toBeUndefined();
   });
 
+  test("opens the pane on a file once it is held", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, files: [{ filename: "env.png" }] });
+    await runBash($, world, STAGE);
+    expect(world.opened).toEqual([]);
+
+    // The classifier's verdict lands after the upload; the next refresh sees it.
+    world.cli.files = [{ filename: "env.png", held: true }];
+    await runBash($, world, STAGE);
+    expect(world.opened).toEqual(["uploads-staged:env.png"]);
+
+    // The same hold doesn't open it again.
+    await runBash($, world, STAGE);
+    expect(world.opened).toHaveLength(1);
+  });
+
+  test("leaves the pane shut for a hold already there when the session starts", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "env.png", held: true }] });
+    await runBash($, world, STAGE);
+    await runBash($, world, STAGE);
+    expect(world.opened).toEqual([]);
+  });
+
   test("Remove deletes each file, then shows the grid", async ($, on) => {
     const world = setup(on, { counts: { "feat/x": 2 }, files: pairFiles.slice(0, 2) });
     await runBash($, world, STAGE);

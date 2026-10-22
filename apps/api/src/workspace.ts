@@ -796,6 +796,8 @@ function workspaceAuthWith(
         appendServerTiming(c, touchTiming);
       }
     }
+    // Lets the CLI warn before the token runs out (90-day tokens).
+    if (d1Token?.expires_at) c.header("Uploads-Token-Expires", d1Token.expires_at);
     const userAgent = c.req.header("User-Agent");
     const client = parseCliUserAgent(userAgent) ?? legacyCliUserAgent(userAgent);
     if (client) await recordClient(c, client);
