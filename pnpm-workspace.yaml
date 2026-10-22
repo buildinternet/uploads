@@ -30,3 +30,4 @@ minimumReleaseAgeExclude:
   - hono@4.12.28
 patchedDependencies:
   "@better-auth/oauth-provider": patches/@better-auth__oauth-provider.patch
+  pngjs@7.0.0: patches/pngjs@7.0.0.patch
