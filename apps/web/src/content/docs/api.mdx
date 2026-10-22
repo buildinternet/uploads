@@ -62,7 +62,8 @@ Authorization: Bearer up_<workspace>_…
 ```
 
 - **Personal token.** `uploads login` creates one, or create one under
-  [Developers](/account/developers) in your account. Tokens last 90 days by default.
+  [Developers](/account/developers) in your account. Tokens last 90 days by default, and each
+  response carries the expiry in an `Uploads-Token-Expires` header.
 - **Service token.** For CI and bots, a workspace admin creates an `ups_<workspace>_…` token in
   the workspace settings. It is not tied to a member.
 

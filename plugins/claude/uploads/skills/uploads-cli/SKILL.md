@@ -338,7 +338,8 @@ agent as `UPLOADS_TOKEN`, or an enrollment code (`upe_…`, an alternative invit
 when you don't have the recipient's email) can be exchanged with `uploads login --code`.
 Neither is the normal path for new setups.
 
-The resulting token defaults to 90 days and `files:read` plus `files:write`. That
+The resulting token defaults to 90 days and `files:read` plus `files:write`. In its
+last week the CLI warns once a day on stderr; `uploads login --force` renews it. That
 token can delete a `gh/` object the server stamped as that user's. Files uploaded
 before that stamp, someone else's object, a non-`gh/` key, and running
 `purge-expired` still needs `files:delete`. A missing scope returns 403

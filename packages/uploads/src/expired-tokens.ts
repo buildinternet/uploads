@@ -61,3 +61,43 @@ export function fileExpiredTokenStore(path = expiredTokensPath()): ExpiredTokenS
     },
   };
 }
+
+const EXPIRY_WARN_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Warns on stderr when the token expires within a week, at most once a day.
+ * The day of the last warning is kept as `token-expiry-warned` beside the
+ * config file. Best-effort like the store above.
+ */
+export function tokenExpiryWarner(
+  path = join(dirname(resolveConfigPath()), "token-expiry-warned"),
+  write: (line: string) => void = (line) => process.stderr.write(line),
+  now: () => Date = () => new Date(),
+): (expiresAt: string) => void {
+  let done = false;
+  return (expiresAt) => {
+    if (done) return;
+    done = true;
+    const at = Date.parse(expiresAt);
+    const today = now();
+    if (Number.isNaN(at) || at - today.getTime() > EXPIRY_WARN_DAYS * DAY_MS) return;
+    const day = today.toISOString().slice(0, 10);
+    try {
+      if (readFileSync(path, "utf8").trim() === day) return;
+    } catch {
+      // never warned
+    }
+    const days = Math.max(0, Math.ceil((at - today.getTime()) / DAY_MS));
+    const when = days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+    write(
+      `uploads: your login expires ${when} (${expiresAt.slice(0, 10)}). Run \`uploads login --force\` to renew it.\n`,
+    );
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `${day}\n`, { mode: 0o600 });
+    } catch {
+      // best-effort: it warns again next run
+    }
+  };
+}
