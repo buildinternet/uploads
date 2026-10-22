@@ -35,7 +35,10 @@ describe("github ingest ledger", () => {
       expect((await ledgerRow(db, "acme/app", "assets/aaaa-bbbb"))?.objectKey).toBe(
         "gh/acme-app/pull-7/aaaa-bbbb.png",
       );
-      expect(await ledgerRowsForSource(db, "acme/app", "body")).toHaveLength(1);
+      expect(await ledgerRowsForSource(db, "acme/app", "pull", 7, "body")).toHaveLength(1);
+      // Every PR and issue has a "body" source; another one's never matches.
+      expect(await ledgerRowsForSource(db, "acme/app", "pull", 8, "body")).toHaveLength(0);
+      expect(await ledgerRowsForSource(db, "acme/app", "issues", 7, "body")).toHaveLength(0);
     } finally {
       sqlite.close();
     }
@@ -101,8 +104,8 @@ describe("github ingest ledger", () => {
       const db = database(sqlite);
       await recordIngestedAsset(db, row());
       await setLedgerSource(db, "acme/app", "assets/aaaa-bbbb", "comment:44");
-      expect(await ledgerRowsForSource(db, "acme/app", "body")).toHaveLength(0);
-      expect(await ledgerRowsForSource(db, "acme/app", "comment:44")).toHaveLength(1);
+      expect(await ledgerRowsForSource(db, "acme/app", "pull", 7, "body")).toHaveLength(0);
+      expect(await ledgerRowsForSource(db, "acme/app", "pull", 7, "comment:44")).toHaveLength(1);
     } finally {
       sqlite.close();
     }

@@ -104,18 +104,24 @@ export async function ledgerRow(
   return row ? fromRow(row) : null;
 }
 
-/** All ledger rows for `repo` currently attributed to `source` ("body" or "comment:<id>"). */
+/**
+ * All ledger rows for one PR/issue currently attributed to `source` ("body"
+ * or "comment:<id>"). Scoped to the target: every PR and issue in a repo has
+ * a "body" source.
+ */
 export async function ledgerRowsForSource(
   db: D1Queryable,
   repo: string,
+  kind: "pull" | "issues",
+  num: number,
   source: string,
 ): Promise<IngestLedgerRow[]> {
   const { results } = await db
     .prepare(
       `SELECT repo, asset_id, workspace, object_key, kind, num, source, created_at, detached_at
-       FROM github_ingested_assets WHERE repo = ? AND source = ?`,
+       FROM github_ingested_assets WHERE repo = ? AND kind = ? AND num = ? AND source = ?`,
     )
-    .bind(normalizeRepo(repo), source)
+    .bind(normalizeRepo(repo), kind, num, source)
     .all<IngestLedgerDbRow>();
   return (results ?? []).map(fromRow);
 }
