@@ -1,8 +1,9 @@
 /**
  * Workspace usage at the foot of the sidebar (moved from the right rail, which
- * is being cleared out). Collapsed it is one line: the fullest meter's label
- * and value over its bar. Expanded it shows every meter and the object count.
- * The open/closed choice is a per-viewer convenience in localStorage.
+ * is being cleared out), docked to the bottom of the viewport. Open by default
+ * it shows every meter and the object count; collapsed it is one line, the
+ * fullest meter's label and value over its bar. The choice is a per-viewer
+ * convenience in localStorage.
  *
  * Server render and the first client render both show the placeholder, so
  * hydration matches; the cached snapshot paints right after mount and the
@@ -30,9 +31,9 @@ type UsageState =
 
 function readOpen(): boolean {
   try {
-    return localStorage.getItem(OPEN_KEY) === "1";
+    return localStorage.getItem(OPEN_KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -74,7 +75,7 @@ export function SidebarUsage({
   workspace: string;
 }): ReactNode {
   const [state, setState] = useState<UsageState>({ status: "loading" });
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   useEffect(() => {
     setOpen(readOpen());
@@ -113,10 +114,12 @@ export function SidebarUsage({
   };
 
   return (
-    <div className="grid gap-2 border-t border-sidebar-border px-2 pt-3 group-data-[collapsible=icon]:hidden">
+    <div className="grid gap-1 border-t border-sidebar-border px-2 pt-1 group-data-[collapsible=icon]:hidden">
+      {/* Styled as a group heading ("Workspace", "Personal") in signed-in-shell.css. */}
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded-md border-0 bg-transparent p-0 text-left text-xs font-medium text-sidebar-foreground/70 cursor-pointer hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
+        data-slot="sidebar-usage-label"
+        className="flex h-8 w-full items-center gap-2 rounded-md border-0 bg-transparent p-0 text-left cursor-pointer"
         aria-expanded={open}
         onClick={toggle}
       >

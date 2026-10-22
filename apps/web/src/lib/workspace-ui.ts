@@ -137,8 +137,8 @@ export function usageMeters(usage: UsageSnapshot): UsageMeter[] {
   const uploadsPct = usagePct(usage.uploadsInPeriod, usage.maxUploadsPerPeriod);
   if (uploadsPct !== null && usage.maxUploadsPerPeriod) {
     meters.push({
-      label: "Uploads this month",
-      detail: `${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod}`,
+      label: "Monthly uploads",
+      detail: `${usage.uploadsInPeriod.toLocaleString("en-US")} of ${usage.maxUploadsPerPeriod.toLocaleString("en-US")}`,
       pct: uploadsPct,
     });
   }
@@ -451,7 +451,7 @@ export function skeletonBarHtml(width: string): string {
 /** Label/value skeleton widths for each meter row, cycled when `meters` runs past this table. */
 const USAGE_METER_WIDTHS: Array<{ label: string; value: string }> = [
   { label: "52px", value: "96px" }, // "Storage"
-  { label: "108px", value: "78px" }, // "Uploads this month"
+  { label: "108px", value: "78px" }, // "Monthly uploads"
 ];
 
 /**
