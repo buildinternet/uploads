@@ -220,11 +220,15 @@ export function typeEmptyNoun(
   type: FileTypeClass | null,
   surface: FileSurface | null = null,
 ): string {
-  if (surface) return `${FILE_SURFACE_LABELS[surface].toLowerCase()} files`;
-  if (type === "screenshot") return "screenshots";
-  if (type === "video") return "videos";
-  if (type === "other") return "other files";
-  return "files";
+  const noun =
+    type === "screenshot"
+      ? "screenshots"
+      : type === "video"
+        ? "videos"
+        : type === "other"
+          ? "other files"
+          : "files";
+  return surface ? `${FILE_SURFACE_LABELS[surface].toLowerCase()} ${noun}` : noun;
 }
 
 export type PullsEmptyCopy =

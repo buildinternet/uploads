@@ -32,7 +32,14 @@ import { githubUrl } from "../../lib/gh-context";
 import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel } from "../../lib/workspace-screenshots";
 import { CommandEmpty, InlineEmpty, RowsSkeleton } from "./FilesEmpty";
-import { PrStateSelect, RepoSelect, TypeSelect } from "./FilterControls";
+import {
+  FilterBar,
+  PrStateSection,
+  ScopeSelect,
+  TypeSections,
+  prStateLabel,
+  typeChips,
+} from "./FilterControls";
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { RowOverflowMenu, useLiveLink, type LiveLinkControls } from "./LiveLink";
 import type { PreviewHandlers } from "./ShotThumb";
@@ -141,15 +148,33 @@ function PullsViewInner({
 
   return (
     <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
-      <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-        <TypeSelect value={query} onChange={(next) => setQuery({ ...query, ...next })} />
-        <RepoSelect
+      <FilterBar
+        chips={[
+          ...typeChips(query, (next) => setQuery({ ...query, ...next })),
+          ...(query.repo
+            ? [{ key: "repo", label: query.repo, onRemove: () => setQuery({ ...query, repo: "" }) }]
+            : []),
+          ...(query.state
+            ? [
+                {
+                  key: "state",
+                  label: prStateLabel(query.state),
+                  onRemove: () => setQuery({ ...query, state: null }),
+                },
+              ]
+            : []),
+        ]}
+      >
+        <TypeSections value={query} onChange={(next) => setQuery({ ...query, ...next })} />
+        <ScopeSelect
+          label="Repo"
+          allLabel="All repos"
           value={query.repo}
           options={repoOptions}
           onChange={(repo) => setQuery({ ...query, repo })}
         />
-        <PrStateSelect value={query.state} onChange={(state) => setQuery({ ...query, state })} />
-      </div>
+        <PrStateSection value={query.state} onChange={(state) => setQuery({ ...query, state })} />
+      </FilterBar>
 
       {list.status === "loading" && !keptRows && <RowsSkeleton rows={4} />}
       {list.status === "error" && (

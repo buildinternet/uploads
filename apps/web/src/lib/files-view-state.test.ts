@@ -246,6 +246,8 @@ describe("small mappers", () => {
     expect(typeEmptyNoun("screenshot")).toBe("screenshots");
     expect(typeEmptyNoun("video")).toBe("videos");
     expect(typeEmptyNoun("other")).toBe("other files");
+    expect(typeEmptyNoun(null, "mobile")).toBe("mobile files");
+    expect(typeEmptyNoun("video", "mobile")).toBe("mobile videos");
   });
 });
 

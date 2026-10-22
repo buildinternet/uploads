@@ -21,7 +21,7 @@ import {
 import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel } from "../../lib/workspace-screenshots";
 import { CommandEmpty, RowsSkeleton } from "./FilesEmpty";
-import { TypeSelect } from "./FilterControls";
+import { FilterBar, TypeSections, typeChips } from "./FilterControls";
 import { GitHubMark } from "./gh-glyphs";
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { RowOverflowMenu, useLiveLink, type LiveLinkControls } from "./LiveLink";
@@ -90,9 +90,9 @@ function ReposViewInner({
 
   return (
     <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
-      <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-        <TypeSelect value={query} onChange={(next) => setQuery({ ...query, ...next })} />
-      </div>
+      <FilterBar chips={typeChips(query, (next) => setQuery({ ...query, ...next }))}>
+        <TypeSections value={query} onChange={(next) => setQuery({ ...query, ...next })} />
+      </FilterBar>
       {list.status === "loading" && <RowsSkeleton rows={4} />}
       {list.status === "error" && (
         <Callout tone="error" role="alert">
