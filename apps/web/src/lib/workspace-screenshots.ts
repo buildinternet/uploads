@@ -14,8 +14,10 @@ import type { GithubTitleMap } from "./api-client";
 import {
   filesBasePath,
   parseFileTypeParam,
+  parseSinceParam,
   parseSurfaceParam,
   readFilesView,
+  type SinceFilter,
 } from "./files-view-state";
 import type { MediaTileInput } from "./media-tile";
 
@@ -256,11 +258,13 @@ export interface ScreenshotsView {
   type: FileTypeClass | null;
   /** Device filter (`ai.surface`): server-side on the overview and the drill-in. */
   surface: FileSurface | null;
+  /** Upload-time window: server-side on the overview, by `updatedAt` on drill-in. */
+  since: SinceFilter | null;
 }
 
 /**
  * By page view state: `?project=` / `?path=` (or `?screen=`) / `?q=` /
- * `?sort=recent` / `?merged=1` / `?type=` / `?surface=`. Legacy `?view=recent` (the retired Screenshots tab)
+ * `?sort=recent` / `?merged=1` / `?type=` / `?surface=` / `?since=`. Legacy `?view=recent` (the retired Screenshots tab)
  * still reads as the Recent list.
  */
 export function readScreenshotsView(search: string): ScreenshotsView {
@@ -276,6 +280,7 @@ export function readScreenshotsView(search: string): ScreenshotsView {
     merged: params.get("merged") === "1",
     type: parseFileTypeParam(params.get("type")),
     surface: parseSurfaceParam(params.get("surface")),
+    since: parseSinceParam(params.get("since")),
   };
 }
 
@@ -295,6 +300,7 @@ export function screenshotsSearch(
   type: FileTypeClass | null = null,
   surface: FileSurface | null = null,
   by: GroupBy = "path",
+  since: SinceFilter | null = null,
 ): string {
   const params = new URLSearchParams();
   params.set("view", "pages");
@@ -305,6 +311,7 @@ export function screenshotsSearch(
   if (merged) params.set("merged", "1");
   if (type) params.set("type", type);
   if (surface) params.set("surface", surface);
+  if (since) params.set("since", since);
   return `?${params.toString()}`;
 }
 
@@ -318,6 +325,7 @@ export function screenshotsSearchFromView(view: ScreenshotsView): string {
     view.type,
     view.surface,
     view.by,
+    view.since,
   );
 }
 
@@ -339,7 +347,8 @@ export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): b
     a.sort === b.sort &&
     a.merged === b.merged &&
     a.type === b.type &&
-    a.surface === b.surface
+    a.surface === b.surface &&
+    a.since === b.since
   );
 }
 

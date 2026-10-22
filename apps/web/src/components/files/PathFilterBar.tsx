@@ -8,6 +8,7 @@ import { LayoutGridIcon, Rows3Icon } from "lucide-react";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PathCatalogEntry } from "../../lib/api-client";
+import type { SinceFilter } from "../../lib/files-view-state";
 import {
   formatShotCount,
   pathSuggestions,
@@ -19,7 +20,9 @@ import {
   FilterSection,
   MergedOnlyCheckbox,
   ScopeSelect,
+  SinceSection,
   TypeSections,
+  sinceChips,
   typeChips,
   type FilterChip,
   type TypeFilter,
@@ -36,6 +39,7 @@ export function PathFilterBar({
   path,
   sort,
   type,
+  since,
   merged,
   projects,
   catalog,
@@ -43,6 +47,7 @@ export function PathFilterBar({
   onQuery,
   onSort,
   onType,
+  onSince,
   onPickPath,
   onMerged,
 }: {
@@ -52,6 +57,7 @@ export function PathFilterBar({
   path: string;
   sort: RecentView;
   type: TypeFilter;
+  since: SinceFilter | null;
   /** "Merged only" toggle (persisted PR merge-state tagging). */
   merged: boolean;
   projects: string[];
@@ -61,6 +67,7 @@ export function PathFilterBar({
   onQuery: (q: string) => void;
   onSort: (sort: RecentView) => void;
   onType: (type: TypeFilter) => void;
+  onSince: (since: SinceFilter | null) => void;
   onPickPath: (picked: { path: string; by: GroupBy }) => void;
   onMerged: (merged: boolean) => void;
 }) {
@@ -111,6 +118,7 @@ export function PathFilterBar({
 
   const chips: FilterChip[] = [
     ...typeChips(type, onType),
+    ...sinceChips(since, onSince),
     ...(project ? [{ key: "project", label: project, onRemove: () => onProject("") }] : []),
     ...(merged ? [{ key: "merged", label: "Merged only", onRemove: () => onMerged(false) }] : []),
   ];
@@ -224,6 +232,7 @@ export function PathFilterBar({
           onChange={onProject}
         />
       ) : null}
+      <SinceSection value={since} onChange={onSince} />
       {/* Persisted PR merge-state tagging: filters both the drill-in
           (meta.gh.merged=true) and the grouped overview (?merged=1). */}
       <FilterSection label="Pull requests">

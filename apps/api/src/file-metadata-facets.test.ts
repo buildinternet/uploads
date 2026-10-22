@@ -253,6 +253,22 @@ describe("groupObjectsByPath", () => {
     expect(result.groups.map((g) => g.recent)).toEqual([["a.png"]]);
   });
 
+  it("keeps only files uploaded at or after `since`", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        { workspace: "acme", key: "old.png", meta: { path: "/x" }, at: at(1) },
+        { workspace: "acme", key: "edge.png", meta: { path: "/x" }, at: at(2) },
+        { workspace: "acme", key: "new.png", meta: { screen: "Home" }, at: at(3) },
+      ]),
+      "acme",
+      { since: at(2) },
+    );
+    expect(result.catalog.map((entry) => [entry.path, entry.recent])).toEqual([
+      ["Home", ["new.png"]],
+      ["/x", ["edge.png"]],
+    ]);
+  });
+
   it("reads app metadata so local-origin shots group by app, not host (#692)", async () => {
     const result = await groupObjectsByPath(
       timedDb([

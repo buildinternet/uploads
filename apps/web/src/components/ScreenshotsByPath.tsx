@@ -48,7 +48,14 @@ import {
 import type { WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, type FileOpener } from "../lib/file-opener";
-import { matchesSurfaceFilter, matchesTypeFilter, typeEmptyNoun } from "../lib/files-view-state";
+import {
+  matchesSinceFilter,
+  matchesSurfaceFilter,
+  matchesTypeFilter,
+  sinceEmptySuffix,
+  typeEmptyNoun,
+  type SinceFilter,
+} from "../lib/files-view-state";
 import {
   filterCatalog,
   formatShotCount,
@@ -291,6 +298,7 @@ function ScreenshotsByPathInner({
         merged: view.merged,
         type: view.type ?? undefined,
         surface: view.surface ?? undefined,
+        since: view.since ?? undefined,
       }).then((result) => {
         if (cancelled) return;
         setOverviewRefreshing(false);
@@ -312,7 +320,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, overviewRetryNonce, view.merged, view.type, view.surface]);
+  }, [apiOrigin, workspace, overviewRetryNonce, view.merged, view.type, view.surface, view.since]);
 
   // GitHub-mirrored screenshots ("From GitHub" section), fetched in parallel
   // with the by-path overview. A failure here must never block or break the
@@ -470,7 +478,9 @@ function ScreenshotsByPathInner({
   const setQuery = (q: string) => setView({ ...view, path: "", by: "path", q });
   const setSort = (sort: RecentView) => setView({ ...view, path: "", by: "path", sort });
   const setType = (next: TypeFilter) => setView({ ...view, ...next });
-  const typeFiltered = view.type !== null || view.surface !== null;
+  // Any filter that narrows which files count (not project or the search box).
+  const typeFiltered = view.type !== null || view.surface !== null || view.since !== null;
+  const setSince = (since: SinceFilter | null) => setView({ ...view, since });
   const setMerged = (merged: boolean) => setView({ ...view, merged });
 
   // GitHub items bucketed by project label, for both the overview's
@@ -480,6 +490,7 @@ function ScreenshotsByPathInner({
     for (const item of ghState.items) {
       if (!matchesTypeFilter(item.key, view.type)) continue;
       if (!matchesSurfaceFilter(item.metadata, view.surface)) continue;
+      if (!matchesSinceFilter(item.updatedAt, view.since)) continue;
       const label = projectLabelFromItemMeta(item.metadata);
       ghByProject.set(label, [...(ghByProject.get(label) ?? []), item]);
     }
@@ -502,6 +513,7 @@ function ScreenshotsByPathInner({
       path={view.path}
       sort={view.sort}
       type={{ type: view.type, surface: view.surface }}
+      since={view.since}
       merged={view.merged}
       projects={projectLabels}
       catalog={overview.catalog}
@@ -509,6 +521,7 @@ function ScreenshotsByPathInner({
       onQuery={setQuery}
       onSort={setSort}
       onType={setType}
+      onSince={setSince}
       onPickPath={(picked) => setView({ ...view, path: picked.path, by: picked.by })}
       onMerged={setMerged}
     />
@@ -527,19 +540,26 @@ function ScreenshotsByPathInner({
       // The type filter runs client-side AFTER files/search's 100-item cap
       // (it is not paginated), so a truncated response may hide matches past
       // the cap; the empty state and the footer note say so below.
-      drillItems = drillItems.filter((item) => matchesTypeFilter(item.key, view.type));
+      // `since` filters the same capped page by each item's upload time.
+      drillItems = drillItems.filter(
+        (item) =>
+          matchesTypeFilter(item.key, view.type) && matchesSinceFilter(item.updatedAt, view.since),
+      );
     }
     const drillPaired = pairedShotKeys(
       drillItems.map((item) => ({ key: item.key, state: item.metadata?.state })),
     );
-    const noun = typeFiltered ? typeEmptyNoun(view.type, view.surface) : "screenshots";
-    const scopeFiltered = Boolean(view.project) || view.type !== null;
+    const noun = typeFiltered
+      ? `${typeEmptyNoun(view.type, view.surface)}${sinceEmptySuffix(view.since)}`
+      : "screenshots";
+    const scopeFiltered = Boolean(view.project) || view.type !== null || view.since !== null;
     const where = view.by === "screen" ? "on this screen" : "at this path";
     let drillEmptyMessage = `No ${noun} ${where}.`;
     if (scopeFiltered && drill.status === "ready" && drill.truncated) {
-      drillEmptyMessage = view.type
-        ? `None of the first 100 files at this path are ${noun}${view.project ? ` from ${view.project}` : ""} — there may be more beyond that.`
-        : `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`;
+      drillEmptyMessage =
+        view.type || view.since
+          ? `None of the first 100 files at this path are ${noun}${view.project ? ` from ${view.project}` : ""} — there may be more beyond that.`
+          : `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`;
     } else if (view.project) {
       drillEmptyMessage = `No ${noun} at this path for this project.`;
     }
@@ -713,9 +733,9 @@ function ScreenshotsByPathInner({
     !view.merged && !typeFiltered && overview.catalog.length === 0 && ghByProject.size === 0;
   const isEmptyFilter = !isEmptyWorkspace && sectionLabels.length === 0;
   const emptyNoun = typeFiltered ? typeEmptyNoun(view.type, view.surface) : "screenshots";
-  const emptyScope = view.project ? " for this project" : "";
+  const emptyScope = `${view.project ? " for this project" : ""}${sinceEmptySuffix(view.since)}`;
   let emptyFilterMessage = view.merged
-    ? `No merged ${emptyNoun}${emptyScope} yet.`
+    ? `No merged ${emptyNoun}${emptyScope}${view.since ? "" : " yet"}.`
     : `No ${emptyNoun}${emptyScope}.`;
   if (qTrim) {
     emptyFilterMessage = overview.catalogTruncated

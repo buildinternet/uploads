@@ -983,7 +983,14 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
 export async function groupObjectsByPath(
   db: D1Queryable,
   workspace: string,
-  opts: { mergedOnly?: boolean; now?: Date; type?: FileTypeClass; surface?: FileSurface } = {},
+  opts: {
+    mergedOnly?: boolean;
+    now?: Date;
+    type?: FileTypeClass;
+    surface?: FileSurface;
+    /** ISO lower bound on upload time (`?since=`). */
+    since?: string;
+  } = {},
 ): Promise<{
   groups: PathGroup[];
   catalog: PathCatalogEntry[];
@@ -1003,6 +1010,8 @@ export async function groupObjectsByPath(
   // so groups, catalog, projects, and latest all reflect it.
   const typeFilterSql = opts.type ? `AND ${fileTypeSql("p.object_key", opts.type)}` : "";
   const surfaceFilterSql = opts.surface ? `AND ${fileSurfaceSql("p", opts.surface)}` : "";
+  // Checked before the per-row subqueries, so a short window also skips their reads.
+  const sinceFilterSql = opts.since ? `AND p.updated_at >= ?` : "";
   const result = await db
     .prepare(
       `SELECT p.meta_value AS path, p.meta_key AS group_by, p.object_key AS object_key, p.updated_at AS updated_at,
@@ -1012,6 +1021,7 @@ export async function groupObjectsByPath(
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'app') AS app
        FROM file_metadata p
        WHERE p.workspace = ? AND p.meta_key IN ('path', 'screen')
+         ${sinceFilterSql}
          AND (p.meta_key = 'path' OR NOT EXISTS (
            SELECT 1 FROM file_metadata pp
            WHERE pp.workspace = p.workspace AND pp.object_key = p.object_key
@@ -1027,7 +1037,7 @@ export async function groupObjectsByPath(
          ${surfaceFilterSql}
        ORDER BY p.updated_at DESC, p.object_key ASC`,
     )
-    .bind(workspace)
+    .bind(...(opts.since ? [workspace, opts.since] : [workspace]))
     .all<{
       path: string;
       group_by: string;

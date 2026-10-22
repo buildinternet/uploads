@@ -52,6 +52,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -65,6 +66,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -78,6 +80,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
       type: "video",
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -91,6 +94,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -104,6 +108,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -117,6 +122,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -130,6 +136,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: true,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });
@@ -153,6 +160,7 @@ describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less 
       merged: false,
       type: null,
       surface: null,
+      since: null,
       by: "path",
     });
   });

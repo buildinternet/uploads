@@ -193,7 +193,7 @@ describe("scopeEmptyCopy", () => {
   it("names the type and drops the command when a type filter is on", () => {
     expect(scopeEmptyCopy({ number: 7, type: "video" })).toEqual({
       title: "No videos on this pull request",
-      description: "Clear the type filter to see every file.",
+      description: "Clear the filters to see every file.",
       command: null,
     });
     expect(scopeEmptyCopy({ number: null, type: "other" }).title).toBe(

@@ -30,7 +30,7 @@
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
-import { parseFileTypeQuery, parseSurfaceQuery } from "../file-type-sql";
+import { parseFileTypeQuery, parseSinceQuery, parseSurfaceQuery } from "../file-type-sql";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
@@ -302,10 +302,11 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       const mergedOnly = c.req.query("merged") === "1";
       const type = parseFileTypeQuery(c.req.query("type"));
       const surface = parseSurfaceQuery(c.req.query("surface"));
+      const since = parseSinceQuery(c.req.query("since"));
       const { groups, catalog, projects, latest, truncated, catalogTruncated } =
         await boundedDataRead(
           c,
-          () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly, type, surface }),
+          () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly, type, surface, since }),
           { name: "d1_screenshots_by_path" },
         );
       const shotKeys = [

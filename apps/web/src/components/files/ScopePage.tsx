@@ -52,7 +52,7 @@ import {
 import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel, pairedShotKeys } from "../../lib/workspace-screenshots";
 import { CommandEmpty, InlineEmpty, RowsSkeleton } from "./FilesEmpty";
-import { FilterBar, TypeSections, typeChips } from "./FilterControls";
+import { FilterBar, SinceSection, TypeSections, sinceChips, typeChips } from "./FilterControls";
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { useLiveLink } from "./LiveLink";
 import { ShotThumb, type PreviewHandlers } from "./ShotThumb";
@@ -110,7 +110,7 @@ function ScopePageInner({
   // failure kind; a slower response for a filter the viewer already left must
   // not win. Declared before useCursorList so the ref is current before its
   // fetch effect runs in the same commit.
-  const queryKey = `${repo}#${number ?? ""}:${query.type ?? ""}:${query.surface ?? ""}`;
+  const queryKey = `${repo}#${number ?? ""}:${query.type ?? ""}:${query.surface ?? ""}:${query.since ?? ""}`;
   const queryKeyRef = useRef(queryKey);
   useEffect(() => {
     queryKeyRef.current = queryKey;
@@ -132,6 +132,7 @@ function ScopePageInner({
         number,
         type: query.type,
         surface: query.surface,
+        since: query.since,
         cursor,
       }).then((result) => {
         const current = cursor === undefined && queryKeyRef.current === queryKey;
@@ -206,13 +207,19 @@ function ScopePageInner({
       }
     });
   };
-  const empty = scopeEmptyCopy({ number, type: query.type, surface: query.surface });
+  const empty = scopeEmptyCopy({
+    number,
+    type: query.type,
+    surface: query.surface,
+    since: query.since,
+  });
   const githubHref =
     number !== null ? githubUrl(repo, "pull", String(number)) : `https://github.com/${repo}`;
   const repoPullsHref = `${filesBasePath(workspace)}${filesSearch({
     view: "pulls",
     type: null,
     surface: null,
+    since: null,
     repo,
     state: null,
     all: false,
@@ -327,7 +334,10 @@ function ScopePageInner({
       )}
 
       <FilterBar
-        chips={typeChips(query, (next) => setQuery({ ...query, ...next }))}
+        chips={[
+          ...typeChips(query, (next) => setQuery({ ...query, ...next })),
+          ...sinceChips(query.since, (since) => setQuery({ ...query, since })),
+        ]}
         trailing={
           number !== null && (
             <div
@@ -348,6 +358,7 @@ function ScopePageInner({
         }
       >
         <TypeSections value={query} onChange={(next) => setQuery({ ...query, ...next })} />
+        <SinceSection value={query.since} onChange={(since) => setQuery({ ...query, since })} />
       </FilterBar>
 
       {list.status === "loading" && (

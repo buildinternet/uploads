@@ -7,6 +7,7 @@ import {
   filesSearch,
   filesViewHref,
   linksHref,
+  matchesSinceFilter,
   matchesTypeFilter,
   normalizeRepoFilter,
   normalizeRepoParam,
@@ -39,6 +40,7 @@ describe("readFilesQuery / filesSearch", () => {
       view: "pulls",
       type: "video",
       surface: null,
+      since: null,
       repo: "acme/web",
       state: "merged",
       all: false,
@@ -52,6 +54,7 @@ describe("readFilesQuery / filesSearch", () => {
       view: "pulls",
       type: null,
       surface: null,
+      since: null,
       repo: "acme/web",
       state: null,
       all: true,
@@ -60,7 +63,15 @@ describe("readFilesQuery / filesSearch", () => {
     expect(readFilesQuery("?all=yes").all).toBe(false);
     expect(readFilesQuery("?view=repos&all=1").all).toBe(false);
     expect(
-      filesSearch({ view: "repos", type: null, surface: null, repo: "", state: null, all: true }),
+      filesSearch({
+        view: "repos",
+        type: null,
+        surface: null,
+        since: null,
+        repo: "",
+        state: null,
+        all: true,
+      }),
     ).toBe("?view=repos");
   });
 
@@ -69,6 +80,7 @@ describe("readFilesQuery / filesSearch", () => {
       view: "pulls",
       type: null,
       surface: null,
+      since: null,
       repo: "",
       state: null,
       all: false,
@@ -80,6 +92,7 @@ describe("readFilesQuery / filesSearch", () => {
       view: "repos",
       type: "other",
       surface: null,
+      since: null,
       repo: "",
       state: null,
       all: false,
@@ -89,6 +102,7 @@ describe("readFilesQuery / filesSearch", () => {
         view: "repos",
         type: "other",
         surface: null,
+        since: null,
         repo: "a/b",
         state: "open",
         all: false,
@@ -98,7 +112,15 @@ describe("readFilesQuery / filesSearch", () => {
 
   it("omits every default", () => {
     expect(
-      filesSearch({ view: "pulls", type: null, surface: null, repo: "", state: null, all: false }),
+      filesSearch({
+        view: "pulls",
+        type: null,
+        surface: null,
+        since: null,
+        repo: "",
+        state: null,
+        all: false,
+      }),
     ).toBe("");
   });
 });
@@ -108,17 +130,21 @@ describe("readScopePageQuery / scopePageSearch", () => {
     expect(readScopePageQuery("?type=screenshot&group=path")).toEqual({
       type: "screenshot",
       surface: null,
+      since: null,
       groupByPath: true,
     });
-    expect(scopePageSearch({ type: "screenshot", surface: null, groupByPath: true })).toBe(
-      "?type=screenshot&group=path",
-    );
+    expect(
+      scopePageSearch({ type: "screenshot", surface: null, since: null, groupByPath: true }),
+    ).toBe("?type=screenshot&group=path");
     expect(readScopePageQuery("?group=yes")).toEqual({
       type: null,
       surface: null,
+      since: null,
       groupByPath: false,
     });
-    expect(scopePageSearch({ type: null, surface: null, groupByPath: false })).toBe("");
+    expect(scopePageSearch({ type: null, surface: null, since: null, groupByPath: false })).toBe(
+      "",
+    );
   });
 });
 
@@ -241,6 +267,44 @@ describe("small mappers", () => {
     expect(prStateFromTitle(null)).toBeNull();
   });
 
+  it("round-trips since on Files and scope pages, dropping unknown windows", () => {
+    expect(readFilesQuery("?view=repos&since=7d").since).toBe("7d");
+    expect(readFilesQuery("?since=week").since).toBeNull();
+    expect(readScopePageQuery("?since=30d").since).toBe("30d");
+    expect(
+      filesSearch({
+        view: "pulls",
+        type: null,
+        surface: null,
+        since: "1d",
+        repo: "",
+        state: null,
+        all: false,
+      }),
+    ).toBe("?since=1d");
+    expect(scopePageSearch({ type: null, surface: null, since: "7d", groupByPath: false })).toBe(
+      "?since=7d",
+    );
+  });
+
+  it("matches upload times inside the since window", () => {
+    const now = Date.parse("2026-10-22T12:00:00Z");
+    expect(matchesSinceFilter("2026-10-16T12:00:00Z", "7d", now)).toBe(true);
+    expect(matchesSinceFilter("2026-10-14T12:00:00Z", "7d", now)).toBe(false);
+    expect(matchesSinceFilter(undefined, "7d", now)).toBe(false);
+    expect(matchesSinceFilter(undefined, null, now)).toBe(true);
+  });
+
+  it("names the since window in the pulls empty state", () => {
+    expect(pullsEmptyCopy({ filtering: false, showOlder: false, since: "7d" })).toEqual({
+      kind: "filtered",
+      title: "No pull requests in the last 7 days.",
+    });
+    expect(pullsEmptyCopy({ filtering: true, showOlder: false, since: "1d" }).title).toBe(
+      "No pull requests in the last 24 hours match these filters.",
+    );
+  });
+
   it("names the empty-state noun for each type", () => {
     expect(typeEmptyNoun(null)).toBe("files");
     expect(typeEmptyNoun("screenshot")).toBe("screenshots");
@@ -258,6 +322,7 @@ describe("Files URLs are never redirected to Storage", () => {
         view: "pulls",
         type: "video",
         surface: null,
+        since: null,
         repo: "acme/web",
         state: "merged",
         all: false,
@@ -266,6 +331,7 @@ describe("Files URLs are never redirected to Storage", () => {
         view: "pulls",
         type: null,
         surface: null,
+        since: null,
         repo: "acme/web",
         state: null,
         all: false,
@@ -274,15 +340,25 @@ describe("Files URLs are never redirected to Storage", () => {
         view: "pulls",
         type: null,
         surface: null,
+        since: null,
         repo: "",
         state: "open",
         all: false,
       }),
-      filesSearch({ view: "pulls", type: null, surface: null, repo: "", state: null, all: true }),
+      filesSearch({
+        view: "pulls",
+        type: null,
+        surface: null,
+        since: null,
+        repo: "",
+        state: null,
+        all: true,
+      }),
       filesSearch({
         view: "pulls",
         type: "video",
         surface: null,
+        since: null,
         repo: "acme/web",
         state: null,
         all: true,
@@ -291,6 +367,7 @@ describe("Files URLs are never redirected to Storage", () => {
         view: "repos",
         type: "other",
         surface: null,
+        since: null,
         repo: "",
         state: null,
         all: false,
@@ -299,11 +376,12 @@ describe("Files URLs are never redirected to Storage", () => {
         view: "pages",
         type: "screenshot",
         surface: null,
+        since: null,
         repo: "",
         state: null,
         all: false,
       }),
-      scopePageSearch({ type: "screenshot", surface: null, groupByPath: true }),
+      scopePageSearch({ type: "screenshot", surface: null, since: null, groupByPath: true }),
     ];
     for (const search of searches) {
       expect(filesRouteRedirect("acme", search)).toBeNull();
