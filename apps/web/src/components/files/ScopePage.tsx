@@ -52,7 +52,7 @@ import {
 import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel, pairedShotKeys } from "../../lib/workspace-screenshots";
 import { CommandEmpty, InlineEmpty, RowsSkeleton } from "./FilesEmpty";
-import { TypeSelect } from "./FilterControls";
+import { FilterBar, TypeSections, typeChips } from "./FilterControls";
 import { LoadMoreFooter } from "./LoadMoreFooter";
 import { useLiveLink } from "./LiveLink";
 import { ShotThumb, type PreviewHandlers } from "./ShotThumb";
@@ -326,25 +326,29 @@ function ScopePageInner({
         </section>
       )}
 
-      <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-        <TypeSelect value={query} onChange={(next) => setQuery({ ...query, ...next })} />
-        {number !== null && (
-          <div
-            className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
-            role="group"
-            aria-label="Grouping"
-          >
-            <button
-              type="button"
-              className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-              aria-pressed={query.groupByPath}
-              onClick={() => setQuery({ ...query, groupByPath: !query.groupByPath })}
+      <FilterBar
+        chips={typeChips(query, (next) => setQuery({ ...query, ...next }))}
+        trailing={
+          number !== null && (
+            <div
+              className="wsp-toggle flex flex-none items-stretch overflow-hidden rounded-[6px] border border-line box-border"
+              role="group"
+              aria-label="Grouping"
             >
-              Group by page
-            </button>
-          </div>
-        )}
-      </div>
+              <button
+                type="button"
+                className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
+                aria-pressed={query.groupByPath}
+                onClick={() => setQuery({ ...query, groupByPath: !query.groupByPath })}
+              >
+                Group by page
+              </button>
+            </div>
+          )
+        }
+      >
+        <TypeSections value={query} onChange={(next) => setQuery({ ...query, ...next })} />
+      </FilterBar>
 
       {list.status === "loading" && (
         <div className={GRID_CLASS} aria-busy="true">
