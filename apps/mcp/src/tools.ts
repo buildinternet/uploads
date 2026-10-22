@@ -25,6 +25,7 @@ import {
   ghMetadataForBranch,
   ghMetadataFromTarget,
   MAX_CHANGELOG_LIMIT,
+  META_VALUE_MAX,
   parseGithubIssueRef,
   resolveUploadFilename,
   type GhTarget,
@@ -107,6 +108,11 @@ import {
   resolveGhKeyContext,
   type GhKeyMode,
 } from "@uploads/api/github-repo-binding";
+import {
+  findOpenPullForBranch,
+  pullTitle,
+  repoBoundToWorkspace,
+} from "@uploads/api/github-pull-context";
 import {
   addExternalReference,
   addGalleryItem,
@@ -264,7 +270,7 @@ const keyLayoutProps = {
   repo: {
     type: "string",
     description:
-      "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
+      "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc). This server has no git: in a checkout, read it with `git remote get-url origin`.",
   },
   ref: {
     type: "string",
@@ -302,6 +308,14 @@ const putFormatProps = {
 export const MAX_PUT_FILES = 20;
 /** Bounded parallelism for batch writes (each is a D1 budget check + R2 put). */
 const PUT_CONCURRENCY = 5;
+/** Cap on the GitHub lookups that stand in for the CLI's git context. */
+const GITHUB_CONTEXT_BUDGET_MS = 3000;
+const NO_REPO_HINT =
+  "No repo was given, so this has no GitHub link and sits under misc/ by date. In a git checkout, pass repo (from `git remote get-url origin`) and branch (from `git branch --show-current`), or pr once one is open.";
+
+function autoPrHint(branch: string, pr: number): string {
+  return `Branch ${branch} has open PR #${pr}, so these files were attached to it.`;
+}
 const hostedRepoRequired = "GitHub `owner/name`. Required — this server cannot infer it from git.";
 
 interface PutFileItem {
@@ -571,6 +585,74 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
   }
 
   /**
+   * Hosted stand-in for the CLI's git/gh inference (issue #700 parity): on a
+   * repo bound to this workspace, `repo` + `branch` with exactly one open PR
+   * attaches to that PR, and PR/issue uploads get `gh.title`. Bounded and
+   * fail-open: any miss, error, or timeout returns `args` unchanged.
+   * `keepBranch` keeps `branch` beside the found `pr` (put promotes it after);
+   * `sign_upload_url` can't combine the two, so it drops it.
+   */
+  async function withGithubContext(
+    args: Record<string, unknown>,
+    opts: { keepBranch: boolean },
+  ): Promise<{ args: Record<string, unknown>; autoPr?: number }> {
+    const repo = optString(args, "repo");
+    const branch = typeof args.branch === "string" && args.branch.length > 0 ? args.branch : "";
+    const hasTarget = args.pr !== undefined || args.issue !== undefined;
+    if (!repo || !validRepoGrammar(repo) || args.key !== undefined) return { args };
+    if (!hasTarget && !branch) return { args };
+
+    const work = async (): Promise<{ args: Record<string, unknown>; autoPr?: number }> => {
+      if (!(await repoBoundToWorkspace(env, repo, workspaceName))) return { args };
+      const next: Record<string, unknown> = { ...args };
+      let autoPr: number | undefined;
+      if (!hasTarget) {
+        const found = await findOpenPullForBranch(env, repo, branch);
+        if (found !== null) {
+          next.pr = found;
+          autoPr = found;
+          if (!opts.keepBranch) delete next.branch;
+        }
+      }
+      const num = next.pr ?? next.issue;
+      if (typeof num === "number" && Number.isSafeInteger(num) && num > 0) {
+        const title = await pullTitle(env, repo, num);
+        const callerMeta = next.metadata;
+        const metaObject =
+          callerMeta === undefined
+            ? {}
+            : callerMeta !== null && typeof callerMeta === "object" && !Array.isArray(callerMeta)
+              ? (callerMeta as Record<string, string>)
+              : undefined;
+        if (title && metaObject && !("gh.title" in metaObject)) {
+          const candidate = { ...metaObject, "gh.title": title.slice(0, META_VALUE_MAX) };
+          try {
+            validateMetadataEntries(candidate); // non-ASCII titles or a full key budget: skip
+            next.metadata = candidate;
+          } catch {
+            // keep the caller's metadata as it was
+          }
+        }
+      }
+      return { args: next, autoPr };
+    };
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        work(),
+        new Promise<{ args: Record<string, unknown> }>((resolve) => {
+          timer = setTimeout(() => resolve({ args }), GITHUB_CONTEXT_BUDGET_MS);
+        }),
+      ]);
+    } catch {
+      return { args };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /**
    * The `put` tool body, shared with the ticketed `PUT /u/<ticket>` route
    * (issue #1242). With `upload`, the bytes come from the request body
    * instead of `contentBase64`/`contentUrl`; `validateOnly` (used by
@@ -681,6 +763,21 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
     else if (staging && repo && branch) {
       metadata = { ...metadata, ...branchMetadata(repo, branch) };
     }
+    // Derived `repo` (the CLI's `deriveRepoSlugFromGit`, from the argument
+    // here). Only folded into an already-defined map, so a bare re-upload
+    // never wipes stored metadata; skipped when it would break the caps.
+    if (metadata && repo && validRepoGrammar(repo) && !("repo" in metadata)) {
+      const withRepo = { ...metadata, repo: repo.toLowerCase() };
+      try {
+        validateMetadataEntries(withRepo);
+        metadata = withRepo;
+      } catch {
+        // full key budget — upload without it
+      }
+    }
+    // A dated-layout upload with no repo has no GitHub link at all; say so,
+    // since an agent with a checkout can read repo and branch from git.
+    const contextHint = !ghLayout && !explicitKey && !repo ? NO_REPO_HINT : undefined;
     // Ceilings only, no admission decision — `putObject` is what gates
     // SVG/XML acceptance (see `uploadLimits`, guards.ts).
     const limits = uploadLimits(workspace);
@@ -877,7 +974,13 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         });
       }
       const extras = await afterUploadExtras(uploads.length > 0);
-      return { workspace: workspaceName, uploads, failures, ...extras };
+      return {
+        workspace: workspaceName,
+        uploads,
+        failures,
+        ...extras,
+        ...(contextHint ? { hint: contextHint } : {}),
+      };
     }
 
     const bytes =
@@ -903,7 +1006,13 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
     // A ticketed upload never syncs the comment: parallel PUTs on a new PR
     // would each create one. The agent calls `comment` once afterwards.
     const extras = ticketBytes ? {} : await afterUploadExtras(true);
-    return { workspace: workspaceName, ...result, markdown, ...extras };
+    return {
+      workspace: workspaceName,
+      ...result,
+      markdown,
+      ...extras,
+      ...(contextHint ? { hint: contextHint } : {}),
+    };
   }
 
   const tools: McpTool[] = [
@@ -1225,7 +1334,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        'Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). A result with `holdCheck: "pending"` may still be held for review if it shows a secret; `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace\'s storage settings); HTML is rejected.',
+        'Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). A result with `holdCheck: "pending"` may still be held for review if it shows a secret; `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet; if that branch already has one open PR (repo linked to this workspace), the file attaches to it instead. This server has no git, so in a checkout read `repo` and `branch` from git and always pass them. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace\'s storage settings); HTML is rejected.',
       inputSchema: {
         type: "object",
         properties: {
@@ -1292,7 +1401,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           branch: {
             type: "string",
             description:
-              "Git branch to stage under (no comment yet). With `pr`, also promote this branch's staged files into the PR. Requires `repo`.",
+              "Git branch (`git branch --show-current`). Stages under it, or attaches to its open PR when the repo is linked to this workspace and exactly one is open. With `pr`, also promote this branch's staged files into the PR. Requires `repo`.",
           },
           comment: {
             type: "boolean",
@@ -1334,7 +1443,12 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         ],
       },
       async handler(args) {
-        return runPut(args);
+        requireScope("files:write");
+        const { args: resolved, autoPr } = await withGithubContext(args, { keepBranch: true });
+        const result = await runPut(resolved);
+        return autoPr === undefined
+          ? result
+          : { ...result, hint: autoPrHint(String(args.branch), autoPr) };
       },
     },
     {
@@ -1342,7 +1456,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       title: "Sign upload URLs",
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
-      description: `Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of \`put\` when the files are on a local or sandbox disk and you can run curl. Takes \`put\`'s arguments without the bytes, plus \`files: [{ filename, alt? }]\` (max ${MAX_PUT_FILES}). Run each returned \`curl\` line from the folder holding the file (or swap in its path); the response is the same JSON \`put\` returns, including \`markdown\`. URLs expire after 15 minutes; each takes a file up to its \`maxBytes\` (the workspace's upload limit, at most 100 MB). With \`pr\`/\`issue\`, call \`comment\` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to \`put\` with contentBase64. All uploads are public.`,
+      description: `Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of \`put\` when the files are on a local or sandbox disk and you can run curl. Takes \`put\`'s arguments without the bytes, plus \`files: [{ filename, alt? }]\` (max ${MAX_PUT_FILES}). This server has no git: in a checkout, pass \`repo\` and \`branch\` read from git. Run each returned \`curl\` line from the folder holding the file (or swap in its path); the response is the same JSON \`put\` returns, including \`markdown\`. URLs expire after 15 minutes; each takes a file up to its \`maxBytes\` (the workspace's upload limit, at most 100 MB). With \`pr\`/\`issue\`, call \`comment\` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to \`put\` with contentBase64. All uploads are public.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -1380,7 +1494,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           branch: {
             type: "string",
             description:
-              "Git branch to stage under, before the PR exists. Requires `repo`. Call `promote` once the PR is open.",
+              "Git branch (`git branch --show-current`). Stages under it, or targets its open PR when the repo is linked to this workspace and exactly one is open (the result's `next` says which). Requires `repo`. Call `promote` once a PR opens for staged files.",
           },
           ...putFormatProps,
         },
@@ -1403,7 +1517,8 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         if (args.branch !== undefined && (args.pr !== undefined || args.issue !== undefined)) {
           usage("branch cannot be combined with pr or issue here; call promote after uploading");
         }
-        const { files: _files, ...shared } = args;
+        const { args: resolved, autoPr } = await withGithubContext(args, { keepBranch: false });
+        const { files: _files, ...shared } = resolved;
         // Every argument check `put` makes, per file, before anything is signed.
         const planned = await Promise.all(
           items.map(async (item) => {
@@ -1439,11 +1554,14 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           }),
         );
         const next =
-          args.pr !== undefined || args.issue !== undefined
-            ? "After every upload succeeds, call `comment` with the same repo and pr/issue to update the attachments comment."
-            : args.branch !== undefined
+          resolved.pr !== undefined || resolved.issue !== undefined
+            ? (autoPr !== undefined ? autoPrHint(String(args.branch), autoPr) + " " : "") +
+              "After every upload succeeds, call `comment` with the same repo and pr/issue to update the attachments comment."
+            : resolved.branch !== undefined
               ? "Files are staged for the branch. Once the PR is open, call `promote` with repo, pr, and branch."
-              : undefined;
+              : resolved.key === undefined && resolved.repo === undefined
+                ? NO_REPO_HINT
+                : undefined;
         return {
           workspace: workspaceName,
           expiresAt,
