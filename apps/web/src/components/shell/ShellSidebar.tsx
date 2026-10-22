@@ -291,7 +291,7 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
   return (
     <SidebarProvider
       defaultOpen={props.defaultOpen}
-      className="relative min-h-0 w-auto items-stretch"
+      className="relative h-full min-h-0 w-auto items-stretch"
     >
       <SidebarToggleBridge />
       <Sidebar
@@ -299,8 +299,9 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
         // In-flow inside the shell's nav column instead of the kit's default
         // viewport-fixed placement; the container keeps its own width
         // transition, so collapse-to-icons still animates the grid track.
-        // The now-redundant spacer is hidden in account-shell.css.
-        className="relative inset-auto h-auto"
+        // The now-redundant spacer is hidden in account-shell.css, which also
+        // sizes the nav to the viewport so the footer docks at the bottom.
+        className="relative inset-auto h-full"
       >
         <SidebarHeader>
           {switcher ? (

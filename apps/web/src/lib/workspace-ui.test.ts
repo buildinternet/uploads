@@ -255,7 +255,7 @@ describe("renderUsageHtml", () => {
     });
     expect(html).toContain('class="ul-progress"');
     expect(html).toContain("Storage");
-    expect(html).toContain("Uploads this month");
+    expect(html).toContain("Monthly uploads");
     expect(html).toContain('aria-valuenow="50"');
     expect(html).toContain("3 objects");
     expect(html).not.toContain("usage-text");

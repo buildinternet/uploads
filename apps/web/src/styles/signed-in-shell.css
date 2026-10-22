@@ -199,12 +199,18 @@ nav.shell-side [data-slot="sidebar-gap"] {
   color: var(--fg);
 }
 /* Group headings ("Workspace", "Personal") echo the right rail's small-caps
-   labels (.ws-rail__label in account-shell.css). */
-[data-slot="sidebar-group-label"] {
+   labels (.ws-rail__label in account-shell.css). The usage footer's toggle
+   wears the same heading. */
+[data-slot="sidebar-group-label"],
+[data-slot="sidebar-usage-label"] {
   color: var(--muted);
   font-size: var(--text-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+[data-slot="sidebar-usage-label"]:hover,
+[data-slot="sidebar-usage-label"]:focus-visible {
+  color: var(--fg);
 }
 /* Active row: accent-tinted surface with accent text, instead of the kit's
    neutral sidebar-accent wash. */
