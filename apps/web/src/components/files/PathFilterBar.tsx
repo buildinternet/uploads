@@ -1,15 +1,19 @@
 /**
  * By page filter bar: project select, path input with autocomplete
- * (Cmd/Ctrl-K, "/"), Grouped/Recent, Merged only. Moved from
+ * (Cmd/Ctrl-K, "/") that also matches `screen` names, Grouped/Recent, Merged only. Moved from
  * ScreenshotsByPath.tsx. The Type select leads the bar.
  */
-import type { FileTypeClass } from "@uploads/comment-render/scope";
 import { Input, Select } from "@uploads/ui";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PathCatalogEntry } from "../../lib/api-client";
-import { formatShotCount, pathSuggestions, type RecentView } from "../../lib/workspace-screenshots";
-import { TypeSelect } from "./FilterControls";
+import {
+  formatShotCount,
+  pathSuggestions,
+  type GroupBy,
+  type RecentView,
+} from "../../lib/workspace-screenshots";
+import { TypeSelect, type TypeFilter } from "./FilterControls";
 
 export function PathFilterBar({
   project,
@@ -32,7 +36,7 @@ export function PathFilterBar({
   /** Exact drill-in path, shown in the input so editing it widens the filter. */
   path: string;
   sort: RecentView;
-  type: FileTypeClass | null;
+  type: TypeFilter;
   /** "Merged only" toggle (persisted PR merge-state tagging). */
   merged: boolean;
   projects: string[];
@@ -41,8 +45,8 @@ export function PathFilterBar({
   onProject: (project: string) => void;
   onQuery: (q: string) => void;
   onSort: (sort: RecentView) => void;
-  onType: (type: FileTypeClass | null) => void;
-  onPickPath: (path: string) => void;
+  onType: (type: TypeFilter) => void;
+  onPickPath: (picked: { path: string; by: GroupBy }) => void;
   onMerged: (merged: boolean) => void;
 }) {
   const options = project && !projects.includes(project) ? [...projects, project] : projects;
@@ -61,7 +65,7 @@ export function PathFilterBar({
     if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) setModKbd("⌘K");
   }, []);
 
-  const pick = (picked: string) => {
+  const pick = (picked: { path: string; by: GroupBy }) => {
     setSuggestOpen(false);
     setActive(-1);
     onPickPath(picked);
@@ -84,7 +88,7 @@ export function PathFilterBar({
       setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
     } else if (event.key === "Enter" && active >= 0 && suggestions[active]) {
       event.preventDefault();
-      pick(suggestions[active].path);
+      pick(suggestions[active]);
     } else if (event.key === "Escape") {
       setSuggestOpen(false);
       setActive(-1);
@@ -112,13 +116,13 @@ export function PathFilterBar({
           id="wsp-path-filter"
           type="search"
           className={`wsp-filter__q flex-1 min-w-0 min-h-9 px-3 py-1.5 text-base sm:text-[13px] rounded-[6px] box-border${value === "" ? " pr-14" : ""}`}
-          aria-label="Filter by path"
+          aria-label="Filter by path or screen"
           aria-keyshortcuts="Meta+K Control+K Slash"
           aria-expanded={open}
           aria-controls="wsp-path-suggest"
           aria-activedescendant={active >= 0 ? `wsp-path-suggest-${active}` : undefined}
           role="combobox"
-          placeholder="Filter path  e.g. /catalog"
+          placeholder="Filter path or screen  e.g. /catalog"
           value={value}
           spellCheck={false}
           autoComplete="off"
@@ -147,7 +151,7 @@ export function PathFilterBar({
             aria-label="Paths"
           >
             {suggestions.map((entry, index) => (
-              <li key={entry.path} role="presentation">
+              <li key={`${entry.by}\0${entry.path}`} role="presentation">
                 <button
                   type="button"
                   role="option"
@@ -156,12 +160,17 @@ export function PathFilterBar({
                   className={`wsp-suggest__opt flex w-full items-baseline gap-3 rounded-sm border-0 bg-none px-2 py-1.5 text-left font-[inherit] text-inherit cursor-pointer ${index === active ? "is-active bg-bg" : ""}`}
                   onMouseDown={(event) => {
                     event.preventDefault();
-                    pick(entry.path);
+                    pick(entry);
                   }}
                   onMouseEnter={() => setActive(index)}
                 >
                   <span className="wsp-suggest__path text-[13px] font-semibold [overflow-wrap:anywhere]">
                     {entry.path}
+                    {entry.by === "screen" && (
+                      <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                        screen
+                      </span>
+                    )}
                   </span>
                   <span className="wsp-suggest__count ml-auto text-[12px] whitespace-nowrap text-muted-foreground">
                     {formatShotCount(entry.count)}

@@ -2,7 +2,7 @@
  * Pure helpers for the Files list rows and the PR/repo pages: DTO → tile
  * mapping, before/after ordering, `path` grouping, and empty-state copy.
  */
-import type { FileTypeClass } from "@uploads/comment-render/scope";
+import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
 import type { ScopeFilesResponse, ThumbItem } from "./api-client";
 import { typeEmptyNoun } from "./files-view-state";
 import { pairPartners } from "./workspace-screenshots";
@@ -113,15 +113,19 @@ export function openPullsLabel(count: number): string {
   return count === 1 ? "1 open PR" : `${count} open PRs`;
 }
 
-export function scopeEmptyCopy(input: { number: number | null; type: FileTypeClass | null }): {
+export function scopeEmptyCopy(input: {
+  number: number | null;
+  type: FileTypeClass | null;
+  surface?: FileSurface | null;
+}): {
   title: string;
   description: string;
   command: string | null;
 } {
   const where = input.number !== null ? "on this pull request" : "in this repo";
-  if (input.type !== null) {
+  if (input.type !== null || input.surface) {
     return {
-      title: `No ${typeEmptyNoun(input.type)} ${where}`,
+      title: `No ${typeEmptyNoun(input.type, input.surface ?? null)} ${where}`,
       description: "Clear the type filter to see every file.",
       command: null,
     };

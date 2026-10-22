@@ -11,8 +11,8 @@
 import { CLASSIFIER_SAFETY_FIELDS } from "./classifier-admin-wire";
 import { InternalError, ValidationError } from "@uploads/errors";
 import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
-import type { FileTypeClass } from "@uploads/comment-render/scope";
-import { fileTypeSql } from "./file-type-sql";
+import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
+import { fileSurfaceSql, fileTypeSql } from "./file-type-sql";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
 import { type D1Queryable } from "./db-session";
 
@@ -910,7 +910,10 @@ function inCountWindow(iso: string, nowMs: number): boolean {
 
 export type PathGroup = {
   project: string;
+  /** The `path` value, or the `screen` value when `by` is "screen". */
   path: string;
+  /** Set when the group is a `screen` name (an app view with no `path`). */
+  by?: "screen";
   count: number;
   lastUpdated: string;
   recent: string[];
@@ -927,6 +930,7 @@ export type LatestPathObject = {
   key: string;
   project: string;
   path: string;
+  by?: "screen";
   uploadedAt: string;
 };
 
@@ -963,7 +967,12 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * clause above, keeping only objects stamped `gh.merged=true`
  * (`MERGED_STATUS_SQL`). Applies to the single underlying query, so `groups`,
  * `catalog`, `projects`, and `latest` all reflect the same filtered rows.
- * `opts.type` keeps only keys whose extension class matches (file-type-sql.ts).
+ * `opts.type` keeps only keys whose extension class matches (file-type-sql.ts);
+ * `opts.surface` keeps only keys whose classifier `ai.surface` label matches.
+ *
+ * Files with a `screen` and no `path` (app views with no route, usually
+ * mobile) group by their screen name, marked `by: "screen"`, so the page and
+ * its search cover them too. A file with both groups by `path` only.
  *
  * Section `count` is files in the last BY_PATH_COUNT_WINDOW_MS, capped at
  * BY_PATH_COUNT_DISPLAY_CAP + 1 so the overview can say "100+" instead of
@@ -974,7 +983,7 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
 export async function groupObjectsByPath(
   db: D1Queryable,
   workspace: string,
-  opts: { mergedOnly?: boolean; now?: Date; type?: FileTypeClass } = {},
+  opts: { mergedOnly?: boolean; now?: Date; type?: FileTypeClass; surface?: FileSurface } = {},
 ): Promise<{
   groups: PathGroup[];
   catalog: PathCatalogEntry[];
@@ -993,15 +1002,21 @@ export async function groupObjectsByPath(
   // Optional Files `type` filter (signed-in only). Applies to the one query,
   // so groups, catalog, projects, and latest all reflect it.
   const typeFilterSql = opts.type ? `AND ${fileTypeSql("p.object_key", opts.type)}` : "";
+  const surfaceFilterSql = opts.surface ? `AND ${fileSurfaceSql("p", opts.surface)}` : "";
   const result = await db
     .prepare(
-      `SELECT p.meta_value AS path, p.object_key AS object_key, p.updated_at AS updated_at,
+      `SELECT p.meta_value AS path, p.meta_key AS group_by, p.object_key AS object_key, p.updated_at AS updated_at,
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'repo') AS repo,
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'gh.repo') AS gh_repo,
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'url') AS url,
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'app') AS app
        FROM file_metadata p
-       WHERE p.workspace = ? AND p.meta_key = 'path'
+       WHERE p.workspace = ? AND p.meta_key IN ('path', 'screen')
+         AND (p.meta_key = 'path' OR NOT EXISTS (
+           SELECT 1 FROM file_metadata pp
+           WHERE pp.workspace = p.workspace AND pp.object_key = p.object_key
+             AND pp.meta_key = 'path'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM file_metadata s
            WHERE s.workspace = p.workspace AND s.object_key = p.object_key
@@ -1009,11 +1024,13 @@ export async function groupObjectsByPath(
          )
          ${mergedFilterSql}
          ${typeFilterSql}
+         ${surfaceFilterSql}
        ORDER BY p.updated_at DESC, p.object_key ASC`,
     )
     .bind(workspace)
     .all<{
       path: string;
+      group_by: string;
       object_key: string;
       updated_at: string;
       repo: string | null;
@@ -1050,11 +1067,18 @@ export async function groupObjectsByPath(
       url: row.url,
       app: row.app,
     });
-    const groupKey = `${project}\0${row.path}`;
+    const by = row.group_by === "screen" ? ({ by: "screen" } as const) : {};
+    const groupKey = `${project}\0${row.group_by}\0${row.path}`;
 
     // Rows arrive newest-first, so the first N are the flat recent feed.
     if (latest.length < BY_PATH_LATEST_LIMIT) {
-      latest.push({ key: row.object_key, project, path: row.path, uploadedAt: row.updated_at });
+      latest.push({
+        key: row.object_key,
+        project,
+        path: row.path,
+        ...by,
+        uploadedAt: row.updated_at,
+      });
     }
 
     let entry = catalogByKey.get(groupKey);
@@ -1062,7 +1086,14 @@ export async function groupObjectsByPath(
       if (catalog.length === BY_PATH_CATALOG_LIMIT) {
         catalogTruncated = true;
       } else {
-        entry = { project, path: row.path, count: 0, lastUpdated: row.updated_at, recent: [] };
+        entry = {
+          project,
+          path: row.path,
+          ...by,
+          count: 0,
+          lastUpdated: row.updated_at,
+          recent: [],
+        };
         catalogByKey.set(groupKey, entry);
         catalog.push(entry);
       }
@@ -1087,7 +1118,14 @@ export async function groupObjectsByPath(
         truncated = true;
         continue; // existing groups keep counting; new ones are dropped
       }
-      group = { project, path: row.path, count: 0, lastUpdated: row.updated_at, recent: [] };
+      group = {
+        project,
+        path: row.path,
+        ...by,
+        count: 0,
+        lastUpdated: row.updated_at,
+        recent: [],
+      };
       byKey.set(groupKey, group);
       groups.push(group);
     }

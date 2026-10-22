@@ -30,7 +30,7 @@
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
-import { parseFileTypeQuery } from "../file-type-sql";
+import { parseFileTypeQuery, parseSurfaceQuery } from "../file-type-sql";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
@@ -301,10 +301,11 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       // semantics untouched.
       const mergedOnly = c.req.query("merged") === "1";
       const type = parseFileTypeQuery(c.req.query("type"));
+      const surface = parseSurfaceQuery(c.req.query("surface"));
       const { groups, catalog, projects, latest, truncated, catalogTruncated } =
         await boundedDataRead(
           c,
-          () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly, type }),
+          () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly, type, surface }),
           { name: "d1_screenshots_by_path" },
         );
       const shotKeys = [
@@ -314,20 +315,21 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
       // `updatedAt` gives it the shot's upload time (the `latest` feed already
       // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
-      const metaByKey = await boundedDataRead(
-        c,
-        () =>
-          getMetadataForKeys(dbFor(c.env), name, shotKeys, {
-            metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
-          }),
-        { name: "d1_files_meta" },
-      );
-      const updatedByKey = await boundedDataRead(
-        c,
-        () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys),
-        { name: "d1_files_updated_at" },
-      );
-      const cfg = await storageConfig(c.env, record);
+      // Independent reads, so they run together rather than back to back.
+      const [metaByKey, updatedByKey, cfg] = await Promise.all([
+        boundedDataRead(
+          c,
+          () =>
+            getMetadataForKeys(dbFor(c.env), name, shotKeys, {
+              metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
+            }),
+          { name: "d1_files_meta" },
+        ),
+        boundedDataRead(c, () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys), {
+          name: "d1_files_updated_at",
+        }),
+        storageConfig(c.env, record),
+      ]);
       const shotItem = (key: string) => {
         const urls = objectPublicUrls(c.env, cfg, key);
         const meta = metaByKey.get(key);
@@ -352,6 +354,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         groups: groups.map((group) => ({
           project: group.project,
           path: group.path,
+          ...(group.by ? { by: group.by } : {}),
           count: group.count,
           lastUpdated: group.lastUpdated,
           recent: group.recent.map(shotItem),
@@ -363,6 +366,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         catalog: catalog.map((entry) => ({
           project: entry.project,
           path: entry.path,
+          ...(entry.by ? { by: entry.by } : {}),
           count: entry.count,
           lastUpdated: entry.lastUpdated,
           recent: entry.recent.map(shotItem),
@@ -374,6 +378,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           ...shotItem(item.key),
           project: item.project,
           path: item.path,
+          ...(item.by ? { by: item.by } : {}),
           uploadedAt: item.uploadedAt,
         })),
         truncated,

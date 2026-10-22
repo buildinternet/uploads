@@ -107,8 +107,19 @@ function progressRowHtml(label: string, detail: string, pct: number): string {
   </div>`;
 }
 
-export function renderUsageHtml(usage: UsageSnapshot): string {
-  const meters: { label: string; detail: string; pct: number }[] = [];
+export interface UsageMeter {
+  label: string;
+  detail: string;
+  pct: number;
+}
+
+/**
+ * The capped meters for a usage snapshot (storage, uploads this month), in
+ * display order. Empty when the plan sets no caps. Shared by the HTML
+ * builder below and the sidebar's usage footer.
+ */
+export function usageMeters(usage: UsageSnapshot): UsageMeter[] {
+  const meters: UsageMeter[] = [];
   // BYO-active workspaces (`storageBudgetBasis: "shared"`) meter only the
   // residue still on hosted storage — bytes in the customer's own bucket are
   // unmetered, so a total-bytes meter would overstate usage against a cap
@@ -131,9 +142,23 @@ export function renderUsageHtml(usage: UsageSnapshot): string {
       pct: uploadsPct,
     });
   }
-  const byoNote = byoActive
-    ? `<div class="usage-meta">Storage on your own bucket is unmetered — the plan limit only counts files on hosted storage.</div>`
-    : "";
+  return meters;
+}
+
+export const BYO_USAGE_NOTE =
+  "Storage on your own bucket is unmetered — the plan limit only counts files on hosted storage.";
+
+/** Plain one-line usage, for plans with no caps to meter against. */
+export function usagePlainText(usage: UsageSnapshot): string {
+  return formatUsagePlain(usage);
+}
+
+export function renderUsageHtml(usage: UsageSnapshot): string {
+  const meters = usageMeters(usage);
+  const byoNote =
+    usage.storageBudgetBasis === "shared"
+      ? `<div class="usage-meta">${escapeHtml(BYO_USAGE_NOTE)}</div>`
+      : "";
   if (!meters.length) {
     return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>${byoNote}`;
   }

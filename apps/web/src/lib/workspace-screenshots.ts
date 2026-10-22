@@ -4,10 +4,19 @@
  * list), so media kind is inferred from the key's extension — same trade-off
  * the search results accept.
  */
-import { fileTypeClassFromKey, type FileTypeClass } from "@uploads/comment-render/scope";
+import {
+  fileTypeClassFromKey,
+  type FileSurface,
+  type FileTypeClass,
+} from "@uploads/comment-render/scope";
 import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
 import type { GithubTitleMap } from "./api-client";
-import { filesBasePath, parseFileTypeParam, readFilesView } from "./files-view-state";
+import {
+  filesBasePath,
+  parseFileTypeParam,
+  parseSurfaceParam,
+  readFilesView,
+} from "./files-view-state";
 import type { MediaTileInput } from "./media-tile";
 
 export type ShotKind = "image" | "video" | "other";
@@ -229,9 +238,14 @@ export function formatShotCount(count: number, opts?: { truncated?: boolean }): 
 /** By page layout: grouped by project/path, or one flat newest-first list (`sort=recent`). */
 export type RecentView = "grouped" | "recent";
 
+/** What a By page group (and drill-in) is keyed on: `path`, or `screen` for app views. */
+export type GroupBy = "path" | "screen";
+
 export interface ScreenshotsView {
   project: string;
+  /** Drill-in value: a `path`, or a `screen` name when `by` is "screen". */
   path: string;
+  by: GroupBy;
   q: string;
   sort: RecentView;
   /** "Merged only" toggle (persisted PR merge-state tagging) — filters both
@@ -240,23 +254,28 @@ export interface ScreenshotsView {
   merged: boolean;
   /** Files type filter: server-side on the overview, by key extension on drill-in. */
   type: FileTypeClass | null;
+  /** Device filter (`ai.surface`): server-side on the overview and the drill-in. */
+  surface: FileSurface | null;
 }
 
 /**
- * By page view state: `?project=` / `?path=` / `?q=` / `?sort=recent` /
- * `?merged=1` / `?type=`. Legacy `?view=recent` (the retired Screenshots tab)
+ * By page view state: `?project=` / `?path=` (or `?screen=`) / `?q=` /
+ * `?sort=recent` / `?merged=1` / `?type=` / `?surface=`. Legacy `?view=recent` (the retired Screenshots tab)
  * still reads as the Recent list.
  */
 export function readScreenshotsView(search: string): ScreenshotsView {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const recent = params.get("sort") === "recent" || params.get("view") === "recent";
+  const screen = !params.get("path") && Boolean(params.get("screen"));
   return {
     project: params.get("project") ?? "",
-    path: params.get("path") ?? "",
+    path: (screen ? params.get("screen") : params.get("path")) ?? "",
+    by: screen ? "screen" : "path",
     q: params.get("q") ?? "",
     sort: recent ? "recent" : "grouped",
     merged: params.get("merged") === "1",
     type: parseFileTypeParam(params.get("type")),
+    surface: parseSurfaceParam(params.get("surface")),
   };
 }
 
@@ -274,20 +293,32 @@ export function screenshotsSearch(
   sort: RecentView = "grouped",
   merged = false,
   type: FileTypeClass | null = null,
+  surface: FileSurface | null = null,
+  by: GroupBy = "path",
 ): string {
   const params = new URLSearchParams();
   params.set("view", "pages");
   if (sort === "recent") params.set("sort", "recent");
   if (project) params.set("project", project);
-  if (path) params.set("path", path);
+  if (path) params.set(by === "screen" ? "screen" : "path", path);
   if (q) params.set("q", q);
   if (merged) params.set("merged", "1");
   if (type) params.set("type", type);
+  if (surface) params.set("surface", surface);
   return `?${params.toString()}`;
 }
 
 export function screenshotsSearchFromView(view: ScreenshotsView): string {
-  return screenshotsSearch(view.project, view.path, view.q, view.sort, view.merged, view.type);
+  return screenshotsSearch(
+    view.project,
+    view.path,
+    view.q,
+    view.sort,
+    view.merged,
+    view.type,
+    view.surface,
+    view.by,
+  );
 }
 
 /**
@@ -303,10 +334,12 @@ export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): b
   return (
     a.project === b.project &&
     a.path === b.path &&
+    a.by === b.by &&
     a.q === b.q &&
     a.sort === b.sort &&
     a.merged === b.merged &&
-    a.type === b.type
+    a.type === b.type &&
+    a.surface === b.surface
   );
 }
 
@@ -330,7 +363,9 @@ export function screenshotsHistoryMode(
   prev: ScreenshotsView,
   next: ScreenshotsView,
 ): "push" | "replace" {
-  if (prev.project !== next.project || prev.path !== next.path) return "push";
+  if (prev.project !== next.project || prev.path !== next.path || prev.by !== next.by) {
+    return "push";
+  }
   return "replace";
 }
 
@@ -382,18 +417,20 @@ export function isRepoLabel(label: string): boolean {
  * segment ("/ca") still surfaces "/catalog/families" to complete into.
  */
 export function pathSuggestions(
-  catalog: Array<{ project: string; path: string; count: number }>,
+  catalog: Array<{ project: string; path: string; by?: "screen"; count: number }>,
   opts: { project: string; q: string },
   limit = 8,
-): Array<{ path: string; count: number }> {
+): Array<{ path: string; by: GroupBy; count: number }> {
   const needle = opts.q.trim().toLowerCase();
-  const byPath = new Map<string, { path: string; count: number }>();
+  const byPath = new Map<string, { path: string; by: GroupBy; count: number }>();
   for (const entry of catalog) {
     if (opts.project && entry.project !== opts.project) continue;
     if (needle && !entry.path.toLowerCase().includes(needle)) continue;
-    const existing = byPath.get(entry.path);
+    const by: GroupBy = entry.by ?? "path";
+    const key = `${by}\0${entry.path}`;
+    const existing = byPath.get(key);
     if (existing) existing.count += entry.count;
-    else byPath.set(entry.path, { path: entry.path, count: entry.count });
+    else byPath.set(key, { path: entry.path, by, count: entry.count });
   }
   return [...byPath.values()].slice(0, limit);
 }
@@ -427,6 +464,7 @@ export function filterCatalog<T extends { project: string; path: string }>(
 type PathCatalogFields = {
   project: string;
   path: string;
+  by?: "screen";
   count: number;
   lastUpdated: string;
 };
@@ -442,8 +480,9 @@ export function groupsFromCatalog<TRecent>(
   catalog: Array<PathCatalogFields & { recent: TRecent[] }>,
   groups: Array<PathCatalogFields & { recent: TRecent[] }>,
 ): Array<PathCatalogFields & { recent: TRecent[] }> {
-  const byKey = new Map(groups.map((group) => [`${group.project}\0${group.path}`, group]));
-  return catalog.map((entry) => byKey.get(`${entry.project}\0${entry.path}`) ?? entry);
+  const keyOf = (g: PathCatalogFields) => `${g.project}\0${g.by ?? "path"}\0${g.path}`;
+  const byKey = new Map(groups.map((group) => [keyOf(group), group]));
+  return catalog.map((entry) => byKey.get(keyOf(entry)) ?? entry);
 }
 
 /** Viewport box used to place the thumbnail hover preview. */

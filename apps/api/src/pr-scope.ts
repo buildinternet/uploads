@@ -15,11 +15,16 @@
  * the SQL or SQLite cannot use that partial index.
  */
 import { ValidationError } from "@uploads/errors";
-import { FEED_ITEM_ID_RE, feedItemIdFor, type FileTypeClass } from "@uploads/comment-render/scope";
+import {
+  FEED_ITEM_ID_RE,
+  feedItemIdFor,
+  type FileSurface,
+  type FileTypeClass,
+} from "@uploads/comment-render/scope";
 import { type D1Queryable } from "./db-session";
 import type { FeedRecord } from "./feeds";
 import { getMetadataForKeys, PROMOTED_SHADOW_STATUS_SQL } from "./file-metadata";
-import { fileTypeSql } from "./file-type-sql";
+import { fileSurfaceSql, fileTypeSql } from "./file-type-sql";
 import { b64urlDecode, b64urlEncode } from "./secrets";
 
 export const SCOPE_DEFAULT_LIMIT = 50;
@@ -55,6 +60,8 @@ export interface ScopeQuery {
   path?: string;
   /** Signed-in views only; live links never pass it. */
   type?: FileTypeClass;
+  /** Signed-in views only: the classifier's `ai.surface` label. */
+  surface?: FileSurface;
   cursor?: ScopeResume | null;
   /** Default 50, max 100. */
   limit?: number;
@@ -109,6 +116,7 @@ function scopeFrom(q: Omit<ScopeQuery, "cursor" | "limit">): { sql: string; para
     params.push(q.path);
   }
   if (q.type) sql += ` AND ${fileTypeSql("r.object_key", q.type)}`;
+  if (q.surface) sql += ` AND ${fileSurfaceSql("r", q.surface)}`;
   return { sql, params };
 }
 

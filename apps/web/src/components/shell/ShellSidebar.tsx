@@ -48,6 +48,7 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -62,6 +63,7 @@ import {
   useSidebar,
 } from "@uploads/ui/components/ui/sidebar";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
+import { SidebarUsage } from "./SidebarUsage";
 import {
   accountNavSections,
   workspaceSwitcherData,
@@ -323,6 +325,16 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
             <NavGroup key={section.label} section={section} />
           ))}
         </SidebarContent>
+
+        {/* Workspace routes only. Its own boundary, so a usage crash never
+            takes the navigation down with it. */}
+        {account?.section === "workspaces" && account.workspace && (
+          <SidebarFooter>
+            <IslandErrorBoundary fallback={null}>
+              <SidebarUsage apiOrigin={account.apiOrigin} workspace={account.workspace} />
+            </IslandErrorBoundary>
+          </SidebarFooter>
+        )}
       </Sidebar>
     </SidebarProvider>
   );

@@ -24,7 +24,7 @@ import type {
   ServiceTokenMintResponse,
   ServiceTokenRow,
 } from "@uploads/api/workspace-service-tokens";
-import type { FileTypeClass } from "@uploads/comment-render/scope";
+import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
 import type {
   FeedListResponse,
   FeedSummaryDto,
@@ -1110,7 +1110,10 @@ export interface PathGroupItem {
 /** One `path` metadata value with its recent uploads. */
 export interface FilesPathGroup {
   project: string;
+  /** The `path` value, or the `screen` name when `by` is "screen". */
   path: string;
+  /** Set when the group is a `screen` (an app view with no `path`). */
+  by?: "screen";
   count: number;
   lastUpdated: string;
   recent: PathGroupItem[];
@@ -1124,6 +1127,7 @@ export interface FilesPathGroup {
 export interface PathCatalogEntry {
   project: string;
   path: string;
+  by?: "screen";
   count: number;
   lastUpdated: string;
   recent: PathGroupItem[];
@@ -1133,6 +1137,7 @@ export interface PathCatalogEntry {
 export interface LatestShotItem extends PathGroupItem {
   project: string;
   path: string;
+  by?: "screen";
   uploadedAt: string;
 }
 
@@ -1176,6 +1181,7 @@ function isFilesPathGroup(value: unknown): value is FilesPathGroup {
   return (
     typeof group.project === "string" &&
     typeof group.path === "string" &&
+    (group.by === undefined || group.by === "screen") &&
     typeof group.count === "number" &&
     typeof group.lastUpdated === "string" &&
     Array.isArray(group.recent) &&
@@ -1199,6 +1205,7 @@ function isPathCatalogEntry(value: unknown): value is PathCatalogEntry {
   return (
     typeof entry.project === "string" &&
     typeof entry.path === "string" &&
+    (entry.by === undefined || entry.by === "screen") &&
     typeof entry.count === "number" &&
     typeof entry.lastUpdated === "string" &&
     // `recent` is additive (older API deploys omit it) — normalized to []
@@ -1219,15 +1226,17 @@ function isLatestShotItem(value: unknown): value is LatestShotItem {
   return (
     typeof item.project === "string" &&
     typeof item.path === "string" &&
+    (item.by === undefined || item.by === "screen") &&
     typeof item.uploadedAt === "string"
   );
 }
 
 /** Derive a catalog from thumbed groups when an older API omitted it. */
 function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
-  return groups.map(({ project, path, count, lastUpdated, recent }) => ({
+  return groups.map(({ project, path, by, count, lastUpdated, recent }) => ({
     project,
     path,
+    ...(by ? { by } : {}),
     count,
     lastUpdated,
     recent,
@@ -1238,13 +1247,20 @@ function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string; merged?: boolean; type?: FileTypeClass; fetchImpl?: typeof fetch },
+  opts?: {
+    cookie?: string;
+    merged?: boolean;
+    type?: FileTypeClass;
+    surface?: FileSurface;
+    fetchImpl?: typeof fetch;
+  },
 ): Promise<FilesByPathResult> {
   // Opt-in filters are omitted entirely when off (never `merged=0`), so a
   // default call's URL is unchanged.
   const params = new URLSearchParams();
   if (opts?.merged) params.set("merged", "1");
   if (opts?.type) params.set("type", opts.type);
+  if (opts?.surface) params.set("surface", opts.surface);
   const qs = params.toString();
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${qs ? `?${qs}` : ""}`;
   const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie), {
@@ -2908,27 +2924,44 @@ async function getParsed<T>(
 export function fetchPulls(
   apiOrigin: string,
   ws: string,
-  q: { repo?: string; state?: string; type?: FileTypeClass; all?: boolean; cursor?: string } = {},
+  q: {
+    repo?: string;
+    state?: string;
+    type?: FileTypeClass;
+    surface?: FileSurface;
+    all?: boolean;
+    cursor?: string;
+  } = {},
   opts?: SessionOpts,
 ): Promise<ApiResult<PullsResponse>> {
   const path = withQuery(`${workspacePath(ws)}/pulls`, {
     repo: q.repo,
     state: q.state,
     type: q.type,
+    surface: q.surface,
     all: q.all ? "1" : undefined,
     cursor: q.cursor,
   });
   return getParsed(apiOrigin, path, parsePullsResponse, opts);
 }
 
-/** GET /v1/workspaces/:ws/repos: repos with recent media. `type` narrows thumbnails only. */
+/**
+ * GET /v1/workspaces/:ws/repos: repos with recent media. `type` and `surface`
+ * narrow thumbnails only. `namesOnly` skips thumbnails and open-PR counts
+ * (the PR view's repo select only needs names) and takes the largest page.
+ */
 export function fetchRepos(
   apiOrigin: string,
   ws: string,
-  q: { type?: FileTypeClass; cursor?: string } = {},
+  q: { type?: FileTypeClass; surface?: FileSurface; cursor?: string; namesOnly?: boolean } = {},
   opts?: SessionOpts,
 ): Promise<ApiResult<ReposResponse>> {
-  const path = withQuery(`${workspacePath(ws)}/repos`, { type: q.type, cursor: q.cursor });
+  const path = withQuery(`${workspacePath(ws)}/repos`, {
+    type: q.type,
+    surface: q.surface,
+    cursor: q.cursor,
+    ...(q.namesOnly ? { thumbnails: "0", limit: 50 } : {}),
+  });
   return getParsed(apiOrigin, path, parseReposResponse, opts);
 }
 
@@ -2941,14 +2974,20 @@ export function fetchRepos(
 export async function fetchScopeFiles(
   apiOrigin: string,
   ws: string,
-  q: { repo: string; number?: number; type?: FileTypeClass; cursor?: string },
+  q: {
+    repo: string;
+    number?: number;
+    type?: FileTypeClass;
+    surface?: FileSurface;
+    cursor?: string;
+  },
   opts?: SessionOpts,
 ): Promise<ApiResult<ScopeFilesResponse>> {
   const [owner, name, ...rest] = q.repo.trim().toLowerCase().split("/");
   if (!owner || !name || rest.length > 0) return { kind: "unavailable", reason: "invalid" };
   const path = withQuery(
     `${workspacePath(ws)}/scope/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/files`,
-    { number: q.number, type: q.type, cursor: q.cursor },
+    { number: q.number, type: q.type, surface: q.surface, cursor: q.cursor },
   );
   return getParsed(apiOrigin, path, parseScopeFilesResponse, opts);
 }

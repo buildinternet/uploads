@@ -66,13 +66,14 @@ function ReposViewInner({
     seed: initialPage,
     keyOf: (row) => row.repo,
     load: (cursor) =>
-      loadRepos(apiOrigin, workspace, { type: query.type, cursor }).then((result) =>
-        result.ok
-          ? {
-              ok: true as const,
-              value: { rows: result.value.repos, nextCursor: result.value.nextCursor },
-            }
-          : { ok: false as const },
+      loadRepos(apiOrigin, workspace, { type: query.type, surface: query.surface, cursor }).then(
+        (result) =>
+          result.ok
+            ? {
+                ok: true as const,
+                value: { rows: result.value.repos, nextCursor: result.value.nextCursor },
+              }
+            : { ok: false as const },
       ),
   });
 
@@ -90,7 +91,7 @@ function ReposViewInner({
   return (
     <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
       <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-        <TypeSelect value={query.type} onChange={(type) => setQuery({ ...query, type })} />
+        <TypeSelect value={query} onChange={(next) => setQuery({ ...query, ...next })} />
       </div>
       {list.status === "loading" && <RowsSkeleton rows={4} />}
       {list.status === "error" && (
