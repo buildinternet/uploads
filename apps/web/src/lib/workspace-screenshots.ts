@@ -12,6 +12,7 @@ import {
 import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
 import type { GithubTitleMap } from "./api-client";
 import {
+  FILE_SURFACE_LABELS,
   filesBasePath,
   parseFileTypeParam,
   parseSinceParam,
@@ -117,20 +118,36 @@ export function leafName(key: string): string {
   return (slash === -1 ? trimmed : trimmed.slice(slash + 1)) || key;
 }
 
+/** Hover-card details for a tile. */
+export interface ShotPreviewCaption {
+  name: string;
+  pr?: string;
+  ref?: string;
+  uploadedAt?: string;
+  /** `path`, else `screen`. */
+  page?: string;
+  /** "Before" / "After". */
+  state?: string;
+  /** From the classifier's `ai.surface`: "Mobile" / "Desktop" / "Tablet". */
+  device?: string;
+}
+
 /**
- * Hover-preview caption: filename, plus a compact PR/issue line when the
- * file carries GitHub attachment metadata. Mirrors the file page's
- * filename + byline split without the native `title` tooltip.
+ * Hover-card caption: filename, a compact PR/issue line when the file carries
+ * GitHub attachment metadata, and the page, state and device when known.
+ * Mirrors the file page's filename + byline split without the native `title`
+ * tooltip.
  */
 export function shotPreviewCaption(item: {
   key: string;
+  state?: string;
   ghKind?: string;
   ghNumber?: string;
   ghRef?: string;
   updatedAt?: string;
   uploadedAt?: string;
   metadata?: Record<string, string>;
-}): { name: string; pr?: string; ref?: string; uploadedAt?: string } {
+}): ShotPreviewCaption {
   const kind = item.ghKind ?? item.metadata?.["gh.kind"];
   const number = item.ghNumber ?? item.metadata?.["gh.number"];
   const repo = item.metadata?.["gh.repo"];
@@ -144,12 +161,18 @@ export function shotPreviewCaption(item: {
     if (kind === "pull") pr = `PR #${number}`;
     else if (kind === "issue" || kind === "issues") pr = `Issue #${number}`;
   }
-  const caption: { name: string; pr?: string; ref?: string; uploadedAt?: string } = {
-    name: leafName(item.key),
-  };
+  const caption: ShotPreviewCaption = { name: leafName(item.key) };
   if (pr) caption.pr = pr;
   if (pr && ref) caption.ref = ref;
   if (uploadedAt) caption.uploadedAt = uploadedAt;
+  const page = item.metadata?.path || item.metadata?.screen;
+  if (page) caption.page = page;
+  const state = (item.state ?? item.metadata?.state)?.toLowerCase();
+  if (state === "before" || state === "after") {
+    caption.state = state === "before" ? "Before" : "After";
+  }
+  const surface = parseSurfaceParam(item.metadata?.["ai.surface"]);
+  if (surface) caption.device = FILE_SURFACE_LABELS[surface];
   return caption;
 }
 

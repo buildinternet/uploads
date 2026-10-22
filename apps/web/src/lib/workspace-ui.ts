@@ -76,12 +76,21 @@ export type UsageSnapshot = {
   storageBudgetBasis?: "total" | "shared";
 };
 
+/** Counts with grouped digits: 10,000, not 10000. */
+export function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/** "1 object" / "12,345 objects". */
+export function objectCountLabel(n: number): string {
+  return `${formatCount(n)} object${n === 1 ? "" : "s"}`;
+}
+
 function formatUsagePlain(usage: UsageSnapshot): string {
-  const parts = [
-    formatBytes(usage.bytes),
-    `${usage.objects} object${usage.objects === 1 ? "" : "s"}`,
-  ];
-  if (usage.uploadsInPeriod > 0) parts.push(`${usage.uploadsInPeriod} uploads this month`);
+  const parts = [formatBytes(usage.bytes), objectCountLabel(usage.objects)];
+  if (usage.uploadsInPeriod > 0) {
+    parts.push(`${formatCount(usage.uploadsInPeriod)} uploads this month`);
+  }
   return parts.join(" · ");
 }
 
@@ -138,7 +147,7 @@ export function usageMeters(usage: UsageSnapshot): UsageMeter[] {
   if (uploadsPct !== null && usage.maxUploadsPerPeriod) {
     meters.push({
       label: "Monthly uploads",
-      detail: `${usage.uploadsInPeriod.toLocaleString("en-US")} of ${usage.maxUploadsPerPeriod.toLocaleString("en-US")}`,
+      detail: `${formatCount(usage.uploadsInPeriod)} of ${formatCount(usage.maxUploadsPerPeriod)}`,
       pct: uploadsPct,
     });
   }
@@ -162,7 +171,7 @@ export function renderUsageHtml(usage: UsageSnapshot): string {
   if (!meters.length) {
     return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>${byoNote}`;
   }
-  const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
+  const objects = objectCountLabel(usage.objects);
   return `<div class="ul-progress">${meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("")}</div><div class="usage-meta">${escapeHtml(objects)}</div>${byoNote}`;
 }
 

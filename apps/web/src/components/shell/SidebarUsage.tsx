@@ -16,6 +16,7 @@ import { readWorkspaceSnapshot } from "../../lib/workspace-cache";
 import { loadWorkspaceSummary } from "../../lib/workspace-summary-source";
 import {
   BYO_USAGE_NOTE,
+  objectCountLabel,
   usageMeters,
   usagePlainText,
   type UsageMeter,
@@ -144,7 +145,7 @@ export function SidebarUsage({
           ))}
           {open && (
             <p className="m-0 text-xs text-muted-foreground">
-              {`${state.usage.objects} object${state.usage.objects === 1 ? "" : "s"}`}
+              {objectCountLabel(state.usage.objects)}
               {state.usage.storageBudgetBasis === "shared" ? ` · ${BYO_USAGE_NOTE}` : ""}
             </p>
           )}

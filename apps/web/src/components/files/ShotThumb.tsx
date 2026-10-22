@@ -17,6 +17,7 @@ import {
   leafName,
   shotPreviewCaption,
   shotTileInput,
+  type ShotPreviewCaption,
 } from "../../lib/workspace-screenshots";
 
 export interface ShotThumbItem {
@@ -36,20 +37,14 @@ export interface ShotThumbItem {
   posterUrl?: string | null;
 }
 
-export type PreviewCaption = {
-  name: string;
-  pr?: string;
+export type PreviewCaption = ShotPreviewCaption & {
+  /** GitHub kind, for the plain-text PR fallback's glyph. */
   kind?: string;
-  /** `owner/repo#n` — key into the resolved titles map for live PR status. */
-  ref?: string;
-  /** ISO upload time, rendered as a relative "uploaded …" line. */
-  uploadedAt?: string;
 };
 
 export type PreviewHandlers = {
   onPreviewEnter: (
     el: HTMLElement,
-    src: string,
     caption: PreviewCaption,
     opts?: { immediate?: boolean },
   ) => void;
@@ -79,12 +74,7 @@ export function ShotThumb({
   /** Known destination; when null the tile falls back to a button + `onOpen`. */
   href: string | null;
   onOpen: () => void;
-  onPreviewEnter?: (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => void;
+  onPreviewEnter?: PreviewHandlers["onPreviewEnter"];
   onPreviewLeave?: () => void;
 }) {
   const name = leafName(item.key);
@@ -99,12 +89,11 @@ export function ShotThumb({
   const base = shotPreviewCaption(item);
   const caption: PreviewCaption = base.pr ? { ...base, kind: ghKindValue } : base;
 
-  const previewSrc = imageSrc ? thumbUrl(imageSrc, 1120) : null;
   const shared = {
     className: "wsp-tile",
     "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
     onMouseEnter: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc) onPreviewEnter?.(event.currentTarget, previewSrc, caption);
+      onPreviewEnter?.(event.currentTarget, caption);
     },
     onMouseLeave: () => onPreviewLeave?.(),
     // Keyboard-focus parity for the hover preview: `:focus-visible` gates
@@ -113,8 +102,8 @@ export function ShotThumb({
     // away from. Escape (handled in useShotPreview) dismisses it either way,
     // and dismissal never moves focus, so tab order is untouched.
     onFocus: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc && focusIsKeyboardDriven(event.currentTarget)) {
-        onPreviewEnter?.(event.currentTarget, previewSrc, caption, { immediate: true });
+      if (focusIsKeyboardDriven(event.currentTarget)) {
+        onPreviewEnter?.(event.currentTarget, caption, { immediate: true });
       }
     },
     onBlur: () => onPreviewLeave?.(),
