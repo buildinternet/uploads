@@ -63,7 +63,7 @@ const WORKSPACE = /^[a-z0-9-]{1,64}$/;
 /** Slack caps a button's `value` at 2000 characters. */
 const MAX_BUTTON_VALUE = 2000;
 
-const DOCS_URL = "https://uploads.sh/docs/agents#held-uploads";
+const DOCS_URL = "https://uploads.sh/docs/ai-labels#held-uploads";
 
 /** Validates the internal request body; null when anything is off. */
 export function parseHoldNotice(input: unknown, webOrigin: string): HoldNotice | null {

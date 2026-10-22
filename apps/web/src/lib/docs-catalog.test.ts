@@ -35,9 +35,10 @@ describe("aliasesFor", () => {
     expect(aliases).not.toContain("attach-pull-request-images");
   });
 
-  it("indexes experimental AI label search terms on the agents page", () => {
-    const aliases = aliasesFor("agents");
+  it("indexes AI label and hold search terms on the ai-labels page", () => {
+    const aliases = aliasesFor("ai-labels");
     expect(aliases).toContain("classifier");
+    expect(aliases).toContain("held");
     expect(aliases).toContain("ai labels");
     expect(aliases).toContain("ai.screen");
   });

@@ -1,0 +1,124 @@
+---
+title: AI labels & holds
+description: How uploads.sh labels uploaded images with AI, which flags hold a file for review, and how workspace members approve held files.
+heading: AI labels & holds
+tagline: What the labeler writes on each image, and when it holds a file for review.
+navLabel: AI labels & holds
+navSlug: ai-labels
+navOrder: 13
+navGroup: workspace
+toc:
+  - { id: labels, label: Labels }
+  - { id: internal-flags, label: Internal flags }
+  - { id: held-uploads, label: Held uploads }
+  - { id: turn-off, label: Turn it off }
+  - { id: read-labels, label: Read and search labels }
+---
+
+<section class="lead" id="labels">
+
+## Labels <a class="anchor" href="#labels" aria-label="Link to this section">#</a>
+
+<div class="note">
+  Experimental and **off by default**. The uploads.sh team turns it on per workspace. To try it,
+  open an issue on [the GitHub repo](https://github.com/buildinternet/uploads).
+</div>
+
+When it's on, uploads.sh labels each file shortly after it's uploaded. The labels never replace a
+`path` or `state` you set, and a labeling error never fails the upload. A label it isn't confident
+about is left off.
+
+| Key             | Values                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai.kind`       | `screenshot` `photo` `diagram` `document` `code` `ui` `other`                                                                                         |
+| `ai.surface`    | `mobile` `desktop` `tablet` `unknown`                                                                                                                 |
+| `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
+| `ai.ready`      | `ready` `loading` `blank` `error` `other`. Whether the screen had finished loading. Used by the [AI notes](/docs/require-screenshots#ai-notes). |
+| `ai.tags`       | Older uploads only. The current labeler does not write tags.                                                                                          |
+| `ai.summary`    | Older uploads only. The current labeler does not write a summary.                                                                                     |
+| `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. No image writes `skipped`. A failed call writes `failed`.                                          |
+| `ai.skip`       | `small`, `unsupported`, `resize_failed`, or `resize_timeout`. Paired with `ai.classifier=skipped`. No model call, and no kind, surface, screen, or safety value. |
+| `ai.error`      | `timeout`, `provider_error`, or `no_answer`. Paired with `ai.classifier=failed`. The model call ran and no label was stored.                               |
+
+</section>
+
+<section id="internal-flags">
+
+## Internal flags <a class="anchor" href="#internal-flags" aria-label="Link to this section">#</a>
+
+The same call also records four internal flags. They are not chips. They do not appear on the public file page, in a gallery, in a feed, in an embed, or in a pull request comment. Two of them can hold a file for review. See [Held uploads](#held-uploads).
+
+| Key                     | Values                                                                                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai.rating`             | `safe` `suggestive` `explicit`                                                                                                                  |
+| `ai.content`            | `none` `sexual` `violence` `gore` `drugs` `hate` `self_harm` `other`                                                                            |
+| `ai.secret`             | `none` `api_key` `password` `private_key` `token` `connection_string` `other`. A credential that grants access. A name or an email is not one. Its confidence answers "does this show at least one credential?", so several credentials on one screen don't lower it. |
+| `ai.pii`                | `none` `contact` `identity_document` `financial` `other`. `identity_document` includes a government ID number written out on screen, such as a Social Security or passport number. `other` is other personal data, such as a medical record. A signed-in name or email in a header stays `none`. |
+| `ai.rating.confidence`  | `high` at 0.85 or above. `medium` from 0.70 up to 0.85. `low` from 0.50 up to 0.70.                                                             |
+| `ai.content.confidence` | Same buckets as `ai.rating.confidence`.                                                                                                         |
+| `ai.secret.confidence`  | Same buckets as `ai.rating.confidence`.                                                                                                         |
+| `ai.pii.confidence`     | Same buckets as `ai.rating.confidence`.                                                                                                         |
+
+An answer under 0.50 is left off, and so is its confidence key. `ai.secret` and `ai.pii` stay separate, so a broad personal-data hit does not hide a real credential.
+
+A stored flag stays until a later classification writes that same key. A confident `none` replaces the old value. An answer under the floor, a model timeout, or an error leaves the previous flag in place. A skip writes no safety value, so it does not replace or restore one. Re-uploading identical bytes does not clear a flag. New bytes start fresh, and a skip on those bytes leaves the flags clear.
+
+The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
+
+</section>
+
+<section id="held-uploads">
+
+## Held uploads <a class="anchor" href="#held-uploads" aria-label="Link to this section">#</a>
+
+A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document` or `financial`, holds the file for review when it was uploaded with `uploads` 0.59.0 or newer, the first release that can approve it, or through the hosted MCP server, which has an `approve` tool. The server writes `ai.hold=pending`. An upload from an older CLI or another client is not held, and neither is a signed upload over 25 MB. A held file works like a staged one:
+
+- The managed pull request comment leaves it out. One line says how many files are held and how to approve them. The line never names a file.
+- Public feeds and galleries show it as withheld. Its page asks for sign-in, and shows a signed-in member why it's held, with **Approve**. For an image on hosted storage, the page shows the held copy with the flagged area outlined. The outline is approximate, so check the whole image.
+- On hosted storage, its raw URL returns 404 while it is held. Approval brings the file back at the same URL. A file in your own bucket keeps serving from your domain.
+
+Any workspace member can approve, from the file's page or the CLI. Check each held file before you approve it. If it does show a credential, rotate the credential, then replace or delete the file. Approved one by mistake? A member can hold it again from the ⋯ menu on its file page.
+
+```ansi
+uploads approve --pr 12             # list held files and why
+uploads approve --pr 12 --all       # approve every held file on the PR
+uploads approve <key>               # approve one file
+```
+
+A CLI older than `uploads approve` can call the API directly. Find the keys with `GET /v1/workspaces/$WORKSPACE/files/held`:
+
+```bash
+curl -X POST -H "Authorization: Bearer $UPLOADS_TOKEN" \
+  "https://api.uploads.sh/v1/workspaces/$WORKSPACE/files/approve?key=$KEY"
+```
+
+With the [Slack app](/docs/slack#held-uploads) connected, the uploader (or, without one, the workspace admins) gets a Slack message for each new hold, with an **Approve** button. To get an email for each new hold instead, or as well, turn on **An upload is held for review** under Email notifications in your [account settings](/account/profile). It's off by default.
+
+Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` and `ai.pii=other` never hold a file, and the `ai.rating` and `ai.content` flags never hold one.
+
+</section>
+
+<section id="turn-off">
+
+## Turn it off <a class="anchor" href="#turn-off" aria-label="Link to this section">#</a>
+
+Workspace admins can turn labels, or just holds, off under **Settings → AI labels**. The Slack
+hold message and `uploads approve` both link there.
+
+</section>
+
+<section id="read-labels">
+
+## Read and search labels <a class="anchor" href="#read-labels" aria-label="Link to this section">#</a>
+
+Labels aren't in the upload's response. Read them afterward, or search by them:
+
+```ansi
+uploads meta get <key>              # one file's labels, including internal flags
+uploads find ai.screen=login        # files with a label
+uploads find ai.secret=api_key      # internal flag; workspace members only
+```
+
+From an MCP client, use `get_metadata` and `find_files`. Clients can't set or delete `ai.*` keys.
+
+</section>
