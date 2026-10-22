@@ -170,6 +170,22 @@ describe("shotPreviewCaption", () => {
     expect(cap.ref).toBeUndefined();
     expect(cap.pr).toBeUndefined();
   });
+
+  it("adds page, state and device for the hover card", () => {
+    expect(
+      shotPreviewCaption({
+        key: "shot.png",
+        state: "after",
+        metadata: { path: "/settings", "ai.surface": "mobile" },
+      }),
+    ).toEqual({ name: "shot.png", page: "/settings", state: "After", device: "Mobile" });
+    expect(
+      shotPreviewCaption({
+        key: "shot.png",
+        metadata: { screen: "Login", state: "before", "ai.surface": "watch" },
+      }),
+    ).toEqual({ name: "shot.png", page: "Login", state: "Before" });
+  });
 });
 
 describe("projectLabelFromItemMeta", () => {

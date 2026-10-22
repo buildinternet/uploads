@@ -21,6 +21,7 @@ import {
   multForUnit,
   splitBytes,
 } from "../../lib/admin-limits";
+import { formatCount } from "../../lib/workspace-ui";
 import { INPUT_NUM, SELECT_SM } from "./field-classes";
 import { Muted, SectionHeading, StatusLine } from "./StatusLine";
 import { useAdminResource } from "./use-admin-resource";
@@ -183,9 +184,9 @@ export function LimitsEditor({ api, workspace }: { api: AdminApi; workspace: str
             cap={data.limits.maxStorageBytes}
           />
           <UsageMeter
-            label={`${usage.uploads}${
+            label={`${formatCount(usage.uploads)}${
               data.limits.maxUploadsPerPeriod !== null
-                ? ` of ${data.limits.maxUploadsPerPeriod}`
+                ? ` of ${formatCount(data.limits.maxUploadsPerPeriod)}`
                 : ""
             } uploads this month`}
             used={usage.uploads}
