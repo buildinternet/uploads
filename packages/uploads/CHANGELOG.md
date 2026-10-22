@@ -1,5 +1,17 @@
 # @buildinternet/uploads
 
+## 0.60.0
+
+### Minor Changes
+
+- 079389b: Add `--screen <name>` (and a `screen` MCP field) for mobile and desktop app screens that have no route, e.g. `uploads put ./chat.png --app ios --screen "Chat"`. `screen` is now a canonical metadata key: the PR comment shows it under the image, next to `path` when both are set, and before/after shots pair on it. The no-path tip suggests `--screen` for non-web `--app` shots, and `view=` now warns as a near-miss of `screen`.
+
+### Patch Changes
+
+- 482c43d: `.uploads.yml` accepts `check.ai` (`ready-screen`, `identical-before-after`, or `all`) for advisory AI notes on the "Check for visuals" check.
+- 031fcee: `uploads ingest` help now says imported GitHub attachments appear in the managed PR comment.
+- 901d994: The CLI warns once a day when your login token expires within 7 days, with the date and `uploads login --force` to renew it. JSON output (`--json`, `--format json`) and `--quiet` stay silent. The Claude Code mod opens its staged attachments pane on a file when uploads.sh newly holds it for review, so its Approve is one click away.
+
 ## 0.59.6
 
 ### Patch Changes
