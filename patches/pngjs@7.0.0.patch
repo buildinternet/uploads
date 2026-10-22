@@ -1,0 +1,26 @@
+diff --git a/lib/parser-sync.js b/lib/parser-sync.js
+index 76cb134b79ddadb5fc58bfed996abdfbee593946..4adabb6908a4bacc87c0819bad228009b3361e05 100644
+--- a/lib/parser-sync.js
++++ b/lib/parser-sync.js
+@@ -2,7 +2,6 @@
+ 
+ let hasSyncZlib = true;
+ let zlib = require("zlib");
+-let inflateSync = require("./sync-inflate");
+ if (!zlib.deflateSync) {
+   hasSyncZlib = false;
+ }
+@@ -82,9 +81,11 @@ module.exports = function (buffer, options) {
+     let rowSize =
+       ((metaData.width * metaData.bpp * metaData.depth + 7) >> 3) + 1;
+     let imageSize = rowSize * metaData.height;
+-    inflatedData = inflateSync(inflateData, {
++    // Patched: the bundled sync-inflate subclasses zlib.Inflate with
++    // `zlib.Inflate.call(this)`, which throws in Cloudflare Workers.
++    inflatedData = zlib.inflateSync(inflateData, {
+       chunkSize: imageSize,
+-      maxLength: imageSize,
++      maxOutputLength: imageSize,
+     });
+   }
+   inflateData = null;

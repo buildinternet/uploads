@@ -9,6 +9,7 @@ overrides:
 
 patchedDependencies:
   '@better-auth/oauth-provider': 600be0a179772a41c889cffe583afd6d90c63ecede9856212b28272a46a3085c
+  pngjs@7.0.0: 0ee690fd09f39449f02ed3c3a05c7878a0061c51507b0a884a85f3a86c5a6f7a
 
 importers:
 
@@ -94,7 +95,7 @@ importers:
         version: 1.50.9
       pngjs:
         specifier: ^7.0.0
-        version: 7.0.0
+        version: 7.0.0(patch_hash=0ee690fd09f39449f02ed3c3a05c7878a0061c51507b0a884a85f3a86c5a6f7a)
     devDependencies:
       '@types/node':
         specifier: ^26.1.0
@@ -12114,7 +12115,7 @@ snapshots:
   playwright-core@1.61.1:
     optional: true
 
-  pngjs@7.0.0: {}
+  pngjs@7.0.0(patch_hash=0ee690fd09f39449f02ed3c3a05c7878a0061c51507b0a884a85f3a86c5a6f7a): {}
 
   points-on-curve@0.2.0: {}
 
