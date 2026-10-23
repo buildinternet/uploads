@@ -21,7 +21,7 @@
     "@uploads/errors": "workspace:^",
     "@uploads/observability": "workspace:^",
     "@uploads/storage": "workspace:^",
-    "hono": "^4.13.3",
+    "hono": "^4.13.13",
     "jose": "^6.2.3"
   },
   "devDependencies": {
