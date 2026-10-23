@@ -27,6 +27,7 @@ import {
 import { runCliUpgradeCampaign } from "../cli-upgrade-campaign";
 import {
   fetchBreakdown,
+  fetchClassifierCostSeries,
   fetchSlowOps,
   type BreakdownDimension,
   type SlowOpWindow,
@@ -722,7 +723,13 @@ export const adminUi = new Hono<SessionVars>()
         classifierCacheKey(days),
         CLASSIFIER_CACHE_TTL,
         c.req.query("fresh") === "1",
-        () => buildClassifierOverview(dbFor(c.env), days),
+        () =>
+          buildClassifierOverview(
+            dbFor(c.env),
+            days,
+            new Date(),
+            fetchClassifierCostSeries(c.env, days),
+          ),
       ),
     );
   })

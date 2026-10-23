@@ -15,6 +15,7 @@ import {
   CLASSIFIER_SAFETY_FIELDS,
   isConfidenceBucket,
   type ClassifierAdminWindow,
+  type ClassifierCostSeries,
   type ClassifierDailyPoint,
   type ClassifierFlagStats,
   type ClassifierFlaggedFile,
@@ -208,18 +209,24 @@ export async function buildClassifierOverview(
   db: D1Queryable,
   days: ClassifierAdminWindow,
   now = new Date(),
+  costSeries: Promise<ClassifierCostSeries> = Promise.resolve({
+    available: false,
+    reason: "not_configured",
+  }),
 ): Promise<ClassifierOverview> {
   const since = windowStart(days, now);
-  const [labels, confidence, flaggedFiles, workspaces, markers, windowUploads] = await Promise.all([
-    labelCounts(db),
-    flaggedConfidence(db),
-    flaggedFileCount(db),
-    workspaceCount(db),
-    classifierMarkers(db, since, days),
-    platformSeries(db, "upload", since)
-      .then((rows) => rows.reduce((total, r) => total + Number(r.count), 0))
-      .catch(() => null),
-  ]);
+  const [labels, confidence, flaggedFiles, workspaces, markers, windowUploads, costs] =
+    await Promise.all([
+      labelCounts(db),
+      flaggedConfidence(db),
+      flaggedFileCount(db),
+      workspaceCount(db),
+      classifierMarkers(db, since, days),
+      platformSeries(db, "upload", since)
+        .then((rows) => rows.reduce((total, r) => total + Number(r.count), 0))
+        .catch(() => null),
+      costSeries,
+    ]);
   const counts = (key: string) => labels.get(key) ?? [];
   const countOf = (value: string) => markers.versions.find((v) => v.value === value)?.count ?? 0;
   const skipped = countOf("skipped");
@@ -251,6 +258,7 @@ export async function buildClassifierOverview(
     flaggedFiles,
     daily: markers.daily,
     windowUploads,
+    costs,
   };
 }
 

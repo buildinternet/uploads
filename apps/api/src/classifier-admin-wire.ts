@@ -92,7 +92,28 @@ export interface ClassifierOverview {
   daily: ClassifierDailyPoint[];
   /** Platform uploads in the window from `daily_metrics`, or null when unavailable. */
   windowUploads: number | null;
+  /**
+   * OpenRouter Decisions calls and their reported cost per UTC day, from
+   * Analytics Engine. Unavailable when AE is unconfigured or the query fails.
+   */
+  costs: ClassifierCostSeries;
 }
+
+export interface ClassifierCostDay {
+  day: string;
+  /** Decisions calls, including hold-area box calls. */
+  calls: number;
+  /** Input tokens over every call. Jev bills input only. */
+  inputTokens: number;
+  /** Input tokens over the calls whose response carried a cost. */
+  pricedInputTokens: number;
+  /** USD summed over the calls that carried a cost. */
+  cost: number;
+}
+
+export type ClassifierCostSeries =
+  | { available: true; days: ClassifierCostDay[] }
+  | { available: false; reason: string };
 
 export interface ClassifierDailyPoint {
   day: string;

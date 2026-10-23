@@ -88,6 +88,7 @@ import {
 import { imagePhash } from "./phash";
 import { contentSha256Hex } from "./provenance";
 import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./classifier-admin-wire";
+import { writeClassifierCallPoint } from "./classifier-call-analytics";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
@@ -1139,7 +1140,8 @@ export function workersAiClassifierRun(env: Env): ClassifierRun {
 }
 
 /**
- * File-classifier runner. One direct OpenRouter Decisions call. Does not
+ * File-classifier runner. One direct OpenRouter Decisions call, with its
+ * `usage` written to Analytics Engine for the operator cost view. Does not
  * log image bytes, data URLs, or the API key. A missing key throws; callers
  * that classify an upload catch it and write nothing.
  */
@@ -1176,7 +1178,9 @@ export function openRouterDecisionsRun(env: Env): ClassifierRun {
       }
       throw new Error(`openrouter decisions failed: ${response.status}`);
     }
-    return response.json();
+    const result: unknown = await response.json();
+    writeClassifierCallPoint(env, req.model, result);
+    return result;
   };
 }
 

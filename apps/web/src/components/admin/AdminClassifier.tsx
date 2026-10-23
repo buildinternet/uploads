@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@uploads/ui/components/ui/table";
 import "@uploads/ui/styles.css";
+import "../../styles/admin-metrics.css";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import {
   ADMIN_METRIC_WINDOWS,
@@ -36,10 +37,12 @@ import { makeAdminApi } from "../../lib/admin-api";
 import { ADMIN_BTN, ADMIN_BTN_DANGER } from "../../lib/admin-ui";
 import {
   coverageLabel,
+  estimatedCost,
   flaggedFileHref,
   flagLabel,
   flagTitle,
   flagVariant,
+  formatUsd,
   sharePercent,
   topFlaggedValues,
   withShares,
@@ -94,6 +97,25 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
+/** Window spend from OpenRouter's reported usage, scaled by input tokens to unpriced calls. */
+function CostTile({ costs, days }: { costs: ClassifierOverview["costs"]; days: number }) {
+  if (!costs.available) {
+    return <Tile label="Est. cost" value="-" note="Call usage is unavailable." />;
+  }
+  const estimate = estimatedCost(costs.days);
+  return (
+    <Tile
+      label="Est. cost"
+      value={estimate ? formatUsd(estimate.cost) : "-"}
+      note={
+        estimate
+          ? `Last ${days} days. ${estimate.calls.toLocaleString()} model calls, ${estimate.inputTokens.toLocaleString()} input tokens.`
+          : "No model calls recorded in this window yet."
+      }
+    />
+  );
+}
+
 function Breakdown({ title, rows }: { title: string; rows: ClassifierValueCount[] }) {
   const shared = withShares(rows);
   return (
@@ -127,7 +149,34 @@ function Breakdown({ title, rows }: { title: string; rows: ClassifierValueCount[
   );
 }
 
-function DailyChart({ daily }: { daily: ClassifierDailyPoint[] }) {
+const DAY_LABEL = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+const total = (d: ClassifierDailyPoint) => d.classified + d.skipped + d.failed;
+
+const dayLabel = (day: string) => DAY_LABEL.format(new Date(`${day}T00:00:00Z`));
+
+/**
+ * Stacked bars with the same hover/focus card as the /admin/metrics charts
+ * (`.metrics-chart-tooltip`): the day, each series, the total, and the
+ * day's Decisions calls and cost when Analytics Engine has them.
+ */
+function DailyChart({
+  daily,
+  costs,
+}: {
+  daily: ClassifierDailyPoint[];
+  costs: ClassifierOverview["costs"];
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const costByDay = useMemo(
+    () => new Map(costs.available ? costs.days.map((d) => [d.day, d]) : []),
+    [costs],
+  );
   const first = daily[0]?.day;
   const last = daily.at(-1)?.day;
   if (!first || !last) {
@@ -135,33 +184,93 @@ function DailyChart({ daily }: { daily: ClassifierDailyPoint[] }) {
   }
   const W = 960;
   const H = 180;
-  const max = Math.max(1, ...daily.map((d) => d.classified + d.skipped + d.failed));
+  const max = Math.max(1, ...daily.map(total));
   const slot = W / daily.length;
   const bar = Math.max(1, slot * 0.7);
   const scale = (n: number) => (n / max) * (H - 4);
+  const point = hovered === null ? undefined : daily[hovered];
+  const pointCost = point ? costByDay.get(point.day) : undefined;
+  const pointEstimate = pointCost ? estimatedCost([pointCost]) : null;
   return (
     <div>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`Classified, skipped, and failed files per day, ${first} to ${last}, peak ${max}.`}
-        className="w-full h-auto max-h-48"
-      >
-        {daily.map((d, i) => {
-          const x = i * slot + (slot - bar) / 2;
-          let top = H;
-          return (
-            <g key={d.day}>
-              <title>{`${d.day}: ${d.classified} classified, ${d.skipped} skipped, ${d.failed} failed`}</title>
-              {SERIES.map((s) => {
-                const h = scale(d[s.key]);
-                top -= h;
-                return <rect key={s.key} x={x} y={top} width={bar} height={h} className={s.fill} />;
-              })}
-            </g>
-          );
-        })}
-      </svg>
+      <div className="relative" onPointerLeave={() => setHovered(null)}>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`Classified, skipped, and failed files per day, ${first} to ${last}, peak ${max}.`}
+          className="block w-full h-auto max-h-48"
+        >
+          {daily.map((d, i) => {
+            const x = i * slot + (slot - bar) / 2;
+            let top = H;
+            return (
+              <g key={d.day} opacity={i === hovered ? 0.8 : undefined}>
+                {SERIES.map((s) => {
+                  const h = scale(d[s.key]);
+                  top -= h;
+                  return (
+                    <rect key={s.key} x={x} y={top} width={bar} height={h} className={s.fill} />
+                  );
+                })}
+                <rect
+                  x={i * slot}
+                  y={0}
+                  width={slot}
+                  height={H}
+                  fill="transparent"
+                  tabIndex={0}
+                  aria-label={`${d.day}: ${d.classified} classified, ${d.skipped} skipped, ${d.failed} failed`}
+                  className="outline-none focus-visible:stroke-primary"
+                  onPointerEnter={() => setHovered(i)}
+                  onFocus={() => setHovered(i)}
+                  onBlur={() => setHovered(null)}
+                />
+              </g>
+            );
+          })}
+        </svg>
+        {point && hovered !== null ? (
+          <div
+            className="metrics-chart-tooltip"
+            data-visible="true"
+            role="presentation"
+            style={{
+              left: `${((hovered + 0.5) * slot * 100) / W}%`,
+              top: `${((H - scale(total(point))) * 100) / H}%`,
+            }}
+          >
+            <span className="day">{dayLabel(point.day)}</span>
+            {SERIES.map((s) => (
+              <div key={s.key} className="metrics-tooltip-row">
+                <span
+                  aria-hidden="true"
+                  className={`inline-block size-2 rounded-[2px] ${s.swatch}`}
+                />
+                <span>
+                  {s.label} {point[s.key].toLocaleString()}
+                </span>
+              </div>
+            ))}
+            <span className="value">Total {total(point).toLocaleString()}</span>
+            {pointCost && pointCost.calls > 0 ? (
+              <div className="metrics-tooltip-top">
+                <div className="metrics-tooltip-row">
+                  <span>Model calls</span>
+                  <span>{pointCost.calls.toLocaleString()}</span>
+                </div>
+                <div className="metrics-tooltip-row">
+                  <span>Input tokens</span>
+                  <span>{pointCost.inputTokens.toLocaleString()}</span>
+                </div>
+                <div className="metrics-tooltip-row">
+                  <span>Est. cost</span>
+                  <span>{pointEstimate ? formatUsd(pointEstimate.cost) : "-"}</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
       <p className="m-0 mt-1 flex gap-4 text-(length:--text-micro) text-muted-foreground">
         {SERIES.map((s) => (
           <LegendItem key={s.key} swatch={s.swatch}>
@@ -293,11 +402,12 @@ function OverviewSection({ apiOrigin }: AdminClassifierProps) {
               value={coverageLabel(data.daily, data.windowUploads) ?? "-"}
               note={`Last ${data.days} days. Only allowlisted workspaces are classified.`}
             />
+            <CostTile costs={data.costs} days={data.days} />
           </dl>
 
           <section>
             <h3 className={H3}>Daily activity</h3>
-            <DailyChart daily={data.daily} />
+            <DailyChart daily={data.daily} costs={data.costs} />
           </section>
 
           <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">

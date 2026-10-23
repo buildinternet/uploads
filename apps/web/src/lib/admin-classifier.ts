@@ -74,3 +74,46 @@ export function flagTitle(flag: { confidence: ClassifierConfidenceBucket | null 
 export function flaggedFileHref(file: Pick<ClassifierFlaggedFile, "workspace" | "key">): string {
   return filePath(file.workspace, file.key);
 }
+
+/**
+ * USD for the cost tile and tooltip. Classifier calls cost fractions of a
+ * cent, so small amounts keep four decimals instead of rounding to $0.00.
+ */
+export function formatUsd(amount: number): string {
+  if (!(amount > 0)) return "$0";
+  if (amount >= 1)
+    return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (amount < 0.0001) return "<$0.0001";
+  return `$${amount.toFixed(4)}`;
+}
+
+/**
+ * Estimated spend for some days of Decisions calls. Jev bills input only,
+ * so the reported cost per input token is scaled to every call's input
+ * tokens, covering responses that carried no cost. Falls back to the
+ * reported sum when no priced call carried tokens, and null when nothing
+ * reported a cost.
+ */
+export function estimatedCost(
+  days: ReadonlyArray<{
+    calls: number;
+    inputTokens: number;
+    pricedInputTokens: number;
+    cost: number;
+  }>,
+): { cost: number; calls: number; inputTokens: number } | null {
+  let calls = 0;
+  let inputTokens = 0;
+  let pricedInputTokens = 0;
+  let cost = 0;
+  for (const d of days) {
+    calls += d.calls;
+    inputTokens += d.inputTokens;
+    pricedInputTokens += d.pricedInputTokens;
+    cost += d.cost;
+  }
+  if (pricedInputTokens > 0) {
+    return { cost: (cost / pricedInputTokens) * inputTokens, calls, inputTokens };
+  }
+  return cost > 0 ? { cost, calls, inputTokens } : null;
+}

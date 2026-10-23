@@ -4,6 +4,7 @@ import {
   classifyMediaClass,
   fetchBreakdown,
   fetchSlowOps,
+  fetchClassifierCostSeries,
   fetchUploadClassSeries,
   slowOpsQuery,
   uploadClassSeriesQuery,
@@ -319,5 +320,52 @@ describe("fetchSlowOps", () => {
   it("reports unavailable when the response body's data field is not an array", async () => {
     const result = await fetchSlowOps(env(), "24h", jsonFetch({ data: "not-an-array" }));
     expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+});
+
+describe("fetchClassifierCostSeries", () => {
+  const now = new Date("2026-08-03T12:00:00Z");
+
+  it("reads calls, priced calls, and cost per day and fills quiet days", async () => {
+    let body = "";
+    const impl = (async (_url: unknown, init?: RequestInit) => {
+      body = String(init?.body);
+      return new Response(
+        JSON.stringify({
+          data: [
+            { day: "2026-08-01", calls: 4, inputTokens: 4000, pricedInputTokens: 3000, cost: 0.03 },
+            {
+              day: "2026-08-03",
+              calls: "2",
+              inputTokens: "900",
+              pricedInputTokens: "900",
+              cost: "0.02",
+            },
+          ],
+        }),
+      );
+    }) as unknown as typeof fetch;
+    const result = await fetchClassifierCostSeries(env(), 3, impl, now);
+    expect(body).toContain("FROM uploads_classifier_calls");
+    expect(body).toContain("double1 >= 0");
+    expect(result).toEqual({
+      available: true,
+      days: [
+        { day: "2026-08-01", calls: 4, inputTokens: 4000, pricedInputTokens: 3000, cost: 0.03 },
+        { day: "2026-08-02", calls: 0, inputTokens: 0, pricedInputTokens: 0, cost: 0 },
+        { day: "2026-08-03", calls: 2, inputTokens: 900, pricedInputTokens: 900, cost: 0.02 },
+      ],
+    });
+  });
+
+  it("is unavailable without a token or when the query fails", async () => {
+    expect(await fetchClassifierCostSeries(env({ ANALYTICS_API_TOKEN: undefined }), 7)).toEqual({
+      available: false,
+      reason: "not_configured",
+    });
+    expect(await fetchClassifierCostSeries(env(), 7, jsonFetch({}, 500))).toEqual({
+      available: false,
+      reason: "query_failed",
+    });
   });
 });
