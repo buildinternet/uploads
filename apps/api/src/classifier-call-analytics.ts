@@ -16,13 +16,13 @@ import { reportHandledError } from "@uploads/observability";
  * new fields at the end; never reorder or remove.
  */
 export const CLASSIFIER_CALL_BLOB_ORDER = ["model"] as const;
-export const CLASSIFIER_CALL_DOUBLE_ORDER = ["cost", "inputTokens", "outputTokens"] as const;
+export const CLASSIFIER_CALL_DOUBLE_ORDER = ["cost", "inputTokens"] as const;
 
 export interface ClassifierCallUsage {
   /** USD, or -1 when the response did not carry a cost. */
   cost: number;
+  /** Jev bills input only, so input tokens are what the estimate scales by. */
   inputTokens: number;
-  outputTokens: number;
 }
 
 function usageNumber(usage: Record<string, unknown>, ...names: string[]): number | undefined {
@@ -33,14 +33,13 @@ function usageNumber(usage: Record<string, unknown>, ...names: string[]): number
   return undefined;
 }
 
-/** The Decisions `usage` block, camelCase or snake_case. */
+/** Cost and input tokens from the Decisions `usage` block, camelCase or snake_case. */
 export function decisionsUsage(result: unknown): ClassifierCallUsage {
   const raw = (result as { usage?: unknown } | null)?.usage;
   const usage = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {
     cost: usageNumber(usage, "cost") ?? -1,
     inputTokens: usageNumber(usage, "inputTokens", "input_tokens", "prompt_tokens") ?? 0,
-    outputTokens: usageNumber(usage, "outputTokens", "output_tokens", "completion_tokens") ?? 0,
   };
 }
 
@@ -52,7 +51,7 @@ export function writeClassifierCallPoint(env: Env, model: string, result: unknow
     analytics.writeDataPoint({
       indexes: [model],
       blobs: [model],
-      doubles: [usage.cost, usage.inputTokens, usage.outputTokens],
+      doubles: [usage.cost, usage.inputTokens],
     });
   } catch (err) {
     reportHandledError(err);

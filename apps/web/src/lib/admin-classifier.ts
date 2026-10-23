@@ -88,22 +88,32 @@ export function formatUsd(amount: number): string {
 }
 
 /**
- * Estimated spend for some days of Decisions calls: the reported cost,
- * scaled up to every call when some responses carried no cost. Null when no
- * call in the range reported one.
+ * Estimated spend for some days of Decisions calls. Jev bills input only,
+ * so the reported cost per input token is scaled to every call's input
+ * tokens, covering responses that carried no cost. Falls back to the
+ * reported sum when no priced call carried tokens, and null when nothing
+ * reported a cost.
  */
 export function estimatedCost(
-  days: ReadonlyArray<{ calls: number; priced: number; cost: number }>,
-): { cost: number; calls: number; perCall: number } | null {
+  days: ReadonlyArray<{
+    calls: number;
+    inputTokens: number;
+    pricedInputTokens: number;
+    cost: number;
+  }>,
+): { cost: number; calls: number; inputTokens: number } | null {
   let calls = 0;
-  let priced = 0;
+  let inputTokens = 0;
+  let pricedInputTokens = 0;
   let cost = 0;
   for (const d of days) {
     calls += d.calls;
-    priced += d.priced;
+    inputTokens += d.inputTokens;
+    pricedInputTokens += d.pricedInputTokens;
     cost += d.cost;
   }
-  if (!(priced > 0)) return null;
-  const perCall = cost / priced;
-  return { cost: perCall * calls, calls, perCall };
+  if (pricedInputTokens > 0) {
+    return { cost: (cost / pricedInputTokens) * inputTokens, calls, inputTokens };
+  }
+  return cost > 0 ? { cost, calls, inputTokens } : null;
 }

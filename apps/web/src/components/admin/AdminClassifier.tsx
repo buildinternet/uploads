@@ -97,7 +97,7 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
-/** Window spend from OpenRouter's reported usage, scaled to unpriced calls. */
+/** Window spend from OpenRouter's reported usage, scaled by input tokens to unpriced calls. */
 function CostTile({ costs, days }: { costs: ClassifierOverview["costs"]; days: number }) {
   if (!costs.available) {
     return <Tile label="Est. cost" value="-" note="Call usage is unavailable." />;
@@ -109,7 +109,7 @@ function CostTile({ costs, days }: { costs: ClassifierOverview["costs"]; days: n
       value={estimate ? formatUsd(estimate.cost) : "-"}
       note={
         estimate
-          ? `Last ${days} days. ${estimate.calls.toLocaleString()} model calls, about ${formatUsd(estimate.perCall)} each.`
+          ? `Last ${days} days. ${estimate.calls.toLocaleString()} model calls, ${estimate.inputTokens.toLocaleString()} input tokens.`
           : "No model calls recorded in this window yet."
       }
     />
@@ -257,6 +257,10 @@ function DailyChart({
                 <div className="metrics-tooltip-row">
                   <span>Model calls</span>
                   <span>{pointCost.calls.toLocaleString()}</span>
+                </div>
+                <div className="metrics-tooltip-row">
+                  <span>Input tokens</span>
+                  <span>{pointCost.inputTokens.toLocaleString()}</span>
                 </div>
                 <div className="metrics-tooltip-row">
                   <span>Est. cost</span>

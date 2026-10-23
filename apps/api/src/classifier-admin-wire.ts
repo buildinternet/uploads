@@ -103,9 +103,11 @@ export interface ClassifierCostDay {
   day: string;
   /** Decisions calls, including hold-area box calls. */
   calls: number;
-  /** Calls whose response carried a cost. */
-  priced: number;
-  /** USD summed over the priced calls. */
+  /** Input tokens over every call. Jev bills input only. */
+  inputTokens: number;
+  /** Input tokens over the calls whose response carried a cost. */
+  pricedInputTokens: number;
+  /** USD summed over the calls that carried a cost. */
   cost: number;
 }
 

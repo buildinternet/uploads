@@ -90,17 +90,25 @@ describe("formatUsd", () => {
 });
 
 describe("estimatedCost", () => {
-  it("scales the reported cost up to unpriced calls", () => {
-    expect(
-      estimatedCost([
-        { calls: 4, priced: 2, cost: 0.02 },
-        { calls: 0, priced: 0, cost: 0 },
-      ]),
-    ).toEqual({ cost: 0.04, calls: 4, perCall: 0.01 });
+  it("scales cost per input token to calls that carried no cost", () => {
+    const estimate = estimatedCost([
+      { calls: 4, inputTokens: 4000, pricedInputTokens: 2000, cost: 0.02 },
+      { calls: 0, inputTokens: 0, pricedInputTokens: 0, cost: 0 },
+    ]);
+    expect(estimate?.cost).toBeCloseTo(0.04);
+    expect(estimate).toMatchObject({ calls: 4, inputTokens: 4000 });
+  });
+
+  it("falls back to the reported cost without token counts", () => {
+    expect(estimatedCost([{ calls: 2, inputTokens: 0, pricedInputTokens: 0, cost: 0.01 }])).toEqual(
+      { cost: 0.01, calls: 2, inputTokens: 0 },
+    );
   });
 
   it("is null when no call reported a cost", () => {
-    expect(estimatedCost([{ calls: 3, priced: 0, cost: 0 }])).toBeNull();
+    expect(
+      estimatedCost([{ calls: 3, inputTokens: 900, pricedInputTokens: 0, cost: 0 }]),
+    ).toBeNull();
     expect(estimatedCost([])).toBeNull();
   });
 });

@@ -333,8 +333,14 @@ describe("fetchClassifierCostSeries", () => {
       return new Response(
         JSON.stringify({
           data: [
-            { day: "2026-08-01", calls: 4, priced: 3, cost: 0.03 },
-            { day: "2026-08-03", calls: "2", priced: "2", cost: "0.02" },
+            { day: "2026-08-01", calls: 4, inputTokens: 4000, pricedInputTokens: 3000, cost: 0.03 },
+            {
+              day: "2026-08-03",
+              calls: "2",
+              inputTokens: "900",
+              pricedInputTokens: "900",
+              cost: "0.02",
+            },
           ],
         }),
       );
@@ -345,9 +351,9 @@ describe("fetchClassifierCostSeries", () => {
     expect(result).toEqual({
       available: true,
       days: [
-        { day: "2026-08-01", calls: 4, priced: 3, cost: 0.03 },
-        { day: "2026-08-02", calls: 0, priced: 0, cost: 0 },
-        { day: "2026-08-03", calls: 2, priced: 2, cost: 0.02 },
+        { day: "2026-08-01", calls: 4, inputTokens: 4000, pricedInputTokens: 3000, cost: 0.03 },
+        { day: "2026-08-02", calls: 0, inputTokens: 0, pricedInputTokens: 0, cost: 0 },
+        { day: "2026-08-03", calls: 2, inputTokens: 900, pricedInputTokens: 900, cost: 0.02 },
       ],
     });
   });

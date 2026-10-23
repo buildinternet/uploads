@@ -585,7 +585,7 @@ describe("openRouterDecisionsRun", () => {
       {
         indexes: [CLASSIFIER_JEV_MODEL],
         blobs: [CLASSIFIER_JEV_MODEL],
-        doubles: [0.0021, 900, 40],
+        doubles: [0.0021, 900],
       },
     ]);
   });

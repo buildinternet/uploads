@@ -301,14 +301,16 @@ export async function fetchSlowOps(
 /**
  * Per-day Decisions calls and their summed `usage.cost` from
  * `uploads_classifier_calls` (written by `classifier-call-analytics.ts`).
- * `double1` is the cost, -1 when a response carried none, so priced calls
- * are counted apart and only they add to the sum.
+ * `double1` is the cost, -1 when a response carried none, and `double2`
+ * the input tokens. Input tokens of priced calls are summed apart so the
+ * page can scale cost per input token to the calls without one.
  */
 export function classifierCostSeriesQuery(days: number): string {
   const window = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
   return `SELECT formatDateTime(toStartOfInterval(timestamp, INTERVAL '1' DAY), '%Y-%m-%d') AS day,
                  SUM(_sample_interval) AS calls,
-                 SUM(if(double1 >= 0, _sample_interval, 0)) AS priced,
+                 SUM(double2 * _sample_interval) AS inputTokens,
+                 SUM(if(double1 >= 0, double2 * _sample_interval, 0)) AS pricedInputTokens,
                  SUM(if(double1 >= 0, double1 * _sample_interval, 0)) AS cost
           FROM ${CLASSIFIER_CALL_DATASET}
           WHERE timestamp > NOW() - INTERVAL '${window}' DAY
@@ -346,7 +348,8 @@ export async function fetchClassifierCostSeries(
       points.push({
         day,
         calls: Number(row.calls) || 0,
-        priced: Number(row.priced) || 0,
+        inputTokens: Number(row.inputTokens) || 0,
+        pricedInputTokens: Number(row.pricedInputTokens) || 0,
         cost: Number(row.cost) || 0,
       });
     }
@@ -355,7 +358,8 @@ export async function fetchClassifierCostSeries(
       days: fillDaySeries(windowStart(windowDays, now), windowDays, points, (day) => ({
         day,
         calls: 0,
-        priced: 0,
+        inputTokens: 0,
+        pricedInputTokens: 0,
         cost: 0,
       })),
     };

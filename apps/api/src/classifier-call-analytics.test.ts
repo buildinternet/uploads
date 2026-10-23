@@ -6,18 +6,16 @@ describe("decisionsUsage", () => {
     expect(decisionsUsage({ usage: { cost: 0.002, inputTokens: 10, outputTokens: 2 } })).toEqual({
       cost: 0.002,
       inputTokens: 10,
-      outputTokens: 2,
     });
     expect(decisionsUsage({ usage: { input_tokens: 7, output_tokens: 1 } })).toEqual({
       cost: -1,
       inputTokens: 7,
-      outputTokens: 1,
     });
   });
 
   it("marks a missing usage block as unpriced", () => {
-    expect(decisionsUsage({ answers: {} })).toEqual({ cost: -1, inputTokens: 0, outputTokens: 0 });
-    expect(decisionsUsage(null)).toEqual({ cost: -1, inputTokens: 0, outputTokens: 0 });
+    expect(decisionsUsage({ answers: {} })).toEqual({ cost: -1, inputTokens: 0 });
+    expect(decisionsUsage(null)).toEqual({ cost: -1, inputTokens: 0 });
   });
 });
 
