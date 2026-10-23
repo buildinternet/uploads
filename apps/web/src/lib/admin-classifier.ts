@@ -74,3 +74,36 @@ export function flagTitle(flag: { confidence: ClassifierConfidenceBucket | null 
 export function flaggedFileHref(file: Pick<ClassifierFlaggedFile, "workspace" | "key">): string {
   return filePath(file.workspace, file.key);
 }
+
+/**
+ * USD for the cost tile and tooltip. Classifier calls cost fractions of a
+ * cent, so small amounts keep four decimals instead of rounding to $0.00.
+ */
+export function formatUsd(amount: number): string {
+  if (!(amount > 0)) return "$0";
+  if (amount >= 1)
+    return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (amount < 0.0001) return "<$0.0001";
+  return `$${amount.toFixed(4)}`;
+}
+
+/**
+ * Estimated spend for some days of Decisions calls: the reported cost,
+ * scaled up to every call when some responses carried no cost. Null when no
+ * call in the range reported one.
+ */
+export function estimatedCost(
+  days: ReadonlyArray<{ calls: number; priced: number; cost: number }>,
+): { cost: number; calls: number; perCall: number } | null {
+  let calls = 0;
+  let priced = 0;
+  let cost = 0;
+  for (const d of days) {
+    calls += d.calls;
+    priced += d.priced;
+    cost += d.cost;
+  }
+  if (!(priced > 0)) return null;
+  const perCall = cost / priced;
+  return { cost: perCall * calls, calls, perCall };
+}

@@ -205,6 +205,13 @@
       "binding": "SLOW_OPS",
       "dataset": "uploads_slow_ops",
     },
+    // Classifier spend: one point per OpenRouter Decisions call with its
+    // usage block (src/classifier-call-analytics.ts), read per day by the
+    // /admin/classifier cost tile and chart. Absent binding is a no-op.
+    {
+      "binding": "CLASSIFIER_CALLS",
+      "dataset": "uploads_classifier_calls",
+    },
   ],
   // Service binding to apps/auth (Phase 2, plan D1): forwards Cookie/
   // Authorization to GET /api/auth/get-session over the binding — no public
@@ -441,6 +448,10 @@
       {
         "binding": "SLOW_OPS",
         "dataset": "uploads_slow_ops_preview",
+      },
+      {
+        "binding": "CLASSIFIER_CALLS",
+        "dataset": "uploads_classifier_calls_preview",
       },
     ],
     // Everything below repeats the production bindings verbatim — stateless,

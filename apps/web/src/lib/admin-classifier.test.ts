@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   coverageLabel,
+  estimatedCost,
+  formatUsd,
   flagLabel,
   flaggedFileHref,
   flagVariant,
@@ -75,5 +77,30 @@ describe("flaggedFileHref", () => {
     expect(flaggedFileHref({ workspace: "acme", key: "a b/c#d.png" })).toBe(
       "/f/acme/a%20b/c%23d.png",
     );
+  });
+});
+
+describe("formatUsd", () => {
+  it("keeps fractions of a cent readable", () => {
+    expect(formatUsd(0)).toBe("$0");
+    expect(formatUsd(0.00004)).toBe("<$0.0001");
+    expect(formatUsd(0.01234)).toBe("$0.0123");
+    expect(formatUsd(1234.5)).toBe("$1,234.50");
+  });
+});
+
+describe("estimatedCost", () => {
+  it("scales the reported cost up to unpriced calls", () => {
+    expect(
+      estimatedCost([
+        { calls: 4, priced: 2, cost: 0.02 },
+        { calls: 0, priced: 0, cost: 0 },
+      ]),
+    ).toEqual({ cost: 0.04, calls: 4, perCall: 0.01 });
+  });
+
+  it("is null when no call reported a cost", () => {
+    expect(estimatedCost([{ calls: 3, priced: 0, cost: 0 }])).toBeNull();
+    expect(estimatedCost([])).toBeNull();
   });
 });

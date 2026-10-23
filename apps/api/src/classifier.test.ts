@@ -564,6 +564,32 @@ describe("openRouterDecisionsRun", () => {
     expect(String(state[0])).toContain("filename: a.png");
   });
 
+  it("writes the response usage to the classifier calls dataset", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              answers: {},
+              usage: { cost: 0.0021, inputTokens: 900, outputTokens: 40 },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const points: unknown[] = [];
+    const CLASSIFIER_CALLS = { writeDataPoint: (p: unknown) => points.push(p) };
+    await openRouterDecisionsRun(env({ CLASSIFIER_CALLS }))(req);
+    expect(points).toEqual([
+      {
+        indexes: [CLASSIFIER_JEV_MODEL],
+        blobs: [CLASSIFIER_JEV_MODEL],
+        doubles: [0.0021, 900, 40],
+      },
+    ]);
+  });
+
   it("posts Luna to the same URL", async () => {
     let url = "";
     let model = "";
