@@ -6,6 +6,10 @@ settings:
 
 overrides:
   '@modelcontextprotocol/sdk': ^1.32.0
+  hono: ^4.13.13
+  '@hono/node-server': ^1.19.15
+  undici@7: ^7.29.1
+  undici@8: ^8.10.2
 
 patchedDependencies:
   '@better-auth/oauth-provider': 600be0a179772a41c889cffe583afd6d90c63ecede9856212b28272a46a3085c
@@ -85,8 +89,8 @@ importers:
         specifier: ^0.3.2
         version: 0.3.2
       hono:
-        specifier: ^4.13.3
-        version: 4.13.3
+        specifier: ^4.13.13
+        version: 4.13.13
       jpeg-js:
         specifier: ^0.4.4
         version: 0.4.4
@@ -143,8 +147,8 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.3)
       hono:
-        specifier: ^4.13.3
-        version: 4.13.3
+        specifier: ^4.13.13
+        version: 4.13.13
       stripe:
         specifier: ^22.3.2
         version: 22.3.2(@types/node@26.1.0)
@@ -183,8 +187,8 @@ importers:
         specifier: workspace:^
         version: link:../../packages/storage
       hono:
-        specifier: ^4.13.3
-        version: 4.13.3
+        specifier: ^4.13.13
+        version: 4.13.13
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -205,8 +209,8 @@ importers:
   apps/slack:
     dependencies:
       hono:
-        specifier: ^4.13.3
-        version: 4.13.3
+        specifier: ^4.13.13
+        version: 4.13.13
     devDependencies:
       '@types/node':
         specifier: ^26.1.0
@@ -255,7 +259,7 @@ importers:
         version: 0.44.1(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))
       files-sdk:
         specifier: ^3.1.1
-        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
       img-comparison-slider:
         specifier: ^8.0.7
         version: 8.0.7
@@ -382,7 +386,7 @@ importers:
         version: 3.1080.0
       files-sdk:
         specifier: ^3.1.1
-        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260706.1
@@ -435,7 +439,7 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       files-sdk:
         specifier: ^3.1.1
-        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -484,7 +488,7 @@ importers:
         version: 6.0.220(zod@4.5.4)
       files-sdk:
         specifier: ^3.1.1
-        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.5.4))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.5.4))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1781,11 +1785,11 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
-  '@hono/node-server@1.19.14':
-    resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
+  '@hono/node-server@1.19.17':
+    resolution: {integrity: sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
-      hono: ^4
+      hono: ^4.13.13
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -4417,7 +4421,7 @@ packages:
       firebase-admin: ^14.1.0
       google-auth-library: ^10.0.0 || ^11.0.0
       h3: ^1.0.0 || ^2.0.0
-      hono: ^4.0.0
+      hono: ^4.13.13
       koa: ^2.0.0 || ^3.0.0
       next: ^14.0.0 || ^15.0.0 || ^16.0.0
       node-appwrite: ^26.0.0 || ^27.0.0 || ^28.0.0 || ^29.0.0
@@ -4696,8 +4700,8 @@ packages:
   hastscript@9.0.1:
     resolution: {integrity: sha512-g7df9rMFX/SPi34tyGCyUBREQoKkapwdY/T04Qn9TDWfHhAYt4/I0gMVirzK5wEzeUqIjEB+LXC/ypb7Aqno5w==}
 
-  hono@4.13.3:
-    resolution: {integrity: sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw==}
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
 
   html-entities@2.6.0:
@@ -6365,16 +6369,12 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
-  undici@7.29.0:
-    resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
-    engines: {node: '>=20.18.1'}
-
   undici@7.29.1:
     resolution: {integrity: sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==}
     engines: {node: '>=20.18.1'}
 
-  undici@8.10.0:
-    resolution: {integrity: sha512-HvltHd7avK13QIw/oLe4qoOLyoVSoafqJ2jYOrtMRBkbYT31eiBQ8O0ehRKZiEZCMEyLFQNIADpgCWC5fALvYQ==}
+  undici@8.12.3:
+    resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==}
     engines: {node: '>=22.19.0'}
 
   unenv@2.0.0-rc.24:
@@ -7844,7 +7844,7 @@ snapshots:
       open: 8.4.2
       picomatch: 4.0.7
       systeminformation: 5.33.1
-      undici: 7.29.0
+      undici: 7.29.1
       which: 4.0.0
       yocto-spinner: 1.2.2
 
@@ -8181,9 +8181,9 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@hono/node-server@1.19.14(hono@4.13.3)':
+  '@hono/node-server@1.19.17(hono@4.13.13)':
     dependencies:
-      hono: 4.13.3
+      hono: 4.13.13
 
   '@img/colour@1.1.0': {}
 
@@ -8363,7 +8363,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.13.3)
+      '@hono/node-server': 1.19.17(hono@4.13.13)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -8373,7 +8373,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.13.3
+      hono: 4.13.13
       jose: 6.2.12
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -8385,7 +8385,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.13.3)
+      '@hono/node-server': 1.19.17(hono@4.13.13)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -8395,7 +8395,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.13.3
+      hono: 4.13.13
       jose: 6.2.12
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -10763,7 +10763,7 @@ snapshots:
     dependencies:
       is-unicode-supported: 2.1.0
 
-  files-sdk@3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.5.4))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
+  files-sdk@3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.5.4))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
@@ -10781,7 +10781,7 @@ snapshots:
       ai: 6.0.220(zod@4.5.4)
       astro: 7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
       h3: 1.15.11
-      hono: 4.13.3
+      hono: 4.13.13
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
       zod: 4.6.7
@@ -10789,7 +10789,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  files-sdk@3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
+  files-sdk@3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
@@ -10807,7 +10807,7 @@ snapshots:
       ai: 6.0.220(zod@4.6.7)
       astro: 7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1)
       h3: 1.15.11
-      hono: 4.13.3
+      hono: 4.13.13
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
       zod: 4.6.7
@@ -10815,7 +10815,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  files-sdk@3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
+  files-sdk@3.1.1(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.13)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
@@ -10833,7 +10833,7 @@ snapshots:
       ai: 6.0.220(zod@4.6.7)
       astro: 7.4.0(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1)
       h3: 1.15.11
-      hono: 4.13.3
+      hono: 4.13.13
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
       zod: 4.6.7
@@ -11061,7 +11061,7 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  hono@4.13.3: {}
+  hono@4.13.13: {}
 
   html-entities@2.6.0: {}
 
@@ -12226,7 +12226,7 @@ snapshots:
       tailwind-merge: 3.6.0
       ts-morph: 26.0.0
       tsconfig-paths: 4.2.0
-      undici: 7.29.0
+      undici: 7.29.1
       validate-npm-package-name: 7.0.2
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
@@ -12644,11 +12644,9 @@ snapshots:
 
   undici-types@8.3.0: {}
 
-  undici@7.29.0: {}
-
   undici@7.29.1: {}
 
-  undici@8.10.0: {}
+  undici@8.12.3: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
@@ -12671,7 +12669,7 @@ snapshots:
       css-tree: 3.2.1
       fnv1a-64: 0.1.2
       std-env: 4.3.0
-      undici: 8.10.0
+      undici: 8.12.3
 
   unist-util-find-after@5.0.0:
     dependencies:
