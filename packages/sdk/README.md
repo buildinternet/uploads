@@ -35,7 +35,7 @@ Tokens are workspace-wide, so keep them on a server. Never ship one to a browser
 - **GitHub:** `upsertGithubComment`
 - **Usage:** `usage`, `reconcile`, `purgeExpired`, `health`
 
-For any other public route, `uploads.request(method, path, options)` sends an authenticated request and returns the parsed JSON. The full API reference is at [uploads.sh/docs/api](https://uploads.sh/docs/api), and the OpenAPI document at `https://uploads.sh/.well-known/openapi.json`.
+For any other public route, `uploads.request(method, path, options)` sends an authenticated request and returns the parsed JSON. The guide is at [uploads.sh/docs/sdk](https://uploads.sh/docs/sdk), the full API reference at [uploads.sh/docs/api](https://uploads.sh/docs/api), and the OpenAPI document at `https://uploads.sh/.well-known/openapi.json`.
 
 ## Errors and retries
 
