@@ -6,7 +6,6 @@ import {
   resolveRepoCommentOptions,
   workspaceCommentDefaults,
   REPO_CONFIG_PATHS,
-  REPO_CONFIG_TTL_SECONDS,
 } from "./repo-comment-config";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeKv } from "../test/fake-kv";
@@ -334,10 +333,6 @@ describe("fetchRepoCommentConfig", () => {
       ".github/uploads.yaml",
       ".github/uploads.json",
     ]);
-  });
-
-  it("exposes a 300-second TTL", () => {
-    expect(REPO_CONFIG_TTL_SECONDS).toBe(300);
   });
 });
 

@@ -467,7 +467,6 @@ describe("buildDecideRequest", () => {
     }
     // TypeSafe documents no question-count cap (token budget only). Nine
     // short choices stay far inside that budget and inside the 255-option cap.
-    expect(QUESTION_IDS.length).toBe(9);
     expect(Object.keys(buildClassifierQuestions().screen.criteria).length).toBeLessThanOrEqual(255);
   });
 

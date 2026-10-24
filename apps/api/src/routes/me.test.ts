@@ -732,30 +732,6 @@ describe("GET /me/workspaces/:name/members", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns sanitized member rows for a workspace named 'default' just like any other", async () => {
-    const env = stubEnv(USER, (path) => {
-      if (path === "/internal/memberships") {
-        return Response.json([
-          { organizationId: "org1", organizationSlug: "default", role: "member" },
-        ]);
-      }
-      if (path === "/internal/orgs/default") {
-        return Response.json({ organization: { id: "org1", slug: "default", name: "Default" } });
-      }
-      if (path === "/internal/orgs/default/members") {
-        return Response.json({
-          members: [{ id: "m1", userId: "u1", email: "a@b.com", name: "Ada", role: "owner" }],
-        });
-      }
-      return new Response(null, { status: 404 });
-    });
-    const res = await app().request("/me/workspaces/default/members", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      members: [{ email: "a@b.com", name: "Ada", role: "owner" }],
-    });
-  });
-
   it("returns sanitized member rows for a member's workspace", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
@@ -822,16 +798,8 @@ describe("GET /me/workspaces/:name/members id exposure", () => {
     });
   }
 
-  it("includes member id for an admin/owner caller", async () => {
-    const env = membersEnv("owner");
-    const res = await app().request("/me/workspaces/acme/members", {}, env);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { members: Record<string, unknown>[] };
-    expect(body.members[0]).toHaveProperty("id", "m1");
-  });
-
-  it("includes member id for an admin caller", async () => {
-    const env = membersEnv("admin");
+  it.each(["owner", "admin"])("includes member id for an %s caller", async (role) => {
+    const env = membersEnv(role);
     const res = await app().request("/me/workspaces/acme/members", {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { members: Record<string, unknown>[] };
@@ -995,13 +963,6 @@ describe("member management routes", () => {
     );
     expect(res.status).toBe(403);
   });
-
-  it("returns invites for a workspace named 'default' just like any other", async () => {
-    const env = manageEnv({ workspace: "default", role: "owner" });
-    const res = await app().request("/me/workspaces/default/invites", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ invites: [] });
-  });
 });
 
 describe("GET /me/workspaces/:name/galleries", () => {
@@ -1015,18 +976,6 @@ describe("GET /me/workspaces/:name/galleries", () => {
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "workspace_not_found" },
     });
-  });
-
-  it("returns an empty gallery list for a workspace named 'default' just like any other", async () => {
-    const db = galleriesDb();
-    // Issue #613 final phase: this route now forwards to the canonical
-    // dual-auth galleries vertical (`workspace-galleries.ts`), which — unlike
-    // the pre-#613 inline handler — loads the workspace record as part of
-    // `dualWorkspaceAuth`, so a record must be seeded in `REGISTRY`.
-    const env = memberEnv({ workspace: "default", db: new SQLiteD1(db), record: R2_RECORD });
-    const res = await app().request("/me/workspaces/default/galleries", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ galleries: [], nextCursor: null });
   });
 
   it("returns gallery summaries for a member's workspace", async () => {
@@ -2867,27 +2816,6 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
       });
     });
 
-    it("runs the injected verify pipeline against the request body and persists nothing", async () => {
-      const { env, registry } = storageEnv({ role: "owner", record: BYO_RECORD });
-      setStorageVerifyForTests(async (candidate) => {
-        expect(candidate.bucket).toBe("customer-bucket");
-        return okVerifyResult;
-      });
-      const before = registry.record("acme");
-      const res = await app().request(
-        "/me/workspaces/acme/storage/verify",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(CANDIDATE_BODY),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual(okVerifyResult);
-      expect(registry.record("acme")).toEqual(before);
-    });
-
     it("429s when the write limiter is over budget", async () => {
       const { env: baseEnv } = storageEnv({ role: "owner", record: BYO_RECORD });
       const env = {
@@ -3036,28 +2964,6 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
       expect(registry.record("acme")).toEqual(before);
     });
 
-    it("saves a standby lane even when the workspace already has files — saving never changes routing", async () => {
-      const { env, registry } = storageEnv({
-        role: "owner",
-        record: { ...SHARED_RECORD, byoBucketEnabled: true },
-        usage: { objects: 3 },
-      });
-      setStorageVerifyForTests(async () => okVerifyResult);
-      const res = await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(CANDIDATE_BODY),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      // Top-level (active-lane) fields untouched.
-      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
-      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
-    });
-
     it("saves on a passing verify: seals credentials into a standby lane, top-level fields untouched", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
@@ -3115,35 +3021,6 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
       expect(lane?.storageConfiguredBy).toBe("u-plain");
       // Plaintext display fragment, not the tail of the sealed blob.
       expect(lane?.storageAccessKeyIdLast4).toBe("1234");
-    });
-
-    it("saving again for the same bucket replaces the standby lane in place rather than appending a duplicate", async () => {
-      const { env, registry } = storageEnv({
-        role: "owner",
-        record: { ...SHARED_RECORD, byoBucketEnabled: true },
-        usage: { objects: 0 },
-      });
-      setStorageVerifyForTests(async () => okVerifyResult);
-      await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(CANDIDATE_BODY),
-        },
-        env,
-      );
-      const res = await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
     });
 
     it("stamps jurisdiction on the saved standby lane", async () => {

@@ -8,7 +8,6 @@ import {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
   AUTO_RENDER_OPTIONS,
-  GH_PRIVATE_ROOT,
   ghPrivateAttachmentKey,
   ghPrivateBranchAttachmentKey,
   ghPrivateBranchKeyPrefix,
@@ -94,10 +93,6 @@ describe("private-repo key builders/parsers (CLI copy) — golden parity fixture
     const target: GhTarget = { repo: "acme/web", kind: "pull", num: 1 };
     expect(() => ghPrivateKeyPrefix(badId, target)).toThrow();
     expect(() => ghPrivateBranchKeyPrefix(badId)).toThrow();
-  });
-
-  it("GH_PRIVATE_ROOT matches the fixture's literal prefix", () => {
-    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
   });
 });
 

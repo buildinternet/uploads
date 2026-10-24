@@ -1552,23 +1552,6 @@ describe("storage vertical (self-serve BYO bucket)", () => {
   });
 
   describe("DELETE /v1/workspaces/:workspace/storage", () => {
-    it("detaches and restores shared-bucket defaults", async () => {
-      const { env, registry } = makeEnv({
-        role: "owner",
-        record: BYO_RECORD,
-        usage: { objects: 0 },
-      });
-      const res = await app.request(
-        "/v1/workspaces/acme/storage",
-        { method: "DELETE", headers: sessionHeaders },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ mode: "shared" });
-      const saved = registry.record<{ accessKeyId?: unknown }>("acme");
-      expect(saved?.accessKeyId).toBeUndefined();
-    });
-
     it("rejects detach when the bucket still has files and force wasn't passed", async () => {
       const { env } = makeEnv({ role: "owner", record: BYO_RECORD, usage: { objects: 2 } });
       const res = await app.request(

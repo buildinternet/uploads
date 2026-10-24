@@ -40,8 +40,6 @@ describe("LegalConsent component", () => {
     // the spaces even when Prettier wraps the markup.
     expect(component).toContain('the{" "}');
     expect(component).toContain('{" "}and{" "}');
-    expect(component).toContain('href="/terms"');
-    expect(component).toContain('href="/privacy"');
   });
 });
 

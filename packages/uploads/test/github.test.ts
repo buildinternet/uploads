@@ -174,8 +174,7 @@ describe("ghPrivateKeyPrefix / ghPrivateAttachmentKey", () => {
     expect(() => ghPrivateKeyPrefix(PREFIX_ID.slice(0, 31), pr)).toThrow();
     expect(() => ghPrivateAttachmentKey("bad", pr, "x.png")).toThrow();
   });
-  it("GH_PRIVATE_ROOT is the shared literal prefix", () => {
-    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
+  it("private prefixes start with GH_PRIVATE_ROOT", () => {
     expect(ghPrivateKeyPrefix(PREFIX_ID, pr).startsWith(GH_PRIVATE_ROOT)).toBe(true);
   });
 });

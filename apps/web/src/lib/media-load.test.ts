@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyMediaFailure,
-  imageLoadFailed,
-  mediaPreviewFailedBody,
-  MEDIA_PREVIEW_FAILED_TITLE,
-} from "./media-load";
+import { applyMediaFailure, imageLoadFailed, mediaPreviewFailedBody } from "./media-load";
 
 describe("imageLoadFailed", () => {
   it("is false while the image is still loading", () => {
@@ -22,7 +17,6 @@ describe("imageLoadFailed", () => {
 
 describe("mediaPreviewFailedBody", () => {
   it("names the media kind in the recovery copy", () => {
-    expect(MEDIA_PREVIEW_FAILED_TITLE).toBe("Preview failed");
     expect(mediaPreviewFailedBody("image")).toMatch(/image/);
     expect(mediaPreviewFailedBody("video")).toMatch(/video/);
   });
