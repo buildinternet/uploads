@@ -1,78 +1,39 @@
 /**
  * Experimental LLM file classifier (OpenRouter Decisions, called directly).
  *
- * After a successful `putObject`, a Flagship-allowlisted workspace can get
- * server-owned `ai.*` labels (`ai.kind`, `ai.surface`, `ai.screen`,
- * `ai.classifier`) so agents can organize uploads later. Off by default:
- * Flagship `llm-file-classifier` fails closed and is the sole allowlist
- * (targeting context `{ org, workspace }` = the workspace slug).
- * `llmClassifierEnabled === false` is an optional hard off; `undefined`
- * does not block. Fail-open: classifier errors never fail the upload.
- * Presigned (`POST /sign`) uploads never reach this hook.
+ * After a successful `putObject`, an allowlisted workspace gets server-owned
+ * `ai.*` labels (`kind`, `surface`, `screen`, `ready`) and four internal
+ * safety flags (`rating`, `content`, `secret`, `pii`). Flagship
+ * `llm-file-classifier` is the allowlist and fails closed;
+ * `llmClassifierEnabled === false` is a hard off. Fail-open: errors never
+ * fail the upload. Presigned uploads never reach this. A high-confidence
+ * `secret` or sensitive `pii` answer holds the file (`upload-hold.ts`)
+ * unless the workspace turned that off.
  *
- * One Decisions call when the provider can see an image. The model picks
- * `kind`, `surface`, `screen`, and `ready` from the closed enums, plus four
- * internal safety flags (`rating`, `content`, `secret`, `pii`). Flag
- * lifetime is `SAFETY_FLAG_KEYS`. Decisions models do not write free
- * text, so this path does not write `ai.tags` or `ai.summary`.
+ * The model is only called with pixels. Jev (`~typesafe/jev-latest`) gets a
+ * PNG/JPEG that fits its window and the byte cap as-is (`v5`); other images
+ * are scaled down with the Images binding first (`v6`), never up. Files it
+ * can't see write `ai.classifier=skipped` plus `ai.skip` (`small`,
+ * `unsupported`, `resize_failed`, `resize_timeout`). The resize and the
+ * Decisions call have separate timeouts so a slow resize can't spend the
+ * model's budget.
  *
- * A high-confidence `secret` or sensitive `pii` answer holds the file for
- * approval (`upload-hold.ts`) unless the workspace turned that off.
+ * A call that times out, errors, or answers below the confidence floor
+ * writes `ai.classifier=failed` and `ai.error`, but only when these bytes
+ * have no earlier result. New bytes clear every classifier row first
+ * (`CLASSIFIER_ROW_KEYS`).
  *
- * Default model is the OpenRouter alias `~typesafe/jev-latest`. A PNG or
- * JPEG that already fits Jev's pixel window and the byte cap goes in
- * `state` as an `image_url` part (`ai.classifier=v5`), next to a short
- * fact list. A PNG, JPEG, WebP, GIF, or AVIF that does not fit is scaled
- * with the Images binding (`env.IMAGES`) into that window first
- * (`ai.classifier=v6`). The fact list keeps the original dimensions.
- * Images below Jev's window are not upscaled. `fit=scale-down` matches
- * the thumbnail transform.
+ * Before calling, a finished classification in the same workspace can stand
+ * in: identical bytes reuse all rows (including safety flags and holds); an
+ * exactly equal pHash reuses only the display labels.
  *
- * The model is not called without those pixels. A no-image file writes
- * `ai.classifier=skipped` and `ai.skip`, and nothing else. Reasons are
- * `small`, `unsupported`, `resize_failed`, and `resize_timeout`. `small`
- * is a trivially small image (either known side under 64 px, or an image
- * file under 2 KiB), on Jev or Luna. Unknown dimensions do not count as
- * small. A skip removes a previous kind, surface, screen, and ready. It does
- * not write safety values. New bytes clear those rows before this runs,
- * so a skip leaves them clear. Identical bytes keep them.
+ * Optional Luna path (`v4`, `CLASSIFIER_PROVIDER=luna` or Flagship
+ * `llm-file-classifier-luna`) uses the same endpoint without resizing and
+ * also accepts WebP.
  *
- * The resize has its own timeout (`CLASSIFIER_RESIZE_TIMEOUT_MS`). The
- * Decisions call keeps `CLASSIFIER_TIMEOUT_MS`. A slow resize cannot
- * spend the model's budget. Either timeout fails open.
- *
- * A Decisions call that times out, errors, or returns no answer above
- * the confidence floor writes `ai.classifier=failed` and `ai.error`
- * (`timeout`, `provider_error`, `no_answer`), so a failure is visible in
- * stored metadata and not only in logs. It does so only when these bytes
- * have no earlier result: a failed retry on identical bytes keeps the
- * earlier labels. New bytes clear every classifier row first
- * (`CLASSIFIER_ROW_KEYS`), so old labels never describe new bytes.
- *
- * Before that call, a finished classification already stored for this
- * workspace can stand in for it. Identical bytes reuse the donor's rows,
- * including safety flags, and a new key is held from those flags the same
- * way a fresh decision would be. A PNG or JPEG whose 63-bit DCT pHash
- * (`ai.phash`) is exactly equal reuses only `ai.kind`, `ai.surface`,
- * `ai.screen`, and `ai.ready`. Safety flags and holds stay unset on that
- * path: the Decisions request is one image, so a safety-only follow-up
- * would not skip the call, and a missing flag is not a stored `none`. Both
- * lookups stay inside the workspace.
- *
- * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
- * Flagship `llm-file-classifier-luna` (default off) selects
- * `openai/gpt-6-luna-decisions` on the same endpoint. Luna does not use
- * the resize. It accepts WebP and is not held to Jev's pixel window, so
- * a screenshot under the byte cap can still be seen when the flag is on.
- * A Luna file with no acceptable image is `unsupported`. Unset provider
- * and a flag that is off stay on Jev Latest.
- *
- * Both providers `POST https://openrouter.ai/api/alpha/decisions` with
- * `OPENROUTER_API_KEY`. The Cloudflare AI Gateway `openrouter` provider is
- * based at `https://openrouter.ai/api/v1`, so a gateway request for
- * `alpha/decisions` hits `/api/v1/alpha/decisions` and returns 404. Do not
- * send this call through `env.AI.gateway()`. A missing key skips
- * classification. The weekly digest still uses the Workers AI binding.
+ * Decisions lives at `/api/alpha/decisions`, which the AI Gateway's
+ * OpenRouter provider (based at `/api/v1`) 404s, so don't route this through
+ * `env.AI.gateway()`. A missing `OPENROUTER_API_KEY` skips classification.
  */
 
 import { contentHashDonorKeys, contentHashForKey } from "./content-hash";
