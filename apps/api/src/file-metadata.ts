@@ -1,11 +1,7 @@
 /**
- * Per-file queryable metadata (`file_metadata` D1 table).
- *
- * The queryable-tag tier for uploads.sh objects (see
- * `.context/2026-07-13-file-metadata-design.md`): capped, mutable key-value
- * pairs stored one row per pair, scoped by `(workspace, object_key)`. Distinct
- * from R2 custom metadata (`provenance.ts`), which stays unqueryable and
- * server/allowlist-controlled.
+ * Per-file queryable metadata (`file_metadata` D1 table): capped, mutable
+ * key-value pairs, one row per pair, scoped by `(workspace, object_key)`.
+ * Distinct from R2 custom metadata (`provenance.ts`), which isn't queryable.
  */
 
 import { CLASSIFIER_SAFETY_FIELDS } from "./classifier-admin-wire";
@@ -20,10 +16,8 @@ import { type D1Queryable } from "./db-session";
 export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 
 /**
- * Metadata keys whose value is stored lowercased (every write and every search
- * filter). `gh.repo`: the live-link scope (pr-scope.ts) and `isInFeedScope`
- * match it exactly, and the PR rollup already lowercases its repo. The one-time
- * backfill (gh-repo-case-backfill.ts) reads this same list.
+ * Metadata keys whose value is stored lowercased, on every write and search
+ * filter. `gh.repo` is matched exactly by the live-link scope.
  */
 export const LOWERCASED_META_KEYS: readonly string[] = ["gh.repo"];
 
@@ -33,32 +27,18 @@ export function canonicalMetaValue(key: string, value: string): string {
 }
 
 /**
- * Server-set provenance keys (e.g. `content-sha256`) are reserved: a custom
- * metadata row with the same name would be a spoofable shadow of a value the
- * server computes and vouches for. Enforced here — the single choke point for
- * upload capture, the PATCH endpoint, and any future setFileMetadata caller.
- * `gh.*` keys are NOT reserved: system-managed by convention only (design doc).
+ * Reserved keys: server-set provenance (a custom row would be a spoofable
+ * shadow of a server-vouched value) and `visibility` (would look like an
+ * access setting on the public /f/ panel). `gh.*` is not reserved.
  */
-// `visibility` is reserved too: it names the R2-backed public/private gate
-// (visibility.ts's VISIBILITY_META_KEY), not a piece of D1 custom metadata. A
-// custom row with this name would render on the public /f/ panel looking
-// like an access-control setting when it's just an unrelated user tag.
 const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibility"]);
 
 /**
- * Namespaces the server owns outright (issue #299). A client must never write
- * these: `video.poster` decides whether a poster `<img>` renders in a public
- * PR comment, so a user-settable row would be a spoofable input to public
- * output. `image.*` (issue #365 follow-up) carries the server-detected pixel
- * dimensions the managed comment sizes embeds with — same spoofable-input
- * rationale. `pdf.*` (issue #1009) is the same class for a first-page
- * preview: `pdf.poster` decides whether a thumbnail `<img>` renders in a
- * public PR comment. `ai.*` (experimental file classifier) is the same class
- * of server-derived fact: agents read `ai.tags` / `ai.summary` / `ai.kind` /
- * `ai.surface` / `ai.screen`, plus the internal safety flags `ai.rating` /
- * `ai.content` / `ai.secret` / `ai.pii` and their `.confidence` keys, but
- * must not spoof them. Public responses strip the prefix. Reserved as
- * *prefixes* rather than exact keys so future derived facts can't collide.
+ * Namespaces only the server writes. These are server-derived facts that
+ * drive public output (`video.poster` and `pdf.poster` decide whether an
+ * `<img>` renders in a public PR comment, `image.*` sizes embeds) or the
+ * classifier's `ai.*` labels and safety flags, so a client must not spoof
+ * them. Public responses strip `ai.*`. Prefixes, so future keys can't collide.
  */
 export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const;
 
@@ -69,21 +49,14 @@ export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const
 export const SAFETY_FLAG_FIELDS = CLASSIFIER_SAFETY_FIELDS;
 
 /**
- * The eight internal safety-flag rows. This is the lifetime rule.
+ * The eight internal safety-flag rows and their lifetime rule.
  *
- * `putObject` reads the key's previous `file_content_hash` before
- * replacing it. Identical bytes keep these rows: a metadata replace
- * passes `keepClassifierRows`, and a put with no metadata headers leaves
- * them in place. New bytes, or no stored hash, delete the eight rows
- * before classification is scheduled. A later classification that writes
- * a value, including a confident `none`, replaces that key through
- * `setServerFileMetadata`. A run that omits a key leaves the previous
- * value. Re-uploading identical bytes does not clear a flag. New bytes
- * start fresh.
- *
- * These flags do not bump `ai.classifier`. `v4`, `v5`, `v6`, and
- * `skipped` still name the pixel path. Other `ai.*` keys are not in
- * this set. Object delete still removes the rows.
+ * `putObject` compares the previous `file_content_hash`. Identical bytes
+ * keep these rows; new bytes (or no stored hash) delete them before
+ * classification is scheduled. A classification that writes a value
+ * (including a confident `none`) replaces that key; one that omits a key
+ * leaves the old value. Object delete removes them. They don't bump
+ * `ai.classifier`.
  */
 export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
@@ -93,14 +66,9 @@ export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
 export const PHASH_META_KEY = "ai.phash";
 
 /**
- * Every row the classifier writes: the version marker, skip and error
- * reasons, the display labels, the older `ai.tags` / `ai.summary`, the
- * hold state (`ai.hold`, see `upload-hold.ts`), the perceptual hash, and
- * the eight safety-flag rows. They all describe one set of bytes, so
- * they share the `SAFETY_FLAG_KEYS` lifetime: identical bytes keep them,
- * new bytes delete them before classification is scheduled. Without
- * that, a failed or partial run on new bytes would leave labels from the
- * old bytes behind.
+ * Every row the classifier writes. They all describe one set of bytes, so
+ * they share the `SAFETY_FLAG_KEYS` lifetime; otherwise a failed run on new
+ * bytes would leave the old bytes' labels behind.
  */
 export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
   "ai.classifier",
@@ -154,12 +122,9 @@ export function publicFileMetadata(
 }
 
 /**
- * True when `key` must not be written (or deleted) by a client:
- * `RESERVED_META_KEYS` always, plus the server-owned `video.*` namespace
- * unless `opts.allowServerKeys` opts in. Single choke point for the
- * reserved-key check — every caller must go through this rather than
- * re-pairing `RESERVED_META_KEYS.has` with `isServerMetaKey` by hand, which
- * would silently reopen the hole this predicate exists to close.
+ * True when a client must not write or delete `key`: `RESERVED_META_KEYS`
+ * always, and server-owned namespaces unless `opts.allowServerKeys`. Every
+ * reserved-key check goes through here.
  */
 function isReservedMetaKey(key: string, opts: { allowServerKeys?: boolean } = {}): boolean {
   return RESERVED_META_KEYS.has(key) || (!opts.allowServerKeys && isServerMetaKey(key));
@@ -189,11 +154,7 @@ const VALUE_SAFE_RE = /^[\x20-\x7E]+$/;
 
 const encoder = new TextEncoder();
 
-/**
- * Total UTF-8 key+value bytes — the quantity `META_MAX_TOTAL_BYTES` caps.
- * One implementation so the validator and the cap-aware merge below can never
- * disagree about what "metadata bytes" means.
- */
+/** Total UTF-8 key+value bytes, the quantity `META_MAX_TOTAL_BYTES` caps. */
 export function metadataByteLength(meta: Record<string, string>): number {
   let total = 0;
   for (const [key, value] of Object.entries(meta)) {
@@ -204,22 +165,15 @@ export function metadataByteLength(meta: Record<string, string>): number {
 
 /** Keys that count against `META_MAX_KEYS` — server-owned keys are exempt. */
 function countableKeys(meta: Record<string, string>): string[] {
-  // Server-owned keys don't consume the user's budget — otherwise every video
-  // upload would silently cost four of their META_MAX_KEYS slots.
+  // Otherwise every video upload would cost several of the user's key slots.
   return Object.keys(meta).filter((key) => !isServerMetaKey(key));
 }
 
 /**
- * Merge `additions` under `base`, keeping each addition only while the result
- * still satisfies both caps. `base` keys always win and are never dropped, and
- * a full budget drops the overflow rather than throwing — a caller merging
- * *derived* facts must never fail an upload over them.
- *
- * Deliberately the same rule as the CLI's `mergeDerivedMeta`
- * (`packages/uploads/src/metadata-vocab.ts`), which applies it to capture-time
- * derived metadata. Server-side inheritance (#479) and capture-time derivation
- * are one feature to a user, so they share an overflow rule rather than each
- * inventing one.
+ * Merge `additions` under `base`, keeping each addition only while both caps
+ * still hold. `base` always wins, and overflow is dropped rather than
+ * thrown: derived facts must never fail an upload. Same rule as the CLI's
+ * `mergeDerivedMeta`.
  */
 export function mergeWithinMetadataCaps(
   base: Record<string, string>,
@@ -243,11 +197,8 @@ export function mergeWithinMetadataCaps(
 }
 
 /**
- * Shared validation body for `validateMetadataEntries` and
- * `validateStoredMetadataEntries`: key format, value format/length, the
- * per-map key-count cap, and the total key+value byte cap.
- * `opts.allowServerKeys` is the one difference between the two exported
- * wrappers below — kept private so no other call site can pass it directly.
+ * Shared body of the two validators below; `allowServerKeys` is their only
+ * difference and stays private.
  */
 function validateMetadataEntriesImpl(
   meta: Record<string, string>,
@@ -299,42 +250,28 @@ function validateMetadataEntriesImpl(
 }
 
 /**
- * Throws a `ValidationError` (AppError, type "validation") if `meta` violates
- * key format, value format/length, the per-map key-count cap, or the total
- * key+value byte cap — and rejects both `RESERVED_META_KEYS` and the
- * server-owned `video.*` namespace. Every client-facing path calls this: the
- * PATCH route, upload header capture, MCP tools, `replaceFileMetadata`, and
- * `setFileMetadata`'s pre-check on `set`.
+ * Throws a `ValidationError` for a bad key or value format, the key-count
+ * cap, or the byte cap, and rejects reserved and server-owned keys. Every
+ * client-facing write path calls this.
  */
 export function validateMetadataEntries(meta: Record<string, string>): void {
   validateMetadataEntriesImpl(meta, {});
 }
 
 /**
- * Same checks as `validateMetadataEntries`, except the server-owned
- * `video.*` namespace is allowed through (`RESERVED_META_KEYS` — provenance,
- * `visibility` — is still rejected). Used ONLY by `setServerFileMetadata` and
- * by `setFileMetadata`'s post-merge check, where `video.*` rows may already
- * be present in stored state that this call is re-validating, not writing.
- *
- * MUST NEVER be called with client-supplied key names — doing so would let a
- * client write the server-owned `video.*` namespace directly (e.g. spoof
- * `video.poster` to render an attacker-controlled image on a public PR
- * comment).
+ * `validateMetadataEntries` that allows server-owned namespaces. Only for
+ * `setServerFileMetadata` and re-validating already-stored state. Never call
+ * it with client-supplied keys: that would let a client spoof `video.poster`
+ * on a public PR comment.
  */
 export function validateStoredMetadataEntries(meta: Record<string, string>): void {
   validateMetadataEntriesImpl(meta, { allowServerKeys: true });
 }
 
 /**
- * Validates a `meta.*`-style equality-filter map (REST list endpoint's
- * `meta.<key>=<value>` query params, the MCP `find_files` tool's `filters`
- * argument): enforces the same count cap and key format as metadata writes,
- * using the same typed error codes so existing callers' error handling is
- * unaffected. Does not validate filter values (unlike write-side metadata,
- * an empty or arbitrary-length filter value is fine — it just won't match
- * anything) and does not check for duplicate/repeated params, which is
- * query-string-specific and stays in the REST route.
+ * Validates an equality-filter map (`meta.<key>=<value>` params, MCP
+ * `find_files` filters): same count cap, key format, and error codes as
+ * writes. Values aren't validated; a bad one just doesn't match.
  */
 export function validateMetadataFilters(filters: Record<string, string>): void {
   const keys = Object.keys(filters);
@@ -381,12 +318,7 @@ export async function getFileMetadata(
   }
 }
 
-/**
- * Prepared upsert statements for `entries`, one `INSERT ... ON CONFLICT DO
- * UPDATE` per key/value pair. Shared by `setFileMetadata`,
- * `replaceFileMetadata`, and `setServerFileMetadata` so the SQL lives in
- * exactly one place; does not change SQL semantics for any of them.
- */
+/** One `INSERT ... ON CONFLICT DO UPDATE` per pair, shared by the write paths. */
 function upsertStatements(
   db: D1Queryable,
   workspace: string,
@@ -406,33 +338,13 @@ function upsertStatements(
   );
 }
 
-/**
- * Merge `set` into the object's metadata and drop `remove` keys, enforcing
- * caps against the post-merge state. Rejects (no write) if the caps would be
- * violated; otherwise upserts/deletes atomically and returns the final map.
- * `remove` is applied before `set`, so a key present in both ends up set.
- *
- * `remove` is checked against the same reserved/server-owned key rules as
- * `set` (`isReservedMetaKey`) before any read or write: a
- * client that cannot set `video.*`, `visibility`, or a provenance key must
- * not be able to delete it by name either, since that would let it silently
- * blank a value the server owns (e.g. a video poster).
- *
- * Concurrency: the read → validate → batch write is not guarded, so two
- * concurrent merges on the same object can land a combined state slightly
- * over the caps (same accepted last-write-wins tradeoff as visibility
- * rewrites in files-core.ts; single-tenant writes sit behind the write
- * rate limiter). Caps are re-enforced on the next merge.
- */
 const CLIENT_LOCKED_UPLOADER_KEYS = new Set<string>([...UPLOADER_KEYS, UPLOADER_PROOF_KEY]);
 
 /**
- * Uploader attribution is server-stamped, including `gh.uploader-proof`.
- * A client write of these keys would let a `files:write` token claim
- * someone else's object and then delete it (issue #1124). `putObject`
- * stamps them through `replaceFileMetadata`, which does not call this
- * check. Server copies that must keep a stamp already on the source
- * (attach) pass `allowUploaderKeys`.
+ * Uploader attribution is server-stamped. A client write of these keys would
+ * let a `files:write` token claim someone else's object and then delete it.
+ * Server copies that keep the source's stamp (attach) pass
+ * `allowUploaderKeys`.
  */
 function assertUploaderKeysLocked(keys: Iterable<string>): void {
   for (const key of keys) {
@@ -444,6 +356,14 @@ function assertUploaderKeysLocked(keys: Iterable<string>): void {
   }
 }
 
+/**
+ * Merge `set` into the object's metadata and drop `remove` keys (`set` wins
+ * on overlap), enforcing caps on the merged state. Rejects without writing
+ * on a violation. `remove` follows the same reserved-key rules as `set`.
+ *
+ * Read, validate and write aren't atomic, so concurrent merges can land
+ * slightly over the caps; the next merge re-enforces them.
+ */
 export async function setFileMetadata(
   db: D1Queryable,
   workspace: string,
@@ -457,11 +377,7 @@ export async function setFileMetadata(
     assertUploaderKeysLocked(remove);
   }
   validateMetadataEntries(set);
-  // Symmetry with the write path: a client that cannot SET a reserved or
-  // server-owned key (RESERVED_META_KEYS / video.*) has no legitimate reason
-  // to DELETE it either — otherwise it could silently blank a value like
-  // video.poster or visibility by naming it in `remove`. Checked before any
-  // read/write so a reserved key anywhere in the list blocks the whole call.
+  // A client that can't set a reserved key can't delete it either.
   for (const key of remove) {
     if (isReservedMetaKey(key)) {
       throw new ValidationError(`reserved metadata key: ${key}`, {
@@ -476,9 +392,8 @@ export async function setFileMetadata(
   for (const key of remove) delete next[key];
   for (const [key, value] of Object.entries(set)) next[key] = canonicalMetaValue(key, value);
 
-  // `current` may already carry server-owned video.* rows (e.g. a poster),
-  // so this post-merge pass enforces the count/byte caps on the merged
-  // result — it must not re-reject keys that were already validly stored.
+  // `current` may already hold server-owned rows, so only enforce the caps
+  // on the merged result.
   validateStoredMetadataEntries(next);
 
   const now = new Date().toISOString();
@@ -499,21 +414,10 @@ export async function setFileMetadata(
 }
 
 /**
- * Add only the pairs an object does not already carry, dropping any that would
- * breach the caps (`mergeWithinMetadataCaps`) instead of throwing.
- *
- * The additive-and-lossy counterpart to `setFileMetadata`, which merges with
- * `set` winning and rejects the whole call on overflow. Callers supplying
- * *derived* pairs — facts the server inferred rather than the user typed — want
- * neither of those: an inferred value must never overwrite one the user stated,
- * and must never fail a request it was only decorating.
- *
- * One read and one batch: the merge happens here rather than by reading, diffing
- * outside, and handing the result to `setFileMetadata`, which would read the same
- * row a second time.
- *
- * Returns the object's resulting metadata when something was written, else
- * `undefined` so a caller can tell "nothing to do" from "wrote an empty map".
+ * Add only the pairs an object doesn't already carry, dropping any that would
+ * breach the caps. For derived pairs: an inferred value must never overwrite
+ * a stated one or fail the request. Returns the resulting metadata when
+ * something was written, else `undefined`.
  */
 export async function addMissingFileMetadata(
   db: D1Queryable,
@@ -538,11 +442,8 @@ export async function addMissingFileMetadata(
 }
 
 /**
- * Targeted single-key value update. Exists because `replaceFileMetadata` is
- * delete-then-insert over the whole key set and would wipe server-owned
- * `video.*` rows — never use replace to flip one flag. Used by the GitHub
- * attachment ingest reconciler to stamp `gh.detached` without disturbing any
- * other row. No-op (no row created) if the key isn't already present.
+ * Single-key value update. `replaceFileMetadata` would wipe server-owned
+ * rows, so use this to flip one flag. No-op if the key isn't present.
  */
 export async function updateFileMetadataValue(
   db: D1Queryable,
@@ -585,11 +486,7 @@ export async function deleteFileMetadataForWorkspace(
   await db.prepare(`DELETE FROM file_metadata WHERE workspace = ?`).bind(workspace).run();
 }
 
-/**
- * Deletes all metadata rows for a set of objects in one pass (e.g. the
- * retention purge's delete batches). Chunked like `getMetadataForKeys` to
- * stay under D1's bound-parameter limit. No-op on an empty list.
- */
+/** Deletes all metadata rows for a set of objects, chunked under D1's bind limit. */
 export async function deleteFileMetadataForKeys(
   db: D1Queryable,
   workspace: string,
@@ -648,64 +545,36 @@ const FIND_MAX_LIMIT = 500;
 const FIND_PROBE_MAX_LIMIT = FIND_MAX_LIMIT + 1;
 
 /**
- * Prefix filter as a plain substring equality, NOT `LIKE ? || '%'`: D1 caps
- * LIKE/GLOB patterns at 50 bytes, and real prefixes exceed that — a
- * `gh/private/<32-hex>/pull/<n>/` attachment prefix is ~54 bytes and made
- * every counterpart lookup (and with it the whole public file page) throw
- * `D1_ERROR: LIKE or GLOB pattern too complex`. substr has no such cap and
- * needs no wildcard escaping (`_`/`%` in the prefix stay literal). Binds the
- * prefix twice: once for `length(?)`, once for the comparison.
+ * Prefix filter via substr rather than `LIKE ? || '%'`: D1 caps LIKE
+ * patterns at 50 bytes and private attachment prefixes are ~54. substr also
+ * needs no wildcard escaping. Binds the prefix twice.
  */
 const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
 
 /**
- * Predicate matching a branch-staged screenshot that has been promoted
- * (`gh.status=promoted`). Promotion copies such a shot to a canonical
- * `pull/<n>/` key — which inherits its `path`/`state` via content-hash
- * inheritance — and never deletes the branch original, so a promoted shot
- * carries the same `path` under both keys. The screenshots surfaces collapse
- * the branch original (`groupObjectsByPath`, and the opt-in `collapsePromotedShadows`
- * search below) so it isn't listed twice. General metadata search leaves it
- * in — `find_files({ "gh.status": "promoted" })` must still return it. Written
- * against a subquery alias `s`; the caller supplies how to reach the outer row.
+ * Matches a promoted branch-staged shot. Promotion copies it to a
+ * `pull/<n>/` key and keeps the original, so the screenshots surfaces
+ * collapse the original to avoid listing it twice. General search keeps it.
+ * Written against subquery alias `s`.
  */
 export const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
 
 /**
- * Predicate matching an object stamped `gh.merged=true` — written by
- * github-webhook.ts's `pull_request` `closed` handling when the PR's
- * `merged` field is true. A merge is a terminal, durable fact (unlike
- * open/closed, which stay transient and are already resolved live by the KV
- * title cache in github-titles.ts), so `gh.merged` is the only PR
- * lifecycle fact this codebase persists as metadata — there is deliberately
- * no `gh.pr-state` key that would imply the full lifecycle is tracked.
- * Mirrors `PROMOTED_SHADOW_STATUS_SQL`'s shape but as an EXISTS (not NOT
- * EXISTS) predicate; written against a subquery alias `s2` (distinct from
- * `PROMOTED_SHADOW_STATUS_SQL`'s `s` so both can be composed in one query,
- * as `groupObjectsByPath`'s opt-in `mergedOnly` filter does) — the caller
- * supplies how to reach the outer row.
+ * Matches an object stamped `gh.merged=true` by the webhook's PR-closed
+ * handling. A merge is the only PR lifecycle fact persisted; open/closed
+ * stay live in the title cache. Alias `s2` so it composes with
+ * `PROMOTED_SHADOW_STATUS_SQL`.
  */
 const MERGED_STATUS_SQL = `s2.meta_key = 'gh.merged' AND s2.meta_value = 'true'`;
 
 /**
- * Finds objects whose metadata matches ALL `filters` (ANDed equality), with
- * an optional key-prefix and result limit. Returns each match's key plus its
- * full metadata map (not just the matched pairs).
+ * Objects whose metadata matches ALL `filters`, with optional key prefix and
+ * limit. Returns each match's full metadata.
  *
- * Index-aware against `file_metadata_lookup_idx (workspace, meta_key, meta_value)`:
- * - one filter → equality (+ optional prefix) + LIMIT
- * - multi-filter → INTERSECT of per-filter key sets (each leg uses the index)
- *   rather than OR + GROUP BY HAVING, which over-reads when any filter value
- *   is common (e.g. `gh.kind=pull`).
- *
- * `collapsePromotedShadows` (opt-in, off by default) drops promoted branch
- * originals (`PROMOTED_SHADOW_STATUS_SQL`) so the screenshots drill-in doesn't
- * show a shot twice; general search keeps them.
- *
- * `after` is a keyset continuation: rows are already ordered by `object_key`,
- * so resuming at `object_key > :after` skips the consumed window without an
- * OFFSET scan and stays stable when objects are added or removed between
- * pages (issue #829 §4).
+ * Multiple filters INTERSECT per-filter key sets, each using
+ * `file_metadata_lookup_idx`, rather than OR + GROUP BY, which over-reads on
+ * common values. `collapsePromotedShadows` drops promoted branch originals.
+ * `after` is a keyset continuation on `object_key`, stable across inserts.
  */
 export async function findObjectsByMetadata(
   db: D1Queryable,
@@ -721,8 +590,7 @@ export async function findObjectsByMetadata(
   const entries = Object.entries(filters);
   if (entries.length === 0) return [];
 
-  // FIND_PROBE_MAX_LIMIT lets callers request `pageSize + 1` for an exact
-  // truncated signal (name search over-fetches the D1 window; see file-search.ts).
+  // Allows `pageSize + 1` for an exact truncation signal.
   const limit = Math.max(1, Math.min(opts.limit ?? FIND_DEFAULT_LIMIT, FIND_PROBE_MAX_LIMIT));
   const params: unknown[] = [];
   const legs = entries.map(([key, value]) => {
@@ -746,9 +614,8 @@ export async function findObjectsByMetadata(
       params.push(opts.prefix, opts.prefix);
     }
   }
-  // Wrap once (after prefix, before ORDER BY/LIMIT) so the exclusion applies to
-  // both the single-leg and INTERSECT forms. The derived set projects only
-  // `object_key`, so the correlated NOT EXISTS binds the workspace explicitly.
+  // Wrap after the prefix so the exclusion covers both forms. The derived set
+  // only has `object_key`, so the NOT EXISTS binds the workspace explicitly.
   if (opts.collapsePromotedShadows) {
     sql = `SELECT object_key FROM (${sql}) AS f
            WHERE NOT EXISTS (
@@ -784,25 +651,18 @@ export const FACET_KEY_LIMIT = 50;
 export const FACET_VALUE_LIMIT = 50;
 
 /**
- * SQL fragment excluding server-owned namespaces from facet results. These
- * keys are not client-settable (`isServerMetaKey`), so offering them as
- * filters would advertise a filter the user cannot reproduce on upload.
- * Written as literal NOT LIKE legs rather than bound params because
- * SERVER_META_PREFIXES is a compile-time constant and D1 caps bound
- * parameters per query.
+ * Excludes server-owned namespaces from facets: they aren't client-settable,
+ * so they'd be filters a user can't reproduce. Literal NOT LIKE legs to save
+ * D1 bind params.
  */
 const EXCLUDE_SERVER_KEYS = SERVER_META_PREFIXES.map(
   (prefix) => ` AND meta_key NOT LIKE '${prefix}%'`,
 ).join("");
 
 /**
- * Distinct metadata keys in a workspace, with how many files carry each and
- * how many distinct values it has. `distinctValues` lets the UI tell a useful
- * facet (`app`, 3 values) from one that is effectively unique per file
- * (`path`, one value per object) before spending a round trip on it.
- *
- * Served by `file_metadata_lookup_idx (workspace, meta_key, meta_value)`.
- * Fetches one row beyond the cap so `truncated` is exact.
+ * Distinct metadata keys with file and value counts. `distinctValues` tells a
+ * useful facet from an effectively unique one. Fetches one row past the cap
+ * so `truncated` is exact.
  */
 export async function facetKeys(
   db: D1Queryable,
@@ -835,14 +695,7 @@ export async function facetKeys(
   };
 }
 
-/**
- * Distinct values for one metadata key, most common first. Fetched lazily by
- * the UI when a key is selected, so a workspace with forty keys costs one
- * grouped query on open rather than forty.
- *
- * Rides the same index as an exact prefix seek (workspace + meta_key), so
- * rows-read is proportional to the one key rather than the whole workspace.
- */
+/** Distinct values for one key, most common first. Fetched lazily per key. */
 export async function facetValues(
   db: D1Queryable,
   workspace: string,
@@ -874,11 +727,7 @@ export async function facetValues(
 export const BY_PATH_GROUP_LIMIT = 50;
 /** Recent object keys returned per path group. */
 export const BY_PATH_RECENT_LIMIT = 6;
-/**
- * Recent object keys returned per catalog entry — a shorter strip than the
- * groups', so every path can render thumbs without the page fetching one
- * search per group.
- */
+/** Recent keys per catalog entry; shorter than a group's strip. */
 export const BY_PATH_CATALOG_RECENT_LIMIT = 3;
 /**
  * Max unique (project, path) pairs in the screenshots catalog. Larger than
@@ -937,48 +786,23 @@ export type LatestPathObject = {
 export type ProjectSummary = { label: string; count: number; lastUpdated: string };
 
 /**
- * Recent uploads grouped by (project, path) — the screenshots page's one
- * query (spec: docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
- * Groups come back most-recently-active first, each carrying its newest
- * BY_PATH_RECENT_LIMIT keys and total count. `catalog` is the same unique
- * pairs, up to BY_PATH_CATALOG_LIMIT, with a shorter
- * BY_PATH_CATALOG_RECENT_LIMIT strip — so the page can filter by path AND
- * render thumbs for every group off this one query, with no per-group
- * follow-up search. `projects` summarizes the catalog by project label,
- * most-recent first.
+ * Recent uploads grouped by (project, path), the screenshots page's one
+ * query. Groups come newest-active first with their newest keys and counts.
+ * `catalog` has the same pairs (more of them, shorter strips) so the page can
+ * filter and render thumbs without per-group follow-ups; `projects`
+ * summarizes it by project label.
  *
- * One flat scan of the `path` rows (seeked via `file_metadata_lookup_idx
- * (workspace, meta_key, meta_value)`), with the three project-label keys
- * pulled per object via correlated subselects on the same (workspace,
- * object_key) index. Rows-read still scales with path-tagged files, not the
- * whole metadata table. Grouping/windowing moves to JS because the group key
- * (project label) is a coalesce SQL can't express cleanly — rows arrive
- * newest-first, so first-seen order is the recency order.
+ * One scan of the `path` rows with project-label keys pulled by correlated
+ * subselects; grouping happens in JS because the project label is a
+ * coalesce. Promoted branch originals are excluded (their pull copy is
+ * listed). `mergedOnly`, `type` and `surface` filter the one query, so every
+ * output reflects them.
  *
- * A branch-staged original that has been promoted (`gh.status=promoted`) is
- * excluded: promotion copies it to the canonical `pull/<n>/` key (which
- * inherits its `path`/`state` via content-hash inheritance), and the promoted
- * original is never deleted, so without this filter every promoted shot would
- * show twice — once from `branch/<b>/` and once from `pull/<n>/`. Still-staged
- * (`gh.status=staged`) branch shots have no pull twin yet and are kept.
+ * Files with a `screen` and no `path` group by screen name (`by: "screen"`).
  *
- * `opts.mergedOnly` (opt-in, off by default — issue "persisted PR merge-state
- * tagging") adds an EXISTS counterpart to the NOT EXISTS promoted-shadow
- * clause above, keeping only objects stamped `gh.merged=true`
- * (`MERGED_STATUS_SQL`). Applies to the single underlying query, so `groups`,
- * `catalog`, `projects`, and `latest` all reflect the same filtered rows.
- * `opts.type` keeps only keys whose extension class matches (file-type-sql.ts);
- * `opts.surface` keeps only keys whose classifier `ai.surface` label matches.
- *
- * Files with a `screen` and no `path` (app views with no route, usually
- * mobile) group by their screen name, marked `by: "screen"`, so the page and
- * its search cover them too. A file with both groups by `path` only.
- *
- * Section `count` is files in the last BY_PATH_COUNT_WINDOW_MS, capped at
- * BY_PATH_COUNT_DISPLAY_CAP + 1 so the overview can say "100+" instead of
- * echoing the list page size. A group with nothing in the window falls
- * back to its capped all-time total rather than "0 files". `opts.now` is
- * the window's right edge; tests freeze it.
+ * Section `count` covers BY_PATH_COUNT_WINDOW_MS, capped at
+ * BY_PATH_COUNT_DISPLAY_CAP + 1 ("100+"); a group with nothing in the window
+ * shows its capped all-time total.
  */
 export async function groupObjectsByPath(
   db: D1Queryable,
@@ -1006,8 +830,7 @@ export async function groupObjectsByPath(
              AND ${MERGED_STATUS_SQL}
          )`
     : "";
-  // Optional Files `type` filter (signed-in only). Applies to the one query,
-  // so groups, catalog, projects, and latest all reflect it.
+  // Signed-in only. Applies to every output of the one query.
   const typeFilterSql = opts.type ? `AND ${fileTypeSql("p.object_key", opts.type)}` : "";
   const surfaceFilterSql = opts.surface ? `AND ${fileSurfaceSql("p", opts.surface)}` : "";
   // Checked before the per-row subqueries, so a short window also skips their reads.
@@ -1153,14 +976,10 @@ export async function groupObjectsByPath(
 }
 
 /**
- * Project label for the screenshots page (spec:
- * docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
- * Coalesces repo → gh.repo → url origin → app → "Other". Local origins
- * (localhost and friends) never label a group by host — the host says which
- * dev server was up, not which app it was (#692) — so they fall through to
- * `app` metadata, else a shared "local dev" bucket. Display/grouping only —
- * never stored. Mirrored (with identical cases) by
- * apps/web/src/lib/workspace-screenshots.ts.
+ * Project label for the screenshots page: repo, gh.repo, url origin, app,
+ * else "Other". Local origins never label a group (the host names a dev
+ * server, not an app), so they fall through to `app` or "local dev".
+ * Mirrored by apps/web/src/lib/workspace-screenshots.ts.
  */
 export function projectLabelFromMeta(meta: {
   repo?: string | null;
@@ -1177,7 +996,7 @@ export function projectLabelFromMeta(meta: {
       if (isLocalHostname(parsed.hostname)) localOrigin = true;
       else if (parsed.host) return parsed.host;
     } catch {
-      // fall through — an unparseable url is just "no url"
+      // An unparseable url is just "no url".
     }
   }
   if (meta.app) return meta.app;
@@ -1208,9 +1027,8 @@ export type FacetValuesResult = {
 };
 
 /**
- * Facet discovery shared by token `/files/facets`, session `/me/.../files/facets`,
- * and hosted MCP `list_metadata_keys`. No `key` → workspace key list; with
- * `key` → that key's values (validated against `META_KEY_RE`).
+ * Facet discovery shared by the token and session routes and the hosted MCP.
+ * No `key` lists keys; with `key`, that key's values.
  */
 export async function listFacets(
   db: D1Queryable,
@@ -1229,38 +1047,25 @@ export async function listFacets(
 }
 
 /**
- * D1's hard cap on bound parameters per query. Not SQLite's ~999 host-parameter
- * limit — D1 rejects anything over 100 with "too many SQL variables", which is
- * how the screenshots by-path route came to 500 in production once a workspace
- * had enough path groups to send 100 keys plus the workspace and meta-key binds.
- * The test fake (test/helpers/sqlite-d1.ts) enforces the same ceiling.
+ * D1 rejects more than 100 bound parameters per query (not SQLite's ~999).
+ * The test fake enforces the same ceiling.
  */
 export const D1_MAX_BOUND_PARAMS = 100;
 
 /**
- * Max object keys bound into one `object_key IN (...)` statement, given how
- * many parameters the rest of the statement already spends. Always at least 1,
- * so a caller with an outsized fixed prefix chunks slowly rather than looping
- * forever on an empty slice.
+ * Max keys per `object_key IN (...)` given the statement's other params.
+ * At least 1, so an outsized prefix can't loop forever.
  */
 function metadataLookupChunk(reservedParams: number): number {
   return Math.max(1, D1_MAX_BOUND_PARAMS - reservedParams);
 }
 
 /**
- * Batched, unfiltered lookup of D1 metadata for a set of object keys — e.g.
- * to hydrate `gh.*` metadata onto a workspace file listing. Unlike
- * `findObjectsByMetadata`, this doesn't filter by value: it returns whatever
- * metadata each key already has. Keys with no rows are simply absent from
- * the returned map (not present with an empty object). Chunks the `keys`
- * list to stay under D1/SQLite's bound-parameter limit per statement.
+ * Batched lookup of whatever metadata each key has (no value filter). Keys
+ * with no rows are absent from the map.
  *
- * `opts.metaKeys` narrows the SELECT to the named meta keys (issue #365).
- * Prefer it on hot paths: the filter rides the `(workspace, object_key,
- * meta_key)` primary-key index, so the read stays flat at ~3-5 D1 rows per
- * object key however many keys that object carries. An empty array is treated
- * as "no filter", not "select nothing" — a silently empty result map is the
- * worse failure mode for a caller that built the list dynamically.
+ * `opts.metaKeys` narrows to named keys and keeps reads on the primary-key
+ * index; prefer it on hot paths. An empty array means no filter.
  */
 export async function getMetadataForKeys(
   db: D1Queryable,
@@ -1300,13 +1105,9 @@ export async function getMetadataForKeys(
 }
 
 /**
- * Newest `updated_at` per object key (its `MAX(updated_at)` across all metadata
- * rows) — a stand-in for "when this object was last written". A screenshot
- * writes all its metadata in one shot at capture (and promotion rewrites its
- * `path`/`state`/`gh.*` rows together), so this matches the `path`-row time the
- * by-path `latest` feed already reports as `uploadedAt`. Keys with no metadata
- * rows are simply absent. Chunked like `getMetadataForKeys` to stay under D1's
- * bound-parameter limit.
+ * Newest `updated_at` per object key, a stand-in for when the object was
+ * last written (screenshots write all metadata at once). Keys with no rows
+ * are absent.
  */
 export async function getObjectUpdatedAt(
   db: D1Queryable,
@@ -1335,10 +1136,9 @@ export async function getObjectUpdatedAt(
 }
 
 /**
- * Upsert server-owned metadata without touching rows this call omits.
- * Deliberately not `replaceFileMetadata`: that deletes client rows, and this
- * runs *after* it on the upload path — a full replace here would wipe the
- * request's own custom metadata.
+ * Upsert server-owned metadata without touching other rows. Not
+ * `replaceFileMetadata`, which runs earlier on the upload path and would
+ * wipe the request's own metadata.
  */
 export async function setServerFileMetadata(
   db: D1Queryable,
