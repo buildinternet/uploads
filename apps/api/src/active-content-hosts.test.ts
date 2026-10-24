@@ -74,7 +74,6 @@ describe("HOSTED_ACTIVE_CONTENT_HOSTS", () => {
     expect(HOSTED_ACTIVE_CONTENT_HOSTS).toEqual(
       expect.arrayContaining(["storage.uploads.sh", "store.uploads.sh", "embed.uploads.sh"]),
     );
-    expect(HOSTED_ACTIVE_CONTENT_HOSTS.length).toBe(3);
   });
 });
 

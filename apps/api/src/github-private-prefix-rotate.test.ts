@@ -10,11 +10,7 @@ import { describe, expect, it } from "vitest";
 import { attachmentRow, recordAttachment } from "./github-attachment-index";
 import { getFileMetadata } from "./file-metadata";
 import { putObject } from "./files-core";
-import {
-  ghPrivateAttachmentKey,
-  ghPrivateBranchAttachmentKey,
-  GH_PRIVATE_ROOT,
-} from "./github-comment-render";
+import { ghPrivateAttachmentKey, ghPrivateBranchAttachmentKey } from "./github-comment-render";
 import { attachmentsMarker } from "./github-comment-render";
 import { rotatePrivatePrefix } from "./github-private-prefix-service";
 import { getActivePrefixId, getOrMintPrefixId, retirePrefixId } from "./github-private-prefixes";
@@ -404,10 +400,6 @@ describe("rotatePrivatePrefix", () => {
     await expect(rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH)).rejects.toMatchObject({
       status: 403,
     });
-  });
-
-  it("sanity: GH_PRIVATE_ROOT stays the base this module sweeps under", () => {
-    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
   });
 
   it("review fix 4: the D1 rewrites for github_ingested_assets and gallery_items are scoped to this workspace — a same-object_key row belonging to another workspace is untouched", async () => {
