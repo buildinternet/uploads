@@ -5,6 +5,20 @@
   "type": "module",
   "sideEffects": false,
   "license": "Apache-2.0",
+  "homepage": "https://uploads.sh/docs/sdk",
+  "bugs": {
+    "url": "https://github.com/buildinternet/uploads/issues"
+  },
+  "keywords": [
+    "uploads.sh",
+    "uploads",
+    "file-hosting",
+    "screenshots",
+    "github",
+    "sdk",
+    "api-client",
+    "typescript"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/buildinternet/uploads.git",
@@ -21,6 +35,9 @@
     "dist",
     "README.md"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
