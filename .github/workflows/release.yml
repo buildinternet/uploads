@@ -80,8 +80,8 @@ jobs:
       - name: Test and verify package
         if: steps.changesets.outputs.hasChangesets == 'false'
         run: >
-          pnpm --filter @buildinternet/uploads test
-          && pnpm --filter @buildinternet/uploads run build
+          pnpm --filter @buildinternet/uploads run build
+          && pnpm --filter @buildinternet/uploads test
           && pnpm --filter @buildinternet/uploads run pack:check
 
       - name: Publish to npm (OIDC trusted publishing)
