@@ -38,7 +38,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
-    "build": "tsc",
+    "build": "pnpm --filter @buildinternet/uploads-sdk run build && tsc",
     "pack:check": "node ./scripts/check-pack.mjs",
     "prepublishOnly": "npm run build"
   },
@@ -65,6 +65,7 @@
     "provenance": true
   },
   "dependencies": {
+    "@buildinternet/uploads-sdk": "workspace:^",
     "@modelcontextprotocol/server": "^2.3.0",
     "exif-reader": "^2.0.3",
     "opentype.js": "^2.0.0",

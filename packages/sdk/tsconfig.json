@@ -1,0 +1,17 @@
+// No Node types on purpose: the SDK must run in browsers, Workers, Deno and
+// Bun, so it can only use web-standard globals (fetch, URL, TextEncoder).
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["src"]
+}

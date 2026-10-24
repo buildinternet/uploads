@@ -373,6 +373,15 @@ importers:
 
   packages/plugin: {}
 
+  packages/sdk:
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.3.4(@types/node@26.1.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))
+
   packages/storage:
     dependencies:
       '@aws-sdk/client-s3':
@@ -458,6 +467,9 @@ importers:
 
   packages/uploads:
     dependencies:
+      '@buildinternet/uploads-sdk':
+        specifier: workspace:^
+        version: link:../sdk
       '@modelcontextprotocol/server':
         specifier: ^2.3.0
         version: 2.3.1
