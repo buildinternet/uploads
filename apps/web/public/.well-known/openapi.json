@@ -15,7 +15,12 @@
     {
       "name": "Maintenance",
       "description": "Advanced workspace operations that can scan or delete stored objects."
-    }
+    },
+    {
+      "name": "Activity",
+      "description": "Pull requests, repos and files grouped by GitHub context."
+    },
+    { "name": "GitHub", "description": "The managed PR comment." }
   ],
   "security": [{ "bearerAuth": [] }],
   "paths": {
@@ -28,7 +33,12 @@
         "security": [],
         "parameters": [{ "$ref": "#/components/parameters/Cursor" }],
         "responses": {
-          "200": { "description": "The public feed and its current items." },
+          "200": {
+            "description": "The public feed, one page of items, and live PR state.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PublicFeed" } }
+            }
+          },
           "404": { "$ref": "#/components/responses/NotFound" },
           "503": {
             "description": "Feed storage is unavailable.",
@@ -47,7 +57,12 @@
         "description": "Returns the public allowlisted projection. It omits workspace ownership and object keys.",
         "security": [],
         "responses": {
-          "200": { "description": "The public gallery and its public item projection." },
+          "200": {
+            "description": "The public gallery and its public item projection.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PublicGallery" } }
+            }
+          },
           "404": { "$ref": "#/components/responses/NotFound" },
           "503": {
             "description": "Gallery storage is unavailable.",
@@ -73,7 +88,13 @@
             "description": "Return common prefixes for folder-style navigation."
           },
           { "$ref": "#/components/parameters/FileLimit" },
-          { "$ref": "#/components/parameters/Cursor" }
+          { "$ref": "#/components/parameters/Cursor" },
+          {
+            "name": "metadata",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["0", "false"] },
+            "description": "Pass `0` to skip metadata on each item."
+          }
         ],
         "responses": {
           "200": {
@@ -106,7 +127,13 @@
             "in": "query",
             "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
           },
-          { "$ref": "#/components/parameters/Cursor" }
+          { "$ref": "#/components/parameters/Cursor" },
+          {
+            "name": "collapse",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["promoted"] },
+            "description": "Drop branch originals that were promoted to a PR copy."
+          }
         ],
         "responses": {
           "200": {
@@ -160,7 +187,12 @@
           }
         },
         "responses": {
-          "200": { "description": "Presigned upload details." },
+          "200": {
+            "description": "Presigned upload details.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SignedUpload" } }
+            }
+          },
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
@@ -260,9 +292,7 @@
               "schema": {
                 "type": "object",
                 "required": ["visibility"],
-                "properties": {
-                  "visibility": { "type": "string", "enum": ["public", "private"] }
-                }
+                "properties": { "visibility": { "type": "string", "enum": ["public", "private"] } }
               }
             }
           }
@@ -314,11 +344,22 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["key", "reason", "moved"],
+                        "required": ["key", "reason", "moved", "area"],
                         "properties": {
                           "key": { "type": "string" },
                           "reason": { "type": ["string", "null"] },
-                          "moved": { "type": "boolean" }
+                          "moved": { "type": "boolean" },
+                          "area": {
+                            "type": ["object", "null"],
+                            "required": ["top", "bottom", "left", "right"],
+                            "description": "Flagged region as fractions of the image, when known.",
+                            "properties": {
+                              "top": { "type": "number", "minimum": 0, "maximum": 1 },
+                              "bottom": { "type": "number", "minimum": 0, "maximum": 1 },
+                              "left": { "type": "number", "minimum": 0, "maximum": 1 },
+                              "right": { "type": "number", "minimum": 0, "maximum": 1 }
+                            }
+                          }
                         }
                       }
                     }
@@ -618,7 +659,12 @@
         "description": "Potentially expensive: scans every object in the workspace's active storage lanes and rebuilds the usage ledger. Requires a bearer token with `files:write`; browser sessions are not accepted.",
         "x-uploads-potentially-expensive": true,
         "responses": {
-          "200": { "description": "Reconciliation result and updated usage." },
+          "200": {
+            "description": "Reconciliation result and updated usage.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UsageReconcile" } }
+            }
+          },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
         }
@@ -634,7 +680,12 @@
         "description": "Destructive: permanently deletes objects older than the workspace's `retentionDays`, then reconciles usage. Requires a bearer token with `files:delete`; browser sessions are not accepted. The response is either `{ skipped: true }` or a purge and reconciliation result.",
         "x-uploads-destructive": true,
         "responses": {
-          "200": { "description": "Purge result or a skipped result." },
+          "200": {
+            "description": "Purge result, or `skipped` when retention does not apply.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UsagePurgeExpired" } }
+            }
+          },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
         }
@@ -702,12 +753,7 @@
         "summary": "Find galleries by external reference",
         "parameters": [
           { "name": "provider", "in": "query", "required": true, "schema": { "type": "string" } },
-          {
-            "name": "coordinate",
-            "in": "query",
-            "required": true,
-            "schema": { "type": "string" }
-          },
+          { "name": "coordinate", "in": "query", "required": true, "schema": { "type": "string" } },
           { "$ref": "#/components/parameters/GalleryLimit" },
           { "$ref": "#/components/parameters/Cursor" }
         ],
@@ -849,7 +895,24 @@
           }
         },
         "responses": {
-          "200": { "description": "Ordered items and whether the order was unchanged." },
+          "200": {
+            "description": "Ordered items and whether the order was unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items", "unchanged"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/GalleryItem" }
+                    },
+                    "unchanged": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
@@ -901,7 +964,23 @@
         "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "List gallery external references",
         "responses": {
-          "200": { "description": "The gallery references." },
+          "200": {
+            "description": "Linked references.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["references"],
+                  "properties": {
+                    "references": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ExternalReference" }
+                    }
+                  }
+                }
+              }
+            }
+          },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
@@ -920,8 +999,18 @@
           }
         },
         "responses": {
-          "200": { "description": "The reference already existed and is returned unchanged." },
-          "201": { "description": "The reference was created." },
+          "200": {
+            "description": "Already linked.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ExternalReference" } }
+            }
+          },
+          "201": {
+            "description": "Linked.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ExternalReference" } }
+            }
+          },
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
@@ -947,15 +1036,11 @@
         "responses": {
           "200": {
             "description": "The existing feed for this scope.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } } }
           },
           "201": {
             "description": "The feed was created.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } } }
           },
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
@@ -996,9 +1081,7 @@
         "responses": {
           "200": {
             "description": "The feed and its current newest-first items.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } } }
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
@@ -1027,12 +1110,7 @@
       "parameters": [
         { "$ref": "#/components/parameters/Workspace" },
         { "$ref": "#/components/parameters/GalleryId" },
-        {
-          "name": "referenceId",
-          "in": "path",
-          "required": true,
-          "schema": { "type": "string" }
-        }
+        { "name": "referenceId", "in": "path", "required": true, "schema": { "type": "string" } }
       ],
       "delete": {
         "operationId": "removeGalleryReference",
@@ -1057,6 +1135,273 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/pulls": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listPulls",
+        "tags": ["Activity"],
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "List pull requests with media",
+        "description": "PRs in this workspace with uploads, newest media first. By default only PRs with media in the last 90 days; pass `all=1` for every PR or `since` for a custom window. `type` and `surface` narrow the thumbnails, not the list.",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "`owner/repo`."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["open", "closed", "merged"] }
+          },
+          { "name": "all", "in": "query", "schema": { "type": "string", "enum": ["1"] } },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": { "type": "string", "pattern": "^[1-9]\\d{0,2}d$" },
+            "description": "Only media uploaded in the last N days, `1d` to `365d`."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["screenshot", "video", "other"] }
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["mobile", "desktop", "tablet"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+          },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of pull requests.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PullList" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/repos": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listRepos",
+        "tags": ["Activity"],
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "List repositories with media",
+        "description": "Repos with GitHub-tagged uploads. `since` narrows the list; `type` and `surface` narrow the thumbnails. `thumbnails=0` returns names only.",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "schema": { "type": "string", "pattern": "^[1-9]\\d{0,2}d$" },
+            "description": "Only media uploaded in the last N days, `1d` to `365d`."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["screenshot", "video", "other"] }
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["mobile", "desktop", "tablet"] }
+          },
+          { "name": "thumbnails", "in": "query", "schema": { "type": "string", "enum": ["0"] } },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 20 }
+          },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of repositories.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/RepoList" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/scope/{owner}/{repo}/files": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "name": "owner", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "repo", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "listScopeFiles",
+        "tags": ["Activity"],
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "List files for a repo or pull request",
+        "description": "Newest-first files tagged to a repo, or to one PR or issue with `number`.",
+        "parameters": [
+          { "name": "number", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": { "type": "string", "pattern": "^[1-9]\\d{0,2}d$" },
+            "description": "Only media uploaded in the last N days, `1d` to `365d`."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["screenshot", "video", "other"] }
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["mobile", "desktop", "tablet"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of files.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScopeFiles" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/github/comment": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "syncGithubComment",
+        "tags": ["GitHub"],
+        "security": [{ "bearerAuth": ["files:write"] }],
+        "summary": "Create or update the managed PR comment",
+        "description": "Renders this workspace's files and galleries for a PR or issue and posts or updates the uploads.sh comment as the GitHub App. Call it once after uploading. Bearer token only.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GithubCommentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What happened to the comment.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GithubCommentResult" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/public/files/{workspace}/{key}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/FileKey" }
+      ],
+      "get": {
+        "operationId": "getPublicFile",
+        "security": [],
+        "summary": "Read a public file",
+        "description": "Public details for one file. Private and held files return 404. `download=1` streams the bytes as an attachment instead.",
+        "parameters": [
+          {
+            "name": "download",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["1", "true"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File details, or the bytes with `download=1`.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PublicFile" } },
+              "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/public/galleries/{galleryId}/items/{itemId}/download": {
+      "parameters": [
+        { "$ref": "#/components/parameters/GalleryId" },
+        { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "downloadPublicGalleryItem",
+        "security": [],
+        "summary": "Download a public gallery item",
+        "description": "Streams the item as an attachment. Items that are missing, private or held return 404.",
+        "responses": {
+          "200": {
+            "description": "The item's bytes.",
+            "content": {
+              "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": {
+            "description": "Gallery storage is unavailable.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+            }
+          }
+        }
+      }
+    },
+    "/public/feeds/{feedId}/items/{itemId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/FeedId" },
+        { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "getPublicFeedItem",
+        "security": [],
+        "summary": "Read one public feed item",
+        "description": "One item with its neighbours, for paging through a feed.",
+        "responses": {
+          "200": {
+            "description": "The item and its position in the feed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PublicFeedItemPage" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     }
@@ -1204,7 +1549,13 @@
           "url": { "type": ["string", "null"], "format": "uri" },
           "embedUrl": { "type": ["string", "null"], "format": "uri" },
           "metadata": { "$ref": "#/components/schemas/Metadata" },
-          "visibility": { "type": "string", "enum": ["public", "private"] }
+          "visibility": { "type": "string", "enum": ["public", "private"] },
+          "provenance": { "$ref": "#/components/schemas/Provenance" },
+          "pageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public `/f/` page. Listing only, when the file has a public URL."
+          }
         }
       },
       "FileList": {
@@ -1220,10 +1571,7 @@
         "type": "object",
         "required": ["items", "truncated", "cursor"],
         "properties": {
-          "items": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/FileSearchItem" }
-          },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/FileSearchItem" } },
           "truncated": { "type": "boolean" },
           "cursor": {
             "type": ["string", "null"],
@@ -1299,7 +1647,12 @@
             "required": ["workspace", "replaced"],
             "properties": {
               "workspace": { "type": "string" },
-              "replaced": { "type": "boolean" }
+              "replaced": { "type": "boolean" },
+              "provenance": { "$ref": "#/components/schemas/Provenance" },
+              "holdCheck": {
+                "const": "pending",
+                "description": "Present when the classifier may still hold this file for review. It decides after the response."
+              }
             }
           }
         ]
@@ -1329,7 +1682,16 @@
       },
       "Usage": {
         "type": "object",
-        "required": ["workspace", "bytes", "objects", "uploadsInPeriod", "scopes", "plan"],
+        "required": [
+          "workspace",
+          "bytes",
+          "objects",
+          "uploadsInPeriod",
+          "scopes",
+          "plan",
+          "storageBudgetBasis",
+          "storage"
+        ],
         "properties": {
           "workspace": { "type": "string" },
           "bytes": { "type": "integer", "minimum": 0 },
@@ -1337,14 +1699,41 @@
           "sharedBytes": { "type": "integer", "minimum": 0 },
           "sharedObjects": { "type": "integer", "minimum": 0 },
           "uploadsInPeriod": { "type": "integer", "minimum": 0 },
-          "periodStart": { "type": "string", "format": "date-time" },
+          "periodStart": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$",
+            "description": "Current billing period as `YYYY-MM` (UTC)."
+          },
           "updatedAt": { "type": "string", "format": "date-time" },
           "scopes": { "type": "array", "items": { "type": "string" } },
           "plan": { "type": "string" },
           "maxStorageBytes": { "type": "integer", "minimum": 0 },
           "storageRemainingBytes": { "type": "integer", "minimum": 0 },
           "maxUploadsPerPeriod": { "type": "integer", "minimum": 0 },
-          "uploadsRemaining": { "type": "integer", "minimum": 0 }
+          "uploadsRemaining": { "type": "integer", "minimum": 0 },
+          "storageBudgetBasis": {
+            "type": "string",
+            "enum": ["total", "shared"],
+            "description": "Which byte count the storage cap applies to. `shared` for a workspace on its own bucket, where only hosted residue is metered."
+          },
+          "storage": {
+            "type": "object",
+            "required": ["mode", "fallbackLanes", "health"],
+            "properties": {
+              "mode": { "type": "string", "enum": ["shared", "byo"] },
+              "fallbackLanes": { "type": "integer", "minimum": 0 },
+              "health": {
+                "type": "object",
+                "required": ["ok"],
+                "properties": {
+                  "ok": { "type": "boolean" },
+                  "code": { "type": "string", "enum": ["auth", "bucket_missing", "unreachable"] },
+                  "message": { "type": "string" },
+                  "since": { "type": "string", "format": "date-time" }
+                }
+              }
+            }
+          }
         }
       },
       "ExpectedVersion": {
@@ -1367,7 +1756,10 @@
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" },
           "itemCount": { "type": "integer", "minimum": 0 },
-          "references": { "type": "array", "items": { "type": "object" } },
+          "references": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ExternalReference" }
+          },
           "previewUrl": { "type": ["string", "null"], "format": "uri" }
         }
       },
@@ -1405,14 +1797,8 @@
           "uploaded": { "type": ["string", "null"], "format": "date-time" },
           "modified": { "type": ["string", "null"], "format": "date-time" },
           "posterUrl": { "type": "string", "format": "uri" },
-          "videoDimensions": {
-            "type": "object",
-            "required": ["width", "height"],
-            "properties": {
-              "width": { "type": "integer", "minimum": 1 },
-              "height": { "type": "integer", "minimum": 1 }
-            }
-          }
+          "videoDimensions": { "$ref": "#/components/schemas/VideoDimensions" },
+          "metadata": { "$ref": "#/components/schemas/Metadata" }
         }
       },
       "Gallery": {
@@ -1504,13 +1890,20 @@
           "status": { "type": "string", "enum": ["available", "missing", "withheld"] },
           "url": { "type": ["string", "null"], "format": "uri" },
           "embedUrl": { "type": ["string", "null"], "format": "uri" },
-          "pageUrl": { "type": "string", "format": "uri" },
+          "pageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Owner-only item page (`/c/<id>/<item>`)."
+          },
           "contentType": { "type": ["string", "null"] },
           "size": { "type": ["integer", "null"], "minimum": 0 },
           "uploaded": { "type": ["string", "null"], "format": "date-time" },
           "modified": { "type": ["string", "null"], "format": "date-time" },
           "path": { "type": ["string", "null"] },
-          "state": { "type": ["string", "null"] }
+          "state": { "type": ["string", "null"] },
+          "metadata": { "$ref": "#/components/schemas/Metadata" },
+          "posterUrl": { "type": "string", "format": "uri" },
+          "videoDimensions": { "$ref": "#/components/schemas/VideoDimensions" }
         }
       },
       "Feed": {
@@ -1529,10 +1922,7 @@
         "type": "object",
         "required": ["feeds", "nextCursor"],
         "properties": {
-          "feeds": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/FeedSummary" }
-          },
+          "feeds": { "type": "array", "items": { "$ref": "#/components/schemas/FeedSummary" } },
           "nextCursor": { "type": ["string", "null"] }
         }
       },
@@ -1577,9 +1967,7 @@
           {
             "type": "object",
             "required": ["itemIds"],
-            "properties": {
-              "itemIds": { "type": "array", "items": { "type": "string" } }
-            }
+            "properties": { "itemIds": { "type": "array", "items": { "type": "string" } } }
           }
         ]
       },
@@ -1589,12 +1977,491 @@
           {
             "type": "object",
             "required": ["provider", "coordinate"],
+            "properties": { "provider": { "type": "string" }, "coordinate": { "type": "string" } }
+          }
+        ]
+      },
+      "VideoDimensions": {
+        "type": "object",
+        "required": ["width", "height"],
+        "properties": {
+          "width": { "type": "integer", "minimum": 1 },
+          "height": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "Provenance": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "description": "Server-stamped object provenance (`client`, `source-name`, `content-sha256`)."
+      },
+      "UsageReconcile": {
+        "type": "object",
+        "required": ["workspace", "bytes", "objects", "previous", "changed", "usage"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "objects": { "type": "integer", "minimum": 0 },
+          "previous": {
+            "type": "object",
+            "required": ["bytes", "objects"],
+            "properties": { "bytes": { "type": "integer" }, "objects": { "type": "integer" } }
+          },
+          "changed": { "type": "boolean" },
+          "unprefixedBucket": { "type": "boolean" },
+          "usage": {
+            "type": "object",
+            "description": "Usage after reconciling, in the `Usage` shape minus `scopes`, `plan` and `storage`."
+          }
+        }
+      },
+      "UsagePurgeExpired": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["skipped", "reason"],
+            "properties": { "skipped": { "const": true }, "reason": { "type": "string" } }
+          },
+          {
+            "type": "object",
+            "required": [
+              "workspace",
+              "retentionDays",
+              "cutoff",
+              "deleted",
+              "freedBytes",
+              "keys",
+              "keysTruncated",
+              "reconcile"
+            ],
             "properties": {
-              "provider": { "type": "string" },
-              "coordinate": { "type": "string" }
+              "workspace": { "type": "string" },
+              "retentionDays": { "type": "integer", "minimum": 1 },
+              "cutoff": { "type": "string", "format": "date-time" },
+              "deleted": { "type": "integer", "minimum": 0 },
+              "freedBytes": { "type": "integer", "minimum": 0 },
+              "keys": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Sample of deleted keys."
+              },
+              "keysTruncated": { "type": "boolean" },
+              "reconcile": { "$ref": "#/components/schemas/UsageReconcile" }
             }
           }
         ]
+      },
+      "SignedUpload": {
+        "type": "object",
+        "required": ["workspace", "key", "expiresIn", "publicUrl", "embedUrl", "upload"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "key": { "type": "string" },
+          "maxSize": { "type": "integer", "minimum": 1 },
+          "expiresIn": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Seconds until the signed target expires."
+          },
+          "publicUrl": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "upload": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["method", "url"],
+                "properties": {
+                  "method": { "const": "PUT" },
+                  "url": { "type": "string", "format": "uri" },
+                  "headers": { "$ref": "#/components/schemas/Metadata" }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["method", "url", "fields"],
+                "properties": {
+                  "method": { "const": "POST" },
+                  "url": { "type": "string", "format": "uri" },
+                  "fields": { "$ref": "#/components/schemas/Metadata" }
+                }
+              }
+            ],
+            "description": "Send the bytes here: a PUT with `headers`, or a multipart POST with `fields`."
+          }
+        }
+      },
+      "ExternalReference": {
+        "type": "object",
+        "required": ["id", "provider", "resourceType", "coordinate", "canonicalUrl", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "provider": { "type": "string", "enum": ["github"] },
+          "resourceType": { "type": "string" },
+          "coordinate": { "type": "string", "description": "`owner/repo#number`." },
+          "canonicalUrl": { "type": ["string", "null"], "format": "uri" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PublicGalleryItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "position",
+          "caption",
+          "altText",
+          "status",
+          "url",
+          "embedUrl",
+          "contentType",
+          "size"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "filename": { "type": "string" },
+          "position": { "type": "integer", "minimum": 0 },
+          "caption": { "type": ["string", "null"] },
+          "altText": { "type": ["string", "null"] },
+          "status": { "type": "string", "enum": ["available", "missing", "withheld"] },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "contentType": { "type": ["string", "null"] },
+          "size": { "type": ["integer", "null"], "minimum": 0 },
+          "uploaded": { "type": "string", "format": "date-time" },
+          "modified": { "type": "string", "format": "date-time" },
+          "posterUrl": { "type": "string", "format": "uri" },
+          "videoDimensions": { "$ref": "#/components/schemas/VideoDimensions" },
+          "metadata": { "$ref": "#/components/schemas/Metadata" }
+        }
+      },
+      "PublicGallery": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "visibility",
+          "coverItemId",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "items"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^gal_" },
+          "title": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "visibility": { "const": "public" },
+          "coverItemId": { "type": ["string", "null"] },
+          "version": { "type": "integer", "minimum": 1 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PublicGalleryItem" }
+          }
+        }
+      },
+      "PublicFeedItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "status",
+          "url",
+          "embedUrl",
+          "contentType",
+          "size",
+          "path",
+          "state"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "filename": { "type": "string" },
+          "status": { "type": "string", "enum": ["available", "missing", "withheld"] },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "contentType": { "type": ["string", "null"] },
+          "size": { "type": ["integer", "null"], "minimum": 0 },
+          "uploaded": { "type": "string", "format": "date-time" },
+          "modified": { "type": "string", "format": "date-time" },
+          "path": { "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "metadata": { "$ref": "#/components/schemas/Metadata" },
+          "posterUrl": { "type": "string", "format": "uri" },
+          "videoDimensions": { "$ref": "#/components/schemas/VideoDimensions" }
+        }
+      },
+      "PublicFeed": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "repo",
+          "path",
+          "number",
+          "kind",
+          "createdAt",
+          "updatedAt",
+          "items",
+          "nextCursor",
+          "github"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^feed_" },
+          "title": { "type": "string" },
+          "repo": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "number": { "type": ["integer", "null"], "minimum": 1 },
+          "kind": { "type": ["string", "null"], "enum": ["pull", "issue", null] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/PublicFeedItem" } },
+          "nextCursor": {
+            "type": ["string", "null"],
+            "description": "Cursor for the next 50 items, or null on the last page."
+          },
+          "github": {
+            "type": ["object", "null"],
+            "required": ["title", "state"],
+            "description": "Live PR or issue title and state, public repos only. Null for a repo-wide feed.",
+            "properties": {
+              "title": { "type": ["string", "null"] },
+              "state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] }
+            }
+          }
+        }
+      },
+      "PublicFeedItemPage": {
+        "type": "object",
+        "required": ["feed", "item", "prev", "next", "index", "total"],
+        "properties": {
+          "feed": {
+            "type": "object",
+            "required": ["id", "title", "repo", "number", "kind"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "repo": { "type": "string" },
+              "number": { "type": ["integer", "null"] },
+              "kind": { "type": ["string", "null"], "enum": ["pull", "issue", null] }
+            }
+          },
+          "item": { "$ref": "#/components/schemas/PublicFeedItem" },
+          "prev": { "type": ["string", "null"], "description": "Newer neighbour item id." },
+          "next": { "type": ["string", "null"], "description": "Older neighbour item id." },
+          "index": { "type": "integer", "minimum": 0 },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Items in the feed's scope, capped at 2,000."
+          }
+        }
+      },
+      "PublicFile": {
+        "type": "object",
+        "required": ["workspace", "key", "url", "previewUrl", "embedUrl", "size", "contentType"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "key": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "previewUrl": { "type": "string", "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "size": { "type": "integer", "minimum": 0 },
+          "contentType": { "type": "string" },
+          "uploaded": { "type": "string", "format": "date-time" },
+          "modified": { "type": "string", "format": "date-time" },
+          "metadata": {
+            "allOf": [{ "$ref": "#/components/schemas/Metadata" }],
+            "description": "Public metadata. Internal and `ai.*` labels are removed."
+          },
+          "github": {
+            "type": "object",
+            "required": ["repo", "kind", "number", "url"],
+            "properties": {
+              "repo": { "type": "string" },
+              "kind": { "type": "string", "enum": ["pull", "issue"] },
+              "number": { "type": "integer", "minimum": 1 },
+              "url": { "type": "string", "format": "uri" },
+              "title": { "type": "string" },
+              "avatarUrl": { "type": "string", "format": "uri" }
+            }
+          },
+          "posterUrl": { "type": "string", "format": "uri" },
+          "videoDimensions": { "$ref": "#/components/schemas/VideoDimensions" },
+          "counterpart": {
+            "type": "object",
+            "required": ["key", "url", "previewUrl", "state"],
+            "description": "The other half of a before/after pair, when it is public.",
+            "properties": {
+              "key": { "type": "string" },
+              "url": { "type": "string", "format": "uri" },
+              "previewUrl": { "type": "string", "format": "uri" },
+              "state": { "type": "string", "enum": ["before", "after"] }
+            }
+          }
+        }
+      },
+      "Thumbnail": {
+        "type": "object",
+        "required": ["key", "kind", "url", "embedUrl", "posterUrl", "status"],
+        "properties": {
+          "key": { "type": "string" },
+          "kind": { "type": "string", "enum": ["screenshot", "video", "other"] },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "posterUrl": { "type": ["string", "null"], "format": "uri" },
+          "status": { "type": "string", "enum": ["available", "missing", "withheld"] }
+        }
+      },
+      "PullList": {
+        "type": "object",
+        "required": ["workspace", "pulls", "nextCursor"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "ref",
+                "repo",
+                "number",
+                "branch",
+                "title",
+                "state",
+                "lastMediaAt",
+                "thumbnails"
+              ],
+              "properties": {
+                "ref": { "type": "string", "description": "Lowercased `owner/repo#number`." },
+                "repo": { "type": "string" },
+                "number": { "type": "integer", "minimum": 1 },
+                "branch": { "type": ["string", "null"] },
+                "title": { "type": ["string", "null"] },
+                "state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] },
+                "lastMediaAt": { "type": "string", "format": "date-time" },
+                "thumbnails": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": { "$ref": "#/components/schemas/Thumbnail" }
+                }
+              }
+            }
+          },
+          "nextCursor": { "type": ["string", "null"] }
+        }
+      },
+      "RepoList": {
+        "type": "object",
+        "required": ["workspace", "repos", "nextCursor"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["repo", "lastUpdatedAt", "openPullCount", "thumbnails"],
+              "properties": {
+                "repo": { "type": "string" },
+                "lastUpdatedAt": { "type": "string", "format": "date-time" },
+                "openPullCount": { "type": "integer", "minimum": 0 },
+                "thumbnails": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Thumbnail" }
+                }
+              }
+            }
+          },
+          "nextCursor": { "type": ["string", "null"] }
+        }
+      },
+      "ScopeFiles": {
+        "type": "object",
+        "required": ["repo", "number", "items", "nextCursor", "privateCount", "liveLink", "pull"],
+        "properties": {
+          "repo": { "type": "string" },
+          "number": { "type": ["integer", "null"] },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/FeedItem" } },
+          "nextCursor": { "type": ["string", "null"] },
+          "privateCount": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Private files in the scope, first page only. Null on later pages or when counting would be too costly."
+          },
+          "liveLink": {
+            "type": ["object", "null"],
+            "required": ["id", "url", "source"],
+            "description": "The existing public feed for exactly this scope.",
+            "properties": {
+              "id": { "type": "string" },
+              "url": { "type": "string", "format": "uri" },
+              "source": { "type": ["string", "null"], "enum": ["comment", "user", null] }
+            }
+          },
+          "pull": {
+            "type": ["object", "null"],
+            "required": ["branch", "title", "state"],
+            "properties": {
+              "branch": { "type": ["string", "null"] },
+              "title": { "type": ["string", "null"] },
+              "state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] }
+            }
+          }
+        }
+      },
+      "GithubCommentRequest": {
+        "type": "object",
+        "required": ["repo", "num", "kind"],
+        "properties": {
+          "repo": { "type": "string", "description": "`owner/repo`." },
+          "num": { "type": "integer", "minimum": 1 },
+          "kind": { "type": "string", "enum": ["pull", "issues"] },
+          "resync": {
+            "type": "boolean",
+            "description": "Force a full search for the managed comment instead of the cached id."
+          }
+        }
+      },
+      "GithubCommentResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["posted", "action", "count"],
+            "properties": {
+              "posted": { "const": true },
+              "action": { "type": "string", "enum": ["created", "updated", "skipped"] },
+              "count": { "type": "integer", "minimum": 0 },
+              "commentUrl": { "type": "string", "format": "uri" },
+              "held": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Files on the PR or issue held for review."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["posted", "reason"],
+            "properties": {
+              "posted": { "const": false },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "app_unconfigured",
+                  "not_installed",
+                  "forbidden",
+                  "not_authorized",
+                  "actor_not_authorized",
+                  "unavailable"
+                ]
+              },
+              "message": { "type": "string" },
+              "fixUrl": { "type": "string", "format": "uri" },
+              "required": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        ],
+        "description": "Integration problems never return 5xx. `posted: false` carries the reason so callers can fall back."
       }
     },
     "securitySchemes": {
