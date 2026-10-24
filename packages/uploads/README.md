@@ -236,6 +236,8 @@ For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp
 
 ## Programmatic use
 
+For apps and servers, use [`@buildinternet/uploads-sdk`](../sdk/README.md): the same client with no CLI dependencies, for any runtime with `fetch`. This package re-exports it with CLI extras (key derivation from git, local config):
+
 ```ts
 import { createUploadsClient } from "@buildinternet/uploads";
 ```
