@@ -26,7 +26,7 @@ const FILE_SCOPES = ["files:delete", "files:read", "files:write"] as const;
 const OPENAPI_HTTP_METHODS = ["get", "post", "put", "patch", "delete"] as const;
 
 function expectedFileScope(path: string, method: string): string | null {
-  if (path === "/public/galleries/{galleryId}" || path === "/public/feeds/{feedId}") return null;
+  if (path.startsWith("/public/")) return null;
   if (path === "/v1/workspaces/{workspace}/files/{key}" && method === "delete") {
     return "files:delete";
   }

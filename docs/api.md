@@ -123,6 +123,12 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 
 ## Canonical routes
 
+These routes, and `/.well-known/openapi.json`, are the public API: the
+contract an SDK is built from. Other routes the web app and CLI call
+(workspace settings, members, storage setup, service tokens, and the CLI's
+GitHub plumbing under `github/`) are internal and can change without notice.
+`apps/api/src/openapi-contract.test.ts` makes every new route pick a side.
+
 | Route                                                                           | Description                                                                                                                                                                                                                     |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/abuse`                                                                | Public content report (no auth). D1 row + email to `abuse@uploads.sh`. Rate-limited; `ABUSE_DISABLED` kill switch                                                                                                               |
@@ -156,11 +162,18 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET/POST /v1/workspaces/:workspace/galleries/:id/external-references`          | List or link external coordinates; writes require `files:write`                                                                                                                                                                 |
 | `DELETE /v1/workspaces/:workspace/galleries/:id/external-references/:reference` | Unlink an external coordinate; requires `files:write`                                                                                                                                                                           |
 | `GET /public/galleries/:id`                                                     | Read one public gallery by its opaque ID (no auth)                                                                                                                                                                              |
+| `GET /public/galleries/:id/items/:item/download`                                | Download one public gallery item as an attachment (no auth). Missing, private or held items return `404`                                                                                                                        |
 | `POST /v1/workspaces/:workspace/feeds`                                          | Create or reuse a public change feed for a repo, optionally scoped to one PR/issue (`{ repo, path?, number?, kind? }` or `pr`/`issue` aliases); requires `files:write`                                                          |
 | `GET /v1/workspaces/:workspace/feeds?limit=&cursor=`                            | List feed summaries with opaque cursor pagination; requires `files:read`                                                                                                                                                        |
 | `GET /v1/workspaces/:workspace/feeds/:id`                                       | Read one owned feed and its current newest-first screenshots (each item includes `pageUrl` at `/c/<id>/<item>`); requires `files:read`                                                                                          |
 | `DELETE /v1/workspaces/:workspace/feeds/:id`                                    | Soft-delete a feed record; requires `files:write`                                                                                                                                                                               |
 | `GET /public/feeds/:id`                                                         | Read one public change feed by its opaque ID (no auth). Items are resolved at view time                                                                                                                                         |
+| `GET /public/feeds/:id/items/:item`                                             | Read one public feed item with its neighbours, for paging (no auth)                                                                                                                                                             |
+| `GET /public/files/:workspace/:key`                                             | Read one public file's details (no auth). Private and held files return `404`; `?download=1` streams the bytes                                                                                                                  |
+| `GET /v1/workspaces/:workspace/pulls?repo=&state=&since=&limit=&cursor=`        | List pull requests with media, newest first. Only the last 90 days unless `all=1` or `since`; requires `files:read`                                                                                                             |
+| `GET /v1/workspaces/:workspace/repos?since=&limit=&cursor=`                     | List repos with GitHub-tagged media; `thumbnails=0` returns names only; requires `files:read`                                                                                                                                   |
+| `GET /v1/workspaces/:workspace/scope/:owner/:repo/files?number=`                | List files for a repo, or one PR or issue with `number`, newest first; requires `files:read`                                                                                                                                    |
+| `POST /v1/workspaces/:workspace/github/comment`                                 | Create or update the managed uploads.sh comment on a PR or issue (`{ repo, num, kind }`). Integration problems return `posted: false` with a reason, never `5xx`; bearer token with `files:write`                               |
 
 ## Pagination
 

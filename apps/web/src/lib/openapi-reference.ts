@@ -59,13 +59,22 @@ const METHODS = ["get", "post", "put", "patch", "delete"] as const;
 
 /** Section for a path, in display order. Unmatched paths land in "Other". */
 const GROUPS: { id: string; title: string; match: (path: string) => boolean }[] = [
-  { id: "files", title: "Files", match: (p) => p.includes("/files") },
+  {
+    id: "files",
+    title: "Files",
+    match: (p) => p.startsWith("/v1/") && p.includes("/files") && !p.includes("/scope/"),
+  },
   {
     id: "galleries",
     title: "Galleries",
     match: (p) => p.startsWith("/v1/") && p.includes("/galleries"),
   },
   { id: "feeds", title: "Live links", match: (p) => p.startsWith("/v1/") && p.includes("/feeds") },
+  {
+    id: "github",
+    title: "Pull requests",
+    match: (p) => /\/(pulls|repos|scope|github)(\/|$)/.test(p),
+  },
   { id: "usage", title: "Usage", match: (p) => p.includes("/usage") },
   { id: "public", title: "Public reads", match: (p) => p.startsWith("/public/") },
 ];
