@@ -1,6 +1,6 @@
 {
   "name": "@buildinternet/uploads-sdk",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "TypeScript client for the uploads.sh API",
   "type": "module",
   "sideEffects": false,
