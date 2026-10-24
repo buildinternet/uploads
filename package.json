@@ -19,6 +19,7 @@
     "dev:stack:smoke": "node scripts/dev-stack-smoke.mjs",
     "build": "pnpm --filter @uploads/web build",
     "build:cli": "pnpm --filter @buildinternet/uploads run build",
+    "publish:sdk": "pnpm --filter @buildinternet/uploads-sdk run build && cd packages/sdk && npm publish --access public --provenance=false",
     "render:demos": "pnpm --filter @uploads/demos render",
     "deploy": "pnpm run deploy:api && pnpm run deploy:web && pnpm run deploy:mcp && pnpm run deploy:slack",
     "deploy:api": "pnpm --filter @uploads/api run deploy",
