@@ -74,6 +74,7 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
   ],
   "comment-config": ["uploads.yml", "comment", "yaml", "yml", "width"],
   agents: ["mcp", "skill", "plugin", "claude", "codex"],
+  sdk: ["typescript", "javascript", "npm", "client", "library", "node"],
   "ai-labels": [
     "classifier",
     "ai labels",
