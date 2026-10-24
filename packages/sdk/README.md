@@ -1,6 +1,6 @@
 # @buildinternet/uploads-sdk
 
-TypeScript client for the [uploads.sh](https://uploads.sh) API. It has no dependencies and uses only `fetch`, so it runs in Node 18+, Bun, Deno, Cloudflare Workers and browsers.
+TypeScript client for the [uploads.sh](https://uploads.sh) API. It has no dependencies and uses only `fetch`, so it runs in Node 22+, Bun, Deno, Cloudflare Workers and browsers.
 
 ```bash
 npm install @buildinternet/uploads-sdk
