@@ -1,5 +1,14 @@
 # @buildinternet/uploads
 
+## 0.60.1
+
+### Patch Changes
+
+- 999e816: Require sharp 0.35.5 so image processing picks up the fixes for GHSA-wq5f-xc86-pv6w and GHSA-rgj7-g3m4-5g8c.
+- a99a88f: The API client now comes from the new `@buildinternet/uploads-sdk` package. `createUploadsClient` and its types are still exported from `@buildinternet/uploads`, with no behavior change.
+- Updated dependencies [862c678]
+  - @buildinternet/uploads-sdk@0.1.0
+
 ## 0.60.0
 
 ### Minor Changes
