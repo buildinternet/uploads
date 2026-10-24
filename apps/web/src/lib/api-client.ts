@@ -1,17 +1,13 @@
 /**
- * Session-cookie-authenticated wrappers for apps/api's `/me/*` surface
- * (issue #107). Same conventions as `src/lib/auth-client.ts`'s wrappers:
- * `credentials: "include"` so the cross-subdomain session cookie rides
- * along. The account workspace list preserves unavailable/auth failure states
- * rather than rendering an outage as an empty account; less central detail
- * helpers retain their defensive null/[] fallbacks.
+ * Session-authenticated wrappers for apps/api's account endpoints
+ * (`credentials: "include"`). The workspace list preserves outage states
+ * rather than rendering them as an empty account; less central helpers fall
+ * back to null/[].
  */
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
-// Wire types imported from the producing route modules (issue #896 pattern:
-// type-only, inferred from the real serializers) instead of re-declared here.
-// The runtime guards below still validate every body field-by-field — the
-// imports only make server/client drift a compile error.
+// Wire types come from the producing route modules so drift is a compile
+// error. The runtime guards below still validate every body.
 import type { WorkspaceCreateQuota } from "@uploads/billing";
 import type { OpenEnrollment, OrgInvite, WorkspaceMemberRow } from "@uploads/api/workspace-members";
 import type { WorkspaceUsageResponse } from "@uploads/api/workspace-usage";
@@ -43,15 +39,9 @@ import {
 } from "./scope-parsers";
 
 /**
- * `apiOrigin` is either an absolute origin (`https://api.uploads.sh`, or a
- * dev override) or the same-origin path prefix `"/api"` that
- * `resolveSignedInOrigins` returns in-app (#731 phase D — `signed-in-
- * page.ts`). Unlike `authOrigin("")` → `""` (auth's templates already bake
- * in `/api/auth/...`), every template here is a bare `${trimOrigin(apiOrigin)}/v1/...`
- * with no prefix of its own, so the same-origin sentinel has to carry the
- * `/api` prefix itself — an empty string would build a request against this
- * origin's own `/v1/...` route, not the proxy. `trimOrigin` only strips a
- * trailing slash either way, so `"/api"` needs no special-casing here.
+ * `apiOrigin` is an absolute origin or the same-origin prefix `"/api"`.
+ * Templates here have no prefix of their own, so the sentinel must carry
+ * `/api` itself (an empty string would hit this origin's own `/v1`).
  */
 export function trimOrigin(origin: string): string {
   return origin.replace(/\/$/, "");
@@ -62,28 +52,19 @@ export interface MyWorkspace {
   organization: { id: string; slug: string; name: string };
   role: string;
   /**
-   * True when the workspace has a stable public custom domain configured.
-   * Lets the account file browser (issue #123) decide whether to open a
-   * selected file via the public `/f/` page or resolve it through the
-   * signed-URL-capable `/me/.../file-url` endpoint instead.
+   * The workspace has a public custom domain, so the file browser can open
+   * files via the `/f/` page instead of the signed `file-url` endpoint.
    */
   hasPublicUrl: boolean;
   /** The public base URL itself (e.g. `https://storage.uploads.sh`), when configured. */
   publicBaseUrl?: string;
-  /**
-   * Catalog plan id ("free" | "pro" | …) — additive, issue #365 follow-up.
-   * Same fail-open-to-"free" contract as the billing tab's `planResponse`:
-   * a legacy/unapplied workspace record always reads as "free" here, never
-   * "pro". Undefined only against an older api build that omits the field.
-   */
+  /** Catalog plan id. Legacy records read as "free". Undefined from an older api. */
   plan?: string;
 }
 
 /**
- * The fields every api build has always sent. `hasPublicUrl`/`plan`
- * are deliberately excluded: web and api deploy independently, so an older api
- * may omit them — the entry is still accepted and `mapMyWorkspace` coerces each
- * missing value to a safe default.
+ * The fields every api build sends. Web and api deploy independently, so
+ * `hasPublicUrl`/`plan` may be missing and `mapMyWorkspace` defaults them.
  */
 type MyWorkspaceCore = Omit<MyWorkspace, "hasPublicUrl" | "plan">;
 
@@ -119,10 +100,8 @@ function mapMyWorkspace(ws: MyWorkspaceCore): MyWorkspace {
 }
 
 /**
- * Whether this user may create another workspace (spec 2026-07-24). Purely
- * advisory — `POST /v1/workspaces` is the enforcement point, so the UI is
- * free to fail open when this is missing. The shape is the producer's
- * (`resolveWorkspaceCreateQuota` in @uploads/billing), imported not re-declared.
+ * Whether this user may create another workspace. Advisory only;
+ * `POST /v1/workspaces` enforces, so the UI may fail open.
  */
 export type { WorkspaceCreateQuota } from "@uploads/billing";
 
@@ -131,13 +110,9 @@ export type WorkspacesResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 /**
- * Parse `workspaceCreate` from a `/me/workspaces` body.
- *
- * Returns `undefined` for anything unrecognized — an older API build that
- * omits the field, a partial response, a garbage value. Every consumer
- * treats `undefined` as "creation allowed", so a stale worker degrades to
- * the pre-cap behaviour (create offered, server still refusing at the cap)
- * rather than locking a user out of a workspace they are entitled to.
+ * Parse `workspaceCreate` from a `/me/workspaces` body. Anything
+ * unrecognized returns `undefined`, which consumers treat as "allowed", so a
+ * stale worker never locks a user out.
  */
 export function parseWorkspaceCreateQuota(value: unknown): WorkspaceCreateQuota | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -175,11 +150,8 @@ export async function getMyWorkspaces(
 }
 
 /**
- * `GET /v1/workspaces/:name/usage` body — the producer's response type
- * (apps/api's `workspace-usage` route), imported not re-declared. The
- * credential-shaped extras (`scopes`/`plan`/`storage`) are made optional
- * here because the same parser also reads the `/summary` route's embedded
- * `usage` object, which carries the usage fields without them.
+ * `GET /v1/workspaces/:name/usage` body. `scopes`/`plan`/`storage` are
+ * optional because the parser also reads `/summary`'s embedded `usage`.
  */
 export type WorkspaceUsage = Omit<WorkspaceUsageResponse, "scopes" | "plan" | "storage"> &
   Partial<Pick<WorkspaceUsageResponse, "scopes" | "plan" | "storage">>;
@@ -288,11 +260,7 @@ export interface GallerySummary {
   /** Omitted on older API deployments. */
   itemCount?: number;
   references?: GalleryReferenceSummary[];
-  /**
-   * Public URL of the gallery's cover image for a list/grid thumbnail. `null`
-   * when the gallery is empty or its cover isn't a still image; omitted on
-   * older API deployments that predate the field.
-   */
+  /** Cover image URL for a thumbnail; `null` when empty or not a still image. */
   previewUrl?: string | null;
   /** Optimistic-concurrency version; `DELETE` requires it. Omitted on older API deployments. */
   version?: number;
@@ -334,8 +302,7 @@ export function getMyWorkspaceGalleries(
   name: string,
   opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<GallerySummary[]> {
-  // The list endpoint pages at 50 by default; one page of 100 covers every
-  // gallery a workspace can hold (MAX_GALLERIES_PER_WORKSPACE in apps/api).
+  // One page of 100 covers MAX_GALLERIES_PER_WORKSPACE.
   return fetchWorkspaceList(
     apiOrigin,
     name,
@@ -352,9 +319,9 @@ export interface WorkspaceFile {
   size?: number;
   contentType?: string;
   uploaded?: string;
-  /** Present (== "private") only when the file was marked private (issue #139). */
+  /** Present (== "private") only when the file was marked private. */
   visibility?: "private";
-  /** Public `/f/` file-page URL when the workspace has a public base (issue #308). */
+  /** Public `/f/` file-page URL when the workspace has a public base. */
   pageUrl?: string;
 }
 
@@ -390,10 +357,8 @@ export type SetFileVisibilityResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 /**
- * PATCH /v1/workspaces/:name/files/visibility — toggles a file's private flag
- * (issue #139). Key travels as a query param, matching `file-url`'s
- * convention, since embedding an arbitrary (possibly `/`-containing) key in
- * the path segment fights routing.
+ * PATCH /v1/workspaces/:name/files/visibility. The key goes in the query
+ * string since a `/`-containing key fights path routing.
  */
 export async function setFileVisibility(
   apiOrigin: string,
@@ -428,11 +393,9 @@ export type DeleteWorkspaceFileResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" };
 
 /**
- * DELETE /v1/workspaces/:name/files/<keyPath> — permanently deletes a file
- * (spec 2026-07-30). Unlike the legacy `/me` alias, the canonical route keys
- * the file off path segments rather than a `?key=` query param: each `/`
- * separated component of `key` is percent-encoded individually and joined
- * back with `/`, matching the API's own alias rewrite (apps/api/src/routes/me.ts).
+ * DELETE /v1/workspaces/:name/files/<keyPath>. Each `/`-separated segment
+ * of `key` is percent-encoded individually, matching the API's alias
+ * rewrite.
  */
 export async function deleteWorkspaceFile(
   apiOrigin: string,
@@ -495,17 +458,12 @@ export type InviteResult =
   | {
       kind: "unavailable";
       reason: RequestFailure | "server" | "forbidden" | "invalid" | "member_cap";
-      /** Server-authored copy, present for "member_cap": the workspace's real
-       * cap and (on free) the upgrade nudge. Shown verbatim rather than
-       * restated here, since only the API knows the resolved number. */
+      /** Server-authored copy for "member_cap" (the real cap and upgrade
+       * nudge), shown verbatim. */
       message?: string;
     };
 
-/**
- * One roster row from `/members` / `/people` — the producer's projection
- * (`projectMembers` in apps/api's `workspace-members` route), imported not
- * re-declared. `id` is present only for managers.
- */
+/** One roster row from `/members` / `/people`. `id` is present only for managers. */
 export type WorkspaceMember = WorkspaceMemberRow;
 
 export type WorkspaceMembersResult =
@@ -608,9 +566,8 @@ export interface WorkspaceBillingLimits {
   maxVideoUploadBytes: number | null;
 }
 
-/** Issue #445: "stripe" when an active Stripe subscription backs the plan,
- * "admin" when the plan is paid but comped/admin-set with no such
- * subscription, "none" on free with no subscription. */
+/** "stripe": an active subscription backs the plan; "admin": paid but comped;
+ * "none": free with no subscription. */
 export type WorkspacePlanSource = "stripe" | "admin" | "none";
 
 export interface WorkspaceSubscription {
@@ -627,7 +584,7 @@ export interface WorkspaceBilling {
   planApplied: boolean;
   limits: WorkspaceBillingLimits;
   usage: Record<string, unknown> | null;
-  /** Issue #445: additive fields — see GET /v1/workspaces/:name/billing. */
+  /** See GET /v1/workspaces/:name/billing. */
   planSource: WorkspacePlanSource;
   subscription: WorkspaceSubscription | null;
 }
@@ -698,10 +655,7 @@ export async function getWorkspaceBilling(
 }
 
 /**
- * Classifies a 403 shared by `inviteToWorkspace` and `createInviteLink`: a
- * plan member cap (issue #450), which the user can act on, vs. the
- * pre-existing "you aren't an admin here". Both callers' result unions carry
- * the same `"member_cap" | "forbidden"` shape for their 403 branch.
+ * Classifies an invite 403: a plan member cap (actionable) vs. not an admin.
  */
 async function classifyInviteForbidden(
   response: Response,
@@ -857,15 +811,9 @@ export async function updateWorkspaceMemberRole(
 }
 
 /**
- * Issue #869 phase B: workspace-admin "join" invite links — a shareable URL
- * whose redemption (on `/invite`) adds the redeemer as an org member.
- * Distinct from `inviteToWorkspace`'s email invites (no recipient needed)
- * and from `/admin`'s CLI-token links (this workspace's own People page can
- * only see/revoke its own `kind: 'member'` links, never a token-kind one).
- *
- * Issue #876: `expiresAt` is nullable (a `"never"`-expiring standing link),
- * and links carry `maxUses`/`useCount` — multi-use by default (unlimited)
- * unless the mint form sets a cap.
+ * Workspace "join" invite links: a shareable URL whose redemption adds the
+ * redeemer as a member. `expiresAt` is null for a standing link; links are
+ * unlimited-use unless `maxUses` is set.
  */
 export type CreateInviteLinkResult =
   | {
@@ -948,12 +896,7 @@ export async function createInviteLink(
   };
 }
 
-/**
- * One outstanding invite link — the producer's `OpenEnrollment` row
- * (apps/api's `auth-db`, re-exported through `workspace-members`), imported
- * not re-declared. Issue #876: `expiresAt` nullable (standing link);
- * `maxUses`/`useCount` — see `renderInviteLinksHtml`.
- */
+/** One outstanding invite link. `expiresAt` null = standing link. */
 export type WorkspaceInviteLink = OpenEnrollment;
 
 export type WorkspaceInviteLinksResult =
@@ -1035,7 +978,7 @@ export interface SearchFileItem {
   url: string | null;
   embedUrl: string | null;
   metadata: Record<string, string>;
-  /** Public `/f/` file-page URL when present (issue #308). */
+  /** Public `/f/` file-page URL when present. */
   pageUrl?: string;
   /** Newest metadata-write time — the shot's upload time for the pop-over. */
   updatedAt?: string;
@@ -1068,9 +1011,8 @@ export async function searchWorkspaceFiles(
 ): Promise<SearchFilesResult> {
   const params = new URLSearchParams(buildSearchQuery(filters));
   if (opts.name) params.set("name", opts.name);
-  // Collapse promoted branch originals into their canonical pull/<n> copy so a
-  // screenshot isn't listed twice (server-side; the API leaves general search
-  // untouched).
+  // Collapse promoted branch originals into their pull/<n> copy so a
+  // screenshot isn't listed twice.
   if (opts.collapsePromoted) params.set("collapse", "promoted");
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/search?${params.toString()}`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
@@ -1121,9 +1063,8 @@ export interface FilesPathGroup {
 }
 
 /**
- * One unique (project, path) pair — the filter-bar catalog. Carries a short
- * thumb strip of its own (shorter than a thumbed group's), so groups past the
- * overview's thumbed cap still render thumbs off this one response.
+ * One unique (project, path) pair for the filter-bar catalog, with its own
+ * short thumb strip so groups past the thumbed cap still render thumbs.
  */
 export interface PathCatalogEntry {
   project: string;
@@ -1209,8 +1150,7 @@ function isPathCatalogEntry(value: unknown): value is PathCatalogEntry {
     (entry.by === undefined || entry.by === "screen") &&
     typeof entry.count === "number" &&
     typeof entry.lastUpdated === "string" &&
-    // `recent` is additive (older API deploys omit it) — normalized to []
-    // below, so those entries just render as heading-only groups.
+    // `recent` is missing on older API deploys; normalized to [] below.
     (entry.recent === undefined ||
       (Array.isArray(entry.recent) && entry.recent.every(isPathGroupItem)))
   );
@@ -1290,11 +1230,8 @@ export async function getWorkspaceFilesByPath(
   ) {
     return { kind: "unavailable", reason: "malformed" };
   }
-  // Catalog is additive: an older API (web/API deploy separately) omitted it.
-  // Fall back to the thumbed groups so the filter bar still has something
-  // to search, and treat `truncated` as the catalog cap in that case.
-  // `latest` is additive too (older API deploys omit it) — the toggle just
-  // has an empty Recent view until the API catches up.
+  // `catalog` and `latest` are missing on older API deploys: fall back to the
+  // thumbed groups (with `truncated` as the cap) and an empty Recent view.
   const latest =
     Array.isArray(body.latest) && body.latest.every(isLatestShotItem) ? body.latest : [];
   if (body.catalog === undefined) {
@@ -1359,10 +1296,8 @@ function isFacetValue(value: unknown): value is FacetValue {
 }
 
 /**
- * GET /v1/workspaces/:name/files/facets — which metadata keys this workspace
- * contains. A single `unavailable` kind (no `reason`) is enough here: the
- * filter bar degrades to its syntax hint either way and never surfaces the
- * distinction, unlike a search failure which the user must be told about.
+ * GET /v1/workspaces/:name/files/facets. One `unavailable` kind is enough:
+ * the filter bar degrades to its syntax hint either way.
  */
 export async function getWorkspaceFacets(
   apiOrigin: string,
@@ -1421,9 +1356,8 @@ export type GithubTitleMap = Record<string, GithubTitleInfo | null>;
 export const GITHUB_TITLES_MAX_REFS = 20;
 
 /**
- * Batch PR/issue titles for the connected-work rail (issue #267). `{}` for an
- * empty ref list (no request); null on outage/non-2xx/malformed body — the
- * caller keeps its metadata-derived labels.
+ * Batch PR/issue titles for the connected-work rail. `{}` for no refs; null
+ * on failure, so the caller keeps its metadata-derived labels.
  */
 export async function getGithubTitles(
   apiOrigin: string,
@@ -1440,8 +1374,7 @@ export async function getGithubTitles(
   const body = (await result.response.json().catch(() => null)) as { refs?: unknown } | null;
   const map = body && typeof body === "object" ? body.refs : null;
   if (!map || typeof map !== "object" || Array.isArray(map)) return null;
-  // Per-entry shape check so a malformed payload can't push a non-string
-  // label into rail rendering: entries are null or a full TitleInfo.
+  // Entries must be null or a full TitleInfo.
   for (const entry of Object.values(map)) {
     if (entry === null) continue;
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
@@ -1453,11 +1386,8 @@ export async function getGithubTitles(
 }
 
 /**
- * Whether this workspace already has the GitHub App installed (issue #492) —
- * `true` only on an explicit `installed: true`. Every other outcome (outage,
- * non-2xx, malformed body, App not configured) is `false`, which keeps the
- * rail's install CTA visible: nagging an installed workspace is cheaper than
- * hiding the CTA from one that never installed.
+ * Whether the GitHub App is installed. Only an explicit `installed: true`
+ * counts; anything else keeps the install CTA visible.
  */
 export async function getGithubInstalled(apiOrigin: string, name: string): Promise<boolean> {
   const result = await fetchWithTimeout(
@@ -1470,12 +1400,8 @@ export async function getGithubInstalled(apiOrigin: string, name: string): Promi
 }
 
 /**
- * A workspace name to prefill for an account that has none yet (issue #506),
- * derived server-side from the user's GitHub login. Empty string for "offer
- * nothing" — no linked GitHub account, a login that can't become a valid slug,
- * a reserved or blocklisted name, or one already taken. Every failure mode is
- * indistinguishable here on purpose: the caller either has a name to prefill
- * or doesn't, and an empty field is the pre-#506 behavior.
+ * A workspace name to prefill for an account with none yet, derived from the
+ * user's GitHub login. Empty string when there's nothing usable to offer.
  */
 export async function getSuggestedWorkspaceName(apiOrigin: string): Promise<string> {
   const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
@@ -1678,11 +1604,7 @@ export async function revokeIssuedWorkspaceToken(
   return result.kind !== "unavailable" && result.response.ok;
 }
 
-/**
- * One workspace service token (issue #1026) — the producer's projection
- * (`serviceTokenRow` in apps/api's `workspace-service-tokens` route),
- * imported not re-declared. Never carries the token value or its hash.
- */
+/** One workspace service token. Never carries the token value or its hash. */
 export type WorkspaceServiceToken = ServiceTokenRow;
 
 export type WorkspaceServiceTokensResult =
@@ -1810,7 +1732,7 @@ export interface WorkspaceFolderFile {
   uploaded?: string;
   visibility?: "public" | "private";
   metadata?: Record<string, string>;
-  /** Public `/f/` file-page URL when present (issue #308). Prefer for open/copy. */
+  /** Public `/f/` file-page URL when present. Prefer for open/copy. */
   pageUrl?: string;
 }
 
@@ -1820,7 +1742,7 @@ export interface WorkspaceFolderListing {
   cursor?: string;
 }
 
-/** A fresh empty listing per call — never a shared object, so a caller mutating `files`/`prefixes` can't corrupt later degraded returns. */
+/** A fresh empty listing per call, so a caller's mutation can't leak into later returns. */
 function emptyFolderListing(): WorkspaceFolderListing {
   return { files: [], prefixes: [], cursor: undefined };
 }
@@ -1834,9 +1756,8 @@ function isWorkspaceFolderFileCandidate(value: unknown): value is Record<string,
 function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFile {
   return {
     key: raw.key as string,
-    // The API's ListedObject types these `string | null` (unconfigured public
-    // base URL); pass through as-is so the files table can branch on null for
-    // public-vs-private thumbnails rather than treating "" as a real URL.
+    // `null` means no public base URL; kept so the table can tell public
+    // from private thumbnails.
     url: typeof raw.url === "string" ? raw.url : null,
     embedUrl: typeof raw.embedUrl === "string" ? raw.embedUrl : null,
     size: typeof raw.size === "number" ? raw.size : undefined,
@@ -1853,24 +1774,13 @@ function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFil
 }
 
 /**
- * GET /v1/workspaces/:name/files?prefix=&cursor=&limit= — folder-aware,
- * gh.*-metadata-hydrated workspace file listing (commit 0f9ac65). Backs the
- * settings-page files tab's folder browser, so like {@link fetchWorkspaceList}
- * this is a "less central" detail helper: any transport failure, non-2xx, or
- * malformed body degrades to an empty listing rather than surfacing an outage.
+ * GET /v1/workspaces/:name/files?prefix=&cursor=&limit= — one folder level
+ * with gh.* metadata, for the files tab browser. Any failure degrades to an
+ * empty listing. `cursor` null becomes undefined and `prefixes` defaults to
+ * [].
  *
- * The API returns `cursor` as `string | null`; normalized here to
- * `string | undefined`. Likewise `prefixes` defaults to `[]` when the API
- * omits it (non-delimited listings).
- *
- * `opts.cookie` (plan 005): lets an Astro frontmatter server-fetch the
- * default folder listing with the incoming request's session cookie —
- * `credentials: "include"` alone only rides a browser's own cookie jar and
- * does nothing for a server-to-server fetch. Same `sessionFetchInit`
- * convention plan 001 added to the other `/v1/workspaces/:name/*` reads
- * below; this is the one plan 001 didn't touch, added here narrowly because
- * it's the actual data source `WorkspaceFileTable`'s default (unfiltered)
- * browse view uses, not `getMyWorkspaceFiles`.
+ * `opts.cookie` lets an Astro frontmatter fetch with the request's session
+ * cookie (`credentials: "include"` does nothing server-side).
  */
 export async function listWorkspaceFolder(
   apiOrigin: string,
@@ -1884,8 +1794,7 @@ export async function listWorkspaceFolder(
   } = {},
 ): Promise<WorkspaceFolderListing> {
   const params = new URLSearchParams();
-  // Always list one folder level at a time — without the delimiter the API
-  // returns a flat recursive listing and no `prefixes` (folders).
+  // Without the delimiter the API returns a flat recursive listing.
   params.set("delimiter", "/");
   if (opts.prefix !== undefined) params.set("prefix", opts.prefix);
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
@@ -1916,13 +1825,7 @@ export async function listWorkspaceFolder(
   };
 }
 
-/**
- * Workspace-level managed-comment defaults (issue #307, the
- * settings-tab block). The producer's inferred `commentSettingsResponse`
- * type (apps/api's `workspace-settings` route), imported not re-declared:
- * `null` means "unset/auto" for every field, never a separate "not
- * configured" state.
- */
+/** Workspace-level managed-comment defaults. `null` means auto for every field. */
 export type CommentSettings = CommentSettingsResponse;
 
 export type CommentSettingsResult =
@@ -1983,11 +1886,8 @@ export type CommentSettingsPatchResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * PATCH /v1/workspaces/:name/comment-settings. `patch` is partial — an
- * omitted key leaves the field unchanged server-side, an explicit `null`
- * clears it. On a 400 the server's `error.message` is surfaced verbatim
- * (already a complete sentence naming the offending field/bounds) so the
- * settings form can show it inline without re-deriving it client-side.
+ * PATCH /v1/workspaces/:name/comment-settings. Omitted keys are unchanged;
+ * `null` clears. A 400's `error.message` is shown verbatim.
  */
 export async function patchWorkspaceCommentSettings(
   apiOrigin: string,
@@ -2164,10 +2064,8 @@ export async function workspaceClassifierSettings(
 }
 
 /**
- * GET /v1/workspaces/:name/github/repo-links — repo names this workspace has
- * linked (issue #307, the repo picker). Fails open to `[]`: an empty
- * picker just means "no repo config" is the only option, same as a
- * workspace that genuinely has no linked repos.
+ * GET /v1/workspaces/:name/github/repo-links. Fails open to `[]`, which looks
+ * like a workspace with no linked repos.
  */
 export async function getWorkspaceRepoLinks(apiOrigin: string, name: string): Promise<string[]> {
   const result = await fetchWithTimeout(
@@ -2210,10 +2108,8 @@ export type CommentPreviewResult =
     };
 
 /**
- * GET /v1/workspaces/:name/comment-preview[?repo=owner/name]. `repo` must
- * already be linked to this workspace — an unlinked or malformed repo 404s/
- * 400s server-side, surfaced here as `not_found`/`invalid_repo` so the
- * preview panel can tell the two apart (a stale picker entry vs. a typo).
+ * GET /v1/workspaces/:name/comment-preview[?repo=owner/name]. Distinguishes
+ * `not_found` (stale picker entry) from `invalid_repo` (typo).
  */
 export async function getWorkspaceCommentPreview(
   apiOrigin: string,
@@ -2255,27 +2151,19 @@ export async function getWorkspaceCommentPreview(
   };
 }
 
-/**
- * Self-serve BYO R2 bucket (issue #583 Phase 2). Mirrors the
- * comment-settings pair above: `credentials: "include"`, 403/404 collapsed
- * to `"forbidden"`/`"not_found"` `unavailable` reasons, 400 messages
- * surfaced verbatim from `error.message`. Backed by
- * `storageStatusResponse`/`StorageVerifyResult` in
- * `apps/api/src/routes/workspace-storage.ts` — field names match exactly.
- */
-/** A saved-but-inactive lane (spec: "Configure, then switch") — never a credential value. */
+/** A saved-but-inactive lane. Never a credential value. */
 export interface WorkspaceStorageLane {
   laneId: string;
   /** "standby" = saved, never active; "fallback" = a former active lane that may still hold objects. */
   role: "standby" | "fallback";
-  /** "shared" = platform-owned binding lane; "byo" = customer HTTP-credential lane. Explicit from the server — never infer this from field absence (there is no `accountId` on this type to infer from; only `accountIdMasked`). */
+  /** "shared" = platform binding lane; "byo" = customer credentials. Explicit; never infer it. */
   mode: "shared" | "byo";
   /** "r2" (default) or "s3". Absent on the shared lane. */
   provider?: "r2" | "s3";
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
-  /** Last successful SVG/XML sandboxing-CSP check against this lane's public host (issue #929) — gates SVG/XML acceptance while this lane is active. For a shared lane this is the hosted host's daily-probed verdict, not a per-lane stamp. */
+  /** Last successful SVG/XML sandboxing-CSP check for this lane's public host. For a shared lane, the hosted host's daily verdict. */
   activeContentVerifiedAt?: string;
   lastActiveAt?: string;
   accountIdMasked?: string;
@@ -2286,17 +2174,13 @@ export interface WorkspaceStorageLane {
   region?: string;
   /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) instead of virtual-hosted-style. Never present on an r2 lane. */
   forcePathStyle?: boolean;
-  /** Set when this lane was demoted while its credentials were failing (issue #826). */
+  /** Set when this lane was demoted while its credentials were failing. */
   unhealthyAt?: string;
-  /**
-   * Normalized health for a lane demoted while flagged (issue #826) — the
-   * same shape and the same server-authored sentence the active lane reports.
-   * Absent on a healthy lane.
-   */
+  /** Health of a lane demoted while flagged; absent when healthy. */
   health?: WorkspaceStorageHealth;
 }
 
-/** Whether the *active* lane's storage is currently working (issue #826). Always healthy in shared mode. */
+/** Whether the active lane's storage is working. Always healthy in shared mode. */
 export interface WorkspaceStorageHealth {
   ok: boolean;
   /** `"auth" | "bucket_missing" | "unreachable"` — widened, since the sentence to show ships in `message`. */
@@ -2318,9 +2202,9 @@ export interface WorkspaceStorageStatus {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
-  /** Active lane's last successful SVG/XML sandboxing-CSP check (issue #929) — gates SVG/XML acceptance. For a shared active lane this is the hosted host's daily-probed verdict, not a per-workspace stamp. Absent whenever acceptance is off, with `activeContentReason` saying which check said so. */
+  /** Active lane's last successful SVG/XML sandboxing-CSP check. Absent when acceptance is off; see `activeContentReason`. */
   activeContentVerifiedAt?: string;
-  /** Why SVG/XML acceptance is off for the active lane, when it is: `"opted_out" | "flag_off" | "unhealthy" | "host_stale" | "host_missing" | "lane_stale" | "lane_missing"`. Widened to `string` — an unrecognized value just falls back to the generic "Not verified" copy. */
+  /** Why SVG/XML acceptance is off (`"opted_out"`, `"flag_off"`, `"unhealthy"`, `"host_stale"`, ...). Unknown values get generic copy. */
   activeContentReason?: string;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */
@@ -2337,7 +2221,7 @@ export interface WorkspaceStorageStatus {
   health: WorkspaceStorageHealth;
 }
 
-/** Narrows an unknown `provider` field to `"r2" | "s3" | undefined` — shared by every storage-status parser below. */
+/** Narrows an unknown `provider` field to `"r2" | "s3" | undefined`. */
 function toProvider(value: unknown): "r2" | "s3" | undefined {
   return value === "s3" ? "s3" : value === "r2" ? "r2" : undefined;
 }
@@ -2372,16 +2256,9 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
 }
 
 /**
- * Fails *healthy* on anything unrecognized: a missing/garbled `health` block
- * (an older API, a truncated body) must not paint a danger badge and a
- * workspace-wide banner from nothing. Only an explicit `ok: false` is treated
- * as broken, and only with a `message` the server actually wrote — the UI
- * never invents failure copy.
- *
- * "Actually wrote" means non-blank after trimming: an empty or whitespace-only
- * message would render a danger badge and a banner with nothing in them, which
- * is worse than staying quiet. The trimmed value is what callers get, so no
- * downstream surface has to re-trim before display.
+ * Fails healthy on anything unrecognized, so a missing block never paints a
+ * danger banner. Only an explicit `ok: false` with a non-blank server
+ * `message` counts as broken; the message is returned trimmed.
  */
 function toWorkspaceStorageHealth(value: unknown): WorkspaceStorageHealth {
   if (!value || typeof value !== "object") return { ok: true };
@@ -2430,10 +2307,8 @@ export type WorkspaceStorageStatusResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * GET /v1/workspaces/:name/storage — admin/owner only, but readable
- * regardless of `byoBucketEnabled` so the settings panel can decide whether
- * to reveal itself at all (mirrors `loadCommentSettings`'s
- * hidden-until-`ok` convention in settings.astro).
+ * GET /v1/workspaces/:name/storage — admin/owner only, readable regardless of
+ * `byoBucketEnabled` so the panel can decide whether to show itself.
  */
 export async function getWorkspaceStorageStatus(
   apiOrigin: string,
@@ -2462,11 +2337,8 @@ export interface StorageVerifyCheck {
   /** Human remediation text, present when `ok` is false. Surfaced verbatim. */
   hint?: string;
   /**
-   * True when the check couldn't actually run rather than failing — e.g. the
-   * public-URL probe threw because a Cloudflare-fronted custom domain isn't
-   * reachable as a server-side request even when it works publicly
-   * (issues #783/#853). Treat as "unknown", not "broken": it must not block
-   * saving.
+   * The check couldn't run rather than failing (e.g. a Cloudflare-fronted
+   * domain unreachable server-side). Unknown, not broken; never blocks saving.
    */
   inconclusive?: boolean;
 }
@@ -2475,11 +2347,11 @@ export interface StorageVerifyResult {
   /** True only when every required check passed. */
   ok: boolean;
   checks: StorageVerifyCheck[];
-  /** The jurisdiction the auth probe actually used — echoed back, or auto-detected when the candidate omitted it. Absent when auth never succeeded. */
+  /** The jurisdiction the auth probe used, echoed or auto-detected. */
   jurisdiction?: string;
 }
 
-/** Parses one `StorageVerifyCheck` — shared by the multi-check result parser below and `verifyLaneActiveContent`'s single-check `{ check }` body. */
+/** Parses one `StorageVerifyCheck`. */
 function toStorageVerifyCheck(value: unknown): StorageVerifyCheck | null {
   if (!value || typeof value !== "object") return null;
   const check = value as Record<string, unknown>;
@@ -2494,8 +2366,7 @@ function toStorageVerifyCheck(value: unknown): StorageVerifyCheck | null {
     id: check.id,
     ok: check.ok,
     required: check.required,
-    // Normalized rather than passed through: a non-string hint would
-    // reach the checklist renderer typed as string.
+    // Normalized so a non-string hint can't reach the renderer.
     hint: typeof check.hint === "string" ? check.hint : undefined,
     inconclusive: check.inconclusive === true ? true : undefined,
   };
@@ -2533,12 +2404,8 @@ export interface StorageCandidate {
 }
 
 /**
- * Storage verify/save/activate/detach run a live probe pipeline against the
- * customer's bucket (auth list, round-trip write, a public-URL fetch with
- * its own 5s budget, jurisdiction probing) — legitimately slower than any
- * other call in this file. The default 8s browser timeout aborted real,
- * ultimately-successful activations (#788): the worker kept going and
- * committed the switch after the client had already reported failure.
+ * Storage pipeline calls probe the customer's bucket and run far longer than
+ * the default 8s timeout, which aborted activations that went on to succeed.
  */
 const STORAGE_PIPELINE_TIMEOUT_MS = 30_000;
 
@@ -2547,9 +2414,8 @@ export type StorageVerifyApiResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * POST /v1/workspaces/:name/storage/verify — runs the server-side probe
- * pipeline against `candidate` without persisting anything (step 3 of the
- * connect wizard). 403 means `byoBucketEnabled` is off for this workspace.
+ * POST /v1/workspaces/:name/storage/verify — probe `candidate` without
+ * saving. 403 means BYO is off for this workspace.
  */
 export async function verifyWorkspaceStorage(
   apiOrigin: string,
@@ -2577,7 +2443,7 @@ export async function verifyWorkspaceStorage(
   return { kind: "ok", result: verify };
 }
 
-/** Credentials the wizard has on hand once the account id/endpoint + key fields are filled — never saved. */
+/** Credentials the wizard has once the account and key fields are filled. Never saved. */
 export interface StorageBucketsCredentials {
   accountId: string;
   accessKeyId: string;
@@ -2587,7 +2453,7 @@ export interface StorageBucketsCredentials {
 
 export type StorageBucketsApiResult =
   | { kind: "ok"; buckets: string[] }
-  /** R2 only permits `ListBuckets` for account-scoped tokens — the wizard's cue to fall back to a plain "Bucket Name" field. */
+  /** Bucket-scoped tokens can't `ListBuckets`; fall back to a bucket name field. */
   | { kind: "access_denied" }
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
@@ -2605,14 +2471,9 @@ function toStorageBucketsApiResult(body: unknown): StorageBucketsApiResult | nul
 }
 
 /**
- * POST /v1/workspaces/:name/storage/buckets — the wizard's bucket picker
- * (issue #783 Part A item 2): runs S3 `ListBuckets` against the given
- * account/credentials and returns the bucket names, so the wizard can render
- * a `<select>` instead of asking for a bucket name up front. Same
- * auth/availability shape as `verifyWorkspaceStorage` (403 = BYO disabled),
- * plus an `access_denied` outcome that's expected and common (bucket-scoped
- * tokens can't list) — the caller should fall back to a plain text field,
- * not show an error.
+ * POST /v1/workspaces/:name/storage/buckets — bucket names for the wizard's
+ * picker. `access_denied` is expected for bucket-scoped tokens; fall back to
+ * a text field rather than showing an error.
  */
 export async function listWorkspaceStorageBuckets(
   apiOrigin: string,
@@ -2646,13 +2507,9 @@ export type StorageSaveResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * PUT /v1/workspaces/:name/storage — verifies `candidate` and saves it as a
- * **standby lane** (spec: "Configure, then switch"); never switches the
- * active lane, so there is no `workspace_storage_not_empty` 409 on this path
- * — saving a config is always safe. The server re-verifies `candidate`
- * itself (never trusts a client-side "verified" claim), so a 422 here
- * carries a fresh `StorageVerifyResult` the wizard can render exactly like
- * the standalone verify call's.
+ * PUT /v1/workspaces/:name/storage — verify `candidate` and save it as a
+ * standby lane. Never switches the active lane, so it can't 409. The server
+ * re-verifies, so a 422 carries a fresh `StorageVerifyResult`.
  */
 export async function putWorkspaceStorage(
   apiOrigin: string,
@@ -2692,12 +2549,9 @@ export type StorageActivateResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * POST /v1/workspaces/:name/storage/activate — switches the active (write)
- * lane to `laneId`, one of the saved lanes from `WorkspaceStorageStatus.lanes`.
- * Existing files stay where they are (the outgoing active config becomes a
- * read fallback); new uploads go to the newly-active lane. Works for
- * switching back to the shared lane too — that lane's own `laneId` is
- * whichever fallback entry has `role: "fallback"` and no credential fields.
+ * POST /v1/workspaces/:name/storage/activate — make `laneId` the write lane.
+ * Existing files stay; the old active lane becomes a read fallback. Also
+ * switches back to the shared lane (the fallback with no credentials).
  */
 export async function activateWorkspaceStorage(
   apiOrigin: string,
@@ -2745,11 +2599,9 @@ const ACTIVE_CONTENT_COOLDOWN_CHECK: StorageVerifyCheck = {
 };
 
 /**
- * POST /v1/workspaces/:name/storage/lanes/:laneId/verify-active-content
- * (issue #929) — runs only the SVG/XML sandboxing-CSP probe against one
- * lane (`laneId`: a saved lane's id, or the active lane via `"active"` or
- * its own id) and stamps the result. `laneId` is path-encoded like
- * `activateWorkspaceStorage`'s.
+ * POST /v1/workspaces/:name/storage/lanes/:laneId/verify-active-content —
+ * runs only the SVG/XML sandboxing-CSP probe for one lane (`"active"` or an
+ * id) and stamps the result.
  */
 export async function verifyLaneActiveContent(
   apiOrigin: string,
@@ -2769,9 +2621,7 @@ export async function verifyLaneActiveContent(
     if (check) return { kind: "rejected", check };
     return { kind: "unavailable", reason: "server" };
   }
-  // 429 — the per-lane cooldown (issue #929 adversarial review L-3). Not a
-  // server problem and not worth a branch of its own: report it the way the
-  // 422 rejections are reported, with a hint that says what to do.
+  // Per-lane cooldown, reported like the 422 rejections.
   if (response.status === 429) return { kind: "rejected", check: ACTIVE_CONTENT_COOLDOWN_CHECK };
   if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
   if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
@@ -2793,11 +2643,9 @@ export type StorageDetachResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * DELETE /v1/workspaces/:name/storage — removes a saved lane (`laneId`), or
- * (legacy shape, no `laneId`) detaches the active BYO lane and restores
- * shared-bucket defaults. `force: true` bypasses the empty-lane/empty-bucket
- * guard (caller must have already confirmed with the user — never touches
- * the customer's bucket or its objects either way).
+ * DELETE /v1/workspaces/:name/storage — remove a saved lane (`laneId`), or
+ * with no `laneId` detach the active BYO lane. `force: true` skips the
+ * empty-lane guard. Never touches the customer's bucket.
  */
 export async function deleteWorkspaceStorage(
   apiOrigin: string,
@@ -2872,7 +2720,7 @@ export type ApiResult<T> =
   | { kind: "ok"; data: T }
   | { kind: "unavailable"; reason: ApiFailureReason };
 
-/** The repo live link cap was hit: 50 live repo-scoped links per workspace, whoever created them, checked on API creates. PR and issue links are uncapped. */
+/** Repo live link cap (50 per workspace). PR and issue links are uncapped. */
 export type CreateFeedResult = ApiResult<FeedSummaryDto> | { kind: "limit"; limit: number };
 
 /** SSR seeding: the request's session cookie and the server-side transport. */

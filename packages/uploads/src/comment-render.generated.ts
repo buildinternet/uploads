@@ -14,10 +14,7 @@ export interface GhTarget {
   num: number;
 }
 
-/** Non-safe chars → `-` for a single R2 key segment (owner/name/branch/…).
- * Exported for reuse by other GitHub-key builders (github-ingest.ts) that
- * need the identical sanitization rule — github-promote.ts keeps its own
- * byte-identical private copy rather than importing this one. */
+/** Non-safe chars → `-` for a single R2 key segment (owner/name/branch/…). */
 export function sanitizeKeySegment(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "-");
 }
@@ -31,13 +28,10 @@ function slugPart(s: string): string {
 }
 
 /**
- * URL-friendly filename for the last segment of a NEW object key. Only the
- * final extension keeps its dot; interior dots, spaces, and other special
- * characters collapse to single dashes (`127.0.0.1 admin!!.webp` →
- * `127-0-0-1-admin.webp`). Idempotent, so re-sanitizing a key's basename is
- * safe. Existing keys are never rewritten — this only shapes what new
- * uploads are written under. Unlike `sanitizeKeySegment` (repo/branch
- * segments, dots kept), this is for filenames only.
+ * URL-friendly filename for the last segment of a new object key: only the
+ * final extension keeps its dot; other dots, spaces and special characters
+ * collapse to dashes (`127.0.0.1 admin!!.webp` → `127-0-0-1-admin.webp`).
+ * Idempotent. Existing keys are never rewritten.
  */
 export function sanitizeFilename(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -58,10 +52,7 @@ export const GH_PRIVATE_ROOT = "gh/private/";
 /** Strict shape for a randomized private-repo prefix id: 32 lowercase hex chars. */
 const PRIVATE_PREFIX_ID_RE = /^[0-9a-f]{32}$/;
 
-/**
- * Guard every private-key builder against a malformed `prefixId` — a
- * caller bug here must never silently produce a guessable-ish key.
- */
+/** A malformed `prefixId` must never produce a guessable key. */
 function assertPrivatePrefixId(prefixId: string): void {
   if (!PRIVATE_PREFIX_ID_RE.test(prefixId)) {
     throw new Error(`invalid private prefix id: "${prefixId}" must be 32 lowercase hex characters`);
@@ -69,11 +60,8 @@ function assertPrivatePrefixId(prefixId: string): void {
 }
 
 /**
- * Private-repo key prefix: `gh/private/<32-hex-id>/<kind>/<num>/`.
- * Deliberately omits the repo (unlike `ghKeyPrefix`) — the id is a random,
- * unguessable per-repo prefix rather than an owner/name path, so callers
- * that need the repo back must read `gh.repo` metadata (see
- * `parseGhPrivateKey`, which cannot recover it from the key alone).
+ * Private-repo key prefix: `gh/private/<32-hex-id>/<kind>/<num>/`. The repo
+ * is omitted on purpose; callers that need it read `gh.repo` metadata.
  */
 export function ghPrivateKeyPrefix(prefixId: string, target: GhTarget): string {
   assertPrivatePrefixId(prefixId);
@@ -91,8 +79,7 @@ export function ghPrivateAttachmentKey(
 
 /**
  * Private-repo branch-staged key prefix: `gh/private/<32-hex-id>/branch/`.
- * Unlike `ghBranchKeyPrefix`, there is deliberately NO branch-name segment —
- * the branch name itself is not embedded in a private-repo key.
+ * The branch name is never embedded.
  */
 export function ghPrivateBranchKeyPrefix(prefixId: string): string {
   assertPrivatePrefixId(prefixId);
@@ -105,9 +92,8 @@ export function ghPrivateBranchAttachmentKey(prefixId: string, filename: string)
 }
 
 /**
- * Inverse of `ghPrivateKeyPrefix`: parse the prefix id/kind/number back out
- * of a private-repo attachment key, or undefined for any other key shape.
- * Cannot recover the repo — callers that need it read `gh.repo` metadata.
+ * Parse id/kind/number out of a private-repo attachment key, or undefined.
+ * The repo can't be recovered from the key.
  */
 export function parseGhPrivateKey(
   key: string,
@@ -155,12 +141,7 @@ export function inferContentType(filename: string): string {
   return CONTENT_TYPE_BY_EXTENSION[ext] ?? "application/octet-stream";
 }
 
-/**
- * Coarse family a filename belongs to, for the callers that only branch on
- * "is this an image / a video / something else" — `unknown` when the
- * extension maps to nothing (an extension-less screenshot, say), which those
- * callers treat as "might be an image, probe it".
- */
+/** Coarse family for a filename. `unknown` (e.g. no extension) means "might be an image, probe it". */
 export function fileKindFromName(filename: string): "image" | "video" | "file" | "unknown" {
   const type = inferContentType(filename);
   if (type === "application/octet-stream") return "unknown";
@@ -174,24 +155,19 @@ export interface AttachmentMarkdownOptions {
   alt: string;
   /** Only applies to the image case — see `buildAttachmentMarkdown`. */
   width?: number;
-  /**
-   * Poster frame for a video or PDF first page, when already known — see
-   * `AttachmentItem.posterUrl`. Absent (or the field omitted) means "no
-   * poster", the same convention the managed comment uses.
-   */
+  /** Poster for a video or PDF first page, when known. Absent means no poster. */
   posterUrl?: string | null;
-  /** Stored/known content type, preferred over `filename`-based inference — mirrors `effectiveAttachmentType`. */
+  /** Stored content type, preferred over `filename` inference. */
   contentType?: string;
 }
 
 /**
- * Print-ready GitHub markdown for one uploaded file (issue #1030), degrading
- * by type the same way the managed comment does (`inlinePosterKind`), so a
- * CLI/MCP `put` result and the managed comment never disagree:
+ * GitHub markdown for one uploaded file, degrading by type exactly as the
+ * managed comment does:
  *
  * - image → `![alt](fileUrl)`, or an `<img width>` tag when `width` is set
- * - PDF or video with a poster known at call time → `[![alt](posterUrl)](fileUrl)`
- * - everything else, including a poster-less PDF/video → `[filename](fileUrl)`
+ * - PDF or video with a known poster → `[![alt](posterUrl)](fileUrl)`
+ * - everything else → `[filename](fileUrl)`
  */
 export function buildAttachmentMarkdown(
   filename: string,
@@ -222,18 +198,14 @@ export function buildAttachmentMarkdown(
 /** Hidden marker identifying the one comment this CLI manages. Never change it — existing comments are found by exact match. */
 export const ATTACHMENTS_MARKER = "<!-- uploads.sh:attachments -->";
 
-/** Workspace slugs are `[a-z0-9-]`-ish; only markers built from a slug matching
- * this are trusted as a distinct namespace — anything else (empty, unsafe
- * chars) degrades to the shared legacy marker rather than emitting untrusted
- * text into comment HTML. */
+/** Only markers built from a slug matching this are trusted; anything else
+ * falls back to the shared legacy marker. */
 const WORKSPACE_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
 /**
  * Per-workspace marker (`<!-- uploads.sh:attachments ws=<workspace> -->`) so
- * two workspaces managing the same repo don't clobber each other's comment.
- * Falls back to the shared legacy marker when `workspace` is missing or does
- * not look like a safe slug — degrade, don't guess or risk breaking the
- * comment's HTML.
+ * two workspaces on one repo don't clobber each other's comment. Falls back
+ * to the legacy marker for a missing or unsafe slug.
  */
 export function attachmentsMarker(workspace?: string): string {
   if (workspace && WORKSPACE_SLUG_RE.test(workspace)) {
@@ -248,10 +220,9 @@ export function attachmentsMarker(workspace?: string): string {
 export const MAX_INLINE_ATTACHMENT_IMAGES = 16;
 
 /**
- * Per-render knobs for the managed comment (issue #307), sourced from repo
- * comment config. `imageWidth: "auto"` uses per-item filename heuristics plus
- * density-aware sizing (solo/sparse/dense from the inlined count); `"full"`
- * omits the `width` attribute entirely; a number overrides every width site.
+ * Per-render knobs from repo comment config. `imageWidth: "auto"` uses
+ * filename heuristics plus density-aware sizing; `"full"` omits `width`; a
+ * number overrides every width.
  */
 export interface CommentRenderOptions {
   imageWidth: "auto" | "full" | number;
@@ -261,8 +232,7 @@ export interface CommentRenderOptions {
   note: string | null;
 }
 
-/** Today's behavior, expressed as options — the default for every caller that
- * hasn't opted into repo comment config. */
+/** Defaults for callers without repo comment config. */
 export const AUTO_RENDER_OPTIONS: CommentRenderOptions = {
   imageWidth: "auto",
   maxInlineImages: MAX_INLINE_ATTACHMENT_IMAGES,
@@ -279,19 +249,15 @@ export interface AttachmentItem {
   /** Preferred click-through (PR feed item, `/f/` file page, or equivalent). Falls back to `url`. */
   pageUrl?: string | null;
   /**
-   * The only canonical metadata the managed comment renders (issue #365).
-   * `screen` names an app view that has no route (a mobile or desktop
-   * screen). Deliberately named fields rather than `Record<string, string>`: the
-   * comment is posted publicly, and keeping the set narrow at the type level
-   * mirrors the server-side query filter that never fetches EXIF-derived
-   * keys like `device`/`software` for this path.
+   * The only metadata the comment renders. `screen` names an app view with no
+   * route. Named fields on purpose: the comment is public, and the server
+   * never fetches other keys (like EXIF `device`) for it.
    */
   meta?: { screen?: string; path?: string; state?: string };
   /**
-   * Poster frame for a video (issue #299) or a PDF first page (issue #1009).
-   * Server-computed like `embedUrl` — never taken from client-settable
-   * metadata. Absent means "no poster": a video falls back to a bullet link,
-   * a PDF stays in the file table.
+   * Poster for a video or PDF first page. Server-computed, never from
+   * client-settable metadata. Absent: a video becomes a bullet link and a
+   * PDF stays in the file table.
    */
   posterUrl?: string | null;
   /** Derived video facts used for the caption and display width. */
@@ -302,7 +268,7 @@ export interface AttachmentItem {
   imageMeta?: { width?: number; height?: number };
   /** Object size in bytes, when known — drives the non-media file table's Size column. */
   size?: number;
-  /** Stored content type, when known — preferred over name-based inference for file classification and the table's Type column. */
+  /** Stored content type, preferred over name-based inference. */
   contentType?: string;
 }
 
@@ -390,12 +356,10 @@ function formatDuration(seconds: number): string {
 }
 
 /**
- * Display width for an image or video-poster embed. Real dimensions only
- * *select* among the density table's tiers — a raw 1920 would blow out the
- * comment column — and the result is capped at the real width so a small
- * asset is never upscaled into a blurry tile. Without dims (either missing),
- * falls back to the filename heuristic exactly, keeping dimension-less
- * renders byte-identical to before dims existed.
+ * Width for an image or video-poster embed. Real dimensions only select a
+ * density tier (a raw 1920 would blow out the column) and cap at the real
+ * width so small assets aren't upscaled. Without dims, the filename
+ * heuristic.
  */
 function naturalMediaWidth(
   dims: { width?: number; height?: number } | undefined,
@@ -431,10 +395,8 @@ function escapeHtmlText(s: string): string {
 }
 
 /**
- * Backslash-escape the markdown metacharacters that can appear in a metadata
- * value. `~` is in the set because GitHub's strikethrough extension treats a
- * matching pair of ONE or two tildes as markup, so an unescaped `/a~b~c` would
- * render with `b` struck through.
+ * Backslash-escape markdown metacharacters in a metadata value. `~` is
+ * included because GitHub strikes through text between single tildes.
  */
 function escapeMarkdownText(s: string): string {
   return s.replace(/([\\`*_[\]~])/g, "\\$1");
@@ -448,10 +410,8 @@ function pairLocation(item: AttachmentItem): string {
 }
 
 /**
- * Collect screen, path, then state for a caption (issue #365). `screen`
- * shares the `metaPath` toggle: both say where the shot was taken. Bare `/`
- * and whitespace-only values are omitted (issue #375). Empty when nothing
- * usable.
+ * Screen, path, then state for a caption. `screen` shares the `metaPath`
+ * toggle. Bare `/` and blank values are omitted.
  */
 function metaCaptionValues(meta: AttachmentItem["meta"], options: CommentRenderOptions): string[] {
   const values: string[] = [];
@@ -465,9 +425,8 @@ function metaCaptionValues(meta: AttachmentItem["meta"], options: CommentRenderO
 }
 
 /**
- * Format path/state as code tokens. HTML → `<code>…</code>`; markdown →
- * `` `…` `` (backslash-escape if the value itself contains a backtick).
- * Returns `""` when there is nothing to say.
+ * Format caption values as code: `<code>` in HTML, backticks in markdown.
+ * `""` when there's nothing to say.
  */
 function formatMetaCaption(
   meta: AttachmentItem["meta"],
@@ -527,36 +486,30 @@ function escapeTableCell(s: string): string {
   return s.replace(/\|/g, "\\|");
 }
 
-/** Resolved pixel width for an image site, or `null` meaning "omit the width
- * attribute". `"auto"` defers to the caller's per-item heuristic (`autoPx`);
- * `"full"` always omits; a number always wins. */
+/** Pixel width for an image, or `null` to omit the attribute. */
 function resolvedWidth(autoPx: number, options: CommentRenderOptions): number | null {
   if (options.imageWidth === "auto") return autoPx;
   if (options.imageWidth === "full") return null;
   return options.imageWidth;
 }
 
-/** Every `<img>` tag in the managed comment goes through here so the
- * omit-width-attribute case ("full") can't drift between call sites.
- *
- * `escapedAlt`/`escapedSrc` must already be attribute-escaped (via
- * `escapeHtmlAttr`) by the caller — this function interpolates them as-is
- * and does not escape them itself. */
+/** Every `<img>` goes through here so the "full" case can't drift.
+ * `escapedAlt`/`escapedSrc` must already be attribute-escaped. */
 function imgTag(w: number | null, escapedAlt: string, escapedSrc: string): string {
   const widthAttr = w === null ? "" : ` width="${w}"`;
   return `<img${widthAttr} alt="${escapedAlt}" src="${escapedSrc}">`;
 }
 
-/** Extract the filename stem's before/after token (issue #419 fallback pairing).
- * `base` is the stem lowercased with the token removed; `null` when the stem
- * carries no recognizable before/after token. Requires a separator (`-`, `_`,
- * or `.`) between the token and the rest of the name — except when the token
- * IS the whole stem (`before.png`) — so `beforehand.png` doesn't false-match. */
-// Token bounded by `-`, `_`, `.`, or stem start/end, so `hero-before.webp`
-// and `paired-view-before-desktop.webp` match but `beforehand.webp` does
-// not. Mirrors before-after.ts's TOKEN_RE (file page), applied to the stem.
+// The before/after token, bounded by `-`, `_`, `.` or the stem's edges, so
+// `hero-before.webp` matches but `beforehand.webp` doesn't. Mirrors
+// before-after.ts's TOKEN_RE (file page).
 const STEM_TOKEN_RE = /(^|[-_.])(before|after)($|[-_.])/i;
 
+/**
+ * The filename stem's before/after token and the stem without it
+ * (lowercased), or `null`. A separator is required unless the token is the
+ * whole stem (`before.png`).
+ */
 function filenameStemToken(name: string): { base: string; state: "before" | "after" } | null {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -576,17 +529,14 @@ function filenameStemToken(name: string): { base: string; state: "before" | "aft
 }
 
 /**
- * Pair up attachments for the before/after table (issue #419).
- * `kindAt[i]` is the item's inline kind: images pair with images and videos
- * (with a poster) with videos; anything else renders exactly as before.
- *
- * Priority order, checked independently per candidate item so rule 2 only
- * ever claims items rule 1 left untouched:
- *  1. Same `path` metadata (trimmed, not bare `/`), one item `state=before`
- *     and one `state=after`. Ambiguous groups (more than one of a state)
- *     don't pair — no way to know which side goes with which.
- *  2. No usable `path` metadata: filename stems that differ only by a
- *     before/after token, same extension. Same ambiguity rule.
+ * Pair attachments for the before/after table. Images pair with images,
+ * videos (with posters) with videos. Two rules, the second only for items
+ * the first left alone:
+ *  1. Same screen/path metadata, exactly one `state=before` and one
+ *     `state=after`.
+ *  2. No usable path: filename stems that differ only by a before/after
+ *     token, same extension.
+ * A group with more than one of a state doesn't pair.
  */
 function pairAttachments(
   items: AttachmentItem[],
@@ -678,7 +628,7 @@ function renderPairCell(
   return `<td align="center"><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
 }
 
-/** The before/after table: one header row, one row per pair (issue #419). */
+/** The before/after table: one header row, one row per pair. */
 function renderPairTable(
   pairs: [AttachmentItem, AttachmentItem][],
   options: CommentRenderOptions,
@@ -754,25 +704,16 @@ export interface CommentLinks {
    */
   liveLinkUrl?: string | null;
   /**
-   * How many of the PR/issue's attachments are held for approval (a likely
-   * secret or personal data). Held files never render; this count adds one
-   * line telling the agent how to approve them. It never names a file: a
-   * held file's raw URL still serves, and a public comment must not point
-   * at it. Absent or 0: byte-identical to before.
+   * How many attachments are held for approval. Held files never render; one
+   * line says how to approve them, never naming a file (its URL still
+   * serves, and the comment is public).
    */
   heldCount?: number;
-  /**
-   * The repo's required-uploads checklist (`.uploads.yml` `check.require`),
-   * one entry per requirement, already evaluated. Absent or empty:
-   * byte-identical to before.
-   */
+  /** The repo's evaluated `check.require` checklist. */
   checklist?: ChecklistEntry[];
   /** The PR label that excused it from the checklist; shown in its place. */
   skipLabel?: string | null;
-  /**
-   * The repo's AI notes (`.uploads.yml` `check.ai`), already evaluated.
-   * Advisory only. Absent or empty: byte-identical to before.
-   */
+  /** The repo's evaluated `check.ai` notes. Advisory only. */
   aiNotes?: AiNote[];
 }
 
@@ -889,9 +830,7 @@ export function attachmentsCommentBody(
   target?: Pick<GhTarget, "kind" | "num">,
   links: CommentLinks = {},
 ): string {
-  // Non-mutating sort (equivalent to Array#toSorted) — the api worker's
-  // tsconfig targets lib ES2022, which predates Array#toSorted (ES2023);
-  // packages/uploads/src/github.ts uses toSorted directly.
+  // Not `toSorted`: the api worker's lib target is ES2022.
   const sorted = [...items].sort((a, b) => a.key.localeCompare(b.key));
   const sortedGalleries = [...galleries].sort(
     (a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url),
@@ -934,9 +873,8 @@ export function attachmentsCommentBody(
 
   let inlinedImages = 0;
   const overflowImages: AttachmentItem[] = [];
-  // Non-media attachments (PDFs, archives, text/data files) never inline and
-  // never overflow into the <details> link list — they render as one table
-  // after the image/video section instead (issue #946).
+  // Non-media attachments render as one table after the media section, never
+  // inline or in the overflow list.
   const fileItems: AttachmentItem[] = [];
   for (let idx = 0; idx < sorted.length; idx++) {
     if (consumedByPair.has(idx)) continue;
@@ -974,9 +912,7 @@ export function attachmentsCommentBody(
       !effectiveType.startsWith("video/") &&
       poster !== "pdf"
     ) {
-      // Neither an image nor a video, and not a PDF with a first-page still —
-      // a non-media attachment goes into the file table, never the bullet list
-      // or overflow details.
+      // Not media and not a PDF with a still: goes in the file table.
       fileItems.push(item);
       continue;
     }
@@ -1016,10 +952,8 @@ export function attachmentsCommentBody(
       // with the page count when the server measured one.
       lines.push(pdfPosterCaption(item, options), "");
     } else if (isImage) {
-      // Small-asset flow layout: consecutive captionless small images (icons)
-      // join onto one line so GitHub flows them horizontally at natural size
-      // instead of stacking a giant column per icon. Auto mode only — a
-      // numeric imageWidth override or "full" keeps today's one-per-row form.
+      // Consecutive captionless small images share a line so GitHub flows
+      // them at natural size. Auto width only.
       const smallGroupable = (candidate: AttachmentItem, i: number): boolean => {
         if (options.imageWidth !== "auto") return false;
         if (consumedByPair.has(i) || partnerOf.has(i)) return false;
@@ -1061,8 +995,8 @@ export function attachmentsCommentBody(
         }
       }
       inlinedImages++;
-      // Markdown ![]() has no width control — phone frames become full-column giants.
-      // img src uses embed host when available (Camo revalidates); click-through prefers the file page.
+      // Markdown images have no width control. src prefers the embed host;
+      // the click-through prefers the file page.
       const autoPx = naturalMediaWidth(item.imageMeta, name, density);
       const w = resolvedWidth(autoPx, options);
       const alt = escapeHtmlAttr(name);
@@ -1070,7 +1004,6 @@ export function attachmentsCommentBody(
       const imgSrc = escapeHtmlAttr(src as string);
       lines.push(`<a href="${href}">${imgTag(w, alt, imgSrc)}</a>`);
       const caption = formatMetaCaption(item.meta, options, "html");
-      // Body-size caption — <sub> rendered path/state metadata too small.
       if (caption) lines.push(caption);
       lines.push("");
     } else if (link) {
@@ -1109,10 +1042,8 @@ export function attachmentsCommentBody(
     }
     lines.push("", "</details>", "");
   }
-  // Emptied state: a PR/issue whose attachments and galleries were all removed
-  // still keeps its managed comment (a later push can repopulate it) — show a
-  // neutral resting state rather than a bare footer. Only the truly-empty case
-  // (no attachments, no galleries); a galleries-only comment must not get this.
+  // A PR whose attachments and galleries were all removed keeps its comment
+  // with a neutral resting state. Not for galleries-only comments.
   const heldCount = links.heldCount ?? 0;
   if (sorted.length === 0 && sortedGalleries.length === 0 && heldCount === 0) {
     lines.push("_No attachments are currently associated with this pull request._", "");
@@ -1121,11 +1052,8 @@ export function attachmentsCommentBody(
   else if (links.checklist?.length) lines.push(checklistLine(links.checklist), "");
   if (links.aiNotes?.length) lines.push(aiNotesBlock(links.aiNotes), "");
   if (heldCount > 0) lines.push(heldLine(heldCount, target), "");
-  // Footer condensed to a single quiet line — the old two-line explainer
-  // ("re-uploading updates everywhere", full add-media flags) repeats on
-  // every PR and lost value with each appearance; details live in the docs.
-  // Live link: the screenshots come first, then the button closes the
-  // comment in place of the plain footer. Never on the empty state.
+  // One quiet footer line; the live-link button replaces it when present,
+  // never on the empty state.
   lines.push(
     links.liveLinkUrl && sorted.length > 0
       ? liveLinkBlock(sorted.length, links.liveLinkUrl, target, heldCount > 0)

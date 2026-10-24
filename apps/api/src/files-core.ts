@@ -1,9 +1,6 @@
 /**
- * Workspace file operations shared by the REST routes (routes/files.ts) and
- * the remote MCP worker (apps/mcp) — one code path for key/body validation,
- * storage I/O, and result shapes. Validation failures throw AppError subclasses
- * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
- * `message` in the tool error.
+ * Workspace file operations shared by the REST routes and the remote MCP
+ * worker. Validation failures throw `@uploads/errors` AppErrors.
  */
 import {
   ConflictError,
@@ -117,11 +114,8 @@ import { notifySlackHoldResolved } from "./slack-hold-notify";
 
 export type { StreamedBody };
 
-// The freshness floor on overwrite for every bucket. This is the operative lever
-// for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
-// max-age caps how long Camo serves a stale copy before revalidating against the
-// (now-overwritten) origin. Without it, R2's custom-domain default (max-age=14400)
-// kept replaced images stale for hours.
+// Freshness floor on every write. GitHub embeds go through Camo, and max-age
+// caps how long it serves a replaced image (R2's default was 4 hours).
 export const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 
 /** Server-only first-upload stamp (Files SDK object metadata). Not client provenance. */
@@ -136,22 +130,17 @@ export {
 import { UPLOADED_AT_META_KEY, badKey } from "./files-read";
 
 /**
- * Server-only provenance key naming which storage lane this object was
- * written to (two-lane storage). "lane_origin" marks an upload made before
- * `WorkspaceRecord.storageLaneId` existed. Zero read-path dependency today —
- * resolution stays fallback-based (`resolveObjectLane`) — this is a cheap
- * forward hook for future per-file routing/migration tooling (#630/#594).
+ * Provenance key naming the storage lane an object was written to.
+ * "lane_origin" marks uploads from before lanes existed. Nothing reads it
+ * yet; it's a hook for future per-file routing or migration.
  */
 export const STORAGE_LANE_META_KEY = "storage-lane";
 const STORAGE_LANE_ORIGIN = "lane_origin";
 
 /**
- * Managed GitHub-attachment paths (`attach`, `put --pr`/`--issue`, and the
- * branch-staging fallback) always live under the `gh/` root and re-upload the
- * same key on purpose so PR/issue embeds hot-swap — see issue #174. Every
- * other key (explicit `--key`, bare `put`) is a "strict" path: overwriting an
- * existing object there requires an explicit opt-in (see `putObject`'s
- * `replace` option).
+ * Managed GitHub-attachment keys live under `gh/` and re-upload the same key
+ * so PR/issue embeds hot-swap. Every other key is strict: overwriting needs
+ * `putObject`'s `replace`.
  */
 export function isManagedGithubKey(key: string): boolean {
   return key === "gh" || key.startsWith("gh/");
@@ -226,9 +215,9 @@ async function existingSize(store: Files, key: string): Promise<number | null> {
 }
 
 /**
- * Reserved keys a derived poster may write, cleared together when generation
- * fails or the new bytes are a different kind of object. `pdf.*` is the
- * first-page preview (issue #1009); `video.*` is the frame extract.
+ * Reserved keys a derived poster may write, cleared together on failure or
+ * when the new bytes are a different kind. `pdf.*` is the first-page
+ * preview; `video.*` is the frame extract.
  */
 const DERIVED_POSTER_META_KEYS = [
   "video.poster",
@@ -241,21 +230,15 @@ const DERIVED_POSTER_META_KEYS = [
   "pdf.height",
 ];
 
-/** Server-owned pixel-dimension rows for an image, written at upload time so
- * the managed comment can size embeds without re-fetching bytes (issue #365
- * follow-up). Cleared together, mirroring `DERIVED_POSTER_META_KEYS`. */
+/** Server-owned image dimensions, so the comment can size embeds without
+ * fetching bytes. */
 const IMAGE_META_KEYS = ["image.width", "image.height"];
 
 /**
- * Best-effort `image.width`/`image.height` derived metadata. Never throws:
- * the object is durably stored by the time this runs, and missing dims simply
- * mean the comment renderer falls back to its filename heuristic.
- *
- * Delete-first always, for every content type: an image replaced by a
- * non-image (or by an image whose header can't be parsed) must not keep the
- * prior upload's stale dimensions. Runs after `replaceFileMetadata` for the
- * same reason `generateAndStorePoster` does — replace is delete-then-insert
- * and would wipe these server-owned rows.
+ * Best-effort `image.width`/`image.height`. Never throws; missing dims fall
+ * back to the comment's filename heuristic. Always deletes first so a
+ * replacement never keeps stale dims, and runs after `replaceFileMetadata`,
+ * which would otherwise wipe these rows.
  */
 async function storeImageDimensions(
   env: Env,
@@ -278,22 +261,14 @@ async function storeImageDimensions(
   }
 }
 
-/**
- * Upper bound on frame extraction (issue #299 review): the MEDIA binding
- * exposes no AbortSignal/timeout hook of its own (confirmed against
- * Cloudflare's docs — see the coderabbit finding), so `makePoster`'s call
- * into it could otherwise hang indefinitely and hold `putObject`'s response
- * open. This race just bounds that wait; the outer try/catch below already
- * turns a rejection into the ordinary no-poster path.
- */
+/** The MEDIA binding has no timeout of its own, so bound the poster wait. */
 const POSTER_GENERATION_TIMEOUT_MS = 30_000;
 /** PDFium render is in-isolate. Bound the upload wait; a sync raster past this still runs. */
 const PDF_PREVIEW_TIMEOUT_MS = 10_000;
 
 /**
- * Best-effort poster generation (issue #299, PDF page 1 in #1009). Never
- * throws: the object is already durably stored by the time this runs, and no
- * poster simply means the managed comment keeps its previous fallback.
+ * Best-effort poster (video frame or PDF page 1). Never throws; the object
+ * is already stored, and no poster keeps the comment's fallback.
  */
 export async function generateAndStorePoster(
   env: Env,
@@ -342,9 +317,8 @@ export async function generateAndStorePoster(
 }
 
 /**
- * Best-effort first-page JPEG for a PDF (issue #1009). Same derived key and
- * ledger rules as a video poster. A missing renderer (the MCP worker) or a
- * closed flag leaves the object untouched.
+ * Best-effort first-page JPEG for a PDF. Same derived key and ledger rules
+ * as a video poster. No renderer (the MCP worker) or a closed flag skips it.
  */
 async function generateAndStorePdfPreview(
   env: Env,
@@ -429,7 +403,7 @@ async function deleteStaleDerivedPoster(
   if (stale === null) return;
   await store.delete(posterKey);
   await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, DERIVED_POSTER_META_KEYS);
-  // Single-winner claim (issue #570) — same gate as deleteObject.
+  // Single-winner claim, same gate as deleteObject.
   if (await claimDeleteUsageSafe(dbFor(env), workspaceName, posterKey)) {
     await recordUsageSafe(
       dbFor(env),
@@ -456,15 +430,12 @@ async function storeDerivedPoster(
   await store.upload(posterKey, jpeg, {
     contentType: "image/jpeg",
     cacheControl: UPLOAD_CACHE_CONTROL,
-    // Mirrors putObject's own VISIBILITY_META_KEY convention: only written
-    // when private, so a private source never leaves a public still at the
-    // deterministic _internal/ path.
+    // A private source must not leave a public still at the _internal/ path.
     ...(visibility === "private" ? { metadata: { [VISIBILITY_META_KEY]: "private" } } : {}),
   });
   // A re-created poster must be able to debit the ledger on a later delete.
   await clearDeleteUsageClaimSafe(dbFor(env), workspaceName, posterKey);
-  // Counted because reconcileWorkspaceUsage walks every object under the
-  // prefix and would otherwise disagree with the ledger permanently.
+  // Counted because reconcileWorkspaceUsage walks every object under the prefix.
   await recordUsageSafe(
     dbFor(env),
     workspaceName,
@@ -500,22 +471,14 @@ export function resolveUploadedAtMeta(
 }
 
 /**
- * Put options that carry a stored object's own attributes through a
- * server-side copy (attach, promote, rotate): its provenance bag, the
- * visibility that bag encodes, and its stored content type as the declared
- * claim, so a text object under an extension-less key is admitted by
- * `inspectUpload` at the destination the same way it was at the source.
- * Every copy still runs the full `putObject` write path — the size cap,
- * sniffing, and (for a declared type) the row's `admit` check all still
- * apply. What `serverCopy: true` changes is only *which* active-content
- * verdicts admit a gated type (issue #929 review, tightened by the
- * adversarial review's M-2): a copy of bytes already stored in this same
- * workspace doesn't change exposure — same active lane, same serving host —
- * so a lapsed verification stamp or a stale host record must not make a
- * stored SVG uncopyable (it would wedge prefix rotation outright). A
- * *policy* close — the workspace opt-out, the Flagship kill switch, an
- * unhealthy lane — still refuses the copy. See
- * `activeContentAllowedForCopy` and `putObject`'s `opts.serverCopy`.
+ * Put options that carry a stored object's provenance, visibility and
+ * content type through a server-side copy (attach, promote, rotate), so the
+ * destination admits it the same way the source did. The full `putObject`
+ * path still runs. `serverCopy: true` only changes which active-content
+ * verdicts admit a gated type: a copy within the same workspace doesn't
+ * change exposure, so a stale freshness stamp must not make a stored SVG
+ * uncopyable (that would wedge prefix rotation). Policy closes (workspace
+ * opt-out, kill switch, unhealthy lane) still refuse.
  */
 export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "type">): {
   provenance: Record<string, string> | undefined;
@@ -532,12 +495,9 @@ export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "t
 }
 
 /**
- * Upload with the workspace's guardrails applied: size cap and content-type
- * allowlist, the stored content type sniffed from the bytes rather than taken
- * from the caller — see guards.ts.
- *
- * After a successful write, updates the workspace usage ledger (overwrite-aware).
- * Metering is best-effort and never fails the upload.
+ * Upload with the workspace's guardrails (size cap, content-type allowlist,
+ * content type sniffed from the bytes; see guards.ts), then update the usage
+ * ledger. Metering is best-effort and never fails the upload.
  */
 export async function putObject(
   env: Env,
@@ -549,92 +509,49 @@ export async function putObject(
     provenance?: Record<string, string>;
     visibility?: Visibility;
     /**
-     * Allow overwriting an existing object on a "strict" (non-`gh/`) key —
-     * see `isManagedGithubKey`. Ignored (always allowed) on managed `gh/`
-     * paths, which stay silent hot-swap. Defaults to false: a strict-path put
-     * that would overwrite an existing object throws `ConflictError`
-     * (`code: "key_exists"`, `details.url`/`details.embedUrl` naming the
-     * existing object) instead of writing. Callers opt in per-request
-     * (CLI `--replace`, or `UPLOADS_OVERWRITE=1` as a CLI-side default) —
-     * there is no server-side global escape hatch.
+     * Allow overwriting an existing object on a strict (non-`gh/`) key.
+     * Otherwise such a put throws `ConflictError` (`key_exists`, with the
+     * existing URLs in `details`). Always allowed on managed `gh/` paths.
      */
     replace?: boolean;
     /**
-     * Custom queryable metadata (D1 `file_metadata`), distinct from the R2
-     * `provenance` bag above. When present (even `{}`), this call replaces
-     * the object's client metadata so an overwrite never leaves stale rows
-     * from a prior put. Omit
-     * entirely (undefined) to leave existing metadata untouched. Every
-     * caller follows this contract: the REST PUT route passes `undefined`
-     * when the request had no custom (non-provenance) `X-Uploads-Meta-*`
-     * headers, and the MCP `put`/`attach` tools pass `undefined` when their
-     * `metadata` argument was omitted.
+     * Queryable metadata (D1 `file_metadata`), distinct from the R2
+     * provenance bag. When present (even `{}`) it replaces the object's
+     * client metadata; undefined leaves existing rows untouched.
      */
     metadata?: Record<string, string>;
-    /**
-     * Which server-side entry point is writing this object. Recorded as an
-     * Analytics Engine dimension only — never stored in D1, never affects the
-     * write. Absent means the caller predates this parameter.
-     */
+    /** Which entry point wrote this. Analytics Engine dimension only. */
     surface?: UploadSurface;
-    /**
-     * Precomputed SHA-256 (hex) of `bytes`. The idempotent-PUT path already
-     * hashes the body for its fingerprint; passing it here avoids a second pass
-     * over a potentially multi-MB body. Omit to hash internally as usual.
-     */
+    /** Precomputed SHA-256 (hex) of `bytes`, to skip a second hash pass. */
     contentSha256?: string;
     /**
-     * The client's claimed Content-Type (already normalized to type/subtype)
-     * or undefined. Only text types are ever trusted, and only when sniffing
-     * finds nothing — see `inspectUpload`. When omitted, the key's extension
-     * is the claim, which is what the hosted MCP and older CLIs rely on.
+     * The client's claimed Content-Type, normalized. Only text types are
+     * trusted, and only when sniffing finds nothing (see `inspectUpload`).
+     * Omitted, the key's extension is the claim.
      */
     declaredContentType?: string;
     /**
-     * Set by `putOptsFromStoredObject` (issue #929 review): `bytes` are
-     * already stored in this same workspace (attach/promote/rotate copying
-     * an existing object to a new key), so the active-content gate is
-     * evaluated through `activeContentAllowedForCopy` rather than the
-     * ordinary `activeContentAllowed` — the destination is the same active
-     * lane as the source, so a *freshness* close (stale/absent host record,
-     * lapsed BYO stamp) changes nothing about exposure and must not make a
-     * stored SVG uncopyable. A policy close (workspace opt-out, kill switch,
-     * unhealthy lane) still 415s the copy. Everything else `inspectUpload`
-     * checks (size, sniffing, plausibility/reputation) still applies; this
-     * only widens the *allowlist*, never the acceptance rules.
+     * Set by `putOptsFromStoredObject`: the bytes are already stored in this
+     * workspace, so the gate asks `activeContentAllowedForCopy` instead (see
+     * there). Only widens the allowlist; every other check still applies.
      */
     serverCopy?: boolean;
     /**
-     * A caller that has already resolved `activeContentAllowed(env, ws)` for
-     * this workspace passes it here rather than making every put re-resolve
-     * it — the MCP `put` tool's multi-file batch does, so one tool call
-     * evaluates the flag (and reads KV) at most once for up to 20 files.
-     * Only consulted when the declared type is a gated one, and never
-     * consulted at all for a `serverCopy` (which asks the copy-specific
-     * question instead — see `serverCopy` above).
+     * A pre-resolved `activeContentAllowed(env, ws)`, so a batch evaluates the
+     * flag once. Only consulted for gated declared types, never for
+     * `serverCopy`.
      */
     activeContent?: boolean;
     /**
-     * Attribution for this put's attachment-index row (issue #934), for the
-     * server-side copy paths that already know what they are doing: attach,
-     * promote, adopt. Absent (every other caller — the REST PUT, the
-     * idempotent PUT, rotation) means `source: "put"` with the repo derived
-     * from the key, which is the historical behavior.
-     *
-     * `repo` must be a SERVER-RESOLVED repo (the request/webhook target),
-     * never `gh.*` file_metadata — see github-attachment-index.ts's trust
-     * boundary. Supplying it also avoids the plain key's lossy sanitized
-     * owner/name segments.
-     *
-     * A non-`"put"` source clears `detached_at`, exactly as the follow-up
-     * `recordAttachmentForKeySafe` these callers used to make did.
+     * Attribution for the attachment-index row, set by attach, promote and
+     * adopt. Absent means `source: "put"` with the repo derived from the key.
+     * `repo` must be server-resolved, never `gh.*` metadata (see
+     * github-attachment-index.ts). A non-`"put"` source clears `detached_at`.
      */
     attachment?: { source: AttachmentSource; repo?: string };
     /**
-     * Experimental classifier scheduling. REST handlers and the hosted MCP
-     * pass `executionCtx.waitUntil` so the model call can finish after the
-     * response. Absent (ingest, server-side copies, most tests) means
-     * classification is skipped rather than awaited on the upload path.
+     * Lets the classifier finish after the response. Absent (ingest,
+     * server-side copies) skips classification.
      */
     waitUntil?: ClassifierWaitUntil;
     /**
@@ -663,10 +580,9 @@ export async function putObject(
    */
   provenance?: ProvenanceMap;
   /**
-   * The queryable metadata (D1 `file_metadata`) this put stored, including any
-   * server-derived pairs the caller did not send (`gh.uploader`). Omitted —
-   * not empty — when the put carried no `metadata` at all, since that case
-   * leaves whatever rows already existed untouched and reads nothing back.
+   * The queryable metadata this put stored, including server-derived pairs.
+   * Omitted when the put carried no `metadata`, since existing rows were
+   * left untouched and not read back.
    */
   metadata?: Record<string, string>;
   visibility?: Visibility;
@@ -678,19 +594,13 @@ export async function putObject(
   const newSize = bytes?.byteLength ?? (body as StreamedBody).size;
   if (newSize === 0) throw new ValidationError("empty body", { code: "empty_body" });
 
-  // Validate custom metadata before any write so a bad key/value or a
-  // cap breach rejects the whole upload instead of landing bytes first.
+  // Validate before any write so a bad entry rejects the whole upload.
   if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
   const declared = resolveDeclaredContentType(opts?.declaredContentType, finalKey);
-  // The gate only ever decides whether the gated SVG/XML rows are admitted,
-  // and those are declared-only — so a put that claims anything else can
-  // never be changed by it, and doesn't pay for it: no Flagship evaluation,
-  // no KV read (issue #929). A server-side copy of bytes already stored in
-  // this workspace asks the copy-specific question (see `opts.serverCopy`)
-  // — still an evaluation, so the kill switch and the workspace opt-out
-  // reach the copy paths too — and a caller that has already resolved the
-  // ordinary answer passes it in (`opts.activeContent`).
+  // The gate only decides whether gated SVG/XML rows are admitted, and those
+  // are declared-only, so other claims skip the Flagship/KV lookup. A
+  // server copy asks the copy-specific question.
   let activeContent = false;
   if (declared !== undefined && isGatedContentType(declared)) {
     activeContent =
@@ -713,36 +623,18 @@ export async function putObject(
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
-  // Pre-upload head: ledger size delta + prior stamp/mtime (overwrite keeps first upload).
-  // files-sdk upload() has no replaced/exists flag, so we derive it here.
+  // files-sdk upload() has no replaced flag, so derive it from a head: the
+  // ledger size delta and the prior stamp (overwrite keeps first upload).
   const prior = await existingHead(store, finalKey);
   const replaced = prior !== null;
 
-  // Strict-overwrite gate (issue #174): managed `gh/` paths always hot-swap;
-  // every other key refuses an overwrite unless the caller opted in via
-  // `opts.replace`. Checked before any budget reservation or write so a
-  // refusal never touches usage accounting.
+  // Strict-overwrite gate, checked before any reservation or write.
   //
-  // Known TOCTOU, accepted deliberately: `existingHead` above and the R2
-  // write below are two separate calls, not one atomic operation, so two
-  // concurrent first-puts to the same never-before-seen `finalKey` can both
-  // observe `replaced === false` and both proceed as "creates" — each gets
-  // its own upload-count reservation (see `reserveUploads` below), and
-  // whichever R2 write lands last silently wins, same as the other's bytes
-  // being clobbered. True cross-request atomicity per key would need a
-  // Durable Object (or a D1-backed claim table with its own cleanup/TTL
-  // story for crashed claims) serializing every put — disproportionate
-  // infrastructure for a race that only bites two truly simultaneous first
-  // writes to the *same* key, and whose worst case is exactly the
-  // pre-#174 behavior (silent overwrite, last-write-wins) for that narrow
-  // window — not a new failure mode, not a security regression, and not
-  // reachable at all once the key exists (the second writer's read then
-  // correctly observes `replaced === true`). Usage accounting can double-count
-  // the upload delta for that one race (two reservations for one surviving
-  // object); left unmitigated as the same order-of-magnitude inaccuracy
-  // budget checks already tolerate at their cap boundary (see the comment
-  // on `reserveUploads` below). Revisit only if this key-collision race is
-  // ever observed in practice, not preemptively.
+  // Known, accepted TOCTOU: two simultaneous first puts to the same new key
+  // can both see `replaced === false`; the last R2 write wins and usage may
+  // count both. Fixing it would need per-key serialization (a Durable
+  // Object), which isn't worth it for a race that only exists before the
+  // key does. Revisit only if it's observed.
   if (replaced && !opts?.replace && !isManagedGithubKey(finalKey)) {
     const cfg = await storageConfig(env, ws);
     const urls = objectPublicUrls(env, cfg, finalKey);
@@ -761,10 +653,9 @@ export async function putObject(
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
   if (denial) throw budgetDenialError(denial);
 
-  // Atomically reserve monthly upload count AND (when growing) net storage
-  // bytes before the R2 write. Reservations ARE the ledger increments for
-  // those fields, so post-put recordUsageSafe must not count them again; a
-  // failed write releases both.
+  // Atomically reserve the monthly upload count and (when growing) storage
+  // bytes before the write. Reservations are the ledger increments, so
+  // recordUsageSafe must not count them again; a failed write releases both.
   const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
   const maxStorageBytes = enforcedMaxStorageBytes(ws);
   const sharedLane = isSharedLane(ws);
@@ -790,30 +681,19 @@ export async function putObject(
         storageReservation.usage,
         storageReservation.maxStorageBytes,
         sharedLane ? storageReservation.deltaBytes : 0,
-        // The `?? .bytes` fallback is unreachable by construction, not a
-        // real degrade path: `reserveStorageBytes` only ever returns
-        // `ok: false` when `maxStorageBytes` (== `enforcedMaxStorageBytes(ws)`
-        // here) is defined, and that is `enforcedStorageUsageBytes`'s only
-        // undefined-condition — so this call can never actually see
-        // `undefined`. Kept rather than asserted non-null so a future change
-        // to either function's contract fails safe instead of throwing.
+        // The fallback is unreachable today; kept so a contract change fails safe.
         enforcedStorageUsageBytes(ws, storageReservation.usage) ?? storageReservation.usage.bytes,
       ),
     );
   }
   const reservedBytes = storageReservation.reservedBytes;
 
-  // Client headers first; always attach content-sha256 of the final stored body
-  // (never trust a client-supplied hash). Visibility lives alongside provenance
-  // in the same custom-metadata bag but is tracked separately (not client-free-form).
-  // `uploaded-at` is server-only — set on the final bag, never via sanitizeProvenance.
-  // A streamed body's hash is only known after the write, too late for the
-  // R2 bag, so its `content-sha256` lives in the D1 hash index alone.
+  // Always hash the final stored body; never trust a client hash.
+  // `uploaded-at` is server-only. A streamed body's hash is known only after
+  // the write, so its `content-sha256` lives in the D1 hash index alone.
   let contentSha256 = bytes ? (opts?.contentSha256 ?? (await contentSha256Hex(bytes))) : undefined;
-  // Started here rather than where it is consumed, so this D1 read overlaps the
-  // R2 write and usage accounting instead of adding its latency after them. Safe
-  // to leave in flight: inheritableMetaForHash never rejects (it resolves to `{}`
-  // on any failure), so an upload that throws below cannot orphan a rejection.
+  // Started early so the D1 read overlaps the R2 write. Never rejects, so
+  // it's safe to leave in flight if the upload throws.
   const inheritedPromise =
     contentSha256 === undefined
       ? undefined
@@ -825,8 +705,7 @@ export async function putObject(
   const storedVisibility = opts?.visibility === "private" ? "private" : undefined;
   const storageMetadata: Record<string, string> = {
     ...provenance,
-    // Only written when private — absence is the (majority) public default,
-    // matching the historical shape of objects uploaded before this existed.
+    // Only written when private; absence means public.
     ...(storedVisibility ? { [VISIBILITY_META_KEY]: storedVisibility } : {}),
     [UPLOADED_AT_META_KEY]: uploadedAt,
     [STORAGE_LANE_META_KEY]: ws.storageLaneId ?? STORAGE_LANE_ORIGIN,
@@ -842,10 +721,8 @@ export async function putObject(
     // Settle the in-flight donor lookup so no D1 read outlives the request. It
     // resolves to `{}` rather than rejecting, so this only discards a result.
     await inheritedPromise;
-    // Credential-shaped failures flag the active BYO lane unhealthy (issue
-    // #826) so the settings page and the signed-in banner can say so before
-    // the next person notices a broken upload. Filters non-credential
-    // failures and shared lanes itself, and never throws.
+    // Credential-shaped failures flag the BYO lane unhealthy so settings can
+    // say so. Never throws.
     await noteStorageFailure(env, workspaceName, ws, err);
     // Nothing was stored — return both reservations to the budget.
     await releaseUploadsSafe(dbFor(env), workspaceName, 1);
@@ -857,30 +734,15 @@ export async function putObject(
 
   contentSha256 ??= streamed!.sha256();
 
-  // The write landed, so whatever flagged this lane unhealthy is over —
-  // clear it (issue #826). Returns without touching KV when nothing is
-  // flagged, which is every upload on a working workspace.
+  // The write landed, so clear any unhealthy flag (no KV write when unset).
   await noteStorageSuccess(env, workspaceName, ws);
 
-  // Usage accounting first: the object is already durably stored above, so
-  // the ledger must be updated regardless of whether the metadata batch
-  // below succeeds — otherwise a metadata failure leaves bytes/objects
-  // stored but under-counted (recordUsageSafe never throws). Upload count
-  // and any reserved positive byte delta were already applied at reservation
-  // time; only remaining deltas (objects; shrink/unlimited bytes) land here.
-  //
-  // Clear any prior delete-usage claim for this key (issue #570) so a
-  // re-uploaded object can debit the ledger on its next delete. Runs with
-  // the other post-write bookkeeping below.
-  //
-  // Adoption metrics, best-effort and never fatal (see src/adoption.ts).
-  // Recorded here rather than at the route so all four putObject callers are
-  // covered by construction. `newSize` (not deltaBytes) is the right figure:
-  // this counts bytes written by this upload, not net storage change.
-  //
-  // These writes land in different tables / are independent, and all are
-  // never-throwing — so they run concurrently rather than as serial D1
-  // round trips on every upload.
+  // Post-write bookkeeping, all never-throwing and independent, so run
+  // concurrently. The ledger must update even if the metadata batch below
+  // fails. Upload count and reserved bytes were applied at reservation;
+  // only the remaining deltas land here. Clearing the delete claim lets a
+  // re-uploaded object debit the ledger on its next delete. Adoption metrics
+  // count bytes written (`newSize`), not net change.
   await Promise.all([
     recordUsageSafe(
       dbFor(env),
@@ -905,15 +767,8 @@ export async function putObject(
         repo: opts?.metadata?.["gh.repo"],
       },
     }),
-    // Attachment index (issue #934): the single choke point covering every
-    // putObject caller — REST PUT, the idempotent PUT and its reconcile,
-    // attach, promote, and rotation. See github-attachment-index.ts's header
-    // doc comment for the trust-boundary rationale. `lane_id` is the active
-    // lane this write went to (`storage(env, ws)` above). Best-effort and
-    // never-throwing like its neighbours here, and the object is durably
-    // stored by the time this block runs — so it rides along with the rest
-    // of the post-write bookkeeping rather than costing its own serial round
-    // trip on every attachment upload.
+    // Attachment index (see github-attachment-index.ts). Every putObject
+    // caller passes through here. `lane_id` is the lane this write used.
     isManagedGithubKey(finalKey)
       ? recordAttachmentForKeySafe(dbFor(env), {
           workspace: workspaceName,
@@ -925,15 +780,13 @@ export async function putObject(
       : Promise.resolve(),
   ]);
 
-  // Derived metadata from a content-identical earlier upload in this workspace
-  // (issue #479) — rescues the paths the CLI sidecar cannot reach: the hosted
-  // MCP, CI, a second machine. Never fires in the communal workspace; see
-  // inheritableMetaForHash. Issued back at the hash (or, streamed, only now),
-  // awaited here.
+  // Derived metadata from a content-identical earlier upload in this
+  // workspace, for paths the CLI sidecar can't reach (hosted MCP, CI). Never
+  // in the communal workspace; see inheritableMetaForHash.
   const inherited = await (inheritedPromise ??
     inheritableMetaForHash(dbFor(env), workspaceName, contentSha256, finalKey));
 
-  // What actually landed in the queryable tier, echoed on the response (#511).
+  // What actually landed in the queryable tier, echoed on the response.
   let storedMetadata: Record<string, string> | undefined;
 
   // Before recordContentHash overwrites the row. See CLASSIFIER_ROW_KEYS.
@@ -941,22 +794,17 @@ export async function putObject(
   const sameBytes = previousHash === contentSha256;
 
   if (opts?.metadata) {
-    // Full replace of client metadata: an overwrite must not inherit a prior
-    // put's custom metadata. One atomic batch (replaceFileMetadata) rather
-    // than a delete followed by a separate re-read-then-write.
+    // Full replace in one batch: an overwrite must not inherit a prior put's
+    // custom metadata.
     storedMetadata = mergeWithinMetadataCaps(opts.metadata, inherited);
     await replaceFileMetadata(dbFor(env), workspaceName, finalKey, storedMetadata, {
       keepClassifierRows: sameBytes,
     });
-    // Explicit metadata only, never the inherited merge: inherited keys
-    // describe the bytes, and letting them reach PR activity would attribute
-    // the donor upload's PR to this one. (`gh.*` is not inheritable, so this
-    // is belt and braces rather than the only guard.)
+    // Explicit metadata only: inherited keys describe the bytes, and must not
+    // attribute the donor upload's PR to this one.
     await recordPrActivityFromMetadata(dbFor(env), workspaceName, opts.metadata);
   } else {
-    // No `X-Uploads-Meta-*` headers: this put deliberately leaves an existing
-    // object's tags alone, so inheritance must be additive rather than a
-    // replace, which would wipe tags the caller never asked to change.
+    // No metadata sent: leave existing tags alone and add inherited keys only.
     storedMetadata = await applyInheritedMetaAdditively(
       dbFor(env),
       workspaceName,
@@ -970,16 +818,13 @@ export async function putObject(
     }
   }
 
-  // Index this object's bytes for future inheritance. Last, and best-effort:
-  // the object is durably stored by now, so a failed index write costs a later
-  // inheritance rather than this upload.
+  // Last and best-effort: a failed index write only costs later inheritance.
   await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
 
   // After the metadata replace, never before: replaceFileMetadata deletes
   // client rows and would wipe the server-owned video.*/image.* rows.
   await storeImageDimensions(env, workspaceName, finalKey, head, inspection.contentType);
-  // Posters and PDF previews read the whole file, so a streamed body gets
-  // neither (the MCP worker that streams has no MEDIA binding anyway).
+  // Posters and PDF previews need the whole file, so streamed bodies skip them.
   if (bytes) {
     await generateAndStorePoster(
       env,
@@ -992,11 +837,9 @@ export async function putObject(
     );
   }
 
-  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so the
-  // object this put just wrote goes straight back out of the public bucket.
-  // New bytes end a hold (their classifier rows are gone above), so a held
-  // copy of the old bytes must not wait in the held bucket. That delete is
-  // cleanup, not part of the response, so it runs after it when it can.
+  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so this
+  // object goes straight back out of the public bucket. New bytes end the
+  // hold, so the old held copy is deleted, after the response when possible.
   const logHeldError = (err: unknown) =>
     console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
   if (sameBytes) {
@@ -1015,9 +858,8 @@ export async function putObject(
     if (!deferred) await cleanup;
   }
 
-  // Experimental: after durable storage + server metadata, never on the
-  // critical path. Fail-open inside classifyAndStore.
-  // Not for a streamed body, whose bytes were never held in memory.
+  // Experimental: after storage and metadata, never on the critical path.
+  // Fails open. Not for streamed bodies.
   const classifying =
     bytes !== undefined &&
     scheduleFileClassification(
@@ -1043,8 +885,8 @@ export async function putObject(
     provenance,
     ...(storedMetadata ? { metadata: storedMetadata } : {}),
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
-    // The classifier may still hold this file (`upload-hold.ts`); it decides
-    // after this response, so a caller checks `list_held` / the PR comment.
+    // The classifier decides after this response; callers check `list_held`
+    // or the PR comment.
     ...(classifying && opts?.enforceHold && holdPolicyEnabled(ws)
       ? { holdCheck: "pending" as const }
       : {}),
@@ -1055,21 +897,14 @@ export async function putObject(
 export type PutObjectResult = Awaited<ReturnType<typeof putObject>>;
 
 /**
- * Reconciles a `key_exists` failure from an idempotent `PUT` retry (issue
- * #829): a prior attempt's bytes may already be durably stored even though its
- * idempotency claim never completed — a crash between the R2 write and the
- * downstream D1 work (metadata, content-hash index, PR activity). Heading the
- * object and synthesizing a response would report success while that D1 work
- * was never applied (e.g. `X-Uploads-Meta-*` tags silently dropped). So, only
- * when the stored object's `content-sha256` matches this retry's bytes — i.e.
- * it is our own interrupted upload — this re-drives `putObject` with `replace`,
- * converging the object to the intended state through the exact same
- * metadata/index/poster path a normal write uses. The cost is the accepted
- * one-off upload-ledger over-count on this rare recovery path.
+ * Reconciles a `key_exists` on an idempotent `PUT` retry. A prior attempt
+ * may have stored the bytes but crashed before its D1 work (metadata, hash
+ * index, PR activity). When the stored `content-sha256` matches this retry,
+ * re-drive `putObject` with `replace` so that work runs; the cost is a
+ * one-off upload over-count.
  *
- * Returns `null` when there is no object at the key, or when one exists but its
- * content hash differs (a genuine conflict — the caller surfaces `key_exists`
- * rather than overwriting someone else's object).
+ * Returns `null` when there's no object, or its hash differs (a genuine
+ * conflict, surfaced as `key_exists`).
  */
 export async function reconcileInterruptedUpload(
   env: Env,
@@ -1098,26 +933,14 @@ export async function reconcileInterruptedUpload(
 }
 
 /**
- * Toggle an object's `visibility` custom-metadata flag. R2 custom metadata is
- * immutable in place, so this rewrites the object under the same key: a
- * `head` first (to enforce the same size cap as ordinary uploads, since the
- * rewrite buffers the whole body in memory) then a `download` + `upload` with
- * the toggled metadata. `contentType` and provenance metadata come straight
- * off the existing object; `cacheControl` is reapplied from
- * `UPLOAD_CACHE_CONTROL` (the same constant every upload already uses), so
- * this is a no-op for objects written by this API and a one-time
- * normalization for anything written before that constant existed.
+ * Toggle an object's `visibility` flag. R2 custom metadata is immutable, so
+ * this re-uploads under the same key, after a head to enforce the size cap
+ * (the rewrite buffers the body). Throws `NotFoundError` or
+ * `ValidationError` (`file_too_large`).
  *
- * Throws `NotFoundError` when the object doesn't exist and `ValidationError`
- * (`code: "file_too_large"`) when it exceeds `maxBytes` — callers should let
- * both propagate to the route's error mapping.
- *
- * KNOWN RACE: the download→upload pair is not compare-and-swap — files-sdk
- * (2.1.0) exposes no conditional writes (etag/onlyIf), so an upload to the
- * same key that lands between the two steps is overwritten with this
- * request's older bytes (last-write-wins). Acceptable for now: toggles are
- * rare, member-initiated, and workspace-write-rate-limited. Revisit if
- * files-sdk grows conditional writes or a metadata-update API.
+ * Known race: download→upload isn't compare-and-swap (files-sdk has no
+ * conditional writes), so a concurrent upload in between is overwritten.
+ * Acceptable: toggles are rare and rate-limited.
  */
 export async function setObjectVisibility(
   store: Files,
@@ -1133,13 +956,8 @@ export async function setObjectVisibility(
     });
   }
 
-  // Derived poster (issue #299), best-effort: a missing one is the norm for
-  // every non-video object. THE security case — a private video must never
-  // keep a publicly fetchable poster frame — so this propagation must land
-  // before the primary flip, so a crash between the two calls never leaves
-  // a private video with a still-public poster. (Widening is harmless in
-  // this order too: a poster that stays private a moment longer than the
-  // now-public video is not a confidentiality issue.)
+  // The poster flips first, so a crash in between can never leave a private
+  // video with a public poster frame.
   const posterKey = posterKeyFor(key);
   const posterExists = await store.head(posterKey).catch(() => null);
   if (posterExists) await rewriteVisibility(store, posterKey, visibility);
@@ -1147,12 +965,7 @@ export async function setObjectVisibility(
   await rewriteVisibility(store, key, visibility);
 }
 
-/**
- * Shared rewrite body for `setObjectVisibility`: download the object, flip
- * the `visibility` custom-metadata flag, and upload it back under the same
- * key. Extracted so the primary object and its derived poster (issue #299)
- * go through identical logic.
- */
+/** Download, flip `visibility`, re-upload. Shared by the object and its poster. */
 async function rewriteVisibility(store: Files, key: string, visibility: Visibility): Promise<void> {
   const current = await store.download(key);
   const bytes = new Uint8Array(await current.arrayBuffer());
@@ -1185,10 +998,8 @@ function storedMetaJson(meta: { size?: number; contentType?: string; lastModifie
 }
 
 /**
- * Shape HEAD/list-friendly metadata for API JSON. The object's R2 provenance
- * comes back as `provenance`; the queryable tier is a separate store and a
- * separate read, so it is served by `?metadata=1` on the same route rather
- * than costing every plain HEAD a D1 query.
+ * HEAD/list metadata for API JSON. The queryable tier is a separate D1 read,
+ * served by `?metadata=1` rather than costing every HEAD a query.
  */
 export function headObjectJson(
   key: string,
@@ -1224,24 +1035,13 @@ export interface ListedObject {
   uploaded?: string;
   /** Present (== "private") only when the object was uploaded as private. */
   visibility?: "private";
-  /**
-   * D1 `gh.*`-style queryable metadata for this key (file-metadata.ts). Never
-   * populated here — `listObjects` only projects storage-provider fields;
-   * callers that want metadata hydrate it separately (e.g. via
-   * `getMetadataForKeys`) and merge it onto each row.
-   */
+  /** Queryable metadata. Never populated by `listObjects`; callers hydrate it. */
   metadata?: Record<string, string>;
-  /** Canonical public `/f/` page URL (issue #135). Present only when `url` is set and the workspace record carries a slug (`ws.name`, issue #303). */
+  /** Public `/f/` page URL, when `url` is set and the workspace has a slug. */
   pageUrl?: string;
 }
 
-/**
- * Canonical public file-page URL (`/f/<workspace>/<key>`) for an object, built
- * against `WEB_ORIGIN` — the metadata-rich page apps/web serves (issues
- * #135/#139). Sibling to `galleryUrl`. Callers must not synthesize this;
- * the API returns it on the listing DTO.
- */
-/** Server-owned namespace — derived posters, CLI report uploads. Never listed. */
+/** Server-owned namespace (derived posters, CLI report uploads). Never listed. */
 const INTERNAL_KEY_PREFIX = "_internal/";
 
 export function filePageUrl(env: Env, workspace: string, key: string): string {
@@ -1258,7 +1058,7 @@ interface RawListedItem {
   metadata?: Record<string, string>;
 }
 
-/** Shared HEAD/list projection, parameterized on which lane's config to derive URLs from — the single-lane and multi-lane `listObjects` paths both funnel through this. */
+/** HEAD/list projection, given which lane's config to derive URLs from. */
 function projectListedObject(
   env: Env,
   ws: WorkspaceRecord,
@@ -1277,17 +1077,17 @@ function projectListedObject(
   };
 }
 
-/** One lane's fetched-and-filtered batch, tagged with enough state to resume it next page. */
+/** One lane's fetched batch, with enough state to resume it next page. */
 interface LaneFetch {
   laneKeyStr: string;
   cfg: Awaited<ReturnType<typeof storageConfig>>;
-  /** This batch's items, already dropped for anything at or before the composite cursor's high-water key. Empty (without ever fetching) when the lane was already `LANE_DONE`. */
+  /** Items after the cursor's high-water key. Empty without fetching when the lane was done. */
   remaining: RawListedItem[];
-  /** The provider cursor this fetch itself used (re-used verbatim next page if `remaining` isn't fully consumed this page) — `undefined` if the lane was already done (never fetched). */
+  /** The provider cursor this fetch used, reused if `remaining` isn't consumed. */
   providerCursorUsed: string | undefined;
   /** The provider's own next-cursor for this batch, if it was truncated. */
   providerNextCursor: string | undefined;
-  /** True when this lane was already `LANE_DONE` coming in — skipped entirely, no fetch made. */
+  /** The lane was already `LANE_DONE`; no fetch was made. */
   wasDone: boolean;
 }
 
@@ -1307,9 +1107,7 @@ export async function listObjects(
   const configs = await storageConfigs(env, ws);
 
   if (configs.length === 1) {
-    // Single-lane record (the entire fleet until a second lane exists):
-    // exactly today's path — one provider call, today's raw opaque cursor,
-    // no composite envelope. Backward compatible with an in-flight cursor.
+    // Single lane: one provider call with the raw provider cursor.
     const cfg = configs[0].config;
     const store = createStorage(cfg);
     const result = await store.list({
@@ -1319,12 +1117,8 @@ export async function listObjects(
       cursor: opts.cursor,
     });
     return {
-      // Server-owned derived artifacts (issue #299 posters, CLI report
-      // uploads) are not user objects and must never appear as rows. Caveat:
-      // `limit` applies to the underlying page *before* this filter, so a
-      // page can come back shorter than `limit` while `cursor` is still
-      // non-null — callers that paginate must follow the cursor, not stop on
-      // a short page.
+      // Server-owned artifacts are never rows. `limit` applies before this
+      // filter, so a short page can still have a cursor; follow the cursor.
       items: result.items
         .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
         .map((item) => projectListedObject(env, ws, cfg, item)),
@@ -1333,13 +1127,10 @@ export async function listObjects(
     };
   }
 
-  // Multi-lane fan-out + merge (spec: "Listing: merged fan-out"). Garbage or
-  // a plain (pre-lanes) cursor decodes to `null` — treated as a fresh start
-  // rather than an error.
+  // Multi-lane fan-out + merge. A garbage or pre-lanes cursor starts fresh.
   const cursorMap = decodeLaneCursor(opts.cursor) ?? { v: 1, lanes: {} };
-  // The global high-water key: nothing at or before it is ever re-emitted,
-  // even if a lane's own resume state were somehow lost — defense in depth
-  // alongside the explicit `LANE_DONE` sentinel below.
+  // Nothing at or before the high-water key is re-emitted, as a backstop to
+  // `LANE_DONE`.
   const highWater = cursorMap.after;
   const laneCursorKey = (laneId: string | null) => laneId ?? ACTIVE_LANE_CURSOR_KEY;
 
@@ -1380,12 +1171,8 @@ export async function listObjects(
     }),
   );
 
-  // Tag each raw item with the config it came from (by object identity) so
-  // the merge result can still be projected to a `ListedObject` per its
-  // owning lane, without threading lane info through `mergeBounded`'s
-  // generic `{ key }` constraint. `fetches` is already active-first order
-  // (matches `storageConfigs`), which is exactly the merge priority order
-  // `mergeBounded` wants.
+  // Tag items with their lane config so the merge result can be projected per
+  // lane. `fetches` is active-first, the merge priority order.
   const taggedPages = fetches.map((fetch) => ({
     items: fetch.remaining.map((raw) => ({ ...raw, __cfg: fetch.cfg })),
   }));
@@ -1400,18 +1187,13 @@ export async function listObjects(
     const consumedCount = merged.consumed[i] ?? 0;
     const fullyConsumed = consumedCount >= fetch.remaining.length;
     if (fullyConsumed && !fetch.providerNextCursor) {
-      // Nothing left in this lane, ever — mark it explicitly done so the
-      // next page skips fetching it entirely, rather than reinterpreting
-      // "no entry" as "hasn't started yet" (the bug this cursor format
-      // guards against — see decodeLaneResumeState).
+      // Mark done explicitly so "no entry" never reads as "not started".
       nextLanes[fetch.laneKeyStr] = LANE_DONE;
     } else if (fullyConsumed) {
       // Batch fully spent, but the provider says there's more — advance.
       nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(fetch.providerNextCursor);
     } else {
-      // Trimmed mid-batch: re-fetch the same provider cursor next page.
-      // `highWater` (updated below) filters out what's already been
-      // emitted, so this never re-emits a duplicate.
+      // Trimmed mid-batch: re-fetch the same cursor; `highWater` drops repeats.
       nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(fetch.providerCursorUsed);
     }
   });
@@ -1433,30 +1215,18 @@ export async function listObjects(
   };
 }
 
-/** One lane's outcome for a `deleteFromEveryLane` call — the object's size and whether that lane is platform-owned (binding-mode), for ledger accounting. */
+/** One lane a delete removed the object from: its size and whether the lane is platform-owned. */
 interface DeletedLaneHit {
   size: number;
   sharedLane: boolean;
 }
 
 /**
- * Delete `key` from every one of `configs`'s stores that actually holds it.
- * Probes every lane concurrently, then deletes concurrently from whichever
- * lanes hit via `Promise.allSettled` rather than `Promise.all` — one lane's
- * delete rejecting (network blip, stale binding) must not discard the fact
- * that a sibling lane's delete already succeeded. `hits` is exactly the set
- * of lanes whose delete actually completed, safe to debit from the ledger;
- * `failures` carries whatever rejected, for the caller to surface after
- * crediting the successes (never before — a delete that half-succeeds must
- * never look like it fully failed to the ledger). A retry against a lane
- * whose key is already gone can't double-debit: `existingSize` finds
- * nothing there on the next attempt. Two-lane storage: a key can exist in
- * more than one lane after a detach/re-attach cycle, and every copy must go
- * so the file actually disappears (spec: "Read path" — deletion).
- * Single-lane records take the exact path this always has: one lane, one
- * `existingSize` + `delete` call. Callers resolve `storageConfigs` once and
- * pass it in — `deleteObject` reuses the same resolution for both the
- * primary key and its poster.
+ * Delete `key` from every lane that holds it (a key can exist in several
+ * after a detach/re-attach). Uses `allSettled` so one lane's failure doesn't
+ * hide another's success: `hits` are completed deletes, safe to debit;
+ * `failures` are surfaced by the caller after crediting. A retry can't
+ * double-debit, since the key is already gone from those lanes.
  */
 async function deleteFromEveryLane(
   configs: LaneConfig[],
@@ -1484,7 +1254,7 @@ async function deleteFromEveryLane(
   return { hits, failures };
 }
 
-/** Debits the ledger for every lane a delete actually removed the object from. Independent D1 rows per lane, none of which can throw (`recordUsageSafe`) — safe to run concurrently. */
+/** Debits the ledger for each lane a delete removed the object from. */
 async function recordDeletedLaneUsage(
   env: Env,
   workspaceName: string,
@@ -1511,11 +1281,8 @@ export async function deleteObject(
   workspaceName: string,
   opts?: {
     /**
-     * Server-internal (issue #934): the caller has already moved this key's
-     * attachment-index row elsewhere, so the DELETE below could only ever
-     * match nothing. Private-prefix rotation sets it — it calls
-     * `rekeyAttachment` for the old key immediately before deleting it.
-     * Never set from a request: an ordinary delete must still clear the row.
+     * Private-prefix rotation already rekeyed this key's attachment-index
+     * row, so skip deleting it. Never set from a request.
      */
     skipAttachmentIndex?: boolean;
   },
@@ -1524,8 +1291,7 @@ export async function deleteObject(
 
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
-  // A held upload's bytes may sit in the held bucket instead
-  // (`held-storage.ts`). Its size still counts against the workspace.
+  // A held upload's bytes may be in the held bucket. Its size still counts.
   const heldSize = await deleteHeldCopy(env, workspaceName, key, {
     measure: hits.length === 0,
   }).catch((err: unknown) => {
@@ -1538,17 +1304,11 @@ export async function deleteObject(
   if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 
   if (hits.length > 0) {
-    // Single-winner claim (issue #570): concurrent DELETEs can both observe
-    // the object and both reach this branch; only the first claimer debits
-    // the ledger (and records the adoption delete metric). Claim after the
-    // storage delete so a failed delete never burns the slot.
+    // Concurrent DELETEs can both get here; only the first claimer debits the
+    // ledger. Claim after the storage delete so a failed delete keeps the slot.
     const wonClaim = await claimDeleteUsageSafe(dbFor(env), workspaceName, key);
     if (wonClaim) {
-      // Positive magnitude under the `delete` metric — never negative bytes
-      // under `upload`. Net change is computed at read time. These two writes
-      // land in different tables (workspace_usage vs daily_metrics), neither
-      // depends on the other's result, and both are never-throwing — so they
-      // run concurrently rather than as two serial D1 round trips per delete.
+      // Positive bytes under `delete`, never negative under `upload`.
       const deletedBytes = hits.reduce((sum, hit) => sum + hit.size, 0);
       await Promise.all([
         recordDeletedLaneUsage(env, workspaceName, hits),
@@ -1560,22 +1320,14 @@ export async function deleteObject(
       ]);
     }
   }
-  // Every fulfilled lane is already credited above — only now does a
-  // rejected lane's delete get to fail the request, so a partial failure
-  // never looks like nothing happened.
+  // Fail only after crediting every successful lane.
   if (failures.length > 0) throw failures[0];
 
-  // The attachment index (issue #934) row goes only once every lane's delete
-  // succeeded: a lane that still holds the object must stay indexed, or the
-  // surviving attachment silently drops out of the managed comment.
-  // Best-effort past that point: a stale row costs a broken image until
-  // reconcile, never a failed delete.
+  // Remove the attachment-index row only once every lane's delete succeeded,
+  // or a surviving copy drops out of the managed comment.
   if (!opts?.skipAttachmentIndex) await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
-  // Derived poster (issue #299), best-effort: a missing one is the norm for
-  // every non-video object. Guarded so a transient poster-cleanup failure
-  // never fails a delete whose primary work already succeeded. Same
-  // every-lane-that-has-it treatment as the primary object above.
+  // Best-effort poster cleanup from every lane; never fails the delete.
   const posterKey = posterKeyFor(key);
   try {
     const { hits: posterHits, failures: posterFailures } = await deleteFromEveryLane(
