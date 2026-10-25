@@ -1,6 +1,8 @@
 # Read-only staged media tray
 
-The hosted MCP server serves a tray for one repository and branch at a time.
+The hosted MCP server serves a conversation side panel for one repository and
+branch at a time. The tray opens beside the current thread, with no global
+sidebar entrypoint.
 The tray uses the shared Uploads React components and design tokens. It does
 not upload, promote, unstage, delete, or change visibility.
 
@@ -13,7 +15,8 @@ Pass them explicitly to `open_staged_media`:
 { "repo": "owner/repository", "branch": "feature/settings" }
 ```
 
-A global sidebar launch opens a picker without listing files. The picker lists
+A conversation-panel launch without an explicit scope opens a picker without
+listing files. The picker lists
 repository/branch pairs that have staged files. Users can also enter a pair.
 Changing the selection clears the old files and discards late responses from
 an earlier scope. Refresh reloads the selected branch and the branch choices.
@@ -83,7 +86,8 @@ Visual evidence from the fixture preview:
 
 ## Test real uploads in the desktop app
 
-These steps are still pending. The installed `Uploads UI Spike` plugin uses a
+The authenticated host checks below are still pending. The installed
+`Uploads UI Spike` plugin uses a
 synthetic, unauthenticated endpoint. Do not add real workspace credentials to
 that server or treat its successful host test as live-data validation.
 
@@ -102,7 +106,8 @@ that server or treat its successful host test as live-data validation.
    and `uploads attach ./after.png --branch --state after` from the intended
    checkout. Check each branch with `uploads staged`. Include another repository
    with the same branch name when testing repository isolation.
-4. Open the tray from the desktop sidebar and the conversation panel separately.
+4. Open the tray from the desktop conversation panel. Confirm that it has no
+   global sidebar entrypoint.
    Select each repository/branch pair and verify it shows only that pair's staged
    files. Have the coding agent read its actual remote and branch and call the
    opener explicitly. A checkout change must not silently change Refresh's scope.
@@ -120,7 +125,28 @@ that server or treat its successful host test as live-data validation.
 Directory packaging and identity-scope submission work remains in PR #1059.
 That draft has conflicts with main and needs a separate refresh before submission.
 
-The sidebar and conversation-panel entrypoints advertise the existing pixelated
-triple-arrow icon through the tool’s `icons` field. After deployment, refresh
-tool discovery and verify the icon in both desktop entrypoints. See the
+The conversation-panel entrypoint advertises the existing pixelated triple-arrow
+icon through the tool’s `icons` field. After deployment, refresh tool discovery
+and verify the icon in the desktop conversation panel. See the
 [entrypoint icon specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#entrypoint-icons).
+
+## Live endpoint validation
+
+On October 25, 2026, the conversation-only follow-up to merged PR #1296 was
+deployed to `uploads-mcp` as version `90773919-ab7a-4714-a244-839ec6c12efd`.
+The source base was `14e00ed6`. Live authenticated MCP reads confirmed:
+
+- Tool discovery advertises only the `thread` entrypoint and the existing icon.
+- The served UI resource matches the locally built HTML by SHA-256.
+- Harmless uploads in the `default` workspace stay separate across two
+  branches and two repositories that share a branch name.
+- A two-page listing returns the same two files as `uploads staged`.
+- An empty branch returns no items. An unscoped opener returns a scope picker.
+- An invalid bearer token returns HTTP 401.
+
+Successful requests took 81–351 ms in this single sequential probe. These
+measurements cover endpoint responses, not host startup or rendering.
+The probe used the existing CLI workspace credential. OAuth connection and
+real conversation-panel rendering still require host validation. Native desktop
+automation was unavailable; the ChatGPT web OAuth connection was prepared with
+only `files:read` and paused for user approval.

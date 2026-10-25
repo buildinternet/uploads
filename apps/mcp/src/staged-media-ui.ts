@@ -47,7 +47,7 @@ export function withStagedMediaApp(tools: McpTool[], canRead: boolean): McpTool[
       },
       _meta: {
         ui: { resourceUri: STAGED_MEDIA_RESOURCE, visibility: ["model", "app"] },
-        "openai/ui": { entrypoints: [{ type: "global" }, { type: "thread" }] },
+        "openai/ui": { entrypoints: [{ type: "thread" }] },
       },
       async handler(args) {
         if (args.repo === undefined && args.branch === undefined)

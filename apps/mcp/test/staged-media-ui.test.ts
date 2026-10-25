@@ -77,10 +77,13 @@ describe("staged media MCP App", () => {
     expect(opener._meta).toMatchObject({
       securitySchemes: mcpOAuthRead,
       ui: { resourceUri: STAGED_MEDIA_RESOURCE },
-      "openai/ui": { entrypoints: [{ type: "global" }, { type: "thread" }] },
     });
     for (const call of [rpc, legacyRpc]) {
       const tools = await call(fixture().server, "tools/list");
+      expect(
+        tools.result.tools.find((tool: { name: string }) => tool.name === "open_staged_media")
+          ._meta["openai/ui"].entrypoints,
+      ).toEqual([{ type: "thread" }]);
       expect(
         tools.result.tools.find((tool: { name: string }) => tool.name === "open_staged_media")
           .icons,
