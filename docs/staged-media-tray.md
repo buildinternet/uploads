@@ -278,3 +278,33 @@ authenticated read-scope coverage. Available thumbnails now display View larger.
 - [Wide image preview](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-wide.webp)
 - [Narrow fitted image](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-fit.webp)
 - [Narrow actual-size image](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-actual.webp)
+
+## Build identities and compatibility
+
+The UI build computes SHA-256 from the final bundled HTML, including its
+inlined JavaScript and CSS. The opener advertises
+`ui://uploads/media/c1/<sha256>.html`. Identical builds keep the same address;
+changed HTML produces a different address without a manual version bump.
+
+`c1` is a compatibility family, not a build counter. Its UI may call only
+`list_staged_scopes`, `list_staged_media`, `resolve_media_context`, and
+`list_attached_media`. A new UI tool call can break an older chat's trusted
+catalog even when the server API change is additive. Such a change needs a
+new family and a retained implementation or capability guard for old families.
+
+Older valid hashes within `c1` resolve to the latest compatible HTML and echo
+the requested resource URI. They are compatibility aliases, not an immutable
+archive of historical bundles. Resource metadata reports the actual served
+HTML's hash in `uploads.sh/uiBuildHash` and its family in
+`uploads.sh/uiCompatibility`. Unknown families and malformed hashes reject.
+All resource reads retain the existing authenticated `files:read` gate.
+
+The original `staged-media-v1.html`, `media-v2.html`, and `media-v3.html`
+addresses remain readable. V1 retains its staged-only tool guard. V2 and V3
+serve the modern compatible UI. The V1 response reports the hash of its
+guarded HTML rather than the unmodified modern bundle.
+
+New resource addresses invalidate UI cache entries after discovery refresh;
+they do not replace a document already open in a chat. Published resource
+reference changes also pass through OpenAI's continuous tool review. See the
+[UI update requirements](https://developers.openai.com/plugins/deploy/app-review#other-changes).

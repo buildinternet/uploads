@@ -1,13 +1,19 @@
 import type { McpServer, McpTool } from "@buildinternet/uploads/mcp";
 import { mcpOAuthRead, mcpRead, usage } from "@buildinternet/uploads/mcp";
 import { registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
-import html from "../ui/dist/resource";
+import { ResourceNotFoundError, ResourceTemplate } from "@modelcontextprotocol/server";
+import html, {
+  buildHash,
+  legacyBuildHash,
+  compatibility,
+  resourceUri,
+  resourceTemplate,
+} from "../ui/dist/resource";
 import { mediaContextProperties } from "./staged-media-response";
 import { MEDIA_ICONS } from "./media-icon";
 
-// Change this address when shipping a new UI so hosts do not reuse cached documents.
-export const STAGED_MEDIA_RESOURCE = "ui://uploads/media-v3.html";
-const PREVIEWLESS_RESOURCE = "ui://uploads/media-v2.html";
+export const STAGED_MEDIA_RESOURCE = resourceUri;
+const FIXED_RESOURCES = ["ui://uploads/media-v3.html", "ui://uploads/media-v2.html"];
 const LEGACY_RESOURCE = "ui://uploads/staged-media-v1.html";
 
 /** The opener can render a scope picker without ever issuing an unscoped file read. */
@@ -86,6 +92,8 @@ export function withStagedMediaApp(tools: McpTool[], canRead: boolean): McpTool[
 
 export function registerStagedMediaResource(server: McpServer): void {
   const meta = {
+    "uploads.sh/uiBuildHash": buildHash,
+    "uploads.sh/uiCompatibility": compatibility,
     ui: {
       prefersBorder: false,
       csp: {
@@ -94,25 +102,46 @@ export function registerStagedMediaResource(server: McpServer): void {
       },
     },
   };
-  // Old chats pin the v1 tool catalog. Do not let their cached resource call v2 tools.
-  for (const uri of [STAGED_MEDIA_RESOURCE, PREVIEWLESS_RESOURCE, LEGACY_RESOURCE])
+  const resourceMeta = (uri: string) =>
+    uri === LEGACY_RESOURCE
+      ? {
+          ...meta,
+          "uploads.sh/uiBuildHash": legacyBuildHash,
+          "uploads.sh/uiCompatibility": "staged-v1",
+        }
+      : meta;
+  const contents = (uri: string) => ({
+    contents: [
+      {
+        uri,
+        mimeType: RESOURCE_MIME_TYPE,
+        text:
+          uri === LEGACY_RESOURCE
+            ? html.replace("<html", '<html data-uploads-tool-catalog="staged-v1"')
+            : html,
+        _meta: resourceMeta(uri),
+      },
+    ],
+  });
+  // Fixed addresses remain readable; v1 must never call tools outside its old catalog.
+  for (const uri of [STAGED_MEDIA_RESOURCE, ...FIXED_RESOURCES, LEGACY_RESOURCE])
     registerAppResource(
       server,
       "Uploads",
       uri,
-      { mimeType: RESOURCE_MIME_TYPE, _meta: meta },
-      async () => ({
-        contents: [
-          {
-            uri,
-            mimeType: RESOURCE_MIME_TYPE,
-            text:
-              uri === LEGACY_RESOURCE
-                ? html.replace("<html", '<html data-uploads-tool-catalog="staged-v1"')
-                : html,
-            _meta: meta,
-          },
-        ],
-      }),
+      { mimeType: RESOURCE_MIME_TYPE, _meta: resourceMeta(uri) },
+      async () => contents(uri),
     );
+  // Past build hashes are compatibility aliases, not an immutable bundle archive.
+  // Never widen this family's UI tool calls without retaining its old contract.
+  server.registerResource(
+    "Uploads compatible builds",
+    new ResourceTemplate(resourceTemplate, { list: undefined }),
+    { mimeType: RESOURCE_MIME_TYPE, _meta: meta },
+    async (uri, variables) => {
+      if (typeof variables.buildHash !== "string" || !/^[a-f0-9]{64}$/.test(variables.buildHash))
+        throw new ResourceNotFoundError(uri.href);
+      return contents(uri.href);
+    },
+  );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { URL as NodeURL } from "node:url";
 import { createMcpServer, mcpOAuthRead, mcpRead, type McpTool } from "@buildinternet/uploads/mcp";
 import { rpc, legacyRpc, validator } from "../../../packages/uploads/test/mcp-harness";
@@ -138,6 +139,9 @@ describe("staged media MCP App", () => {
       const read = await call(fixture().server, "resources/read", { uri: STAGED_MEDIA_RESOURCE });
       expect(read.error, JSON.stringify(read)).toBeUndefined();
       const resource = read.result.contents[0];
+      const servedHash = createHash("sha256").update(resource.text).digest("hex");
+      expect(resource.uri).toBe(`ui://uploads/media/c1/${servedHash}.html`);
+      expect(resource._meta["uploads.sh/uiBuildHash"]).toBe(servedHash);
       expect(resource.mimeType).toBe("text/html;profile=mcp-app");
       expect(resource.text).toContain("<html");
       expect(resource.text).not.toContain('<html data-uploads-tool-catalog="staged-v1"');
@@ -153,11 +157,37 @@ describe("staged media MCP App", () => {
       expect(legacy.result.contents[0].text).toContain(
         '<html data-uploads-tool-catalog="staged-v1"',
       );
+      expect(legacy.result.contents[0]._meta["uploads.sh/uiBuildHash"]).toBe(
+        createHash("sha256").update(legacy.result.contents[0].text).digest("hex"),
+      );
+      // A catalog pinned to an older build must still render after a new deployment.
+      const oldUri = `ui://uploads/media/c1/${"0".repeat(64)}.html`;
+      const old = await call(fixture().server, "resources/read", { uri: oldUri });
+      expect(old.result.contents[0]).toMatchObject({
+        uri: oldUri,
+        mimeType: resource.mimeType,
+        text: resource.text,
+        _meta: {
+          "uploads.sh/uiBuildHash": servedHash,
+          "uploads.sh/uiCompatibility": "c1",
+        },
+      });
       expect(resource._meta.ui.csp).toEqual({
         connectDomains: [],
         resourceDomains: ["https://embed.uploads.sh", "https://storage.uploads.sh"],
       });
     }
+  });
+
+  it.each([
+    "ui://uploads/media/c1/short.html",
+    `ui://uploads/media/c1/${"A".repeat(64)}.html`,
+    `ui://uploads/media/c2/${"0".repeat(64)}.html`,
+    `ui://uploads/media/c1/${"0".repeat(65)}.html`,
+  ])("rejects unknown families and invalid build references: %s", async (uri) => {
+    const read = await rpc(fixture().server, "resources/read", { uri });
+    expect(read.error).toBeDefined();
+    expect(read.result).toBeUndefined();
   });
 
   it("does not advertise a tray opener without read permission", async () => {

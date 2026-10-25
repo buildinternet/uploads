@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import app from "../src/index";
+import { STAGED_MEDIA_RESOURCE } from "../src/staged-media-ui";
 import { ROBOTS_TXT } from "../src/robots";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
@@ -1530,6 +1531,8 @@ describe("mcp worker", () => {
     "ui://uploads/staged-media-v1.html",
     "ui://uploads/media-v2.html",
     "ui://uploads/media-v3.html",
+    STAGED_MEDIA_RESOURCE,
+    `ui://uploads/media/c1/${"0".repeat(64)}.html`,
   ])("gates the App opener and resource through authenticated read scope: %s", async (uri) => {
     for (const canRead of [false, true]) {
       const token = `up_test-ws_tray-${canRead}`;
@@ -1546,6 +1549,12 @@ describe("mcp worker", () => {
       const resource = (await (
         await rpc(env, { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri } }, token)
       ).json()) as { result?: { contents: Array<{ uri: string }> }; error?: unknown };
+      const anonymous = await rpc(
+        env,
+        { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri } },
+        "",
+      );
+      expect(anonymous.status).toBe(401);
       if (canRead) expect(resource.result?.contents[0].uri).toBe(uri);
       else {
         expect(resource.error).toBeDefined();
