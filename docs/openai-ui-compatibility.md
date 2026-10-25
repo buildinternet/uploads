@@ -2,7 +2,10 @@
 
 Observed on October 25, 2026. This is an isolated experiment with synthetic
 images. It does not access an uploads.sh account or change the production MCP
-server. See [README.md](README.md) for reproducible commands.
+server. The completed fixture is archived in
+[commit 389181c1](https://github.com/buildinternet/uploads/tree/389181c104245caa39ae4d4f4d5fa8912f663b04/scripts/openai-ui-spike).
+Its server, harness, and independent dependencies are no longer maintained.
+Use the current tray preview described in [staged-media-tray.md](staged-media-tray.md).
 
 ## Evidence
 
@@ -72,7 +75,7 @@ same bundle rendered in ChatGPT web and the desktop panel without a host-specifi
 adapter. Resolve intermittent startup and validate the remaining launch paths
 before treating the integration as production-ready.
 
-The repository's existing shared MCP server only registers tools. The spike
+At the time of the spike, the shared MCP server only registered tools. The spike
 uses an independent dependency set with resource support. A production UI
 requires deliberate resource registration and metadata plumbing; adding
 entrypoint metadata alone is insufficient.

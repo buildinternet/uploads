@@ -235,39 +235,41 @@ export function Tray({ client }: { client: TrayClient }) {
         </Button>
       </header>
       <section className="tray-scope" aria-label="Repository and branch">
-        {choices.length > 0 && (
+        {(choices.length > 0 || scopeCursor) && (
           <div className="tray-scope-row">
-            <label>
-              Staged branches
-              <Select
-                value={selected}
-                onValueChange={(value) => {
-                  const next = choices.find((entry) => scopeKey(entry) === value);
-                  if (next) {
-                    setManual(false);
-                    void load(next);
-                  }
-                }}
-                disabled={!ready}
-              >
-                <SelectTrigger className="tray-scope-trigger" aria-label="Staged branch">
-                  <SelectValue placeholder="Choose a repository and branch">
-                    {scope ? `${scope.repo} · ${scope.branch}` : undefined}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start" alignItemWithTrigger={false}>
-                  {choices.map((entry) => (
-                    <SelectItem
-                      className="tray-scope-option"
-                      key={scopeKey(entry)}
-                      value={scopeKey(entry)}
-                    >
-                      {entry.repo} · {entry.branch}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
+            {choices.length > 0 && (
+              <label>
+                Staged branches
+                <Select
+                  value={selected}
+                  onValueChange={(value) => {
+                    const next = choices.find((entry) => scopeKey(entry) === value);
+                    if (next) {
+                      setManual(false);
+                      void load(next);
+                    }
+                  }}
+                  disabled={!ready}
+                >
+                  <SelectTrigger className="tray-scope-trigger" aria-label="Staged branch">
+                    <SelectValue placeholder="Choose a repository and branch">
+                      {scope ? `${scope.repo} · ${scope.branch}` : undefined}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="start" alignItemWithTrigger={false}>
+                    {choices.map((entry) => (
+                      <SelectItem
+                        className="tray-scope-option"
+                        key={scopeKey(entry)}
+                        value={scopeKey(entry)}
+                      >
+                        {entry.repo} · {entry.branch}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+            )}
             {scopeCursor && (
               <Button
                 variant="outline"
@@ -277,17 +279,6 @@ export function Tray({ client }: { client: TrayClient }) {
                 More branches
               </Button>
             )}
-          </div>
-        )}
-        {scopeCursor && choices.length === 0 && (
-          <div>
-            <Button
-              variant="outline"
-              disabled={scopesLoading}
-              onClick={() => void loadScopes(scopeCursor)}
-            >
-              More branches
-            </Button>
           </div>
         )}
         {scopesLoading && (

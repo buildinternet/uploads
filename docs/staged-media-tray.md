@@ -28,8 +28,9 @@ Case-only branch names are therefore not distinct in the existing metadata.
 
 The existing hosted MCP authentication selects the workspace. All tray reads
 require `files:read`. Tool arguments cannot select another workspace.
-The fixture server under `scripts/openai-ui-spike` remains synthetic and must
-not receive live account credentials.
+The earlier fixture remains synthetic and must not receive live credentials.
+Its [compatibility results and archived source](openai-ui-compatibility.md)
+are retained separately from the current tray preview.
 
 `list_staged_media` filters on `gh.repo`, `gh.kind=branch`, `gh.branch`, and
 `gh.status=staged`. Results use object-key order. Load more follows a cursor
