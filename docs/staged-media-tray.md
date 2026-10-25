@@ -230,10 +230,19 @@ generic icon, so embedding the tool icon did not fix the visible branding.
 
 The installed personal plugin's manifest has neither `logo` nor `composerIcon`.
 A branding update package includes both fields and the canonical 512 px PNG,
-with the same registered app mapping. Applying it remains pending: the browser
-automation extension cannot select a local upload without file-URL access.
-The user can select the prepared ZIP in the personal plugin's Upload new version
-dialog. This package is for the personal test plugin, not a directory submission.
+with the same registered app mapping. The user applied this personal test
+package as version 1.0.1. Its plugin listing now displays the Uploads artwork.
+The registered app row and a newly opened conversation panel still display
+generic icons. The package update therefore fixes listing branding only;
+it does not resolve the panel-header icon. No directory submission was made.
+
+- [Branded personal-plugin listing](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/branded-plugin-listing.webp)
+- [Generic panel header after the package update](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/branded-plugin-generic-panel-header.webp)
+
+The opener advertises `icons` in `tools/list`, which is the highest-priority
+entrypoint icon source in the [OpenAI extensions specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#entrypoint-icons).
+The generic header remains a host integration issue to investigate; these
+observations do not establish where the host loses or ignores that metadata.
 
 The legacy catalog guard deployed only to `uploads-mcp` as version
 `ff2c7a0e-f336-45e5-b55e-8451f88cf688`. The resource regression failed against
