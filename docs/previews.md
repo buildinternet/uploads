@@ -62,10 +62,10 @@ A branch name that contains `/` is not a valid alias. Replace each `/` with
 The hostname is `https://<alias>-<worker-name>.<subdomain>.workers.dev`. The
 upload does not move production traffic.
 
-`uploads-auth` exports the `RateLimitCounter` Durable Object. Cloudflare does
-not generate Version URLs for a worker that exports a Durable Object. Run
-`npx wrangler preview` from `apps/auth` when an auth change needs a live
-preview. That command is the preview tier below. A push does not run it.
+`uploads-auth` used to export a Durable Object, which blocks Version URLs. It
+no longer does, so a version upload should work there too, but that is not
+yet verified. `npx wrangler preview` from `apps/auth` still works and is the
+preview tier below. A push does not run it.
 
 Only `npx wrangler preview` uses the preview tier described below.
 
