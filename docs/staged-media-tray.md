@@ -118,3 +118,8 @@ that server or treat its successful host test as live-data validation.
 
 Directory packaging and identity-scope submission work remains in PR #1059.
 That draft has conflicts with main and needs a separate refresh before submission.
+
+The sidebar and conversation-panel entrypoints advertise the existing pixelated
+triple-arrow icon through the tool’s `icons` field. After deployment, refresh
+tool discovery and verify the icon in both desktop entrypoints. See the
+[entrypoint icon specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#entrypoint-icons).

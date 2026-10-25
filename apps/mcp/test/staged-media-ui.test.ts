@@ -80,6 +80,17 @@ describe("staged media MCP App", () => {
       "openai/ui": { entrypoints: [{ type: "global" }, { type: "thread" }] },
     });
     for (const call of [rpc, legacyRpc]) {
+      const tools = await call(fixture().server, "tools/list");
+      expect(
+        tools.result.tools.find((tool: { name: string }) => tool.name === "open_staged_media")
+          .icons,
+      ).toEqual([
+        {
+          src: "https://uploads.sh/apple-touch-icon.png",
+          mimeType: "image/png",
+          sizes: ["180x180"],
+        },
+      ]);
       const resources = await call(fixture().server, "resources/list");
       expect(resources.result.resources[0].uri).toBe(STAGED_MEDIA_RESOURCE);
       const read = await call(fixture().server, "resources/read", { uri: STAGED_MEDIA_RESOURCE });

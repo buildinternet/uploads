@@ -163,6 +163,8 @@ export interface McpTool {
    * `annotations.title`: the Claude connector directory reads the annotation.
    */
   title: string;
+  /** Brand icon used by MCP App navigation entrypoints. */
+  icons?: Implementation["icons"];
   annotations: McpToolAnnotations;
   securitySchemes: McpSecurityScheme[];
   /** Hand-written JSON Schema for the tool's arguments. */
@@ -300,6 +302,7 @@ export function createMcpServer(opts: {
       tool.name,
       {
         title: tool.title,
+        ...(tool.icons ? { icons: tool.icons } : {}),
         description: tool.description,
         inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
         ...(tool.outputSchema
