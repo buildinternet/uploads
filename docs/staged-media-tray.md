@@ -205,8 +205,8 @@ web cold-start tracing, ChatGPT's widget fetch returned HTTP 200 but the
 sandbox document ended with `net::ERR_ABORTED`. Browser instrumentation also
 reported a paused document response and blocked further tracing. This locates
 the observed failure before app rendering; it does not establish a product-code
-cause or prove startup reliability. Fresh v2 host rendering and the visible
-icon still require verification after discovery refresh.
+cause or prove startup reliability. Repeated startup and the visible icon
+still require verification.
 
 The user opened the expanded desktop panel and confirmed both sections rendered.
 Attached failed with `MCP app cannot call tool outside its trusted tool scope:
@@ -220,8 +220,20 @@ After a tool catalog changes, refresh the custom connection in ChatGPT's
 Plugins settings, then start a new conversation. See OpenAI's
 [metadata refresh instructions](https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata).
 Refreshing the connection does not replace this existing chat's trusted catalog.
-The new-conversation host test remains pending manual verification because the
-automated browser again failed to display the sandbox document.
+The automated browser again failed to display the sandbox document. The user
+then manually reloaded the fresh test conversation and supplied a screenshot:
+the panel rendered Staged with zero files and Attached for PR #1298 with six
+files. The trusted-scope error was absent. The panel title still displayed the
+generic icon, so embedding the tool icon did not fix the visible branding.
+
+[Fresh host panel with six attached files](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/fresh-host-attached-generic-icon.webp)
+
+The installed personal plugin's manifest has neither `logo` nor `composerIcon`.
+A branding update package includes both fields and the canonical 512 px PNG,
+with the same registered app mapping. Applying it remains pending: the browser
+automation extension cannot select a local upload without file-URL access.
+The user can select the prepared ZIP in the personal plugin's Upload new version
+dialog. This package is for the personal test plugin, not a directory submission.
 
 The legacy catalog guard deployed only to `uploads-mcp` as version
 `ff2c7a0e-f336-45e5-b55e-8451f88cf688`. The resource regression failed against
