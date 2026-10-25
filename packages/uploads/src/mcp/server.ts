@@ -163,6 +163,8 @@ export interface McpTool {
    * `annotations.title`: the Claude connector directory reads the annotation.
    */
   title: string;
+  /** Brand icon used by MCP App navigation entrypoints. */
+  icons?: Implementation["icons"];
   annotations: McpToolAnnotations;
   securitySchemes: McpSecurityScheme[];
   /** Hand-written JSON Schema for the tool's arguments. */
@@ -172,6 +174,8 @@ export interface McpTool {
    * whenever the handler returns structured data (OpenAI Scan Tools).
    */
   outputSchema?: Record<string, unknown>;
+  /** Optional MCP App linkage and host extensions. Auth metadata stays authoritative. */
+  _meta?: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -298,13 +302,14 @@ export function createMcpServer(opts: {
       tool.name,
       {
         title: tool.title,
+        ...(tool.icons ? { icons: tool.icons } : {}),
         description: tool.description,
         inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
         ...(tool.outputSchema
           ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.outputSchema, validator) }
           : {}),
         annotations: { title: tool.title, ...tool.annotations },
-        _meta: { securitySchemes: tool.securitySchemes },
+        _meta: { ...tool._meta, securitySchemes: tool.securitySchemes },
       },
       wrapHandler(tool, apiUrl),
     );

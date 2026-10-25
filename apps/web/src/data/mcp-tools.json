@@ -670,6 +670,74 @@
     ]
   },
   {
+    "name": "list_staged_media",
+    "title": "Staged media",
+    "description": "Read staged media for one explicit repository and branch in the connected workspace. Read the current checkout's Git remote and branch before calling; the hosted server cannot infer them. Repository and branch match stored lowercase metadata. Excludes promoted and unstaged files. Private, held, missing, and unsupported previews are placeholders. Pass cursor unchanged with the same scope to load more; a non-null cursor means more pages even if this page is empty. Results use object-key order, not newest-first.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": "Explicit GitHub repository owner/name."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": true,
+        "description": "Explicit Git branch, for example feature/settings."
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": ""
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "repo",
+      "branch",
+      "cursor",
+      "items"
+    ]
+  },
+  {
+    "name": "list_staged_scopes",
+    "title": "List staged branches",
+    "description": "List distinct repository/branch pairs with staged files in the connected workspace. Use an explicit pair with list_staged_media; never combine different branches. Results use repository/branch order. Pass cursor unchanged for the next page.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": ""
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "cursor",
+      "scopes"
+    ]
+  },
+  {
     "name": "unstage",
     "title": "Unstage files",
     "description": "Clear staged files for a branch, or specific keys, without deleting them. Sets gh.status=unstaged so they drop out of auto-promotion. Pass repo and branch, or keys. Needs files:write.",
@@ -1184,5 +1252,29 @@
       "signedIn",
       "apiUrl"
     ]
+  },
+  {
+    "name": "open_staged_media",
+    "title": "Staged media",
+    "description": "Open the read-only staged media tray. In a coding checkout, read its Git remote and current branch and pass repo (owner/name) and branch explicitly. Without both, show a scope picker; never assume a current checkout. Refresh keeps the displayed scope until it is changed.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "Explicit repository as owner/name."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Explicit Git branch for this tray."
+      }
+    ],
+    "returns": []
   }
 ]
