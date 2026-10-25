@@ -190,7 +190,8 @@ Visual evidence from the authenticated panel:
 The follow-up deployment `e8f0bee3-36b7-4476-b438-204ff06422ed` adds the
 Uploads title and separate Staged and Attached sections. The new resource is
 `ui://uploads/media-v2.html`; the original v1 address remains readable for
-cached entrypoints. The opener embeds the canonical PNG icon to avoid an
+cached entrypoints. Its compatibility mode permits only the original staged
+read tools. The opener embeds the canonical PNG icon to avoid an
 external icon fetch.
 
 Live reads resolved the current branch to PR #1298 and returned one staged
@@ -206,3 +207,24 @@ reported a paused document response and blocked further tracing. This locates
 the observed failure before app rendering; it does not establish a product-code
 cause or prove startup reliability. Fresh v2 host rendering and the visible
 icon still require verification after discovery refresh.
+
+The user opened the expanded desktop panel and confirmed both sections rendered.
+Attached failed with `MCP app cannot call tool outside its trusted tool scope:
+list_attached_media`. This chat still advertised the old tool catalog, which
+lacked both new read tools. The legacy resource had served the expanded UI
+without accounting for that older catalog. The legacy resource now marks its
+catalog version. Its client keeps staged reads working and shows refresh
+instructions before attempting a new tool. It does not bypass the host's scope.
+
+After a tool catalog changes, refresh the custom connection in ChatGPT's
+Plugins settings, then start a new conversation. See OpenAI's
+[metadata refresh instructions](https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata).
+Refreshing the connection does not replace this existing chat's trusted catalog.
+The new-conversation host test remains pending manual verification because the
+automated browser again failed to display the sandbox document.
+
+The legacy catalog guard deployed only to `uploads-mcp` as version
+`ff2c7a0e-f336-45e5-b55e-8451f88cf688`. The resource regression failed against
+the previous handler, then all 194 MCP tests passed with the fix. Both
+typechecks passed. Live reads confirmed that only the legacy resource carries
+the catalog marker, and attached-file pagination still works on the endpoint.

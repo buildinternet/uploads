@@ -92,7 +92,7 @@ export function registerStagedMediaResource(server: McpServer): void {
       },
     },
   };
-  // Refresh discovery gets the expanded view; cached entrypoints can still read v1.
+  // Old chats pin the v1 tool catalog. Do not let their cached resource call v2 tools.
   for (const uri of [STAGED_MEDIA_RESOURCE, LEGACY_RESOURCE])
     registerAppResource(
       server,
@@ -100,7 +100,17 @@ export function registerStagedMediaResource(server: McpServer): void {
       uri,
       { mimeType: RESOURCE_MIME_TYPE, _meta: meta },
       async () => ({
-        contents: [{ uri, mimeType: RESOURCE_MIME_TYPE, text: html, _meta: meta }],
+        contents: [
+          {
+            uri,
+            mimeType: RESOURCE_MIME_TYPE,
+            text:
+              uri === LEGACY_RESOURCE
+                ? html.replace("<html", '<html data-uploads-tool-catalog="staged-v1"')
+                : html,
+            _meta: meta,
+          },
+        ],
       }),
     );
 }

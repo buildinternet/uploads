@@ -30,7 +30,17 @@ const client: TrayClient = {
     await app.connect(undefined, { timeout: 15000 });
     applyContext();
   },
-  callTool: (name, args) => app.callServerTool({ name, arguments: args }),
+  async callTool(name, args) {
+    if (
+      document.documentElement.dataset.uploadsToolCatalog === "staged-v1" &&
+      name !== "list_staged_media" &&
+      name !== "list_staged_scopes"
+    )
+      throw new Error(
+        "This chat uses an older Uploads connection. To view attached files, refresh Uploads tools in Plugins settings, then open Uploads in a new chat.",
+      );
+    return app.callServerTool({ name, arguments: args });
+  },
   subscribe(listener) {
     listeners.add(listener);
     return () => {

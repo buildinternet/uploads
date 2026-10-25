@@ -140,6 +140,13 @@ describe("staged media MCP App", () => {
       const resource = read.result.contents[0];
       expect(resource.mimeType).toBe("text/html;profile=mcp-app");
       expect(resource.text).toContain("<html");
+      expect(resource.text).not.toContain('<html data-uploads-tool-catalog="staged-v1"');
+      const legacy = await call(fixture().server, "resources/read", {
+        uri: "ui://uploads/staged-media-v1.html",
+      });
+      expect(legacy.result.contents[0].text).toContain(
+        '<html data-uploads-tool-catalog="staged-v1"',
+      );
       expect(resource._meta.ui.csp).toEqual({
         connectDomains: [],
         resourceDomains: ["https://embed.uploads.sh", "https://storage.uploads.sh"],
