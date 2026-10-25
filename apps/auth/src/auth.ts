@@ -58,7 +58,11 @@ import { hasProductUpdatesOptOut } from "./product-updates";
 import { reportHandledError } from "@uploads/observability";
 import { setIssueContext } from "@uploads/observability/issues";
 import { buildTokenGrantAfterHandler, captureRefreshTokenPriorState } from "./oauth-observability";
-import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
+import {
+  createBindingRateLimitStorage,
+  rateLimitTiers,
+  type RateLimitBindings,
+} from "./rate-limit";
 import * as schema from "./schema";
 import { stripePluginOrNone } from "./stripe-plugin";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
@@ -523,7 +527,8 @@ async function enforceLastAdminGuard(
 }
 
 export type AuthEnv = GitHubCredentialsEnv &
-  DashApiKeyEnv & {
+  DashApiKeyEnv &
+  RateLimitBindings & {
     DB: D1Database;
     EMAIL?: import("./email").EmailBinding;
     BETTER_AUTH_URL?: string;
@@ -536,11 +541,6 @@ export type AuthEnv = GitHubCredentialsEnv &
     ENVIRONMENT?: string;
     BETTER_AUTH_TRUSTED_ORIGINS?: string;
     AUTH_RATE_LIMIT_DISABLED?: string;
-    /**
-     * Durable Object namespace backing the rate limiter (src/rate-limit-do.ts).
-     * Without it, Better Auth's in-memory storage is used.
-     */
-    RATE_LIMIT?: RateLimitNamespaceLike;
     /** Ephemeral flag passed only by `pnpm dev:stack`; never configure in prod. */
     LOCAL_STACK?: string;
     /** Gates stripePluginOrNone and feeds the memoization key. */
@@ -557,15 +557,16 @@ export type AuthEnv = GitHubCredentialsEnv &
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
 
 /**
- * Rate-limit storage: the Durable Object when RATE_LIMIT is bound, Better
+ * Rate-limit storage: the Rate Limiting bindings when all are bound, Better
  * Auth's in-memory Map otherwise. Both branches return the same shape so
  * callers don't have to narrow a union.
  */
 function rateLimitStorage(env: AuthEnv): {
-  customStorage?: ReturnType<typeof createDurableRateLimitStorage>;
+  customStorage?: ReturnType<typeof createBindingRateLimitStorage>;
   storage?: "memory";
 } {
-  if (env.RATE_LIMIT) return { customStorage: createDurableRateLimitStorage(env.RATE_LIMIT) };
+  const tiers = rateLimitTiers(env);
+  if (tiers) return { customStorage: createBindingRateLimitStorage(tiers) };
   return { storage: "memory" };
 }
 
@@ -1035,13 +1036,12 @@ function buildAuth(
     //
     // D1 is kept out of the rate-limit path: a D1 stall once hung every
     // /api/auth/* request. /get-session is exempt entirely (customRules), and
-    // the remaining low-frequency endpoints use one Durable Object counter
-    // per key (src/rate-limit-do.ts), an exact fleet-wide fixed window. The
-    // wrapper fails open and races the DO call against a ~1.5s timer, since
-    // rate limiting is abuse-shaping, not a security boundary.
+    // the remaining endpoints use the per-colo Rate Limiting bindings
+    // (src/rate-limit.ts). The wrapper fails open, since rate limiting is
+    // abuse-shaping, not a security boundary.
     //
-    // Without the binding (tests, bare local envs) Better Auth's in-memory
-    // Map is used. KV is too coarse (1 write/sec/key) for a shared counter.
+    // Without the bindings (tests, bare local envs) Better Auth's in-memory
+    // Map is used.
     rateLimit: {
       enabled: isProduction && env.AUTH_RATE_LIMIT_DISABLED !== "true",
       ...rateLimitStorage(env),
@@ -1103,9 +1103,9 @@ function cacheKey(
     githubClientSecret: github?.clientSecret ?? null,
     dashApiKey,
     hasEmail: Boolean(env.EMAIL),
-    // Presence flips the limiter between DO-backed customStorage and Better
-    // Auth's memory fallback, so it has to be part of the key.
-    hasRateLimitDO: Boolean(env.RATE_LIMIT),
+    // Presence flips the limiter between binding-backed customStorage and
+    // Better Auth's memory fallback, so it has to be part of the key.
+    hasRateLimiters: Boolean(rateLimitTiers(env)),
   });
 }
 

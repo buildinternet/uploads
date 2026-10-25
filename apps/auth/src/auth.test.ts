@@ -52,7 +52,7 @@ describe("upsertGithubLogin", () => {
 });
 
 // Rate-limit storage selection (2026-08-23 incident follow-up). The point of
-// these two: production must get the Durable-Object customStorage, and every
+// these two: production must get the binding-backed customStorage, and every
 // binding-less caller (tests, bare local envs) must still build without one.
 describe("rateLimit storage selection", () => {
   function env(overrides: Partial<AuthEnv> = {}): AuthEnv {
@@ -66,12 +66,11 @@ describe("rateLimit storage selection", () => {
     };
   }
 
-  it("uses the Durable-Object customStorage when RATE_LIMIT is bound", async () => {
-    const RATE_LIMIT = {
-      idFromName: (name: string) => name,
-      get: () => ({ consume: async () => ({ allowed: true, retryAfter: null }) }),
-    };
-    const auth = await createAuth(env({ RATE_LIMIT }));
+  const allow = { limit: async () => ({ success: true }) };
+  const limiters = { RL_SIGN_IN: allow, RL_EMAIL: allow, RL_OAUTH: allow, RL_DEFAULT: allow };
+
+  it("uses the binding-backed customStorage when the rate limiters are bound", async () => {
+    const auth = await createAuth(env(limiters));
     const rateLimit = auth?.options.rateLimit;
     expect(rateLimit?.enabled).toBe(true);
     expect(typeof rateLimit?.customStorage?.consume).toBe("function");
@@ -89,6 +88,7 @@ describe("rateLimit storage selection", () => {
 // End-to-end through Better Auth's own limiter, using a customStorage that
 // denies EVERYTHING. Anything that still answers non-429 is genuinely exempt.
 describe("rate limiting exemptions (live handler)", () => {
+  const deny = { limit: async () => ({ success: false }) };
   function denyAllEnv(): AuthEnv {
     return {
       DB: createFakeD1(),
@@ -96,10 +96,10 @@ describe("rate limiting exemptions (live handler)", () => {
       BETTER_AUTH_URL: "https://uploads.sh",
       WEB_ORIGIN: "https://uploads.sh",
       ENVIRONMENT: "production",
-      RATE_LIMIT: {
-        idFromName: (name: string) => name,
-        get: () => ({ consume: async () => ({ allowed: false, retryAfter: 30 }) }),
-      },
+      RL_SIGN_IN: deny,
+      RL_EMAIL: deny,
+      RL_OAUTH: deny,
+      RL_DEFAULT: deny,
     };
   }
 
@@ -138,7 +138,7 @@ describe("rate limiting exemptions (live handler)", () => {
       }),
     );
     expect(res.status).toBe(429);
-    expect(res.headers.get("X-Retry-After")).toBe("30");
+    expect(res.headers.get("X-Retry-After")).toBe("60");
   });
 });
 
