@@ -859,6 +859,7 @@ describe("mcp worker", () => {
       "get_metadata",
       "list",
       "list_activity",
+      "list_attached_media",
       "list_held",
       "list_metadata_keys",
       "list_repo_files",
@@ -870,6 +871,7 @@ describe("mcp worker", () => {
       "put",
       "reconcile",
       "repo_link_status",
+      "resolve_media_context",
       "search_docs",
       "set_metadata",
       "sign_upload_url",
@@ -1524,30 +1526,36 @@ describe("mcp worker", () => {
     expect(neither.isError).toBe(true);
   });
 
-  it("gates the App opener and resource through authenticated read scope", async () => {
-    const uri = "ui://uploads/staged-media-v1.html";
-    for (const canRead of [false, true]) {
-      const token = `up_test-ws_tray-${canRead}`;
-      const { env } = await makeEnv({
-        d1: {
-          tokenHash: await sha256Hex(token),
-          scopes: JSON.stringify([canRead ? "files:read" : "files:write"]),
-        },
-      });
-      const listed = (await (
-        await rpc(env, { jsonrpc: "2.0", id: 1, method: "tools/list" }, token)
-      ).json()) as { result: { tools: Array<{ name: string }> } };
-      expect(listed.result.tools.some((tool) => tool.name === "open_staged_media")).toBe(canRead);
-      const resource = (await (
-        await rpc(env, { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri } }, token)
-      ).json()) as { result?: { contents: Array<{ uri: string }> }; error?: unknown };
-      if (canRead) expect(resource.result?.contents[0].uri).toBe(uri);
-      else {
-        expect(resource.error).toBeDefined();
-        expect(resource.result).toBeUndefined();
+  it.each(["ui://uploads/staged-media-v1.html", "ui://uploads/media-v2.html"])(
+    "gates the App opener and resource through authenticated read scope: %s",
+    async (uri) => {
+      for (const canRead of [false, true]) {
+        const token = `up_test-ws_tray-${canRead}`;
+        const { env } = await makeEnv({
+          d1: {
+            tokenHash: await sha256Hex(token),
+            scopes: JSON.stringify([canRead ? "files:read" : "files:write"]),
+          },
+        });
+        const listed = (await (
+          await rpc(env, { jsonrpc: "2.0", id: 1, method: "tools/list" }, token)
+        ).json()) as { result: { tools: Array<{ name: string }> } };
+        expect(listed.result.tools.some((tool) => tool.name === "open_staged_media")).toBe(canRead);
+        const resource = (await (
+          await rpc(
+            env,
+            { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri } },
+            token,
+          )
+        ).json()) as { result?: { contents: Array<{ uri: string }> }; error?: unknown };
+        if (canRead) expect(resource.result?.contents[0].uri).toBe(uri);
+        else {
+          expect(resource.error).toBeDefined();
+          expect(resource.result).toBeUndefined();
+        }
       }
-    }
-  });
+    },
+  );
 
   it("get_metadata enforces files:read scope", async () => {
     const token = "up_test-ws_write-only-token";

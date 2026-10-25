@@ -4,7 +4,7 @@ import { Tray } from "./tray";
 import { scopeFrom, type TrayClient, type TrayEvent } from "./client";
 import "./styles.css";
 
-const app = new App({ name: "Uploads staged media", version: "1.0.0" });
+const app = new App({ name: "Uploads", version: "1.0.0" });
 const listeners = new Set<(event: TrayEvent) => void>();
 const emit = (event: TrayEvent) => {
   for (const listener of listeners) listener(event);
@@ -26,7 +26,7 @@ app.onhostcontextchanged = applyContext;
 const client: TrayClient = {
   async connect() {
     if (window.parent === window)
-      throw new Error("Open Staged media from the Uploads plugin in your chat app.");
+      throw new Error("Open Uploads from the conversation panel in your chat app.");
     await app.connect(undefined, { timeout: 15000 });
     applyContext();
   },

@@ -1,8 +1,8 @@
-# Read-only staged media tray
+# Uploads conversation panel
 
-The hosted MCP server serves a conversation side panel for one repository and
-branch at a time. The tray opens beside the current thread, with no global
-sidebar entrypoint.
+The hosted MCP server serves the Uploads conversation panel for one repository
+and branch at a time. It shows separate Staged and Attached sections beside the
+current thread, with no global sidebar entrypoint.
 The tray uses the shared Uploads React components and design tokens. It does
 not upload, promote, unstage, delete, or change visibility.
 
@@ -12,7 +12,7 @@ From a coding conversation, read the checkout's Git remote and current branch.
 Pass them explicitly to `open_staged_media`:
 
 ```json
-{ "repo": "owner/repository", "branch": "feature/settings" }
+{ "repo": "owner/repository", "branch": "feature/settings", "pr": 1298 }
 ```
 
 A conversation-panel launch without an explicit scope opens a picker without
@@ -22,6 +22,19 @@ Changing the selection clears the old files and discards late responses from
 an earlier scope. Refresh reloads the selected branch and the branch choices.
 It does not detect Git checkout changes. Call the opener with the new scope
 when the coding agent changes branches.
+
+Pass the current PR number when known. Otherwise, `resolve_media_context`
+looks up the branch through the existing GitHub App only when the repository
+is linked to the connected workspace. If it cannot resolve a unique PR, the
+Attached section asks for a PR number. Staged files remain available.
+The picker lists staged branch pairs; a branch with only attached files can
+still be opened through explicit agent context or manual entry.
+
+`list_attached_media` matches the selected workspace, repository, and PR using
+`gh.kind=pull` and `gh.number`. It does not require a branch tag: direct PR
+uploads do not always have one. Promotion removes a file from Staged and makes
+its PR copy available in Attached. Both sections paginate independently and
+use the same safe previews and private/held placeholders.
 
 Multiple branches never share a tray listing. Stored repository and branch tags
 follow the existing staging normalization, including lowercase branch names.
@@ -171,3 +184,25 @@ Visual evidence from the authenticated panel:
 
 - [Conversation panel with real uploads](https://embed.uploads.sh/default/gh/buildinternet/uploads/branch/codex-staged-media-thread-panel/live-side-panel.webp)
 - [Narrow conversation panel](https://embed.uploads.sh/default/gh/buildinternet/uploads/branch/codex-staged-media-thread-panel/live-narrow-panel.webp)
+
+## Expanded panel validation
+
+The follow-up deployment `e8f0bee3-36b7-4476-b438-204ff06422ed` adds the
+Uploads title and separate Staged and Attached sections. The new resource is
+`ui://uploads/media-v2.html`; the original v1 address remains readable for
+cached entrypoints. The opener embeds the canonical PNG icon to avoid an
+external icon fetch.
+
+Live reads resolved the current branch to PR #1298 and returned one staged
+file and five attached files. Attached pagination and wrong-PR/repository
+exclusion passed. Local browser checks covered independent pagination,
+placeholders, slow scope switching, late host results for another PR, and
+Refresh with a mixed-case Git branch. All 194 hosted MCP tests passed.
+
+The manually opened desktop v1 panel rendered real files. During automated
+web cold-start tracing, ChatGPT's widget fetch returned HTTP 200 but the
+sandbox document ended with `net::ERR_ABORTED`. Browser instrumentation also
+reported a paused document response and blocked further tracing. This locates
+the observed failure before app rendering; it does not establish a product-code
+cause or prove startup reliability. Fresh v2 host rendering and the visible
+icon still require verification after discovery refresh.

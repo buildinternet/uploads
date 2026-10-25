@@ -70,9 +70,22 @@ body {
 }
 .tray-manual {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 8px;
+}
+.tray-section {
+  margin-top: 20px;
+}
+.tray-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tray-section-title h2 {
+  font-size: 14px;
+  font-weight: 600;
 }
 .tray-scope-label {
   padding-block: 14px;

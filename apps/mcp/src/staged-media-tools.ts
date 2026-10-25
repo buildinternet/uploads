@@ -1,4 +1,3 @@
-import { ghMetadataForBranch } from "@buildinternet/uploads";
 import {
   mcpOAuthRead,
   mcpRead,
@@ -8,11 +7,11 @@ import {
   type McpTool,
 } from "@buildinternet/uploads/mcp";
 import { searchFilesByNameAndMeta } from "@uploads/api/file-search";
-import { hydrateFeedItems, unwrapFeedMutation } from "@uploads/api/feed-service";
-import { normalizeFeedRepo } from "@uploads/api/feeds";
+import { hydrateFeedItems } from "@uploads/api/feed-service";
 import { listStagedScopes } from "@uploads/api/staged-scopes";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
 import { stagedMediaResponse, stagedMediaOutputSchemas } from "./staged-media-response";
+import { mediaPr, mediaScope, resolveMediaContext } from "./media-context";
 
 interface StagedToolContext {
   env: Env;
@@ -58,16 +57,7 @@ export function stagedMediaReadTools(ctx: StagedToolContext): McpTool[] {
       outputSchema: stagedMediaOutputSchemas.list_staged_media,
       async handler(args) {
         requireScope("files:read");
-        const repo = unwrapFeedMutation(normalizeFeedRepo(optString(args, "repo"))).value;
-        const rawBranch = optString(args, "branch");
-        if (!rawBranch || rawBranch.trim() !== rawBranch)
-          usage("branch must be an explicit non-empty branch name without surrounding whitespace");
-        let branch: string;
-        try {
-          branch = ghMetadataForBranch(repo, rawBranch)["gh.branch"]!;
-        } catch (error) {
-          usage(error instanceof Error ? error.message : String(error));
-        }
+        const { repo, branch } = mediaScope(args);
         const page = await searchFilesByNameAndMeta(env, workspace, workspaceName, {
           filters: {
             "gh.repo": repo,
@@ -90,6 +80,81 @@ export function stagedMediaReadTools(ctx: StagedToolContext): McpTool[] {
           new Map(page.matches.map((match) => [match.key, match.metadata])),
           page.cursor,
         );
+      },
+    },
+    {
+      name: "resolve_media_context",
+      title: "Resolve media context",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "Resolve the pull request for one explicit repository and branch. Pass the current PR number when known. " +
+        "Otherwise look up one open same-repository PR only when the repository is linked to this workspace. " +
+        "An unavailable resolution requires an explicit PR number; it does not mean that the PR has no attached files.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["repo", "branch"],
+        properties: {
+          repo: { type: "string" },
+          branch: { type: "string" },
+          pr: { type: "integer", minimum: 1 },
+        },
+      },
+      outputSchema: stagedMediaOutputSchemas.resolve_media_context,
+      async handler(args) {
+        requireScope("files:read");
+        return resolveMediaContext(env, workspaceName, args);
+      },
+    },
+    {
+      name: "list_attached_media",
+      title: "Attached media",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "Read media attached to one explicit repository and PR in the connected workspace. " +
+        "Pass the displayed branch as context. PR membership uses repository and PR number, " +
+        "including direct attachments without branch tags. Private and held files remain placeholders. " +
+        "Continue with the returned cursor and the same repository and PR; never combine PRs.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["repo", "branch", "pr"],
+        properties: {
+          repo: { type: "string" },
+          branch: { type: "string" },
+          pr: { type: "integer", minimum: 1 },
+          cursor: { type: "string" },
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+      },
+      outputSchema: stagedMediaOutputSchemas.list_attached_media,
+      async handler(args) {
+        requireScope("files:read");
+        const { repo, branch } = mediaScope(args);
+        const pr = mediaPr(args);
+        if (pr === undefined) usage("pr must be an explicit positive pull-request number");
+        const page = await searchFilesByNameAndMeta(env, workspace, workspaceName, {
+          filters: { "gh.repo": repo, "gh.kind": "pull", "gh.number": String(pr) },
+          pageSize: limitValue(args, 24, 50),
+          cursor: optString(args, "cursor"),
+        });
+        const hydrated = await hydrateFeedItems(
+          env,
+          { ...workspace, name: workspaceName },
+          page.matches,
+          { audience: "public", requirePublicUrls: false },
+        );
+        return {
+          ...stagedMediaResponse(
+            { repo, branch },
+            hydrated,
+            new Map(page.matches.map((match) => [match.key, match.metadata])),
+            page.cursor,
+          ),
+          pr,
+        };
       },
     },
     {

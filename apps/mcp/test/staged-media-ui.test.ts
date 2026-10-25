@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { URL as NodeURL } from "node:url";
 import { createMcpServer, mcpOAuthRead, mcpRead, type McpTool } from "@buildinternet/uploads/mcp";
 import { rpc, legacyRpc, validator } from "../../../packages/uploads/test/mcp-harness";
 import {
@@ -39,7 +41,26 @@ function fixture(canRead = true) {
   const server = createMcpServer({
     serverInfo: { name: "tray-test", version: "1" },
     validator,
-    tools: withStagedMediaApp([listing], canRead),
+    tools: withStagedMediaApp(
+      [
+        listing,
+        {
+          name: "resolve_media_context",
+          title: "Resolve media context",
+          description: "Resolve the displayed PR",
+          annotations: mcpRead,
+          securitySchemes: mcpOAuthRead,
+          inputSchema: { type: "object" },
+          handler: async (args) => ({
+            repo: args.repo,
+            branch: args.branch,
+            pr: args.pr ?? null,
+            prResolution: args.pr ? "explicit" : "unavailable",
+          }),
+        },
+      ],
+      canRead,
+    ),
   });
   if (canRead) registerStagedMediaResource(server);
   return { server, handler };
@@ -67,6 +88,20 @@ describe("staged media MCP App", () => {
       arguments: { repo: "owner/repo", branch: "feature/a" },
     });
     expect(scoped.handler).toHaveBeenCalledWith({ repo: "owner/repo", branch: "feature/a" });
+    for (const call of [rpc, legacyRpc]) {
+      const result = await call(fixture().server, "tools/call", {
+        name: "open_staged_media",
+        arguments: { repo: "owner/repo", branch: "feature/a", pr: 42 },
+      });
+      expect(result.result.structuredContent).toEqual({
+        repo: "owner/repo",
+        branch: "feature/a",
+        pr: 42,
+        prResolution: "explicit",
+        items: [],
+        cursor: null,
+      });
+    }
   });
 
   it("advertises authenticated UI linkage and serves the bundled resource on both protocols", async () => {
@@ -82,6 +117,10 @@ describe("staged media MCP App", () => {
       const tools = await call(fixture().server, "tools/list");
       expect(
         tools.result.tools.find((tool: { name: string }) => tool.name === "open_staged_media")
+          .title,
+      ).toBe("Uploads");
+      expect(
+        tools.result.tools.find((tool: { name: string }) => tool.name === "open_staged_media")
           ._meta["openai/ui"].entrypoints,
       ).toEqual([{ type: "thread" }]);
       expect(
@@ -89,7 +128,7 @@ describe("staged media MCP App", () => {
           .icons,
       ).toEqual([
         {
-          src: "https://uploads.sh/apple-touch-icon.png",
+          src: `data:image/png;base64,${readFileSync(new NodeURL("../../web/public/apple-touch-icon.png", import.meta.url)).toString("base64")}`,
           mimeType: "image/png",
           sizes: ["180x180"],
         },

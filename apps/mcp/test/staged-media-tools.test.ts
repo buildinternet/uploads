@@ -5,6 +5,7 @@ import type { WorkspaceRecord } from "@uploads/api/workspace";
 import { stagedMediaReadTools } from "../src/staged-media-tools";
 import {
   stagedPreviewUrl,
+  type AttachedMediaPage,
   type StagedMediaPage,
   type StagedScopePage,
 } from "../src/staged-media-response";
@@ -55,7 +56,8 @@ function fixture(workspaceName = "test-ws") {
     opts: {
       workspace?: string;
       repo?: string;
-      branch?: string;
+      branch?: string | null;
+      pr?: number;
       status?: string;
       kind?: string;
       missing?: boolean;
@@ -66,7 +68,8 @@ function fixture(workspaceName = "test-ws") {
   ) {
     const metadata = {
       "gh.repo": opts.repo ?? "acme/widgets",
-      "gh.branch": opts.branch ?? "feature/settings",
+      ...(opts.branch === null ? {} : { "gh.branch": opts.branch ?? "feature/settings" }),
+      ...(opts.pr ? { "gh.number": String(opts.pr) } : {}),
       "gh.kind": opts.kind ?? "branch",
       "gh.status": opts.status ?? "staged",
       "gh.staged-at": "2026-10-25T12:00:00Z",
@@ -169,6 +172,79 @@ describe("staged media tools", () => {
     ).rejects.toThrow(/cursor/i);
   });
 
+  it("reads direct and promoted PR attachments without requiring branch tags", async () => {
+    const f = fixture();
+    await f.add("direct.png", { kind: "pull", pr: 42, branch: null });
+    await f.add("promoted-copy.png", { kind: "pull", pr: 42, status: "attached" });
+    await f.add("promoted-original.png", { status: "promoted" });
+    await f.add("foreign-workspace.png", { kind: "pull", pr: 42, workspace: "other" });
+    await f.add("foreign-repo.png", { kind: "pull", pr: 42, repo: "other/app" });
+    await f.add("foreign-pr.png", { kind: "pull", pr: 43 });
+    await f.add("issue.png", { kind: "issue", pr: 42 });
+    await f.add("staged.png");
+    const result = (await f.call("list_attached_media", { ...scope, pr: 42 })) as AttachedMediaPage;
+    expect(result).toMatchObject({ ...scope, pr: 42, cursor: null });
+    expect(result.items.map((item) => item.key)).toEqual(["direct.png", "promoted-copy.png"]);
+    const staged = (await f.call("list_staged_media", scope)) as StagedMediaPage;
+    expect(staged.items.map((item) => item.key)).toEqual(["staged.png"]);
+    expect(f.requireScope).toHaveBeenCalledWith("files:read");
+  });
+
+  it("keeps attached cursors separate from other PRs, repositories, workspaces, and staged pages", async () => {
+    const f = fixture();
+    await f.add("a.png", { kind: "pull", pr: 42, branch: null });
+    await f.add("b.png", { kind: "pull", pr: 42 });
+    const first = (await f.call("list_attached_media", {
+      ...scope,
+      pr: 42,
+      limit: 1,
+    })) as AttachedMediaPage;
+    expect(first.items.map((item) => item.key)).toEqual(["a.png"]);
+    expect(first.cursor).toBeTypeOf("string");
+    const next = (await f.call("list_attached_media", {
+      ...scope,
+      pr: 42,
+      cursor: first.cursor,
+    })) as AttachedMediaPage;
+    expect(next.items.map((item) => item.key)).toEqual(["b.png"]);
+    expect(next.cursor).toBeNull();
+    for (const args of [{ pr: 43 }, { repo: "other/app" }])
+      await expect(
+        f.call("list_attached_media", { ...scope, pr: 42, ...args, cursor: first.cursor }),
+      ).rejects.toThrow(/cursor/i);
+    await expect(
+      f.call("list_attached_media", { ...scope, pr: 42, cursor: first.cursor }, "other"),
+    ).rejects.toThrow(/cursor/i);
+    await expect(f.call("list_staged_media", { ...scope, cursor: first.cursor })).rejects.toThrow(
+      /cursor/i,
+    );
+  });
+
+  it("withholds private and held PR attachments and preserves missing placeholders", async () => {
+    const f = fixture();
+    await f.add("held.png", { kind: "pull", pr: 42, held: true });
+    await f.add("private.png", { kind: "pull", pr: 42, private: true, branch: null });
+    await f.add("missing.png", { kind: "pull", pr: 42, missing: true });
+    const page = (await f.call("list_attached_media", { ...scope, pr: 42 })) as AttachedMediaPage;
+    const byKey = new Map(page.items.map((item) => [item.key, item]));
+    for (const key of ["held.png", "private.png"])
+      expect(byKey.get(key)).toMatchObject({
+        status: "withheld",
+        previewUrl: null,
+        path: null,
+        state: null,
+        stagedAt: null,
+      });
+    expect(byKey.get("missing.png")).toMatchObject({ status: "missing", previewUrl: null });
+    f.workspace.publicBaseUrl = "https://customer.example.com";
+    await f.add("custom.png", { kind: "pull", pr: 42 });
+    const custom = (await f.call("list_attached_media", { ...scope, pr: 42 })) as AttachedMediaPage;
+    expect(custom.items.find((item) => item.key === "custom.png")).toMatchObject({
+      status: "unsupported",
+      previewUrl: null,
+    });
+  });
+
   it("lists distinct staged branch pairs with workspace-bound continuation", async () => {
     const f = fixture();
     await f.add("a.png");
@@ -196,11 +272,18 @@ describe("staged media tools", () => {
     await expect(f.call("list_staged_media", { ...scope, branch: "x\ny" })).rejects.toThrow();
     await expect(f.call("list_staged_media", { ...scope, limit: 51 })).rejects.toThrow();
     await expect(f.call("list_staged_scopes", { limit: 201 })).rejects.toThrow();
+    await expect(f.call("list_attached_media", scope)).rejects.toThrow();
+    await expect(f.call("list_attached_media", { ...scope, pr: 0 })).rejects.toThrow();
+    await expect(f.call("resolve_media_context", { ...scope, pr: -1 })).rejects.toThrow();
     f.requireScope.mockImplementation(() => {
       throw new Error("files:read required");
     });
     await expect(f.call("list_staged_media", scope)).rejects.toThrow("files:read required");
     await expect(f.call("list_staged_scopes", {})).rejects.toThrow("files:read required");
+    await expect(f.call("list_attached_media", { ...scope, pr: 42 })).rejects.toThrow(
+      "files:read required",
+    );
+    await expect(f.call("resolve_media_context", scope)).rejects.toThrow("files:read required");
   });
 
   it("never exposes an arbitrary preview origin", () => {
