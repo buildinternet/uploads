@@ -86,7 +86,7 @@ Visual evidence from the fixture preview:
 
 ## Test real uploads in the desktop app
 
-The authenticated host checks below are still pending. The installed
+The full desktop validation matrix below is still pending. The installed
 `Uploads UI Spike` plugin uses a
 synthetic, unauthenticated endpoint. Do not add real workspace credentials to
 that server or treat its successful host test as live-data validation.
@@ -146,7 +146,28 @@ The source base was `14e00ed6`. Live authenticated MCP reads confirmed:
 
 Successful requests took 81–351 ms in this single sequential probe. These
 measurements cover endpoint responses, not host startup or rendering.
-The probe used the existing CLI workspace credential. OAuth connection and
-real conversation-panel rendering still require host validation. Native desktop
-automation was unavailable; the ChatGPT web OAuth connection was prepared with
-only `files:read` and paused for user approval.
+The endpoint probe used the existing CLI workspace credential. A separate
+personal `Uploads staged media` plugin then connected through real ChatGPT web
+OAuth with `files:read` and the normal `offline_access` session scope, after
+user approval. The selected workspace was `default`.
+
+The real conversation panel rendered the uploaded images beside the thread.
+Branch switching, repository isolation, Refresh after staging a new image,
+manual empty-branch selection, and recovery passed. The narrow panel switched
+to one column at approximately 439 px. A warm close/reopen took 640 ms.
+The global sidebar had no entrypoint for the real tray; the separate synthetic
+spike retained its own entrypoint.
+
+The first host load stayed blank and temporarily showed "This response
+couldn’t load." Reloading the conversation and reopening its panel recovered
+without a source change. The initial latency was not measured reliably.
+Startup reliability remains unresolved. The host showed a generic icon for
+the personal test plugin despite the correct tool icon metadata.
+Native desktop automation was unavailable, so these host results cover ChatGPT
+web, not the desktop app. Live private/held files, workspace switching,
+insufficient/revoked grants, and OAuth reconnection remain unverified.
+
+Visual evidence from the authenticated panel:
+
+- [Conversation panel with real uploads](https://embed.uploads.sh/default/gh/buildinternet/uploads/branch/codex-staged-media-thread-panel/live-side-panel.webp)
+- [Narrow conversation panel](https://embed.uploads.sh/default/gh/buildinternet/uploads/branch/codex-staged-media-thread-panel/live-narrow-panel.webp)
