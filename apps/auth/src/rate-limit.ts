@@ -91,6 +91,13 @@ export interface RateLimitNamespaceLike<Id = unknown> {
 const FAIL_OPEN: RateLimitOutcome = { allowed: true, retryAfter: null };
 
 /**
+ * Better Auth's key prefix when a request has no client IP
+ * (`no-trusted-ip|<path>`). Only service-binding calls lack `cf-connecting-ip`,
+ * and they would all share one global object per path, so they skip the DO.
+ */
+const NO_IP_KEY_PREFIX = "no-trusted-ip|";
+
+/**
  * Default deadline for the DO round trip. A rate limiter must never be able
  * to add unbounded latency to the hot path — that is exactly what the D1
  * incident was. DO RPC has no abort signal, so the losing promise is simply
@@ -124,6 +131,7 @@ export function createDurableRateLimitStorage(
 
   return {
     async consume(key, rule) {
+      if (key.startsWith(NO_IP_KEY_PREFIX)) return FAIL_OPEN;
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const stub = namespace.get(namespace.idFromName(key));

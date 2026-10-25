@@ -1050,6 +1050,11 @@ function buildAuth(
         // get-session is called over a trusted service binding on every
         // signed-in request; browser abuse belongs to the edge WAF.
         "/get-session": false,
+        // Public, cacheable metadata. JWKS is fetched over the MCP worker's
+        // service binding (no client IP), so limiting it only adds a DO
+        // round trip to token verification.
+        "/jwks": false,
+        "/.well-known/*": false,
       },
     },
     trustedOrigins: (request) => {

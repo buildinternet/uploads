@@ -116,6 +116,18 @@ describe("rate limiting exemptions (live handler)", () => {
     }
   });
 
+  it("never 429s public JWKS and discovery metadata", async () => {
+    const auth = await createAuth(denyAllEnv());
+    for (const path of ["/jwks", "/.well-known/oauth-authorization-server"]) {
+      const res = await auth!.handler(
+        new Request(`https://uploads.sh/api/auth${path}`, {
+          headers: { "cf-connecting-ip": "203.0.113.7" },
+        }),
+      );
+      expect(res.status).not.toBe(429);
+    }
+  });
+
   it("still 429s a limited path, proving the deny-all storage is wired in", async () => {
     const auth = await createAuth(denyAllEnv());
     const res = await auth!.handler(

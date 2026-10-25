@@ -89,6 +89,16 @@ describe("createDurableRateLimitStorage", () => {
     expect(ns.keys).toEqual(["ip:1.2.3.4/get-session"]);
   });
 
+  it("skips the DO for requests with no client IP (service bindings)", async () => {
+    const ns = fakeNamespace(async () => ({ allowed: false, retryAfter: 42 }));
+    const storage = createDurableRateLimitStorage(ns);
+    await expect(storage.consume("no-trusted-ip|/oauth2/token", RULE)).resolves.toEqual({
+      allowed: true,
+      retryAfter: null,
+    });
+    expect(ns.keys).toEqual([]);
+  });
+
   it("passes the verdict through on the limited path, retryAfter included", async () => {
     const ns = fakeNamespace(async () => ({ allowed: false, retryAfter: 42 }));
     const storage = createDurableRateLimitStorage(ns);
