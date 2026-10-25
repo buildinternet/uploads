@@ -2,6 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@uploads/ui/components/ui/button";
 import { Input } from "@uploads/ui/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@uploads/ui/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -32,6 +39,68 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Could not load staged media. Try again.";
 }
 
+function ImagePreview({
+  item,
+  src,
+  onError,
+}: {
+  item: StagedMediaItem;
+  src: string;
+  onError: () => void;
+}) {
+  const [actualSize, setActualSize] = useState(false);
+  const [failed, setFailed] = useState(false);
+  return (
+    <Dialog
+      onOpenChange={(open) => {
+        if (open) {
+          setActualSize(false);
+          setFailed(false);
+        }
+      }}
+    >
+      <DialogTrigger className="tray-image-button" aria-label={`Enlarge ${item.filename}`}>
+        <img
+          src={src}
+          alt={item.filename}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={onError}
+        />
+      </DialogTrigger>
+      <DialogContent className="tray-image-dialog">
+        <DialogTitle className="tray-image-title">{item.filename}</DialogTitle>
+        <DialogDescription className="sr-only">
+          Image preview. Choose Actual size to inspect details, then scroll to move around the
+          image.
+        </DialogDescription>
+        <div>
+          <Button variant="outline" onClick={() => setActualSize((value) => !value)}>
+            {actualSize ? "Fit to panel" : "Actual size"}
+          </Button>
+        </div>
+        <div
+          className={`tray-image-view${actualSize ? " tray-image-view-actual" : ""}`}
+          role="region"
+          aria-label="Image preview"
+          tabIndex={0}
+        >
+          {failed ? (
+            <p role="status">Preview unavailable</p>
+          ) : (
+            <img
+              src={src}
+              alt={item.filename}
+              referrerPolicy="no-referrer"
+              onError={() => setFailed(true)}
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MediaCard({ item }: { item: StagedMediaItem }) {
   const [failed, setFailed] = useState(false);
   const preview = item.status === "available" ? safePreviewUrl(item.previewUrl) : null;
@@ -46,13 +115,7 @@ function MediaCard({ item }: { item: StagedMediaItem }) {
     <article className="tray-card">
       <div className="tray-preview">
         {!failed && preview && item.mediaType === "image" ? (
-          <img
-            src={preview}
-            alt={item.filename}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            onError={() => setFailed(true)}
-          />
+          <ImagePreview item={item} src={preview} onError={() => setFailed(true)} />
         ) : !failed && preview && item.mediaType === "video" ? (
           <video
             src={preview}

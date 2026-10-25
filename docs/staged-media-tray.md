@@ -249,3 +249,24 @@ The legacy catalog guard deployed only to `uploads-mcp` as version
 the previous handler, then all 194 MCP tests passed with the fix. Both
 typechecks passed. Live reads confirmed that only the legacy resource carries
 the catalog marker, and attached-file pagination still works on the endpoint.
+
+The user completed a manual startup smoke check: one reload of the working
+ChatGPT conversation, followed by two panel close/reopens. Files loaded each
+time without a persistent blank panel. The generic header icon is deferred.
+
+## Image previews
+
+Click an available image in either section to open a larger preview inside the
+panel. The preview fits the panel by default. Choose Actual size to inspect
+details and scroll around the image; Fit to panel returns to the fitted view.
+Escape, the backdrop, and the close button return to the file list and restore
+focus to the thumbnail. Private, held, missing, and unsupported items remain
+placeholders. Video controls keep their existing behavior.
+
+Local browser checks covered both sections, keyboard opening, actual-size
+overflow, Escape, backdrop close, focus return, and the 439 px panel layout.
+The UI build, both typechecks, and all 194 hosted MCP tests passed.
+
+- [Wide image preview](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-wide.webp)
+- [Narrow fitted image](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-fit.webp)
+- [Narrow actual-size image](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-actual.webp)
