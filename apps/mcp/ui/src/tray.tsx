@@ -67,6 +67,9 @@ function ImagePreview({
           referrerPolicy="no-referrer"
           onError={onError}
         />
+        <span className="tray-image-hint" aria-hidden="true">
+          View larger
+        </span>
       </DialogTrigger>
       <DialogContent className="tray-image-dialog">
         <DialogTitle className="tray-image-title">{item.filename}</DialogTitle>

@@ -267,6 +267,14 @@ Local browser checks covered both sections, keyboard opening, actual-size
 overflow, Escape, backdrop close, focus return, and the 439 px panel layout.
 The UI build, both typechecks, and all 194 hosted MCP tests passed.
 
+The first host check after deployment still showed plain images with no preview
+buttons. The host retained the prior UI at the reused v2 resource address.
+The opener now advertises `ui://uploads/media-v3.html` so refreshed discovery
+loads a distinct document. V2 remains an unguarded compatibility alias; V1
+retains its original-tool restriction. Existing pinned chats still require a
+connection refresh and a new conversation. All three resource addresses have
+authenticated read-scope coverage. Available thumbnails now display View larger.
+
 - [Wide image preview](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-wide.webp)
 - [Narrow fitted image](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-fit.webp)
 - [Narrow actual-size image](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-actual.webp)

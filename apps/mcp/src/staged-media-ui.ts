@@ -5,7 +5,9 @@ import html from "../ui/dist/resource";
 import { mediaContextProperties } from "./staged-media-response";
 import { MEDIA_ICONS } from "./media-icon";
 
-export const STAGED_MEDIA_RESOURCE = "ui://uploads/media-v2.html";
+// Change this address when shipping a new UI so hosts do not reuse cached documents.
+export const STAGED_MEDIA_RESOURCE = "ui://uploads/media-v3.html";
+const PREVIEWLESS_RESOURCE = "ui://uploads/media-v2.html";
 const LEGACY_RESOURCE = "ui://uploads/staged-media-v1.html";
 
 /** The opener can render a scope picker without ever issuing an unscoped file read. */
@@ -93,7 +95,7 @@ export function registerStagedMediaResource(server: McpServer): void {
     },
   };
   // Old chats pin the v1 tool catalog. Do not let their cached resource call v2 tools.
-  for (const uri of [STAGED_MEDIA_RESOURCE, LEGACY_RESOURCE])
+  for (const uri of [STAGED_MEDIA_RESOURCE, PREVIEWLESS_RESOURCE, LEGACY_RESOURCE])
     registerAppResource(
       server,
       "Uploads",

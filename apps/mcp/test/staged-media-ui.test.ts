@@ -141,6 +141,12 @@ describe("staged media MCP App", () => {
       expect(resource.mimeType).toBe("text/html;profile=mcp-app");
       expect(resource.text).toContain("<html");
       expect(resource.text).not.toContain('<html data-uploads-tool-catalog="staged-v1"');
+      const previous = await call(fixture().server, "resources/read", {
+        uri: "ui://uploads/media-v2.html",
+      });
+      expect(previous.result.contents[0].text).not.toContain(
+        '<html data-uploads-tool-catalog="staged-v1"',
+      );
       const legacy = await call(fixture().server, "resources/read", {
         uri: "ui://uploads/staged-media-v1.html",
       });
