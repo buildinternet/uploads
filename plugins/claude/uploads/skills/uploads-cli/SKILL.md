@@ -1245,24 +1245,25 @@ uploads --api-url http://localhost:8787 doctor
   put  { contentBase64, filename, repo: "owner/name", pr: 123, branch: "feature/x" }
   ```
 
-  **Hosted MCP: checking what's staged.** There's no dedicated
-  `staged` tool on the hosted server — it has no local git context to default
-  `branch` from, so it always needs the caller's own `repo`/`branch`.
-  `list_activity` and `list_repo_files` are the newest-tagged-file views,
-  not this staged-branch view. Answer "what's staged?" with the existing
-  tools instead:
+  **Hosted MCP: checking what's staged.** Read the current checkout's Git
+  remote and branch, then pass both explicitly. The hosted server cannot infer
+  the local checkout. Never substitute a remembered branch after a checkout change.
 
   ```text
-  list  { prefix: "gh/<owner>/<repo>/branch/<branch>/" }
-  # or
-  find_files  { filters: { "gh.branch": "<branch>" } }
+  open_staged_media { repo: "owner/name", branch: "feature/x" }
+  list_staged_media { repo: "owner/name", branch: "feature/x" }
+  list_staged_scopes {}
   ```
 
-  `find_files` returns each match's metadata inline, so `gh.staged-at` gives
-  recency without a second call; add `"gh.repo": "<owner>/<repo>"` to the
-  filters when branch names aren't unique across repos you're working in. For
-  the binding question ("will these auto-attach?"), use the hosted `repo_link_status`
-  tool (issue #422):
+  `open_staged_media` opens a read-only tray in compatible MCP App hosts. With no
+  arguments, it opens a scope picker without listing files. `list_staged_scopes`
+  lists distinct repository/branch pairs with staged files. Select one pair;
+  never combine branches. `list_staged_media` excludes promoted and unstaged
+  files and returns safe public previews or placeholders. All three require
+  `files:read`. Follow non-null cursors even when a page has no items.
+  Refresh keeps the displayed scope; call the opener with new values when the
+  checkout changes. For whether staged files will auto-attach, use
+  `repo_link_status`:
 
   ```text
   repo_link_status  { repo: "<owner>/<repo>" }

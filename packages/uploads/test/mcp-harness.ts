@@ -36,6 +36,7 @@ export function modernRequest(method: string, params?: unknown, id: number | str
     "mcp-protocol-version": MODERN_PROTOCOL_VERSION,
   };
   if (method === "tools/call" && typeof p.name === "string") headers["mcp-name"] = p.name;
+  if (method === "resources/read" && typeof p.uri === "string") headers["mcp-name"] = p.uri;
   return new Request("https://uploads.test/mcp", {
     method: "POST",
     headers,

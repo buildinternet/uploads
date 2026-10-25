@@ -162,6 +162,8 @@ import {
   attachmentTargetFor,
 } from "@uploads/api/upload-hold-service";
 import { activityReadTools } from "./activity-tools";
+import { stagedMediaReadTools } from "./staged-media-tools";
+import { stagedMediaOutputSchemas } from "./staged-media-response";
 import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
 
 export interface RemoteToolContext {
@@ -1603,6 +1605,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       },
     },
     ...activityReadTools({ env, workspace, workspaceName, requireScope }),
+    ...stagedMediaReadTools({ env, workspace, workspaceName, requireScope }),
     {
       name: "unstage",
       title: "Unstage files",
@@ -2256,5 +2259,12 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       },
     },
   ];
-  return { tools: withOutputSchemas(tools, hostedOutputSchemas, { required: true }), runPut };
+  return {
+    tools: withOutputSchemas(
+      tools,
+      { ...hostedOutputSchemas, ...stagedMediaOutputSchemas },
+      { required: true },
+    ),
+    runPut,
+  };
 }

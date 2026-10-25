@@ -58,6 +58,7 @@ import {
   verifyOAuthJwt,
 } from "./oauth";
 import { ROBOTS_TXT } from "./robots";
+import { registerStagedMediaResource, withStagedMediaApp } from "./staged-media-ui";
 
 /**
  * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
@@ -238,22 +239,27 @@ function requestWaitUntil(
 
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
 function buildServer(c: Context<WorkspaceVars>): McpServer {
-  return createMcpServer({
+  const server = createMcpServer({
     // Advertise the published CLI version (the MCP Registry listing), not
     // this worker's private package.json, which is inert.
     serverInfo: { name: "uploads-mcp", version: uploadsVersion, ...MCP_SERVER_DISPLAY },
-    tools: createRemoteTools({
-      env: c.env,
-      workspace: c.get("workspace"),
-      workspaceName: c.get("workspaceName"),
-      authScopes: c.get("authScopes"),
-      uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
-      resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
-      waitUntil: requestWaitUntil(c),
-      classifierHandoff: classifierHandoff(c.env),
-    }),
+    tools: withStagedMediaApp(
+      createRemoteTools({
+        env: c.env,
+        workspace: c.get("workspace"),
+        workspaceName: c.get("workspaceName"),
+        authScopes: c.get("authScopes"),
+        uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
+        resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+        waitUntil: requestWaitUntil(c),
+        classifierHandoff: classifierHandoff(c.env),
+      }),
+      c.get("authScopes").includes("files:read"),
+    ),
     validator,
   });
+  if (c.get("authScopes").includes("files:read")) registerStagedMediaResource(server);
+  return server;
 }
 
 /**
@@ -450,7 +456,7 @@ function mcpServerCard() {
     },
     capabilities: {
       tools: true,
-      resources: false,
+      resources: true,
       prompts: false,
     },
     authentication: {

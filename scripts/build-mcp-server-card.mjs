@@ -38,7 +38,7 @@ function buildCard(server) {
     },
     capabilities: {
       tools: true,
-      resources: false,
+      resources: true,
       prompts: false,
     },
     authentication: {

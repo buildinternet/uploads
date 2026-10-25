@@ -16,6 +16,7 @@
     "./github-pr-activity": "./src/github-pr-activity.ts",
     "./github-repo-links": "./src/github-repo-links.ts",
     "./pr-scope": "./src/pr-scope.ts",
+    "./staged-scopes": "./src/staged-scopes.ts",
     "./guards": "./src/guards.ts",
     "./active-content": "./src/active-content.ts",
     "./budget": "./src/budget.ts",

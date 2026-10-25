@@ -172,6 +172,8 @@ export interface McpTool {
    * whenever the handler returns structured data (OpenAI Scan Tools).
    */
   outputSchema?: Record<string, unknown>;
+  /** Optional MCP App linkage and host extensions. Auth metadata stays authoritative. */
+  _meta?: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -304,7 +306,7 @@ export function createMcpServer(opts: {
           ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.outputSchema, validator) }
           : {}),
         annotations: { title: tool.title, ...tool.annotations },
-        _meta: { securitySchemes: tool.securitySchemes },
+        _meta: { ...tool._meta, securitySchemes: tool.securitySchemes },
       },
       wrapHandler(tool, apiUrl),
     );
