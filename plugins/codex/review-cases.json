@@ -22,10 +22,10 @@
       "expected_behavior": "Make two uploads with repo, branch, state before or after, and metadata.path=/settings. Return branch-staged keys and gh.status=staged without posting a pull request comment."
     },
     {
-      "description": "Retrieve the staged screenshots",
-      "prompt": "What files are staged for branch {{branch}} in {{repo}}?",
-      "tools_triggered": "find_files, repo_link_status",
-      "expected_behavior": "Use find_files filters gh.repo={{repo}} and gh.branch={{branch}}. Return the two files staged in the preceding case, with public links and their before or after state. Do not upload or modify anything."
+      "description": "Review staged and attached files beside the conversation",
+      "prompt": "Open Uploads for branch {{branch}} in {{repo}}, and show attachments on pull request {{pullRequest}}. Do not upload or change anything.",
+      "tools_triggered": "open_staged_media, list_staged_scopes, list_staged_media, resolve_media_context, list_attached_media",
+      "expected_behavior": "Open the Uploads conversation panel with explicit repo, branch, and pr. Show the two staged files from the preceding case separately from the files attached to the supplied PR. Clicking an available image opens its larger preview. Other repositories and branches remain separate. Private or held files stay placeholders. No mutations occur."
     },
     {
       "description": "Refresh the existing managed comment",

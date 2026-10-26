@@ -461,15 +461,15 @@ describe("root discovery aliases", () => {
     expect(body.issuer).toBe("https://uploads.sh/api/auth");
   });
 
-  it("forwards /.well-known/openid-configuration with CORS * (404: no `openid` scope, no OIDC id_token — honest metadata)", async () => {
+  it("advertises OIDC discovery and built-in UserInfo with CORS", async () => {
     const res = await app.request("/.well-known/openid-configuration", {}, dbEnv());
-    // The oauth-provider plugin 404s this endpoint unless "openid" is in its
-    // configured `scopes` — this AS issues only files:* scopes and no
-    // id_token, so this is the correct, honest response, not a bug. The
-    // assertion that matters here is that the alias forwards to the plugin
-    // (not a routing 404) and still stamps CORS.
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await res.json()).toMatchObject({
+      issuer: "https://uploads.sh/api/auth",
+      userinfo_endpoint: "https://uploads.sh/api/auth/oauth2/userinfo",
+      scopes_supported: expect.arrayContaining(["openid", "email"]),
+    });
   });
 });
 

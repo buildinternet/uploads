@@ -1,0 +1,10 @@
+{
+  "displayName": "Uploads",
+  "shortDescription": "Screenshots beside your conversation",
+  "longDescription": "Host screenshots, GIFs, recordings, and files on uploads.sh. Attach media to GitHub pull requests and issues, stage before and after screenshots, and review staged and attached files beside your conversation. Includes screenshot, annotation, and uploads CLI workflow skills.",
+  "defaultPrompt": [
+    "Show staged and attached files for this repository and branch",
+    "Attach this screenshot to the current pull request",
+    "Give me a public URL for this image"
+  ]
+}

@@ -8,12 +8,14 @@ import {
   rmSync,
   symlinkSync,
   writeFileSync,
+  utimesSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stageOpenAIPlugin } from "./build-openai-plugin.mjs";
+import { stageOpenAIPlugin, writePluginArchive } from "./build-openai-plugin.mjs";
 
 const repository = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -27,6 +29,7 @@ function fixture(t) {
     ".mcp.json",
     "packages/plugin/package.json",
     "plugins/codex/review-cases.json",
+    "plugins/codex/directory-interface.json",
     "assets/logo.png",
     "skills",
   ]) {
@@ -38,7 +41,7 @@ function fixture(t) {
 
 await test("directory package excludes local hooks, credentials, and repository contents", (t) => {
   const { source, destination } = fixture(t);
-  writeFileSync(join(source, ".env"), "TOKEN=do-not-package");
+  writeFileSync(join(source, "private-credentials.txt"), "TOKEN=do-not-package");
   mkdirSync(join(source, "hooks"));
   writeFileSync(join(source, "hooks/hooks.json"), "{}");
   const manifest = stageOpenAIPlugin(source, destination);
@@ -49,6 +52,9 @@ await test("directory package excludes local hooks, credentials, and repository 
     "skills",
   ]);
   assert.equal(manifest.extensions["com.openai"].hooks, undefined);
+  assert.equal(manifest.extensions["com.openai"].apps, undefined);
+  assert.equal(manifest.extensions["com.openai"].interface.displayName, "Uploads");
+  assert.doesNotMatch(manifest.extensions["com.openai"].interface.longDescription, /hooks?/i);
   assert.equal(manifest.extensions["com.openai"].review, undefined);
   assert.deepEqual(JSON.parse(readFileSync(join(destination, "mcp.json"), "utf8")).mcpServers, {
     uploads: { type: "streamable-http", url: "https://agents.uploads.sh/mcp" },
@@ -57,9 +63,43 @@ await test("directory package excludes local hooks, credentials, and repository 
 
 await test("skill symlinks cannot pull private files into the ZIP", (t) => {
   const { source, destination } = fixture(t);
-  writeFileSync(join(source, ".env"), "TOKEN=do-not-package");
-  symlinkSync(join(source, ".env"), join(source, "skills/uploads-cli/private.txt"));
+  writeFileSync(join(source, "private-credentials.txt"), "TOKEN=do-not-package");
+  symlinkSync(
+    join(source, "private-credentials.txt"),
+    join(source, "skills/uploads-cli/private.txt"),
+  );
   assert.throws(() => stageOpenAIPlugin(source, destination), /cannot be symlinks/);
+});
+
+await test("the public ZIP excludes private inputs and is reproducible", (t) => {
+  const { source, destination } = fixture(t);
+  writeFileSync(join(source, "private-credentials.txt"), "not-public");
+  stageOpenAIPlugin(source, destination);
+  const first = join(dirname(destination), "first.zip");
+  const second = join(dirname(destination), "second.zip");
+  writePluginArchive(destination, first);
+  utimesSync(join(destination, "plugin.json"), new Date(), new Date());
+  writePluginArchive(destination, second);
+  assert.deepEqual(readFileSync(first), readFileSync(second));
+  const entries = execFileSync("unzip", ["-Z1", first], { encoding: "utf8" }).trim().split("\n");
+  assert.ok(
+    entries.every(
+      (path) =>
+        ["plugin.json", "mcp.json", "assets/logo.png"].includes(path) || path.startsWith("skills/"),
+    ),
+  );
+  assert.ok(entries.includes("plugin.json"));
+  assert.ok(entries.includes("mcp.json"));
+});
+
+await test("the archive refuses a contaminated staging directory", (t) => {
+  const { source, destination } = fixture(t);
+  stageOpenAIPlugin(source, destination);
+  writeFileSync(join(destination, "private-credentials.txt"), "not-public");
+  assert.throws(
+    () => writePluginArchive(destination, join(dirname(destination), "unsafe.zip")),
+    /Unexpected public archive contents/,
+  );
 });
 
 await test("review cases use the configured fixture and reject credential fields", (t) => {

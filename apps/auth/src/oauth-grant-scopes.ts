@@ -4,7 +4,7 @@
  * `@better-auth/oauth-provider` has no per-authorize scope hook and rejects
  * the whole authorize when the request asks for a scope the client is not
  * registered for. Generic MCP clients copy `scopes_supported` (and extras
- * such as `openid`) into `scope=`. RFC 6749 §3.3 lets the AS ignore
+ * such as `profile`) into `scope=`. RFC 6749 §3.3 lets the AS ignore
  * requested scopes it will not grant: downscope to the intersection with
  * the client's registered list, and only `invalid_scope` when nothing
  * grantable remains.
@@ -16,6 +16,8 @@ const KNOWN_SCOPES: ReadonlySet<string> = new Set([
   "files:read",
   "files:write",
   "files:delete",
+  "openid",
+  "email",
   "offline_access",
 ]);
 
@@ -24,7 +26,7 @@ const KNOWN_SCOPES: ReadonlySet<string> = new Set([
  * `offline_access`, but MCP clients build `scope=` from the resource
  * metadata's `scopes_supported` (files:* only) and so never request it.
  * Union it in server-side for any client registered with it — but only when
- * the filtered request still grants a real resource scope, so a
+ * the filtered request still grants a file or identity scope, so a
  * nothing-grantable request keeps its RFC 6749 §3.3 `invalid_scope` and an
  * offline_access-only grant can't be minted from garbage.
  */
@@ -34,8 +36,10 @@ function filterScopeString(scope: string, allowedScopes: readonly string[]): str
   const requested = scope.split(/\s+/).filter(Boolean);
   const allow = new Set(allowedScopes);
   let permitted = requested.filter((id) => KNOWN_SCOPES.has(id) && allow.has(id));
-  const grantsResourceScope = permitted.some((id) => id !== OFFLINE_ACCESS);
-  if (!grantsResourceScope) {
+  // Email claims require explicitly requested and permitted OpenID identity access.
+  if (!permitted.includes("openid")) permitted = permitted.filter((id) => id !== "email");
+  const grantsAccessScope = permitted.some((id) => id !== OFFLINE_ACCESS);
+  if (!grantsAccessScope) {
     // An offline_access-only request must not survive: it would mint a
     // refresh-token-only grant with no resource access. Dropping it lands in
     // the plugin's invalid_scope path like any other nothing-grantable request.

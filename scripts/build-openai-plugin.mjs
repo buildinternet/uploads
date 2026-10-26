@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
+  chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -10,6 +12,7 @@ import {
   readFileSync,
   rmSync,
   writeFileSync,
+  utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -83,6 +86,13 @@ function reviewMetadata(sourceRoot, config) {
 export function stageOpenAIPlugin(sourceRoot, destination, reviewConfig) {
   const identity = readJson(join(sourceRoot, "plugin.json"));
   const codex = readJson(join(sourceRoot, ".codex-plugin/plugin.json"));
+  const directoryCopy = readJson(join(sourceRoot, "plugins/codex/directory-interface.json"));
+  assert.deepEqual(Object.keys(directoryCopy).sort(), [
+    "defaultPrompt",
+    "displayName",
+    "longDescription",
+    "shortDescription",
+  ]);
   const version = readJson(join(sourceRoot, "packages/plugin/package.json")).version;
   assert.equal(identity.version, version, "Portable plugin version must match @uploads/plugin");
   assert.equal(codex.version, version, "Codex plugin version must match @uploads/plugin");
@@ -101,7 +111,7 @@ export function stageOpenAIPlugin(sourceRoot, destination, reviewConfig) {
   );
   manifest.extensions = {
     "com.openai": {
-      interface: codex.interface,
+      interface: { ...codex.interface, ...directoryCopy },
       ...(reviewConfig ? { review: reviewMetadata(sourceRoot, reviewConfig) } : {}),
       publication: {
         release_notes:
@@ -112,7 +122,7 @@ export function stageOpenAIPlugin(sourceRoot, destination, reviewConfig) {
   assert.equal(manifest.extensions["com.openai"].interface.logo, "./assets/logo.png");
   assert.equal(manifest.extensions["com.openai"].interface.composerIcon, "./assets/logo.png");
   assert.ok(
-    !/\bhook\b/i.test(codex.interface.longDescription),
+    !/\bhooks?\b/i.test(manifest.extensions["com.openai"].interface.longDescription),
     "Directory copy cannot promise local hooks",
   );
   const remote = readJson(join(sourceRoot, ".mcp.json")).uploads;
@@ -141,6 +151,46 @@ export function stageOpenAIPlugin(sourceRoot, destination, reviewConfig) {
   return manifest;
 }
 
+/** Normalize archive metadata so repeated builds produce identical public ZIPs. */
+export function writePluginArchive(staging, archive) {
+  assert.ok(!existsSync(archive), "Archive destination must be new");
+  const files = [];
+  const epoch = new Date("2000-01-01T00:00:00Z");
+  function collect(directory, prefix = "") {
+    for (const name of readdirSync(directory).sort()) {
+      const relative = prefix ? `${prefix}/${name}` : name;
+      const path = join(directory, name);
+      const stat = lstatSync(path);
+      assert.ok(!stat.isSymbolicLink(), "Submission archive cannot contain symlinks");
+      if (stat.isDirectory()) collect(path, relative);
+      else {
+        assert.ok(stat.isFile(), "Submission archive accepts only regular files");
+        chmodSync(path, 0o644);
+        utimesSync(path, epoch, epoch);
+        files.push(relative);
+      }
+    }
+  }
+  collect(staging);
+  assert.deepEqual(
+    files.sort(),
+    [
+      "assets/logo.png",
+      "mcp.json",
+      "plugin.json",
+      "skills/annotate-screenshots/SKILL.md",
+      "skills/github-screenshots/SKILL.md",
+      "skills/uploads-cli/SKILL.md",
+    ],
+    "Unexpected public archive contents",
+  );
+  execFileSync("zip", ["-X", "-q", archive, ...files], {
+    cwd: staging,
+    env: { ...process.env, TZ: "UTC" },
+  });
+  execFileSync("unzip", ["-tq", archive]);
+}
+
 function main() {
   const { values } = parseArgs({
     options: { check: { type: "boolean" }, "review-config": { type: "string" } },
@@ -155,12 +205,7 @@ function main() {
       : join(root, "dist/plugins", `uploads-openai-${manifest.version}.zip`);
     mkdirSync(dirname(output), { recursive: true });
     const archive = join(temporary, "plugin.zip");
-    execFileSync(
-      "zip",
-      ["-X", "-q", "-r", archive, "plugin.json", "mcp.json", "assets", "skills"],
-      { cwd: staging },
-    );
-    execFileSync("unzip", ["-tq", archive]);
+    writePluginArchive(staging, archive);
     if (!values.check) copyFileSync(archive, output);
     console.log(
       values.check ? "OpenAI directory package valid" : `OpenAI directory ZIP: ${output}`,
