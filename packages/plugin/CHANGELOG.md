@@ -1,5 +1,12 @@
 # @uploads/plugin
 
+## 0.4.7
+
+### Patch Changes
+
+- 0435c70: Document the read-only Uploads panel for staged files and files attached to the current PR.
+- 144ce07: Prepare a portable OpenAI directory package with hosted MCP tools, shared skills, branding, and reviewer fixtures.
+
 ## 0.4.6
 
 ### Patch Changes
