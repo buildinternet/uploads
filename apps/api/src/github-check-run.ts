@@ -180,7 +180,7 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
     };
   }
   if (count === 0 && uiFiles.length > 0) {
-    // Without a comment (built-in UI paths post none), link the how-to docs.
+    // Without a comment (the how-to is turned off), link the how-to docs.
     const howTo =
       commentLink ||
       " See [how to attach screenshots](https://uploads.sh/docs/require-screenshots).";

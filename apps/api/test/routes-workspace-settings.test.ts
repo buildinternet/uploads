@@ -331,7 +331,7 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
     ).toBe(true);
   });
 
-  it("PATCH round-trips noUploadsComment, and rejects a non-boolean", async () => {
+  it("PATCH round-trips the noUploadsComment mode, maps booleans, and rejects others", async () => {
     const { env, registry } = makeEnv({ role: "owner" });
     const patch = (body: unknown) =>
       app.request(
@@ -343,12 +343,17 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
         },
         env,
       );
-    const res = await patch({ noUploadsComment: false });
+    const stored = () =>
+      registry.record<{ githubNoUploadsComment?: unknown }>("acme")?.githubNoUploadsComment;
+    const res = await patch({ noUploadsComment: "always" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ noUploadsComment: false });
-    expect(
-      registry.record<{ githubNoUploadsComment?: boolean }>("acme")?.githubNoUploadsComment,
-    ).toBe(false);
+    expect(await res.json()).toMatchObject({ noUploadsComment: "always" });
+    expect(stored()).toBe("always");
+    // The older boolean form still saves, as its mode.
+    expect(await (await patch({ noUploadsComment: false })).json()).toMatchObject({
+      noUploadsComment: "never",
+    });
+    expect(stored()).toBe("never");
     expect((await patch({ noUploadsComment: "no" })).status).toBe(400);
   });
 

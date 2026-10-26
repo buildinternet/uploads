@@ -252,7 +252,7 @@ describe("gatherCommentBody", () => {
     }
   });
 
-  it("falls back to the built-in UI paths for the check, without the how-to", async () => {
+  it("falls back to the built-in UI paths for the check and the how-to", async () => {
     const { env, ws, workspaceName, kv } = makeTestEnv();
     Object.assign(env, {
       GITHUB_APP_ID: "1",
@@ -283,10 +283,36 @@ describe("gatherCommentBody", () => {
         detectUiChanges: true,
       });
       expect(result).toMatchObject({
+        noUploads: true,
+        uiFiles: ["src/Button.tsx", "src/email/welcome.ts"],
+      });
+      expect(result.body).toContain("**No uploads on this PR yet**");
+
+      // noUploadsComment: false keeps the built-in list for the check only.
+      kv.store.delete("repocfg:acme/web");
+      setRepoConfig({ noUploadsComment: false });
+      const quiet = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(quiet).toMatchObject({
         noUploads: false,
         uiFiles: ["src/Button.tsx", "src/email/welcome.ts"],
       });
-      expect(result.body).toContain("_No attachments are currently associated");
+      expect(quiet.body).toContain("_No attachments are currently associated");
+
+      // "always" asks on a PR with no UI files, without naming any.
+      vi.stubGlobal(
+        "fetch",
+        fakeFetch({ "/pulls/12/files": () => Response.json([{ filename: "apps/api/b.ts" }]) }),
+      );
+      kv.store.delete("repocfg:acme/web");
+      setRepoConfig({ noUploadsComment: "always" });
+      const always = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(always).toMatchObject({ noUploads: true, uiFiles: [] });
+      expect(always.body).toContain("**No uploads on this PR yet**");
+      expect(always.body).not.toContain("This PR changes UI files");
 
       // A repo's explicit empty list turns UI detection off entirely.
       kv.store.delete("repocfg:acme/web");
