@@ -121,10 +121,11 @@ export async function gatherCommentBody(
     metaState: options.metaState,
     note: options.note,
   };
-  // An empty PR that changes UI files gets a neutral "UI files changed" check,
-  // and the how-to instead of the empty state when paths are configured
-  // (github-no-uploads.ts). Only looked up for an empty PR, or when the repo
-  // requires uploads, so other PRs never pay for the changed-files read.
+  // An empty PR that changes UI files gets a neutral "UI files changed" check
+  // and the how-to instead of the empty state (github-no-uploads.ts). With no
+  // paths set, the built-in list stands in. Only looked up for an empty PR, or
+  // when the repo requires uploads, so other PRs never pay for the
+  // changed-files read.
   const configured = source.uiPaths !== "auto";
   const required = options.checkRequire.length > 0 && target.kind === "pull";
   const uiFiles =
@@ -160,7 +161,6 @@ export async function gatherCommentBody(
   if (
     count === 0 &&
     uiFiles.length > 0 &&
-    configured &&
     options.noUploadsComment &&
     !skipLabel &&
     !satisfiedOnGithub

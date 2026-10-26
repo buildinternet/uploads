@@ -94,8 +94,8 @@ comment:
   # "Check for visuals" check says UI files changed. A pattern without a slash matches
   # a file name anywhere (*.css); one with a slash starts at the repo root.
   # ** crosses folders, * doesn't. Replaces the workspace's UI file paths
-  # setting. With neither set, a built-in list drives the check only, with
-  # no comment. [] turns both off.
+  # setting. With neither set, a built-in list of common UI files is used.
+  # [] turns both off.
   uiPaths:
     - "apps/web/**"
     - "*.css"

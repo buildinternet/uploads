@@ -89,8 +89,8 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   // Default ON for bound repos (issue #701) — binding is already an
   // explicit opt-in relationship, same posture as ingestGithubAttachments.
   adoptLinkedFiles: true,
-  // Empty: the API falls back to its built-in UI file list for the check, and
-  // posts the no-uploads comment only once a repo or workspace lists paths.
+  // Empty: the API falls back to its built-in UI file list for both the check
+  // and the no-uploads comment.
   uiPaths: [],
   noUploadsComment: true,
   checkRequire: [],
