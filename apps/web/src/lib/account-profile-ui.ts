@@ -168,6 +168,13 @@ export function renderSignInMethodsHtml(
               icon: GITHUB_ICON,
             };
           }
+          if (a.providerId === "credential") {
+            return {
+              title: "Password",
+              detail: a.createdAt ? `Set ${formatSessionTime(a.createdAt)}` : "Set",
+              ok: true,
+            };
+          }
           return {
             title: a.providerId,
             detail: a.createdAt ? `Linked ${formatSessionTime(a.createdAt)}` : "Connected",

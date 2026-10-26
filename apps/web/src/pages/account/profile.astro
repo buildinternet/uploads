@@ -131,6 +131,12 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
           : renderDetailListPlaceholderHtml()}
       />
       <p id="accounts-error" class="detail-error" role="alert" hidden></p>
+      <p class="muted settings-note" id="password-note">
+        For hosts that can’t open email links, you can{" "}
+        <button type="button" class="inline-link" id="password-email"
+          >set a password by email</button
+        >.
+      </p>
     </div>
 
     <div class="settings-section">
@@ -331,6 +337,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       getSession,
       linkGitHub,
       listAccounts,
+      requestPasswordEmail,
       listDigestPreferences,
       listSessions,
       revokeSession,
@@ -564,6 +571,25 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
               button.disabled = false;
               button.textContent = "Connect";
             }
+          })();
+        },
+      );
+
+      requireElement<HTMLButtonElement>("#password-email", "account profile").addEventListener(
+        "click",
+        (event) => {
+          void (async () => {
+            const button = event.currentTarget as HTMLButtonElement;
+            const note = requireElement<HTMLElement>("#password-note", "account profile");
+            const email = requireElement<HTMLElement>("#acct-email", "account profile").textContent;
+            setAccountsError(null);
+            button.disabled = true;
+            if (email && (await requestPasswordEmail(authOrigin, email.trim()))) {
+              note.textContent = `Check ${email.trim()} for a link to set your password.`;
+              return;
+            }
+            setAccountsError("Couldn’t send the password email. Try again.");
+            button.disabled = false;
           })();
         },
       );

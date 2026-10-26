@@ -315,6 +315,18 @@ ul.dev-links .slug {
   text-underline-offset: 0.15em;
 }
 
+/* A button that reads as a link inside a note. */
+.settings-note .inline-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;

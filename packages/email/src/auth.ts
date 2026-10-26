@@ -25,3 +25,28 @@ export function renderMagicLinkEmail(ctx: { url: string; webOrigin?: string }): 
     webOrigin: ctx.webOrigin,
   });
 }
+
+/** Set or reset a password (Better Auth reset link → 1 hour expiry). */
+export function renderPasswordResetEmail(ctx: { url: string; webOrigin?: string }): RenderedEmail {
+  return renderEmailCard({
+    subject: "Set your uploads.sh password",
+    preheader: "Your password link — it expires in 1 hour.",
+    eyebrow: "Password",
+    title: "Set your uploads.sh password",
+    bodyHtml:
+      "Use the button below to choose a new password. The link expires in 1 hour. Saving a password signs you out everywhere.",
+    text: [
+      "Choose a new uploads.sh password by opening this link (expires in 1 hour):",
+      "",
+      ctx.url,
+      "",
+      IGNORE,
+      "",
+      "—",
+      "uploads.sh · a Build Internet project",
+    ].join("\n"),
+    cta: { url: ctx.url, label: "Set password →" },
+    footNoteHtml: IGNORE,
+    webOrigin: ctx.webOrigin,
+  });
+}

@@ -6,7 +6,7 @@ export {
   type GmailAction,
   type RenderedEmail,
 } from "./card";
-export { renderMagicLinkEmail } from "./auth";
+export { renderMagicLinkEmail, renderPasswordResetEmail } from "./auth";
 export {
   renderEnrollmentInvitationEmail,
   renderMemberJoinAdminNoticeEmail,
