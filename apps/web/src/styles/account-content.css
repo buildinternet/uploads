@@ -166,6 +166,10 @@ section.card .settings-connect p {
 .setting-row--stacked {
   display: block;
 }
+.setting-row--stacked > .setting-row__control {
+  justify-content: flex-start;
+  margin-top: 8px;
+}
 .setting-row + .setting-row {
   border-top: 1px solid var(--line);
 }
@@ -1915,4 +1919,7 @@ a.wsp-group__head:focus-visible {
 .setting-group__note {
   margin: 4px 0 0;
   font-size: var(--text-meta);
+}
+.setting-row--stacked > .setting-row__control .ul-select {
+  width: auto;
 }

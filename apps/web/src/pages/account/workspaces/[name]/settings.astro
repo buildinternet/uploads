@@ -163,6 +163,7 @@ const tip = {
             label="Ask for screenshots"
             description="Adds a short how-to to the comment when a PR has none yet. It's replaced by the screenshots once they're added."
             docsHref="/docs/require-screenshots#no-uploads-comment"
+            stacked
           >
             <select id="cs-no-uploads-comment" class="ul-select" aria-label="Ask for screenshots">
               <option value="auto">When UI files change (recommended)</option>
@@ -179,7 +180,7 @@ const tip = {
             <p class="setting-row__desc">
               Files that count as UI changes, one pattern per line. Left empty, common UI files
               (.tsx, .css, .astro and similar) count. A repo's own uiPaths in .uploads.yml replaces
-              this list.
+              this list.{" "}
               <a href="/docs/require-screenshots#ui-files">How it works</a>
             </p>
             <textarea
