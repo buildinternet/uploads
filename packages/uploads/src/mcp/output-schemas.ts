@@ -45,6 +45,7 @@ export const commentResultSchema: JsonSchema = objectSchema(
     action: { type: "string", enum: ["skipped", "created", "updated"] },
     count: { type: "number" },
     commentUrl: { type: "string" },
+    held: { type: "number" },
   },
   ["posted"],
 );
@@ -104,6 +105,7 @@ const putObjectFields: Record<string, JsonSchema> = {
   provenance: stringMap,
   metadata: stringMap,
   visibility: { type: "string" },
+  holdCheck: { type: "string", enum: ["pending"] },
 };
 
 /** Hosted `PostCommentResult` or stdio `AttachmentsCommentResult` (`via`/`action`). */
@@ -127,6 +129,7 @@ const putCommentSchema: JsonSchema = objectSchema({
   count: { type: "number" },
   commentUrl: { type: "string" },
   via: { type: "string", enum: ["bot", "gh"] },
+  held: { type: "number" },
 });
 
 const putExtras: Record<string, JsonSchema> = {
@@ -196,11 +199,76 @@ export const deleteResultSchema: JsonSchema = objectSchema(
     key: { type: "string" },
     deleted: { type: "boolean" },
     dryRun: { type: "boolean" },
+    commentRefreshed: { type: "boolean" },
+    commentHint: { type: "string" },
   },
   ["key"],
 );
 
+export const unstageResultSchema: JsonSchema = objectSchema(
+  {
+    dryRun: { type: "boolean" },
+    repo: { type: "string" },
+    branch: { type: "string" },
+    files: {
+      type: "array",
+      items: objectSchema(
+        {
+          key: { type: "string" },
+          url: nullableString,
+          action: { type: "string", enum: ["unstaged", "unchanged"] },
+        },
+        ["key", "url", "action"],
+      ),
+    },
+    truncated: { type: "boolean" },
+  },
+  ["dryRun", "files"],
+);
+
 export const metadataResultSchema: JsonSchema = objectSchema({ metadata: stringMap }, ["metadata"]);
+
+const holdAreaSchema: JsonSchema = {
+  type: ["object", "null"],
+  properties: {
+    top: { type: "number" },
+    left: { type: "number" },
+    bottom: { type: "number" },
+    right: { type: "number" },
+  },
+};
+
+/** Hosted + stdio `list_held`. `area` is hosted-only (fractions of the image). */
+export const listHeldResultSchema: JsonSchema = objectSchema(
+  {
+    items: {
+      type: "array",
+      items: objectSchema(
+        { key: { type: "string" }, reason: { type: "string" }, area: holdAreaSchema },
+        ["key", "reason"],
+      ),
+    },
+  },
+  ["items"],
+);
+
+/** Hosted + stdio `approve`. */
+export const approveResultSchema: JsonSchema = objectSchema(
+  {
+    files: {
+      type: "array",
+      items: objectSchema(
+        {
+          key: { type: "string" },
+          action: { type: "string", enum: ["approved", "not_held"] },
+          reason: { type: "string" },
+        },
+        ["key", "action"],
+      ),
+    },
+  },
+  ["files"],
+);
 
 export const findFilesResultSchema: JsonSchema = objectSchema(
   {
@@ -456,6 +524,60 @@ const feedItemSchema: JsonSchema = objectSchema({
   },
 });
 
+const activityRepoSchema: JsonSchema = objectSchema(
+  {
+    repo: { type: "string" },
+    lastUpdatedAt: { type: "string" },
+  },
+  ["repo", "lastUpdatedAt"],
+);
+
+const activityPullSchema: JsonSchema = objectSchema(
+  {
+    ref: { type: "string" },
+    repo: { type: "string" },
+    number: { type: "number" },
+    branch: nullableString,
+    state: nullableString,
+    lastMediaAt: { type: "string" },
+    title: nullableString,
+  },
+  ["ref", "repo", "number", "branch", "state", "lastMediaAt", "title"],
+);
+
+/** Hosted `list_activity`. Only the array for `by` is present. */
+const listActivityResultSchema: JsonSchema = objectSchema(
+  {
+    by: { type: "string", enum: ["pull", "repo"] },
+    repos: { type: "array", items: activityRepoSchema },
+    pulls: { type: "array", items: activityPullSchema },
+    cursor: nullableString,
+  },
+  ["by", "cursor"],
+);
+
+const repoFileSchema: JsonSchema = objectSchema(
+  {
+    key: { type: "string" },
+    url: nullableString,
+    embedUrl: nullableString,
+    updatedAt: { type: "string" },
+    path: nullableString,
+    state: nullableString,
+    kind: { type: "string", enum: ["screenshot", "video", "other"] },
+  },
+  ["key", "url", "embedUrl", "updatedAt", "path", "state", "kind"],
+);
+
+/** Hosted `list_repo_files`. */
+const listRepoFilesResultSchema: JsonSchema = objectSchema(
+  {
+    items: { type: "array", items: repoFileSchema },
+    cursor: nullableString,
+  },
+  ["items", "cursor"],
+);
+
 export const feedResultSchema: JsonSchema = objectSchema({
   id: { type: "string" },
   url: { type: "string" },
@@ -471,6 +593,29 @@ export const feedResultSchema: JsonSchema = objectSchema({
 });
 
 /** Hosted catalog — every tool must have an entry. */
+/** Hosted-only `sign_upload_url`: one upload URL and curl line per file. */
+const signUploadUrlResultSchema: JsonSchema = objectSchema(
+  {
+    workspace: { type: "string" },
+    expiresAt: { type: "string" },
+    uploads: {
+      type: "array",
+      items: objectSchema(
+        {
+          file: { type: "string" },
+          uploadUrl: { type: "string" },
+          curl: { type: "string" },
+          maxBytes: { type: "number" },
+        },
+        ["file", "uploadUrl", "curl", "maxBytes"],
+      ),
+    },
+    next: { type: "string" },
+    hint: { type: "string" },
+  },
+  ["workspace", "expiresAt", "uploads", "hint"],
+);
+
 export const hostedOutputSchemas: Record<string, JsonSchema> = {
   gallery_create: galleryResultSchema,
   gallery_get: galleryResultSchema,
@@ -480,11 +625,17 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   feed_create: feedResultSchema,
   feed_get: feedResultSchema,
   put: putResultSchema,
+  sign_upload_url: signUploadUrlResultSchema,
   list: listResultSchema,
+  list_activity: listActivityResultSchema,
+  list_repo_files: listRepoFilesResultSchema,
   delete: deleteResultSchema,
+  unstage: unstageResultSchema,
   comment: commentResultSchema,
   promote: promoteToolResultSchema,
   get_metadata: metadataResultSchema,
+  list_held: listHeldResultSchema,
+  approve: approveResultSchema,
   set_metadata: metadataResultSchema,
   find_files: findFilesResultSchema,
   list_metadata_keys: metadataFacetsResultSchema,
@@ -508,6 +659,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
   feed_get: feedResultSchema,
   put: putResultSchema,
   list: listResultSchema,
+  unstage: unstageResultSchema,
   delete: deleteResultSchema,
   comment: objectSchema({
     posted: { type: "boolean" },
@@ -522,8 +674,11 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
     kind: { type: "string" },
     num: { type: "number" },
     via: { type: "string", enum: ["bot", "gh"] },
+    held: { type: "number" },
   }),
   get_metadata: metadataResultSchema,
+  list_held: listHeldResultSchema,
+  approve: approveResultSchema,
   set_metadata: metadataResultSchema,
   find_files: findFilesResultSchema,
   list_metadata_keys: metadataFacetsResultSchema,

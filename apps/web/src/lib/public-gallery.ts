@@ -1,5 +1,5 @@
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
-import { fileKind, isVideoDimensions, nullableHttpsUrl } from "./public-file";
+import { fileKind, isMetadataMap, isVideoDimensions, nullableHttpsUrl } from "./public-file";
 import { SSR_USER_AGENT } from "./ssr-fetch";
 
 export interface PublicGalleryItem {
@@ -13,6 +13,7 @@ export interface PublicGalleryItem {
   /** Embed-host URL when the dual-host policy applies; null otherwise. Always present (see gallery-service.ts). */
   embedUrl: string | null;
   contentType: string | null;
+  metadata?: Record<string, string>;
   /** Byte size when available; null for missing/tombstone items. */
   size: number | null;
   /** First-upload ISO when known; omitted when unavailable. */
@@ -193,6 +194,7 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
     const videoDimensionsOk =
       item.videoDimensions === undefined || isVideoDimensions(item.videoDimensions);
     return (
+      (item.metadata === undefined || isMetadataMap(item.metadata)) &&
       posterUrlOk &&
       videoDimensionsOk &&
       text(item.id, 64) &&

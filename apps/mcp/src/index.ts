@@ -8,6 +8,7 @@
  * bearer-token middleware; the protocol core is the CLI package's
  * `createMcpServer`, shared verbatim.
  */
+import { UploadsError } from "@buildinternet/uploads";
 import {
   createMcpServer,
   MCP_SERVER_DISPLAY,
@@ -15,6 +16,7 @@ import {
   type McpServer,
 } from "@buildinternet/uploads/mcp";
 import {
+  CLIENT_INFO_META_KEY,
   createMcpHandler,
   isLegacyRequest,
   WebStandardStreamableHTTPServerTransport,
@@ -26,8 +28,12 @@ import {
   isAppError,
   MethodNotAllowedError,
   NotFoundError,
+  PayloadTooLargeError,
   UnauthorizedError,
+  ValidationError,
 } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
+import { setIssueContext } from "@uploads/observability/issues";
 import {
   loadWorkspaceRecord,
   tokenWorkspaceAuth,
@@ -35,11 +41,15 @@ import {
   type WorkspaceVars,
 } from "@uploads/api/workspace";
 import { userUploaderIdentity } from "@uploads/api/uploader-identity";
+import type { ClassifierHandoff, StreamedBody } from "@uploads/api/files";
+import { DEFAULT_MAX_UPLOAD_BYTES } from "@uploads/api/guards";
+import { mcpClientInfo, recordClient, userClientPrincipal } from "@uploads/api/client-activity";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { version as uploadsVersion } from "../../../packages/uploads/package.json";
-import { createRemoteTools } from "./tools";
+import { createRemoteTools, runTicketedPut } from "./tools";
+import { verifyUploadTicket } from "./upload-ticket";
 import {
   invalidTokenChallenge,
   isJwtShaped,
@@ -48,6 +58,7 @@ import {
   verifyOAuthJwt,
 } from "./oauth";
 import { ROBOTS_TXT } from "./robots";
+import { registerStagedMediaResource, withStagedMediaApp } from "./staged-media-ui";
 
 /**
  * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
@@ -148,10 +159,10 @@ async function oauthAuth(
   // config on this AS), the same id `uploaderTags()` resolves against the
   // internal `/users/:id/github-account` route. `tokenWorkspaceAuth`/
   // `workspaceAuth` set the same var from `up_` tokens' `minting_user_id`.
-  c.set(
-    "uploaderIdentity",
-    userUploaderIdentity(typeof verified.raw.sub === "string" ? verified.raw.sub : null),
-  );
+  const sub = typeof verified.raw.sub === "string" ? verified.raw.sub : null;
+  c.set("uploaderIdentity", userUploaderIdentity(sub));
+  if (sub) c.set("clientPrincipal", userClientPrincipal(sub));
+  setIssueContext({ userId: sub, workspace: workspaceName });
   return null;
 }
 
@@ -180,23 +191,82 @@ async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise
   return workspaceAuth(c, next);
 }
 
+/**
+ * Hosted uploads are classified on uploads-api, over the `API` service
+ * binding (`routes/internal-classify.ts` there), so this worker needs no
+ * OpenRouter key or classifier bindings of its own. Unbound (previews,
+ * self-hosters), uploads are not classified. Never throws: classification
+ * fails open.
+ */
+function classifierHandoff(env: Env): ClassifierHandoff | undefined {
+  const api = env.API;
+  if (!api) return undefined;
+  return async ({ workspaceName, key, bytes, contentType, enforceHold }) => {
+    const url = new URL("https://api.internal/internal/classify");
+    url.searchParams.set("workspace", workspaceName);
+    url.searchParams.set("key", key);
+    if (enforceHold) url.searchParams.set("enforceHold", "1");
+    try {
+      const res = await api.fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body: bytes,
+      });
+      if (!res.ok) {
+        console.error({
+          event: "classifier_handoff_failed",
+          workspace: workspaceName,
+          status: res.status,
+        });
+      }
+    } catch (err) {
+      console.error({ event: "classifier_handoff_failed", workspace: workspaceName, err });
+    }
+  };
+}
+
+/** The request's `waitUntil`, or `undefined` without an execution context (tests). */
+function requestWaitUntil(
+  c: Context<WorkspaceVars>,
+): ((promise: Promise<unknown>) => void) | undefined {
+  try {
+    const ctx = c.executionCtx;
+    return (promise) => ctx.waitUntil(promise);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
 function buildServer(c: Context<WorkspaceVars>): McpServer {
-  return createMcpServer({
+  const server = createMcpServer({
     // Advertise the published CLI version (the MCP Registry listing), not
     // this worker's private package.json, which is inert.
     serverInfo: { name: "uploads-mcp", version: uploadsVersion, ...MCP_SERVER_DISPLAY },
-    tools: createRemoteTools({
-      env: c.env,
-      workspace: c.get("workspace"),
-      workspaceName: c.get("workspaceName"),
-      authScopes: c.get("authScopes"),
-      uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
-      resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
-    }),
+    tools: withStagedMediaApp(
+      createRemoteTools({
+        env: c.env,
+        workspace: c.get("workspace"),
+        workspaceName: c.get("workspaceName"),
+        authScopes: c.get("authScopes"),
+        uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
+        resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+        waitUntil: requestWaitUntil(c),
+        classifierHandoff: classifierHandoff(c.env),
+      }),
+      c.get("authScopes").includes("files:read"),
+    ),
     validator,
   });
+  if (c.get("authScopes").includes("files:read")) registerStagedMediaResource(server);
+  return server;
 }
+
+/**
+ * The SDK defaults this to 4 MiB. `put` inlines file bytes as base64, and
+ * Cloudflare already accepts a 100 MB request on this zone.
+ */
+const MCP_MAX_REQUEST_BODY_BYTES = 100_000_000;
 
 /**
  * Routes the two protocol eras explicitly rather than leaning on
@@ -210,39 +280,48 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
  * anything that would hit it).
  */
 async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
-  if (await isLegacyRequest(c.req.raw)) {
+  await recordMcpClient(c);
+  if (
+    await isLegacyRequest(c.req.raw, undefined, {
+      maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
+    })
+  ) {
     const server = buildServer(c);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
     });
     try {
       await server.connect(transport);
-      // Parse the body ourselves and hand it to the transport as
-      // `parsedBody` (rather than letting it read `c.req.raw` itself): this
-      // transport, unlike the retired hand-rolled core, does not reject a
-      // JSON-RPC batch (array) body — the 2026-07-28 spec removed batching,
-      // but this leg exists precisely to keep 2025-era callers byte-identical
-      // to their pre-SDK behavior, so that rejection is preserved here.
-      let parsedBody: unknown = null;
+      // Reject a JSON-RPC batch here. This transport accepts a short array,
+      // and the legacy leg keeps the pre-SDK -32600. Rebuild the request so
+      // the transport reads the bytes; `parsedBody` would skip maxRequestBodySize.
+      const text = await c.req.text();
+      let parsed: unknown = null;
       try {
-        parsedBody = JSON.parse(await c.req.text());
+        parsed = JSON.parse(text);
       } catch {
-        parsedBody = null;
+        parsed = null;
       }
-      if (Array.isArray(parsedBody)) {
+      if (Array.isArray(parsed)) {
         return c.json(
           { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } },
           200,
         );
       }
-      return await transport.handleRequest(c.req.raw, { parsedBody });
+      return await transport.handleRequest(
+        new Request(c.req.url, { method: "POST", headers: c.req.raw.headers, body: text }),
+      );
     } finally {
       await server.close();
     }
   }
 
-  const handler = createMcpHandler(() => buildServer(c), { legacy: "reject" });
+  const handler = createMcpHandler(() => buildServer(c), {
+    legacy: "reject",
+    maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
+  });
   try {
     return await handler.fetch(c.req.raw);
   } finally {
@@ -250,19 +329,101 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   }
 }
 
+/** Bodies larger than this (tool calls carrying file bytes) skip the clientInfo read. */
+const CLIENT_INFO_MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * Records the MCP host's clientInfo for this credential (`client_activity`,
+ * surface `mcp-remote`): `params.clientInfo` on a 2025-era `initialize`, or
+ * the `_meta` key the 2026-07-28 protocol repeats on every request. Reads a
+ * clone of the body so the transport still gets the original, and skips
+ * large bodies rather than parse megabytes of base64.
+ */
+async function recordMcpClient(c: Context<WorkspaceVars>): Promise<void> {
+  const declared = c.req.header("Content-Length");
+  if (declared !== undefined && !(Number(declared) <= CLIENT_INFO_MAX_BODY_BYTES)) return;
+  let params: { clientInfo?: unknown; _meta?: Record<string, unknown> } | undefined;
+  try {
+    const text = await c.req.raw.clone().text();
+    if (text.length > CLIENT_INFO_MAX_BODY_BYTES || !text.includes("clientInfo")) return;
+    params = (JSON.parse(text) as { params?: typeof params } | null)?.params;
+  } catch {
+    return;
+  }
+  const client = mcpClientInfo(params?._meta?.[CLIENT_INFO_META_KEY] ?? params?.clientInfo);
+  if (client) await recordClient(c, client);
+}
+
 function respondError(c: Context, err: unknown): Response {
-  const appErr = isAppError(err) ? err : AppError.from(err);
-  if (!appErr.expose || appErr.type === "internal") {
-    console.error(
-      JSON.stringify({
-        message: appErr.message,
-        code: appErr.code,
-        type: appErr.type,
-        stack: appErr.stack,
-      }),
-    );
+  // A tool's `usage()` error reached over plain HTTP (the `/u/` route) is a
+  // bad request, not a 500.
+  const appErr = isAppError(err)
+    ? err
+    : err instanceof UploadsError && err.code === "USAGE"
+      ? new ValidationError(err.message, { cause: err })
+      : AppError.from(err);
+  if (appErr.status >= 500 && appErr.type !== "insufficient_storage") {
+    reportHandledError(appErr.cause instanceof Error ? appErr.cause : appErr);
   }
   return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);
+}
+
+/** Largest `PUT /u/<ticket>` body read into memory; anything bigger streams. */
+const TICKET_BUFFER_MAX_BYTES = DEFAULT_MAX_UPLOAD_BYTES;
+
+/**
+ * `PUT /u/<ticket>`: one file from a `sign_upload_url` URL (issue #1242).
+ * The ticket is the only credential — it names the workspace, the uploader,
+ * and the `put` arguments — so no bearer is read here. The body goes through
+ * the same `put` path as the tool, minus the comment sync.
+ */
+async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> {
+  const claims = await verifyUploadTicket(c.env, c.req.param("ticket") ?? "");
+  if (!claims) {
+    throw new UnauthorizedError(
+      "This upload URL is invalid or expired. Call sign_upload_url again.",
+    );
+  }
+  // Checked before reading so an oversized or chunked body is never buffered.
+  const length = Number(c.req.header("Content-Length") ?? Number.NaN);
+  if (!Number.isInteger(length) || length < 0) {
+    throw new ValidationError("Content-Length is required (curl -T sends it).", {
+      code: "length_required",
+    });
+  }
+  const tooLarge = () =>
+    new PayloadTooLargeError(`This upload URL accepts up to ${claims.maxBytes} bytes.`);
+  if (length > claims.maxBytes) throw tooLarge();
+  const record = await loadWorkspaceRecord(c.env, claims.ws);
+  if (!record) throw new UnauthorizedError();
+  setIssueContext({ workspace: claims.ws });
+
+  // Small bodies are buffered so they get every check `put` makes; larger
+  // ones stream to storage (`streamed-body.ts`) to stay inside the isolate's
+  // 128 MB, which concurrent requests share.
+  let body: Uint8Array | StreamedBody;
+  if (length <= TICKET_BUFFER_MAX_BYTES || !c.req.raw.body) {
+    body = new Uint8Array(await c.req.arrayBuffer());
+    if (body.byteLength > claims.maxBytes) throw tooLarge();
+  } else {
+    body = { stream: c.req.raw.body, size: length };
+  }
+  const result = await runTicketedPut(
+    {
+      env: c.env,
+      workspace: record,
+      workspaceName: claims.ws,
+      // Minting required files:write; that's all the PUT does.
+      authScopes: ["files:write"],
+      uploaderIdentity: claims.who,
+      resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+      waitUntil: requestWaitUntil(c),
+      classifierHandoff: classifierHandoff(c.env),
+    },
+    claims.args,
+    body,
+  );
+  return c.json(result);
 }
 
 const methodNotAllowed = (_c: Context<WorkspaceVars>) => {
@@ -295,7 +456,7 @@ function mcpServerCard() {
     },
     capabilities: {
       tools: true,
-      resources: false,
+      resources: true,
       prompts: false,
     },
     authentication: {
@@ -356,11 +517,25 @@ const app = new Hono<WorkspaceVars>()
       "Content-Type": "text/plain; charset=utf-8",
     });
   })
+  // Any other well-known path (AS / OIDC metadata probes included) is a 404:
+  // this origin is a protected resource, not an authorization server. Without
+  // this, `/:workspace/*` treats ".well-known" — or "mcp" in
+  // /mcp/.well-known/* — as a tenant and answers with a misleading 401.
+  .all("/.well-known/*", () => {
+    throw new NotFoundError();
+  })
+  .all("/mcp/.well-known/*", () => {
+    throw new NotFoundError();
+  })
   // Primary endpoint: the workspace is inferred from the bearer token
   // (up_<workspace>_…) or, for a JWT-shaped bearer, the OAuth token's
   // `workspace` claim — so clients only need the URL and the token.
   .post("/mcp", mcpBearerAuth, handleMcp)
   .on(["GET", "DELETE"], "/mcp", methodNotAllowed)
+  // Signed uploads (issue #1242). Before `/:workspace/*`, which would
+  // otherwise treat `u` as a workspace and demand a bearer.
+  .put("/u/:ticket", handleTicketUpload)
+  .all("/u/:ticket", methodNotAllowed)
   // Workspace-prefixed alternate, kept for existing clients.
   .use("/:workspace/*", workspacePathAuth)
   .post("/:workspace/mcp", handleMcp)

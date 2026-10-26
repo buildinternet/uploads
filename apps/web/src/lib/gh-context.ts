@@ -13,6 +13,7 @@
  */
 
 import type { GithubTitleMap } from "./api-client";
+import { asPrState, type PrState } from "@uploads/ui/lib/pr-label";
 
 export type GhKind = "pull" | "issue";
 
@@ -28,6 +29,10 @@ export interface GhWorkItem {
   /** `gh.title` when the CLI resolved one at attach time, else `ref` (e.g. "o/uploads#1789"). */
   label: string;
   kindLabel: "pull request" | "issue";
+  /** `gh.title` stamped at attach time, or a fetched title; null when unknown. */
+  title?: string | null;
+  /** Live open/closed/merged from the titles endpoint; absent until resolved. */
+  state?: PrState | null;
   /** Lowercased `owner` from `repo` when it is a valid GitHub login. */
   owner?: string;
 }
@@ -74,6 +79,7 @@ export function ghWorkItemFromMetadata(
     ref,
     url: githubUrl(repo, kind, number),
     label: title ? title : ref,
+    title: title || null,
     kindLabel: kind === "pull" ? "pull request" : "issue",
     ...(owner ? { owner } : {}),
   };
@@ -108,11 +114,16 @@ export function exactPrMatch(files: { metadata?: Record<string, string> }[]): Gh
 /**
  * Overlay server-fetched titles (issue #267) onto rail items. A fetched title
  * is strictly newer than any attach-time `gh.title`, so it wins; refs the
- * server couldn't resolve (null / absent / empty) keep their existing label.
+ * server couldn't resolve (null / absent) keep their existing label; an empty
+ * fetched title keeps the label but still records the live state.
  */
 export function applyGhTitles(items: GhWorkItem[], titles: GithubTitleMap): GhWorkItem[] {
   return items.map((item) => {
     const fetched = titles[item.ref];
-    return fetched && fetched.title ? { ...item, label: fetched.title } : item;
+    if (!fetched) return item;
+    const state = asPrState(fetched.state);
+    return fetched.title
+      ? { ...item, label: fetched.title, title: fetched.title, state }
+      : { ...item, state };
   });
 }

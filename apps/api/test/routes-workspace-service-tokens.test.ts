@@ -291,6 +291,28 @@ describe("withUploaderTags for service tokens", () => {
     const meta = { "gh.repo": "acme/app", a: "1" };
     expect(await withUploaderTags(env, meta, SERVICE, 2)).toBe(meta);
   });
+
+  it("strips a forged uploader id when the stamp would exceed the key cap", async () => {
+    const meta = {
+      "gh.repo": "acme/app",
+      a: "1",
+      "gh.uploader-id": "u-spoof",
+      "gh.uploader-proof": "server",
+    };
+    const tagged = await withUploaderTags(env, meta, SERVICE, 2);
+    expect(tagged).toEqual({ "gh.repo": "acme/app", a: "1" });
+    expect(tagged).not.toBe(meta);
+  });
+
+  it("strips a forged uploader id when the credential has no user to stamp", async () => {
+    const meta = {
+      "gh.repo": "acme/app",
+      "gh.uploader-id": "u-spoof",
+      "gh.uploader-proof": "server",
+    };
+    const tagged = await withUploaderTags(env, meta, { kind: "none" }, 24);
+    expect(tagged).toEqual({ "gh.repo": "acme/app" });
+  });
 });
 
 describe("uploaderIdentityOf", () => {

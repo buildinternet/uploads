@@ -1,10 +1,14 @@
 ---
+import { serverTimingDisabled, type TimingEnv } from "@uploads/observability";
 import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
-import CopyAsControls from "../../../components/CopyAsControls.astro";
+import ThemeToggle from "../../../components/ThemeToggle.astro";
+import FileActions from "../../../components/FileActions.astro";
+import FileDetails from "../../../components/FileDetails.astro";
 import Footer from "../../../components/Footer.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import ReportAbuse from "../../../components/ReportAbuse.astro";
+import UnfurlMeta from "../../../components/UnfurlMeta.astro";
 import { GH_KIND_PATH } from "../../../lib/brand-icons";
 import {
   comparisonRows,
@@ -20,22 +24,18 @@ import {
   fileDownloadUrl,
   fileKind as kind,
   filePath,
-  formatBytes,
-  formatFileDate,
   isTextPreviewable,
-  shouldShowModified,
-  sameUtcDay,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../../lib/ssr-fetch";
 import { resolveSignedInOrigins } from "../../../lib/signed-in-page";
 import { workspaceHomePath } from "../../../lib/workspaces-nav";
-import { AI_CHIP_FIELDS, splitFileDetailMeta } from "../../../lib/ai-labels";
 
 export const prerender = false;
 
+const ssrStarted = Date.now();
+const timingsEnabled = !serverTimingDisabled(env as TimingEnv);
 const workspace = Astro.params.workspace ?? "";
 const key = Astro.params.key ?? "";
 // SSR-only, absolute — fetchPublicFile validates this is a real https:/loopback
@@ -44,7 +44,17 @@ const key = Astro.params.key ?? "";
 // below (#731 phase D).
 const origin =
   env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
-const result = await fetchPublicFile(workspace, key, { origin, fetch: publicApiFetch(env) });
+const fetchStarted = Date.now();
+const result = await fetchPublicFile(workspace, key, {
+  origin,
+  fetch: publicApiFetch(env),
+  transport: env.API ? "binding" : "http",
+  onServerTiming: timingsEnabled
+    ? (value) => Astro.response.headers.append("Server-Timing", value)
+    : undefined,
+});
+if (timingsEnabled)
+  Astro.response.headers.append("Server-Timing", `file_ssr_fetch;dur=${Date.now() - fetchStarted}`);
 
 // Browser-facing: the delete/file-url probe below and ReportAbuse's fetch are
 // credentialed(-ish) calls a real visitor's browser makes, so they go through
@@ -58,24 +68,8 @@ if (result.status === "unavailable") Astro.response.status = 503;
 else if (result.status === "auth_required") Astro.response.status = 401;
 else if (!file) Astro.response.status = 404;
 
+const previewUrl = file?.previewUrl ?? file?.url ?? null;
 const filename = key.split("/").filter(Boolean).pop() ?? key;
-const uploadedIso = file?.uploaded ?? null;
-const modifiedIso = file?.modified ?? null;
-const showModified = shouldShowModified(uploadedIso, modifiedIso);
-const withTime = Boolean(
-  showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso),
-);
-const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
-const modifiedLabel =
-  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
-// Rail footnote (demoted from a Size/Uploaded/Modified dl — issue: right-rail hierarchy pass):
-// one muted line beneath the actions instead of a data table.
-const footnoteParts = [
-  file ? formatBytes(file.size) : null,
-  uploadedLabel ? `Uploaded ${uploadedLabel}` : null,
-  modifiedLabel ? `Modified ${modifiedLabel}` : null,
-].filter((part): part is string => Boolean(part));
-const footnoteLine = footnoteParts.join(" · ");
 const gh = file?.github;
 const ghKindLabel = gh?.kind === "pull" ? "Pull request" : gh ? "Issue" : "";
 const ghRef = gh ? `${gh.repo}#${gh.number}` : "";
@@ -86,18 +80,7 @@ const ghAriaLabel = gh
   : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
-// Generic metadata list excludes `gh.*` (the byline) and `ai.*` (the
-// experimental labels block below). `path` / `state` stay first.
-const detailMeta = splitFileDetailMeta(file?.metadata);
-const metadataEntries = [...detailMeta.primary, ...detailMeta.other];
-const aiLabels = detailMeta.ai;
-const aiChips = aiLabels
-  ? AI_CHIP_FIELDS.flatMap((field) => {
-      const value = aiLabels[field];
-      return value ? [{ field, value }] : [];
-    })
-  : [];
-// Empty when there's no file — CopyAsControls hides itself when both are empty.
+// Empty when there's no file.
 const embedFormats = file
   ? buildEmbedFormats({
       canonical,
@@ -111,10 +94,16 @@ const downloadUrl = file ? fileDownloadUrl(origin, workspace, key) : null;
 // Inline text preview (issue #946): SSR-fetch the object body from storage
 // (server-to-server, no CORS concern) for small text/markdown/csv/json
 // files; any failure/timeout/oversized body falls back to the file card.
+const textStarted = Date.now();
 const textPreview =
   file && isTextPreviewable(file.contentType, file.size)
-    ? await fetchTextPreview(file.url, { timeoutMs: 5000 })
+    ? await fetchTextPreview(previewUrl!, { timeoutMs: 5000 })
     : null;
+if (timingsEnabled && file && isTextPreviewable(file.contentType, file.size))
+  Astro.response.headers.append(
+    "Server-Timing",
+    `file_text_preview;dur=${Date.now() - textStarted}`,
+  );
 const title = file
   ? `${filename} · uploads.sh`
   : result.status === "auth_required"
@@ -140,11 +129,13 @@ const railRows = ownState && counterpartHref ? comparisonRows(ownState, counterp
 // sides, apps/api/src/routes/public-files.ts), so this never actually filters.
 const compare =
   counterpart && ownState && kind(file!.contentType) === "image"
-    ? { src: counterpart.url, ownState }
+    ? { src: counterpart.previewUrl ?? counterpart.url, ownState }
     : null;
-const ogImage = file
-  ? ogImageFor(kind(file.contentType), file.url, file.posterUrl)
-  : OG_DEFAULT_IMAGE;
+const mediaKind = file ? kind(file.contentType) : null;
+const aiLabelsSettingsHref = `/account/workspaces/${encodeURIComponent(workspace)}/settings/ai-labels`;
+const unfurlKind = mediaKind === "image" || mediaKind === "video" ? mediaKind : "other";
+if (timingsEnabled)
+  Astro.response.headers.append("Server-Timing", `file_ssr_prepare;dur=${Date.now() - ssrStarted}`);
 ---
 
 <!doctype html>
@@ -155,12 +146,18 @@ const ogImage = file
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
     <meta name="description" content="Public file hosted by uploads.sh." />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={file ? filename : "File unavailable"} />
-    <meta property="og:description" content="Public file hosted by uploads.sh." />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:site_name" content={OG_SITE_NAME} />
-    <meta property="og:image" content={ogImage} />
+    <UnfurlMeta
+      pageUrl={canonical}
+      siteOrigin={Astro.url.origin}
+      title={file ? filename : "File unavailable"}
+      description="Public file hosted by uploads.sh."
+      kind={unfurlKind}
+      mediaUrl={previewUrl}
+      contentType={file?.contentType ?? null}
+      posterUrl={file?.posterUrl ?? null}
+      width={file?.videoDimensions?.width ?? null}
+      height={file?.videoDimensions?.height ?? null}
+    />
     {
       oembedHref && (
         <link
@@ -199,6 +196,11 @@ const ogImage = file
         font: var(--text-meta) var(--mono);
         letter-spacing: 0.02em;
       }
+      .nav-end {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
       .public {
         color: var(--muted);
         font-size: var(--text-micro);
@@ -210,36 +212,18 @@ const ogImage = file
         background: var(--panel);
       }
       /* Click-to-copy share pill — replaces the static "public file" label whenever there's a link to copy. */
-      button.public {
-        appearance: none;
-        -webkit-appearance: none;
-        cursor: pointer;
-        font-family: inherit;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      button.public:hover,
-      button.public:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
-         button.textContent on copy, which would otherwise destroy an inline <svg>. */
-      .sharelink::before {
-        content: "";
-        width: 11px;
-        height: 11px;
-        flex: none;
-        background: currentColor;
-        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-      }
+      /* Title on the left, FileActions on the right; actions wrap under on narrow screens. */
       .filehead {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px 24px;
         margin: 0 0 16px;
+        min-width: 0;
+      }
+      .filehead-text {
+        flex: 1 1 320px;
         min-width: 0;
       }
       .filetitle {
@@ -313,75 +297,6 @@ const ogImage = file
         height: 1px;
         background: var(--line);
       }
-      dl.meta {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 6px 16px;
-        margin: 0;
-        font: var(--text-micro) var(--mono);
-      }
-      dl.meta dt {
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: var(--text-micro);
-      }
-      dl.meta dd {
-        margin: 0;
-        color: var(--body);
-        overflow-wrap: anywhere;
-      }
-      .ai-labels {
-        display: grid;
-        gap: 8px;
-      }
-      .ai-labels-head {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-      }
-      .ai-labels-exp {
-        color: var(--muted);
-        font: var(--text-micro) var(--sans);
-        opacity: 0.7;
-      }
-      .ai-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .ai-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        max-width: 100%;
-        padding: 3px 8px;
-        border: 1px solid var(--line);
-        border-radius: 2px;
-        background: var(--panel);
-        color: var(--fg);
-        font: var(--text-micro) var(--mono);
-      }
-      .ai-chip-key {
-        color: var(--muted);
-      }
-      .ai-chip-value {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .ai-summary {
-        margin: 0;
-        color: var(--muted);
-        font: var(--text-micro) / 1.5 var(--sans);
-      }
-      /* Subordinate to everything above — margin-top:auto sinks it (and ReportAbuse, right
-         after it in flow) to the bottom of the rail on tall pages, no-op on short ones. */
-      .footnote {
-        margin: auto 0 0;
-        color: var(--muted);
-        font: var(--text-micro)/1.5 var(--sans);
-      }
       /* Before/after counterpart (issue #420) — rail rows; the stage itself
          carries the comparison via ImagePreview's Compare mode. */
       .pairlist {
@@ -448,11 +363,226 @@ const ogImage = file
         color: var(--accent);
         outline: none;
       }
+      .error button.signin {
+        margin-left: 8px;
+        cursor: pointer;
+      }
+      .error button.signin:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      /* Held file (upload-hold.ts): the normal file layout under an amber
+         banner. Members only; the script reveals it. */
+      .held {
+        --held: #e8a93a;
+        --held-ink: #f3d9a4;
+        --held-strong: #fbe7bd;
+        --held-bg: #1f180b;
+        --held-line: #5a431a;
+        --held-on: #1a1405;
+      }
+      :global(html[data-theme="light"]) .held {
+        --held: #9a6412;
+        --held-ink: #5c3d0a;
+        --held-strong: #3d2905;
+        --held-bg: #fbf0d9;
+        --held-line: #e2c48a;
+        --held-on: #ffffff;
+      }
+      .held-banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 16px;
+        margin: 0 0 20px;
+        padding: 14px 16px 14px 18px;
+        border: 1px solid var(--held-line);
+        border-radius: var(--radius-lg);
+        background: var(--held-bg);
+        color: var(--held-ink);
+      }
+      .held-banner svg {
+        flex: none;
+        color: var(--held);
+      }
+      .held-banner-text {
+        flex: 1 1 320px;
+        min-width: 0;
+      }
+      .held-banner h2 {
+        margin: 0 0 3px;
+        color: var(--held-strong);
+        font: 600 var(--text-ui) / 1.4 var(--sans);
+      }
+      .held-banner p {
+        margin: 0;
+        font: var(--text-meta) / 1.45 var(--sans);
+      }
+      .held-banner a {
+        color: inherit;
+        text-decoration-color: currentColor;
+      }
+      .held-approve {
+        flex: none;
+        padding: 9px 16px;
+        border: 1px solid var(--held);
+        border-radius: var(--radius-md);
+        background: var(--held);
+        color: var(--held-on);
+        font: 600 var(--text-meta) var(--sans);
+        cursor: pointer;
+      }
+      .held-approve:focus-visible {
+        outline: 2px solid var(--held-strong);
+        outline-offset: 2px;
+      }
+      .held-approve:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .held-error {
+        flex-basis: 100%;
+        margin: 0;
+        color: var(--red);
+        font: var(--text-micro) var(--sans);
+      }
+      .held-sub {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font: var(--text-meta) var(--sans);
+      }
+      .held-download {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--panel);
+        color: var(--fg);
+      }
+      .held-download:hover,
+      .held-download:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      .held-stage {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      .held-media {
+        min-height: 320px;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--bg);
+      }
+      .held-media figure {
+        margin: 0;
+      }
+      .held-frame {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+      }
+      .held-frame img {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+      }
+      .held-area {
+        position: absolute;
+        border: 2px solid var(--held);
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--held) 12%, transparent);
+        pointer-events: none;
+      }
+      .held-nopreview {
+        margin: 0;
+        color: var(--muted);
+        font: var(--text-meta) var(--sans);
+        text-align: center;
+      }
+      .held-rail {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        padding: 18px 20px 22px;
+        border-top: 1px solid var(--line);
+      }
+      .held-meta {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 16px;
+        margin: 0;
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      .held-meta dt {
+        color: var(--muted);
+      }
+      .held-meta dd {
+        margin: 0;
+        color: var(--body);
+      }
+      .held-foot {
+        margin: auto 0 0;
+        color: var(--muted);
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      @media (min-width: 1080px) {
+        .held-stage {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+        }
+        .held-rail {
+          border-top: none;
+          border-left: 1px solid var(--line);
+        }
+      }
+      /* Members-only note on a file that was held and approved. */
+      .reviewed-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      .reviewed-row svg {
+        flex: none;
+        margin-top: 2px;
+        color: var(--green);
+      }
+      .reviewed-row strong {
+        display: block;
+        color: var(--fg);
+        font-weight: 500;
+      }
+      .reviewed-row span {
+        color: var(--body);
+      }
+      .reviewed-team {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 10px 0 0;
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+      }
       .error .checking {
         display: block;
         margin-top: 14px;
         color: var(--muted);
         font: var(--text-micro) var(--sans);
+      }
+      /* The display rules above beat the UA's [hidden] rule. Keep hidden
+         status lines, links, and buttons hidden until the script shows them. */
+      [hidden] {
+        display: none !important;
       }
       a {
         color: var(--fg);
@@ -471,71 +601,60 @@ const ogImage = file
           padding-top: 24px;
         }
       }
-      .danger-zone {
-        position: relative;
-        font: var(--text-micro) var(--sans);
-      }
-      .delete-link {
-        appearance: none;
-        background: none;
-        border: none;
-        padding: 0;
-        cursor: pointer;
-        font: inherit;
-        color: var(--muted);
-        text-decoration: underline;
-        text-underline-offset: 3px;
-      }
-      .delete-link:hover,
-      .delete-link:focus-visible {
-        color: var(--red);
-        outline: none;
-      }
-      .delete-pop {
-        position: absolute;
-        bottom: calc(100% + 8px);
-        left: 0;
-        width: min(260px, 80vw);
-        padding: 12px;
-        background: var(--panel);
+      /* Report + Delete dialogs, opened from the header's ⋯ menu. */
+      dialog.sheet {
+        width: min(380px, calc(100vw - 32px));
+        box-sizing: border-box;
+        padding: 18px;
         border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
-        z-index: 3;
+        border-radius: var(--radius-lg);
+        background: var(--panel);
+        color: var(--fg);
+        font-family: var(--sans);
       }
-      .delete-pop__text {
+      dialog.sheet::backdrop {
+        background: rgb(0 0 0 / 0.55);
+      }
+      .delete-title {
+        margin: 0 0 8px;
+        font: 600 var(--text-ui) var(--sans);
+      }
+      .delete-text {
         margin: 0 0 10px;
         color: var(--body);
-        font-size: var(--text-micro);
+        font-size: var(--text-meta);
         line-height: 1.5;
         overflow-wrap: anywhere;
       }
-      .delete-pop__gh,
-      .delete-pop__error {
+      .delete-gh,
+      .delete-error {
         color: var(--muted);
         font-size: var(--text-micro);
       }
-      .delete-pop__error {
+      .delete-error {
         color: var(--red);
-        margin: 0 0 10px;
       }
-      .delete-pop__btn {
-        display: block;
-        width: 100%;
-        padding: 8px 10px;
+      .delete-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .delete-actions button {
+        padding: 8px 12px;
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
         background: var(--bg);
-        color: var(--red);
-        font: var(--text-micro) var(--sans);
+        color: var(--fg);
+        font: var(--text-meta) var(--sans);
         cursor: pointer;
       }
-      .delete-pop__btn[data-armed] {
-        background: var(--red);
+      .delete-actions .delete-confirm {
         border-color: var(--red);
-        color: #fff;
+        background: var(--red);
+        color: var(--bg);
       }
-      .delete-pop__btn:disabled {
+      .delete-actions button:disabled {
         opacity: 0.6;
         cursor: default;
       }
@@ -545,72 +664,81 @@ const ogImage = file
     <main class="shell">
       <nav class="top">
         <Brand />
-        {
-          file ? (
-            <button
-              type="button"
-              class="public sharelink"
-              data-copy={canonical}
-              title="Copy link — anyone with this link can view this page"
-            >
-              Public link
-            </button>
-          ) : (
-            <span class="public">public file</span>
-          )
-        }
+        <div class="nav-end">
+          <ThemeToggle />
+          {!file && result.status !== "auth_required" && <span class="public">public file</span>}
+        </div>
       </nav>
       {
         file ? (
           <>
             <header class="filehead">
-              <h1 class="filetitle">{filename}</h1>
-              {gh && (
-                <a
-                  class="gh-byline"
-                  href={gh.url}
-                  rel="noopener noreferrer"
-                  aria-label={ghAriaLabel}
-                >
-                  {gh.avatarUrl && (
-                    <img
-                      class="gh-byline-avatar"
-                      src={gh.avatarUrl}
-                      alt=""
-                      width="16"
-                      height="16"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  )}
-                  <svg
-                    class="gh-byline-icon"
-                    viewBox="0 0 16 16"
-                    width="13"
-                    height="13"
-                    aria-hidden="true"
-                    focusable="false"
+              <div class="filehead-text">
+                <h1 class="filetitle">{filename}</h1>
+                {gh && (
+                  <a
+                    class="gh-byline"
+                    href={gh.url}
+                    rel="noopener noreferrer"
+                    aria-label={ghAriaLabel}
                   >
-                    <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
-                    <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
-                  </svg>
-                  {gh.title ? (
-                    <>
-                      <span class="gh-byline-title">{gh.title}</span>
-                      <span class="gh-byline-sep" aria-hidden="true">
-                        ·
-                      </span>
+                    {gh.avatarUrl && (
+                      <img
+                        class="gh-byline-avatar"
+                        src={gh.avatarUrl}
+                        alt=""
+                        width="16"
+                        height="16"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                    <svg
+                      class="gh-byline-icon"
+                      viewBox="0 0 16 16"
+                      width="13"
+                      height="13"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
+                      <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
+                    </svg>
+                    {gh.title ? (
+                      <>
+                        <span class="gh-byline-title">{gh.title}</span>
+                        <span class="gh-byline-sep" aria-hidden="true">
+                          ·
+                        </span>
+                        <span class="gh-byline-ref">{ghRef}</span>
+                      </>
+                    ) : (
                       <span class="gh-byline-ref">{ghRef}</span>
-                    </>
-                  ) : (
-                    <span class="gh-byline-ref">{ghRef}</span>
-                  )}
-                </a>
-              )}
+                    )}
+                  </a>
+                )}
+              </div>
+              <FileActions
+                formats={embedFormats}
+                canonical={canonical}
+                downloadUrl={downloadUrl}
+                originalUrl={file.url}
+              >
+                <div class="fa-sep" />
+                <button type="button" class="fa-item" id="report-open">
+                  Report a problem
+                </button>
+                <button type="button" class="fa-item" id="hold-again" hidden>
+                  Hold for review again
+                </button>
+                <button type="button" class="fa-item fa-item--danger" id="delete-open" hidden>
+                  Delete file…
+                </button>
+              </FileActions>
             </header>
             <MediaStage
               kind={kind(file.contentType)}
-              url={file.url}
+              url={previewUrl}
               filename={filename}
               posterUrl={file.posterUrl}
               videoDimensions={file.videoDimensions}
@@ -620,11 +748,6 @@ const ogImage = file
               downloadUrl={downloadUrl}
               textPreview={textPreview}
             >
-              <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                <a class="original" href={file.url} rel="noopener noreferrer">
-                  Open original ↗
-                </a>
-              </CopyAsControls>
               {railRows && (
                 <div>
                   <div class="rail-head">
@@ -649,82 +772,93 @@ const ogImage = file
                   </ul>
                 </div>
               )}
-              {metadataEntries.length > 0 && (
-                <div>
-                  <div class="rail-head">
-                    <span class="rail-label">Details</span>
-                    <span class="rail-rule" aria-hidden="true" />
+              <div id="reviewed" hidden>
+                <div class="rail-head">
+                  <span class="rail-label">Reviewed</span>
+                  <span class="rail-rule" aria-hidden="true" />
+                </div>
+                <div class="reviewed-row">
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                    <path
+                      d="M8 1.5l5.5 2v4c0 3.3-2.4 6-5.5 7-3.1-1-5.5-3.7-5.5-7v-4z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M5.5 8l1.8 1.8L10.5 6.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  <div>
+                    <strong id="reviewed-reason">Flagged for possible sensitive information</strong>
+                    <span id="reviewed-by">Approved</span>
                   </div>
-                  <dl class="meta">
-                    {metadataEntries.map((entry) => (
-                      <>
-                        <dt>{entry.key}</dt>
-                        <dd>{entry.value}</dd>
-                      </>
-                    ))}
-                  </dl>
                 </div>
-              )}
-              {aiLabels && (
-                <div class="ai-labels">
-                  <div class="rail-head">
-                    <span class="rail-label">AI labels</span>
-                    <span class="ai-labels-exp">experimental</span>
-                    <span class="rail-rule" aria-hidden="true" />
-                  </div>
-                  {(aiChips.length > 0 || aiLabels.tags.length > 0) && (
-                    <div class="ai-chips">
-                      {aiChips.map((chip) => (
-                        <span class="ai-chip">
-                          <span class="ai-chip-key">{chip.field}</span>
-                          <span class="ai-chip-value">{chip.value}</span>
-                        </span>
-                      ))}
-                      {aiLabels.tags.map((tag) => (
-                        <span class="ai-chip">
-                          <span class="ai-chip-value">{tag}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {aiLabels.summary && <p class="ai-summary">{aiLabels.summary}</p>}
-                </div>
-              )}
-              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
-              <div class="danger-zone" id="delete-zone" hidden>
-                <button type="button" class="delete-link" id="delete-open">
-                  Delete file…
-                </button>
-                <div
-                  class="delete-pop"
-                  id="delete-pop"
-                  role="alertdialog"
-                  aria-label={`Delete ${filename}`}
-                  hidden
-                >
-                  <p class="delete-pop__text">
-                    Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
-                    will break.
-                  </p>
-                  {gh && (
-                    <p class="delete-pop__text delete-pop__gh">
-                      This file is attached to {ghRef}. The managed comment will keep a broken link
-                      until its next sync.
-                    </p>
-                  )}
-                  <p class="delete-pop__error" id="delete-error" hidden />
-                  <button type="button" class="delete-pop__btn" id="delete-step">
-                    Delete file
-                  </button>
-                </div>
+                <p class="reviewed-team">
+                  <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                    <rect
+                      x="3.5"
+                      y="7"
+                      width="9"
+                      height="6.5"
+                      rx="1.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                    />
+                    <path
+                      d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                    />
+                  </svg>
+                  Only visible to your team
+                </p>
               </div>
+              <FileDetails
+                metadata={file.metadata}
+                size={file.size}
+                uploaded={file.uploaded}
+                modified={file.modified}
+              />
+            </MediaStage>
+            <dialog class="sheet" id="report-dialog" aria-label="Report a problem">
               <ReportAbuse
                 apiOrigin={browserApiOrigin}
                 pageUrl={canonical}
                 workspace={workspace}
                 objectKey={key}
               />
-            </MediaStage>
+            </dialog>
+            <dialog class="sheet" id="delete-pop" aria-label={`Delete ${filename}`}>
+              <h2 class="delete-title">Delete this file?</h2>
+              <p class="delete-text">
+                Permanently delete <strong>{filename}</strong> for everyone? Links and embeds will
+                break.
+              </p>
+              {gh && (
+                <p class="delete-text delete-gh">
+                  This file is attached to {ghRef}. The managed comment will keep a broken link
+                  until its next sync.
+                </p>
+              )}
+              <p class="delete-text delete-error" id="delete-error" hidden />
+              <div class="delete-actions">
+                <button type="button" id="delete-cancel">
+                  Cancel
+                </button>
+                <button type="button" class="delete-confirm" id="delete-step">
+                  Delete file
+                </button>
+              </div>
+            </dialog>
             <section class="error" id="deleted-state" hidden>
               <code>file.deleted</code>
               <h1>File deleted</h1>
@@ -735,17 +869,122 @@ const ogImage = file
             </section>
           </>
         ) : result.status === "auth_required" ? (
-          <section class="error" id="auth-required">
-            <code>file.auth_required</code>
-            <h1>This file is unlisted</h1>
-            <p>Sign in to view this page if you're a member of this workspace.</p>
-            <a class="signin" id="signin-link" href="/login">
-              Sign in
-            </a>
-            <span class="checking" id="auth-checking" hidden>
-              Checking your session…
-            </span>
-          </section>
+          <>
+            <section class="error" id="auth-required">
+              <code>file.auth_required</code>
+              <h1>This file is unlisted</h1>
+              <p>Sign in to view this page if you're a member of this workspace.</p>
+              <a class="signin" id="signin-link" href="/login">
+                Sign in
+              </a>
+              <span class="checking" id="auth-checking" hidden>
+                Checking your session…
+              </span>
+            </section>
+            <div class="held" id="held-state" hidden>
+              <section class="held-banner" aria-labelledby="held-title">
+                <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                  <path
+                    d="M10 2.5l8 14H2z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M10 8v4M10 14.2v.3"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div class="held-banner-text">
+                  <h2 id="held-title">
+                    Held for review because it may show{" "}
+                    <span id="held-reason">sensitive information</span>
+                  </h2>
+                  <p>
+                    Its link is paused until a workspace member approves it. Check the file first.
+                    <span class="held-admin" hidden>
+                      {" "}
+                      <a href={aiLabelsSettingsHref}>Hold settings</a>
+                    </span>
+                  </p>
+                </div>
+                <button type="button" class="held-approve" id="held-approve">
+                  Approve and publish
+                </button>
+                <p class="held-error" id="held-error" hidden>
+                  Couldn't approve this file. Try again shortly.
+                </p>
+              </section>
+              <header class="filehead">
+                <div class="filehead-text">
+                  <h1 class="filetitle">{filename}</h1>
+                  <p class="held-sub">Not public yet</p>
+                </div>
+                <a
+                  class="held-download"
+                  id="held-download"
+                  aria-label="Download to check"
+                  title="Download to check"
+                  hidden
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M8 2v8M4.5 7L8 10.5 11.5 7M3 13.5h10"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                    />
+                  </svg>
+                </a>
+              </header>
+              <div class="held-stage">
+                <div class="held-media">
+                  <figure id="held-preview" hidden>
+                    <div class="held-frame">
+                      <img id="held-image" alt="The held file" />
+                      <div class="held-area" id="held-area" hidden />
+                    </div>
+                  </figure>
+                  <p class="held-nopreview" id="held-nopreview">
+                    No preview for this file. Download it to check.
+                  </p>
+                </div>
+                <aside class="held-rail">
+                  <div>
+                    <div class="rail-head">
+                      <span class="rail-label">Hold</span>
+                      <span class="rail-rule" aria-hidden="true" />
+                    </div>
+                    <dl class="held-meta">
+                      <dt>Reason</dt>
+                      <dd id="held-reason-row">Sensitive information</dd>
+                      <dt id="held-where-label" hidden>
+                        Where
+                      </dt>
+                      <dd id="held-where" hidden>
+                        Outlined in the preview
+                      </dd>
+                      <dt>Link</dt>
+                      <dd>Paused</dd>
+                    </dl>
+                  </div>
+                  <p class="held-foot">
+                    Holds come from AI labels.{" "}
+                    <span class="held-member">
+                      Workspace admins can turn them off in Settings → AI labels.
+                    </span>
+                    <span class="held-admin" hidden>
+                      You can turn them off in{" "}
+                      <a href={aiLabelsSettingsHref}>Settings → AI labels</a>.
+                    </span>
+                  </p>
+                </aside>
+              </div>
+            </div>
+          </>
         ) : (
           <section class="error">
             <>
@@ -797,6 +1036,9 @@ const ogImage = file
       (async function () {
         if (!authRequired) return;
         const checking = document.getElementById("auth-checking");
+        // A held file answers like a private one. Show a member the hold,
+        // with Approve, instead of redirecting to bytes that may be gone.
+        if (await showHeld()) return;
         try {
           const endpoint = filesEndpoint(`/file-url?key=${encodeURIComponent(key)}`);
           if (checking) checking.hidden = false;
@@ -820,12 +1062,184 @@ const ogImage = file
         if (checking) checking.hidden = true;
       })();
 
+      async function showHeld() {
+        try {
+          const response = await fetch(filesEndpoint(`/held?prefix=${encodeURIComponent(key)}`), {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!response.ok) return false;
+          const body = await response.json();
+          const item = (body?.items ?? []).find((entry) => entry.key === key);
+          if (!item) return false;
+          document.getElementById("auth-required").hidden = true;
+          document.getElementById("held-state").hidden = false;
+          document.title = "Held for review · uploads.sh";
+          const reason =
+            typeof item.reason === "string" && item.reason.startsWith("secret")
+              ? ["a credential", "Credential"]
+              : typeof item.reason === "string" && item.reason.startsWith("pii")
+                ? ["personal information", "Personal information"]
+                : null;
+          if (reason) {
+            document.getElementById("held-reason").textContent = reason[0];
+            document.getElementById("held-reason-row").textContent = reason[1];
+          }
+          // A hold that never moved (your own bucket) has no held copy.
+          if (!item.moved) {
+            document.getElementById("held-nopreview").textContent = "No preview for this file.";
+          }
+          if (item.moved) {
+            const download = document.getElementById("held-download");
+            download.href = filesEndpoint(`/held/download?key=${encodeURIComponent(key)}`);
+            download.hidden = false;
+            void showHeldPreview(download.href, item.area);
+          }
+          void showHoldSettingsLinks();
+          const approve = document.getElementById("held-approve");
+          const error = document.getElementById("held-error");
+          approve.addEventListener("click", async function () {
+            approve.disabled = true;
+            error.hidden = true;
+            try {
+              const result = await fetch(filesEndpoint(`/approve?key=${encodeURIComponent(key)}`), {
+                method: "POST",
+                credentials: "include",
+              });
+              if (!result.ok) throw new Error(String(result.status));
+              window.location.reload();
+            } catch (e) {
+              approve.disabled = false;
+              error.hidden = false;
+            }
+          });
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      // Hold settings live on an admin-only page. The same settings read
+      // that page makes answers only for admins and owners, so it decides
+      // who gets links to it.
+      async function showHoldSettingsLinks() {
+        try {
+          const response = await fetch(
+            `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/classifier-settings`,
+            { credentials: "include", headers: { Accept: "application/json" }, cache: "no-store" },
+          );
+          if (!response.ok) return;
+          for (const el of document.querySelectorAll(".held-admin")) el.hidden = false;
+          for (const el of document.querySelectorAll(".held-member")) el.hidden = true;
+        } catch (e) {
+          // Members keep the plain note.
+        }
+      }
+
+      // An image hold shows the held copy, with the flagged area outlined
+      // when the classifier located it. Anything that isn't an image stays
+      // download-only.
+      async function showHeldPreview(href, area) {
+        try {
+          const response = await fetch(href, { credentials: "include", cache: "no-store" });
+          if (!response.ok) return;
+          const blob = await response.blob();
+          if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") return;
+          const image = document.getElementById("held-image");
+          image.src = URL.createObjectURL(blob);
+          document.getElementById("held-preview").hidden = false;
+          document.getElementById("held-nopreview").hidden = true;
+          if (!area) return;
+          const box = document.getElementById("held-area");
+          box.style.top = `${area.top * 100}%`;
+          box.style.left = `${area.left * 100}%`;
+          box.style.width = `${(area.right - area.left) * 100}%`;
+          box.style.height = `${(area.bottom - area.top) * 100}%`;
+          box.hidden = false;
+          document.getElementById("held-where-label").hidden = false;
+          document.getElementById("held-where").hidden = false;
+        } catch (e) {
+          // The download link still works.
+        }
+      }
+
+      // Report a problem: the ⋯ menu item opens the report dialog.
+      (function () {
+        const openBtn = document.getElementById("report-open");
+        const dialog = document.getElementById("report-dialog");
+        if (!openBtn || !(dialog instanceof HTMLDialogElement)) return;
+        openBtn.addEventListener("click", function () {
+          dialog.showModal();
+        });
+      })();
+
+      // Members-only Reviewed note for a file that was held and approved,
+      // plus "Hold for review again" in the ⋯ menu for an approval made by
+      // mistake. The public API strips the hold rows, so this asks the
+      // members-only review endpoint.
+      async function showReviewed() {
+        try {
+          const response = await fetch(filesEndpoint(`/review?key=${encodeURIComponent(key)}`), {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!response.ok) return;
+          const review = await response.json();
+          if (review?.hold !== "approved") return;
+          const reason = typeof review.reason === "string" ? review.reason : "";
+          document.getElementById("reviewed-reason").textContent = reason.startsWith("secret")
+            ? "Flagged for a possible credential"
+            : reason.startsWith("pii")
+              ? "Flagged for possible personal information"
+              : "Flagged for possible sensitive information";
+          const when = review.at ? new Date(review.at) : null;
+          const date =
+            when && !Number.isNaN(when.getTime())
+              ? when.toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : null;
+          const by = typeof review.by === "string" && review.by ? ` by ${review.by}` : "";
+          document.getElementById("reviewed-by").textContent =
+            `Approved${by}` + (date ? ` · ${date}` : "");
+          document.getElementById("reviewed").hidden = false;
+
+          const holdBtn = document.getElementById("hold-again");
+          holdBtn.hidden = false;
+          holdBtn.addEventListener("click", async function () {
+            const ok = window.confirm(
+              "Hold this file for review again? Its link stops working until someone approves it. If it shows a credential, rotate the credential too: the file was public.",
+            );
+            if (!ok) return;
+            holdBtn.disabled = true;
+            try {
+              const result = await fetch(filesEndpoint(`/hold?key=${encodeURIComponent(key)}`), {
+                method: "POST",
+                credentials: "include",
+              });
+              if (!result.ok) throw new Error(String(result.status));
+              window.location.reload();
+            } catch (e) {
+              holdBtn.disabled = false;
+              window.alert("Couldn't hold this file. Try again shortly.");
+            }
+          });
+        } catch (e) {
+          // Leave the page as the public sees it.
+        }
+      }
+
       // Member-only delete control (spec 2026-07-30). Reveal is progressive
       // enhancement: the same /v1/workspaces/:name/files/file-url probe the unlisted
       // flow uses doubles as the membership check — 200 means member.
       (async function () {
-        const zone = document.getElementById("delete-zone");
-        if (!zone) return;
+        const openBtn = document.getElementById("delete-open");
+        const pop = document.getElementById("delete-pop");
+        if (!openBtn || !(pop instanceof HTMLDialogElement)) return;
         const endpoint = filesEndpoint(`/file-url?key=${encodeURIComponent(key)}`);
         try {
           const probe = await fetch(endpoint, {
@@ -837,60 +1251,34 @@ const ogImage = file
         } catch (e) {
           return;
         }
-        zone.hidden = false;
+        openBtn.hidden = false;
+        void showReviewed();
 
-        const pop = document.getElementById("delete-pop");
-        const openBtn = document.getElementById("delete-open");
         const stepBtn = document.getElementById("delete-step");
+        const cancelBtn = document.getElementById("delete-cancel");
         const errorEl = document.getElementById("delete-error");
-        let disarmTimer = null;
 
-        // Once a DELETE is in flight, close/Escape must not re-enable the
-        // button — a re-click would fire a second concurrent request.
+        // Once a DELETE is in flight, Cancel/Escape must not close the dialog
+        // or re-enable the button — a re-click would fire a second request.
         var deleteInFlight = false;
 
-        function reset() {
-          if (deleteInFlight) return;
-          pop.hidden = true;
-          stepBtn.textContent = "Delete file";
-          stepBtn.removeAttribute("data-armed");
-          stepBtn.disabled = false;
-          errorEl.hidden = true;
-          if (disarmTimer) clearTimeout(disarmTimer);
-        }
-
+        // The modal dialog is the confirmation step, so Delete deletes.
         openBtn.addEventListener("click", function () {
-          if (pop.hidden) {
-            pop.hidden = false;
-            stepBtn.focus();
-          } else {
-            reset();
-          }
+          errorEl.hidden = true;
+          pop.showModal();
+          cancelBtn.focus();
         });
-        document.addEventListener("click", function (event) {
-          if (!pop.hidden && !zone.contains(event.target)) reset();
+        cancelBtn.addEventListener("click", function () {
+          if (!deleteInFlight) pop.close();
         });
-        document.addEventListener("keydown", function (event) {
-          if (event.key === "Escape") reset();
+        pop.addEventListener("cancel", function (event) {
+          if (deleteInFlight) event.preventDefault();
         });
 
         stepBtn.addEventListener("click", async function () {
-          if (!stepBtn.hasAttribute("data-armed")) {
-            // First click arms; auto-disarm after DELETE_DISARM_MS. Twin of
-            // the React confirm in WorkspaceFileTable.tsx (this page ships no
-            // framework JS) — keep the timing and semantics in sync.
-            var DELETE_DISARM_MS = 5000;
-            stepBtn.setAttribute("data-armed", "");
-            stepBtn.textContent = "Confirm delete";
-            disarmTimer = setTimeout(function () {
-              stepBtn.removeAttribute("data-armed");
-              stepBtn.textContent = "Delete file";
-            }, DELETE_DISARM_MS);
-            return;
-          }
-          if (disarmTimer) clearTimeout(disarmTimer);
           deleteInFlight = true;
           stepBtn.disabled = true;
+          cancelBtn.disabled = true;
           try {
             // Canonical path-keyed dual-auth delete (session cookie or bearer).
             // Twin of deleteWorkspaceFile() in src/lib/api-client.ts — this
@@ -902,6 +1290,7 @@ const ogImage = file
             const response = await fetch(target, { method: "DELETE", credentials: "include" });
             if (!response.ok) throw new Error(String(response.status));
             // Swap the page to the deleted state.
+            pop.close();
             const figure = document.querySelector("[data-media-stage]");
             const head = document.querySelector(".filehead");
             if (figure) figure.remove();
@@ -913,8 +1302,7 @@ const ogImage = file
             errorEl.textContent = "Couldn't delete this file. Try again shortly.";
             errorEl.hidden = false;
             stepBtn.disabled = false;
-            stepBtn.removeAttribute("data-armed");
-            stepBtn.textContent = "Delete file";
+            cancelBtn.disabled = false;
           }
         });
       })();

@@ -3,9 +3,9 @@ title: Attach artifacts to pull requests
 description: Attach screenshots and video to GitHub PRs and issues, stage them before a PR exists, pair a before and after, and get a public URL for any accepted file with the uploads CLI.
 heading: Attach artifacts to pull requests
 tagline: Stage as you work with put. Attach when a PR is already open. Share a URL for any file.
-navLabel: Attach artifacts to pull requests
+navLabel: Attach to pull requests
 navSlug: attach
-navOrder: 2
+navOrder: 5
 navGroup: media
 toc:
   - { id: attach, label: Attach files to a PR }
@@ -68,6 +68,11 @@ once the PR exists: uploads attach --promote
 If `binding` shows anything other than `self`, the files won't attach on their own. See
 [GitHub App: staging before a PR exists](/docs/github-app#staging) to fix it.
 
+Staged the wrong branch, or the files are leftover? `uploads unstage --branch <name>`
+marks them unstaged. The file and its URL stay. They drop out of `uploads staged`
+and out of auto-promotion. Add `--dry-run` to preview. Pass object keys instead of
+`--branch` to unstage those objects only.
+
 </section>
 
 <section id="put">
@@ -88,6 +93,9 @@ Common flags:
 - `--pr <n>` also posts the file to that PR.
 - `--url <url>` uploads a file from the web instead of a local path.
 - `--no-optimize` keeps the original bytes.
+- `--meta path=/settings` names the page a screenshot shows. The comment shows it under the image.
+- `--screen "Chat"` names a mobile or desktop app screen that has no page path. The comment shows it
+  under the image too, next to the path if both are set.
 
 `put` converts images to WebP and strips their EXIF data. It keeps a few capture details, like
 viewport and device, and shows them on the file's public page. See
@@ -99,14 +107,19 @@ viewport and device, and shows them on the file's public page. See
 
 ## Pair a before and after <a class="anchor" href="#before-after" aria-label="Link to this section">#</a>
 
-Tag two images with `--state` and they render side by side in the comment:
+Tag two images or two videos with `--state` and they render side by side in a Before and After table
+in the comment:
 
 ```bash
 uploads put ./hero-before.webp --state before
 uploads put ./hero-after.webp --state after
 ```
 
-If one comment has several pairs, give each pair the same `--meta path=<page>` value so they match
-up. Without a `path`, files pair by name, so `hero-before.webp` matches `hero-after.webp`.
+If one comment has several pairs, give each pair the same `--meta path=<page>` or `--screen <name>`
+value so they match up. Without either, files pair by name, so `hero-before.webp` matches `hero-after.webp`.
+Several pairs share one table, a row each. A file with no before shows on its own, as usual.
+
+A repo can [require a before and after](/docs/require-screenshots#more) on every pull request that
+changes UI files.
 
 </section>

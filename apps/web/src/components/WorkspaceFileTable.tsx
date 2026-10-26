@@ -2,14 +2,14 @@
  * The 3A workspace files tab — filter bar, chips ↔ breadcrumbs, a conditional
  * exact-PR-match banner, and the file listing (list or grid view: thumbnail,
  * size, type, visibility, `⋯` actions). The single island mounted by
- * `pages/account/workspaces/[name].astro`.
+ * `pages/account/workspaces/[name]/storage.astro`.
  *
  * Data source: `listWorkspaceFolder` when nothing is being filtered (folder
  * browse, URL-synced via `workspace-browse-url`), `searchWorkspaceFiles` when
  * a name term or one or more metadata filters are active (URL-synced via
  * `workspace-search-url`).
  * After every listing/search resolves, the current row set is pushed to the
- * right-rail "connected work" section (Task 7's
+ * right-rail "connected work" section (the
  * `window.__uploadsSetConnectedWork` hook) and checked for an exact
  * single-pull-request match (the banner).
  *
@@ -21,6 +21,8 @@ import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
+import { PrLabel } from "@uploads/ui/components/pr-label";
+import { asPrState } from "@uploads/ui/lib/pr-label";
 import {
   Fragment,
   useEffect,
@@ -33,6 +35,7 @@ import {
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
+import { filesPrHrefForWorkItem } from "../lib/files-view-state";
 import {
   deleteWorkspaceFile,
   GITHUB_TITLES_MAX_REFS,
@@ -63,6 +66,7 @@ import {
   isPrivateFile,
   leafName,
   pickThumbnail,
+  prChipRef,
   resolveWorkspaceInfo,
   type WorkspaceInfoStatus,
 } from "../lib/workspace-file-row";
@@ -71,6 +75,7 @@ import {
   normalizeBrowsePath,
   readBrowseLocation,
   replaceBrowseLocation,
+  workspaceStoragePath,
 } from "../lib/workspace-browse-url";
 import { replaceFilesView, resolveFilesView, type FilesView } from "../lib/workspace-files-view";
 import {
@@ -92,6 +97,7 @@ import {
 } from "../lib/workspace-search-suggest";
 import { fetchWithTimeout } from "../lib/request";
 import { onSession } from "../lib/account-shell";
+import { useTwoStepConfirm } from "../lib/use-two-step-confirm";
 import { FilePreviewDrawer } from "./FilePreviewDrawer";
 
 interface WorkspaceFileTableProps {
@@ -291,9 +297,6 @@ function VisibilityBadge({ private: priv }: { private: boolean }) {
   );
 }
 
-/** How long an armed "Confirm delete" stays armed before auto-disarming. */
-const DELETE_DISARM_MS = 5000;
-
 function FileActionsMenu({
   open,
   busy,
@@ -315,22 +318,11 @@ function FileActionsMenu({
 }) {
   // Two-step destructive confirm (spec 2026-07-30): "delete…" swaps the menu
   // for a warning panel; its button arms a red confirm that auto-disarms.
-  // The /f/ file page carries a vanilla twin of this state machine (public
-  // pages ship no framework JS) — keep DELETE_DISARM_MS and the arm/disarm
-  // semantics in sync with apps/web/src/pages/f/[workspace]/[...key].astro.
-  const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
-  const disarmTimer = useRef<number | null>(null);
+  const { state: confirm, open: openConfirm, arm, close, reset } = useTwoStepConfirm();
 
   useEffect(() => {
-    if (!open) setConfirm("closed");
-  }, [open]);
-  useEffect(() => {
-    if (confirm !== "armed") return;
-    disarmTimer.current = window.setTimeout(() => setConfirm("confirm"), DELETE_DISARM_MS);
-    return () => {
-      if (disarmTimer.current !== null) window.clearTimeout(disarmTimer.current);
-    };
-  }, [confirm]);
+    if (!open) close();
+  }, [open, close]);
 
   const menuItem =
     "wft-menu__item block w-full cursor-pointer rounded-[2px] border-0 bg-none px-[9px] py-[7px] text-left font-[var(--sans)] text-[length:var(--text-micro)] text-fg hover:bg-accent/12 hover:text-accent focus-visible:bg-accent/12 focus-visible:text-accent focus-visible:outline-none disabled:cursor-default disabled:opacity-55";
@@ -373,7 +365,7 @@ function FileActionsMenu({
             type="button"
             role="menuitem"
             className={`${menuItem} ${menuItemDanger}`}
-            onClick={() => setConfirm("confirm")}
+            onClick={openConfirm}
           >
             delete…
           </button>
@@ -394,7 +386,7 @@ function FileActionsMenu({
               type="button"
               className={`${menuItem} ${menuItemDanger}`}
               disabled={busy}
-              onClick={() => setConfirm("armed")}
+              onClick={arm}
             >
               Delete file
             </button>
@@ -408,7 +400,7 @@ function FileActionsMenu({
                 // delete fails, the menu stays open (see the parent's
                 // `deleteFile`) but the very next click must re-confirm
                 // rather than delete instantly.
-                setConfirm("confirm");
+                reset();
                 onDelete();
               }}
             >
@@ -617,13 +609,10 @@ function WorkspaceFileTableInner({
   const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
   // `readBrowseLocation` resolves workspace identity from the pathname; when
   // there's no `window` yet, synthesize this route's own pathname from the
-  // `workspace` prop (this component only ever mounts on
-  // `/account/workspaces/:name/files`) so the server's parse agrees with the
-  // client's.
+  // `workspace` prop (this component only ever mounts on the Storage tab) so
+  // the server's parse agrees with the client's.
   const seedPathname =
-    typeof window !== "undefined"
-      ? window.location.pathname
-      : `/account/workspaces/${encodeURIComponent(workspace)}/files`;
+    typeof window !== "undefined" ? window.location.pathname : workspaceStoragePath(workspace);
 
   const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
     () => initialInfo ?? { status: "loading" },
@@ -723,6 +712,10 @@ function WorkspaceFileTableInner({
     const stored = resolveFilesView(seedSearch);
     setView((prev) => (prev === stored ? prev : stored));
   }, []);
+
+  useEffect(() => {
+    document.title = `Storage · ${workspace} · uploads.sh`;
+  }, [workspace]);
 
   // Resolve workspace-level facts once (public-domain-configured),
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
@@ -1054,6 +1047,9 @@ function WorkspaceFileTableInner({
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   const bareMatch: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
   const match = bareMatch && githubTitles ? applyGhTitles([bareMatch], githubTitles)[0] : bareMatch;
+  const matchFilesHref = match ? filesPrHrefForWorkItem(workspace, match) : null;
+  const prChip = prChipRef(filters);
+  const prChipInfo = prChip && githubTitles ? githubTitles[prChip.ghRef] : null;
   // Folders only in browse mode (search has no prefix tree). Empty while loading/error.
   const folders = state.status === "ok" && !filtered ? state.prefixes : [];
   const files = state.status === "ok" ? state.files : [];
@@ -1417,7 +1413,7 @@ function WorkspaceFileTableInner({
                 {kind === "repo" && (
                   <GithubMarkIcon className="wft-chip__icon h-3 w-3 flex-none text-muted-foreground" />
                 )}
-                {kind === "pr" && (
+                {kind === "pr" && !prChip && (
                   <PullRequestIcon className="wft-chip__icon h-3 w-3 flex-none text-muted-foreground" />
                 )}
                 {kind === "plain" && (
@@ -1426,7 +1422,18 @@ function WorkspaceFileTableInner({
                     <span className="wft-chip__eq text-muted-foreground">=</span>
                   </>
                 )}
-                <span className="wft-chip__value text-fg">{f.value}</span>
+                {kind === "pr" && prChip ? (
+                  <PrLabel
+                    size="sm"
+                    ghRef={prChip.ghRef}
+                    kind={prChip.kind}
+                    title={prChipInfo?.title ?? null}
+                    state={asPrState(prChipInfo?.state)}
+                    className="wft-chip__value"
+                  />
+                ) : (
+                  <span className="wft-chip__value text-fg">{f.value}</span>
+                )}
                 <button
                   type="button"
                   className="wft-chip__remove font-[var(--sans)] text-[length:var(--text-micro)] leading-none text-muted-foreground cursor-pointer border-0 bg-none px-1 hover:text-red-500 focus-visible:text-red-500 focus-visible:outline-none"
@@ -1479,18 +1486,16 @@ function WorkspaceFileTableInner({
 
       {match && (
         <div className="wft-banner mt-3 flex items-center gap-3 rounded-[2px] border border-line bg-panel px-3.5 py-2.5">
-          <PullRequestIcon
-            className="wft-banner__icon h-[15px] w-[15px] flex-none text-fg"
-            title={match.kindLabel}
+          <PrLabel
+            size="md"
+            ghRef={match.ref}
+            kind="pull"
+            title={match.title ?? null}
+            state={match.state ?? null}
+            href={matchFilesHref ?? match.url}
+            {...(matchFilesHref ? {} : { target: "_blank" as const })}
+            className="wft-banner__ref font-semibold"
           />
-          <a
-            className="wft-banner__ref text-[length:var(--text-meta)] font-semibold text-fg no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
-            href={match.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {match.label}
-          </a>
           <span className="wft-banner__spacer flex-1" />
           <a
             className="wft-banner__open flex-none text-[length:var(--text-micro)] text-muted-foreground no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
@@ -1723,7 +1728,7 @@ function WorkspaceFileTableInner({
  * boundary here means Astro sees exactly one island (this function), so
  * `<WorkspaceFileTable client:load .../>` hydrates the whole subtree,
  * boundary included, as a single React root — the same effective tree the
- * pre-plan-005 manual `withIslandBoundary(createElement(WorkspaceFileTable,
+ * earlier manual `withIslandBoundary(createElement(WorkspaceFileTable,
  * …))` mount produced.
  */
 export function WorkspaceFileTable(props: WorkspaceFileTableProps) {

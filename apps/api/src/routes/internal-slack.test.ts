@@ -1,0 +1,404 @@
+import { Hono } from "hono";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { respondError } from "../error-response";
+import { database, SqliteD1 } from "../../test/helpers/sqlite-d1";
+
+const approveUpload = vi.fn();
+vi.mock("../upload-hold-service", () => ({
+  approveUpload: (...a: unknown[]) => approveUpload(...a),
+  memberName: async () => "Member",
+}));
+vi.mock("../workspace", async (orig) => ({
+  ...(await orig<typeof import("../workspace")>()),
+  loadWorkspaceRecord: async (_env: unknown, name: string) =>
+    name === "acme" ? { provider: "r2", bucket: "b", name } : (records.get(name) ?? null),
+}));
+
+/** Extra workspace records by name, beside acme. */
+const records = new Map<string, Record<string, unknown>>();
+
+/** What the storage walk yields for a name search: key + upload time. */
+const walk = vi.fn<(term: string) => { key: string; lastModified?: number }[]>(() => []);
+const heldKeysAmong = vi.fn();
+vi.mock("../upload-hold-read", () => ({
+  heldKeysAmong: (...a: unknown[]) => heldKeysAmong(...a),
+}));
+/** Objects by key: whether each is private. Missing keys resolve to no lane. */
+const objects = new Map<string, { private: boolean }>();
+vi.mock("../storage", () => ({
+  storage: async () => ({
+    async *search(term: string) {
+      yield* walk(term);
+    },
+  }),
+  objectPublicUrls: (_env: unknown, _cfg: unknown, key: string) => ({
+    url: `https://cdn.example/${key}`,
+    embedUrl: null,
+  }),
+  resolveObjectLaneWithHead: async (_env: unknown, _ws: unknown, key: string) => {
+    const o = objects.get(key);
+    if (!o) return null;
+    return {
+      config: {},
+      head: {
+        contentType: key.endsWith(".png") ? "image/png" : "video/mp4",
+        metadata: o.private ? { visibility: "private" } : {},
+      },
+    };
+  },
+}));
+
+const { internalSlack } = await import("./internal-slack");
+
+let sqlite: SqliteD1;
+
+beforeEach(() => {
+  sqlite = new SqliteD1([
+    "migrations/20260822120000_auth_tables.sql",
+    "migrations/20261018170000_slack_user_links.sql",
+    "migrations/20261018160000_slack_installations.sql",
+    "migrations/20261018190000_slack_workspace_bindings.sql",
+    "migrations/20260713210559_file_metadata.sql",
+  ]);
+  for (const id of ["u-alice", "u-bob"]) {
+    sqlite.db
+      .prepare("INSERT INTO user (id, name, email, created_at, updated_at) VALUES (?, ?, ?, 0, 0)")
+      .run(id, id, `${id}@example.com`);
+  }
+  sqlite.db
+    .prepare(
+      "INSERT INTO slack_user_links (team_id, slack_user_id, user_id, linked_at) VALUES ('T0TEAM1', 'U0ALICE', 'u-alice', '2026-10-18')",
+    )
+    .run();
+  approveUpload.mockReset();
+  approveUpload.mockResolvedValue({ approved: true });
+});
+
+afterEach(() => {
+  sqlite.close();
+});
+
+/** AUTH answers `/internal/memberships`: alice belongs to acme only. */
+function env(): Env {
+  const auth = {
+    fetch: (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/internal/memberships") {
+        const ok =
+          url.searchParams.get("userId") === "u-alice" && url.searchParams.get("slug") === "acme";
+        return Response.json(
+          ok
+            ? [
+                {
+                  organizationId: "o1",
+                  organizationSlug: "acme",
+                  organizationName: "Acme",
+                  role: "member",
+                },
+              ]
+            : [],
+        );
+      }
+      return new Response(null, { status: 404 });
+    }) as Fetcher["fetch"],
+  };
+  return { AUTH: auth, DB: database(sqlite) } as unknown as Env;
+}
+
+function app() {
+  return new Hono<{ Bindings: Env }>()
+    .route("/internal/slack", internalSlack)
+    .onError((err, c) => respondError(c, err));
+}
+
+function approve(body: Record<string, unknown>, host = "api.internal") {
+  return app().request(
+    `https://${host}/internal/slack/approve`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    env(),
+  );
+}
+
+const GOOD = { teamId: "T0TEAM1", slackUserId: "U0ALICE", workspace: "acme", key: "shots/a.png" };
+
+describe("POST /internal/slack/approve", () => {
+  it("approves as the linked member", async () => {
+    const res = await approve(GOOD);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ key: "shots/a.png", approved: true });
+    expect(approveUpload).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ name: "acme" }),
+      "acme",
+      "shots/a.png",
+      "Member",
+    );
+  });
+
+  it("is unreachable on a public host", async () => {
+    expect((await approve(GOOD, "api.uploads.sh")).status).toBe(404);
+    expect(approveUpload).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unlinked Slack user", async () => {
+    expect((await approve({ ...GOOD, slackUserId: "U0MALLORY" })).status).toBe(404);
+    expect(approveUpload).not.toHaveBeenCalled();
+  });
+
+  it("404s when the linked account is banned", async () => {
+    sqlite.db.prepare("UPDATE user SET banned = 1 WHERE id = 'u-alice'").run();
+    expect((await approve(GOOD)).status).toBe(404);
+    expect(approveUpload).not.toHaveBeenCalled();
+  });
+
+  it("404s when the linked account is not a member", async () => {
+    sqlite.db.prepare("UPDATE slack_user_links SET user_id = 'u-bob'").run();
+    expect((await approve(GOOD)).status).toBe(404);
+    expect(approveUpload).not.toHaveBeenCalled();
+  });
+
+  it("404s on bad shapes", async () => {
+    expect((await approve({ ...GOOD, key: "" })).status).toBe(404);
+    expect((await approve({ ...GOOD, workspace: "Acme!" })).status).toBe(404);
+    expect(approveUpload).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /internal/slack/plan", () => {
+  function plan(teamId: string, host = "api.internal") {
+    return app().request(
+      `https://${host}/internal/slack/plan`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId }),
+      },
+      env(),
+    );
+  }
+
+  function bind(workspace: string, revoked = false) {
+    sqlite.db
+      .prepare(
+        `INSERT OR IGNORE INTO slack_installations (team_id, team_name, app_id, scopes, installed_at, updated_at, revoked_at)
+         VALUES ('T0TEAM1', 'Acme', 'A1', 'commands', '2026-10-18', '2026-10-18', ?)`,
+      )
+      .run(revoked ? "2026-10-19" : null);
+    sqlite.db
+      .prepare(
+        "INSERT INTO slack_workspace_bindings (team_id, workspace, bound_by_user_id, created_at) VALUES ('T0TEAM1', ?, 'u-alice', '2026-10-18')",
+      )
+      .run(workspace);
+  }
+
+  beforeEach(() => {
+    records.clear();
+    records.set("hobby", { name: "hobby", selfServe: true });
+    records.set("paid", { name: "paid", selfServe: true, plan: "pro" });
+  });
+
+  it("is free with nothing bound", async () => {
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "free", answersPerDay: 10 });
+  });
+
+  it("is free for a self-serve free workspace", async () => {
+    bind("hobby");
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "free", answersPerDay: 10 });
+  });
+
+  it("takes the highest plan among bound workspaces", async () => {
+    bind("hobby");
+    bind("paid");
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "pro", answersPerDay: 60 });
+  });
+
+  it("counts an operator-provisioned workspace with no plan as Pro", async () => {
+    bind("acme");
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "pro", answersPerDay: 60 });
+  });
+
+  it("ignores bindings once the install is revoked", async () => {
+    bind("paid", true);
+    expect(await (await plan("T0TEAM1")).json()).toEqual({ plan: "free", answersPerDay: 10 });
+  });
+
+  it("404s off the internal host and on a bad team id", async () => {
+    expect((await plan("T0TEAM1", "api.uploads.sh")).status).toBe(404);
+    expect((await plan("nope")).status).toBe(404);
+  });
+});
+
+describe("POST /internal/slack/search", () => {
+  function search(body: Record<string, unknown>, host = "api.internal") {
+    return app().request(
+      `https://${host}/internal/slack/search`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      env(),
+    );
+  }
+
+  beforeEach(() => {
+    sqlite.db
+      .prepare(
+        `INSERT INTO slack_installations (team_id, team_name, app_id, scopes, installed_at, updated_at)
+         VALUES ('T0TEAM1', 'Acme', 'A1', 'commands', '2026-10-18', '2026-10-18')`,
+      )
+      .run();
+    objects.clear();
+    walk.mockReset();
+    walk.mockReturnValue([]);
+    heldKeysAmong.mockReset();
+    heldKeysAmong.mockResolvedValue(new Set(["shots/held.png"]));
+  });
+
+  function bind(workspace = "acme") {
+    sqlite.db
+      .prepare(
+        "INSERT INTO slack_workspace_bindings (team_id, workspace, bound_by_user_id, created_at) VALUES ('T0TEAM1', ?, 'u-alice', '2026-10-18')",
+      )
+      .run(workspace);
+  }
+
+  it("says when the Slack team isn't bound, without searching", async () => {
+    const res = await search({ teamId: "T0TEAM1", term: "login" });
+    expect(await res.json()).toEqual({ bound: false, results: [], truncated: false });
+    expect(walk).not.toHaveBeenCalled();
+  });
+
+  it("returns the newest public, unheld matches from bound workspaces", async () => {
+    bind();
+    for (const key of [
+      "shots/login.png",
+      "shots/secret-login.png",
+      "shots/held.png",
+      "a/login.mp4",
+    ])
+      objects.set(key, { private: key.includes("secret") });
+    walk.mockReturnValue([
+      { key: "a/login.mp4", lastModified: 1_000 },
+      { key: "shots/gone.png", lastModified: 5_000 },
+      { key: "shots/held.png", lastModified: 4_000 },
+      { key: "shots/login.png", lastModified: 3_000 },
+      { key: "shots/secret-login.png", lastModified: 2_000 },
+      { key: "_internal/posters/a/login.mp4.jpg", lastModified: 9_000 },
+    ]);
+    const res = await search({ teamId: "T0TEAM1", term: "  Login " });
+    expect(await res.json()).toEqual({
+      bound: true,
+      results: [
+        {
+          workspace: "acme",
+          key: "shots/login.png",
+          imageUrl: "https://cdn.example/shots/login.png",
+          uploaded: 3_000,
+        },
+        // Older, and not an image, so no thumbnail.
+        { workspace: "acme", key: "a/login.mp4", uploaded: 1_000 },
+      ],
+      truncated: false,
+    });
+    expect(walk).toHaveBeenCalledWith("login");
+  });
+
+  it("returns at most five", async () => {
+    bind();
+    const keys = Array.from({ length: 8 }, (_, i) => `shots/login-${i}.png`);
+    for (const key of keys) objects.set(key, { private: false });
+    walk.mockReturnValue(keys.map((key, i) => ({ key, lastModified: i })));
+    const res = await search({ teamId: "T0TEAM1", term: "login" });
+    const body = (await res.json()) as { results: { key: string }[] };
+    expect(body.results.map((r) => r.key)).toEqual(keys.slice(3).reverse());
+  });
+
+  it("ignores bindings once the app is uninstalled", async () => {
+    bind();
+    sqlite.db.prepare("UPDATE slack_installations SET revoked_at = '2026-10-18'").run();
+    const res = await search({ teamId: "T0TEAM1", term: "login" });
+    expect(((await res.json()) as { bound: boolean }).bound).toBe(false);
+  });
+
+  function label(key: string, labels: Record<string, string>, at: string) {
+    for (const [name, value] of Object.entries(labels)) {
+      sqlite.db
+        .prepare(
+          "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run("acme", key, `ai.${name}`, value, at);
+    }
+  }
+
+  it("filters by AI labels from D1, newest first, and returns each hit's labels", async () => {
+    bind();
+    for (const key of ["s/a.png", "s/b.png", "s/c.png", "s/held.png", "s/mobile.png"])
+      objects.set(key, { private: false });
+    heldKeysAmong.mockResolvedValue(new Set(["s/held.png"]));
+    label(
+      "s/a.png",
+      { kind: "screenshot", screen: "settings", surface: "desktop" },
+      "2026-10-17T00:00:00Z",
+    );
+    label(
+      "s/b.png",
+      { kind: "screenshot", screen: "settings", surface: "desktop" },
+      "2026-10-19T00:00:00Z",
+    );
+    label(
+      "s/c.png",
+      { kind: "screenshot", screen: "login", surface: "desktop" },
+      "2026-10-19T00:00:00Z",
+    );
+    label("s/held.png", { kind: "screenshot", screen: "settings" }, "2026-10-19T01:00:00Z");
+    label(
+      "s/mobile.png",
+      { kind: "screenshot", screen: "settings", surface: "mobile" },
+      "2026-10-18T00:00:00Z",
+    );
+    // Another workspace's file never shows, even with matching labels.
+    sqlite.db
+      .prepare(
+        "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES ('other', 's/x.png', 'ai.screen', 'settings', '2026-10-20')",
+      )
+      .run();
+    const res = await search({
+      teamId: "T0TEAM1",
+      labels: { kind: "screenshot", screen: "settings" },
+    });
+    const body = (await res.json()) as { results: { key: string; labels?: unknown }[] };
+    expect(body.results.map((r) => r.key)).toEqual(["s/b.png", "s/mobile.png", "s/a.png"]);
+    expect(body.results[1]!.labels).toEqual({
+      kind: "screenshot",
+      screen: "settings",
+      surface: "mobile",
+    });
+    expect(walk).not.toHaveBeenCalled();
+
+    const narrowed = await search({
+      teamId: "T0TEAM1",
+      term: "MOB",
+      labels: { screen: "settings" },
+    });
+    const keys = ((await narrowed.json()) as { results: { key: string }[] }).results.map(
+      (r) => r.key,
+    );
+    expect(keys).toEqual(["s/mobile.png"]);
+  });
+
+  it("404s a label outside the classifier's values", async () => {
+    bind();
+    expect((await search({ teamId: "T0TEAM1", labels: { screen: "nope" } })).status).toBe(404);
+    expect((await search({ teamId: "T0TEAM1", labels: { rating: "safe" } })).status).toBe(404);
+    expect((await search({ teamId: "T0TEAM1", labels: {} })).status).toBe(404);
+  });
+
+  it("is unreachable on a public host and 404s bad shapes", async () => {
+    bind();
+    expect((await search({ teamId: "T0TEAM1", term: "x" }, "api.uploads.sh")).status).toBe(404);
+    expect((await search({ teamId: "nope", term: "x" })).status).toBe(404);
+    expect((await search({ teamId: "T0TEAM1", term: " " })).status).toBe(404);
+    expect(walk).not.toHaveBeenCalled();
+  });
+});

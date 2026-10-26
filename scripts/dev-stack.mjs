@@ -240,7 +240,7 @@ async function main() {
   if (stopping) return;
   // The bypass is gated on WEB_ORIGIN's shape (auth's localDemoEnabled).
   // AUTH_ORIGIN is always a bare loopback port and no longer signals the mode.
-  // The owned `uploads.local.buildinternet.dev` zone is local (DNS → 127.0.0.1)
+  // The owned `local.uploadrouter.dev` zone is local (DNS → 127.0.0.1)
   // and is the default portless origin, so smoke runs there too.
   const smoke = isLocalDemoWebOrigin(WEB_ORIGIN)
     ? await runSmoke()

@@ -69,6 +69,17 @@ describe("public gallery headers", () => {
 });
 
 describe("public gallery API", () => {
+  it.each([
+    [{ path: "/settings", viewport: "390x844" }, true],
+    [{ path: 123 }, false],
+    [{ path: "x".repeat(513) }, false],
+    [{}, false],
+  ])("validates optional public item metadata %j", (metadata, accepted) => {
+    expect(isPublicGallery({ ...gallery, items: [{ ...gallery.items[0], metadata }] })).toBe(
+      accepted,
+    );
+  });
+
   it("accepts the bounded public DTO including multiline plain text", () => {
     expect(isPublicGallery(gallery)).toBe(true);
   });

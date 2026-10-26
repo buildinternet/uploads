@@ -94,7 +94,7 @@
       }
     },
     {
-      "name": "drops an over-500-char note whole, with a warning \u2014 never truncates",
+      "name": "drops an over-500-char note whole, with a warning — never truncates",
       "text": "comment:\n  note: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n",
       "format": "yaml",
       "expected": {
@@ -224,6 +224,118 @@
         },
         "warnings": []
       }
+    },
+    {
+      "name": "uiPaths list and noUploadsComment",
+      "text": "comment:\n  uiPaths:\n    - \"apps/web/**\"\n    - \"*.css\"\n  noUploadsComment: false\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "noUploadsComment": false,
+          "uiPaths": ["apps/web/**", "*.css"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "uiPaths bare string and bad entries",
+      "text": "{\"comment\":{\"uiPaths\":\"src/ui/**\",\"noUploadsComment\":\"yes\"}}",
+      "format": "json",
+      "expected": {
+        "config": {
+          "uiPaths": ["src/ui/**"]
+        },
+        "warnings": ["noUploadsComment: expected a boolean; dropped"]
+      }
+    },
+    {
+      "name": "uiPaths drops non-strings",
+      "text": "comment:\n  uiPaths: [\"apps/**\", 3, \"\"]\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "uiPaths": ["apps/**"]
+        },
+        "warnings": ["uiPaths: dropped entries that aren't paths"]
+      }
+    },
+    {
+      "name": "check.require keeps known items in checklist order, adds uploads",
+      "text": "comment:\n  check:\n    require: [mobile, before-after, nope]\n    skipLabels: [\"uploads:skip-verify\", no-ui]\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkRequire": ["uploads", "before-after", "mobile"],
+          "checkSkipLabels": ["uploads:skip-verify", "no-ui"]
+        },
+        "warnings": [
+          "check.require: dropped unknown items (use uploads, before-after, desktop, mobile)"
+        ]
+      }
+    },
+    {
+      "name": "check.require bare string",
+      "text": "comment:\n  check:\n    require: uploads\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkRequire": ["uploads"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "check not an object",
+      "text": "comment:\n  check: true\n",
+      "format": "yaml",
+      "expected": {
+        "config": {},
+        "warnings": ["check: expected an object; dropped"]
+      }
+    },
+    {
+      "name": "check.require accepts any as uploads",
+      "text": "comment:\n  check:\n    require: any\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkRequire": ["uploads"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "check.ai keeps known notes in order",
+      "text": "comment:\n  check:\n    ai: [identical-before-after, ready-screen, nope]\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkAi": ["ready-screen", "identical-before-after"]
+        },
+        "warnings": [
+          "check.ai: dropped unknown items (use ready-screen, identical-before-after, or all)"
+        ]
+      }
+    },
+    {
+      "name": "check.ai all turns on every note",
+      "text": "comment:\n  check:\n    ai: all\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "checkAi": ["ready-screen", "identical-before-after"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "check.ai not a list",
+      "text": "comment:\n  check:\n    ai: {ready-screen: true}\n",
+      "format": "yaml",
+      "expected": {
+        "config": {},
+        "warnings": ["check.ai: expected a list; dropped"]
+      }
     }
   ],
   "resolveCases": [
@@ -241,7 +353,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -252,7 +369,12 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -275,7 +397,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "repo",
@@ -286,7 +413,12 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -306,7 +438,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -317,7 +454,12 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -339,7 +481,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -350,7 +497,12 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -372,7 +524,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -383,7 +540,12 @@
           "note": "auto",
           "ingestGithubAttachments": "repo",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -405,7 +567,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": true,
-          "adoptLinkedFiles": true
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -416,7 +583,12 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "repo",
-          "adoptLinkedFiles": "auto"
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     },
@@ -438,7 +610,12 @@
           "note": null,
           "ingestGithubAttachments": true,
           "ingestBotAttachments": false,
-          "adoptLinkedFiles": false
+          "adoptLinkedFiles": false,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
         },
         "source": {
           "imageWidth": "auto",
@@ -449,7 +626,309 @@
           "note": "auto",
           "ingestGithubAttachments": "auto",
           "ingestBotAttachments": "auto",
-          "adoptLinkedFiles": "repo"
+          "adoptLinkedFiles": "repo",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "repo noUploadsComment beats workspace; uiPaths from repo",
+      "repo": {
+        "uiPaths": ["apps/web/**"],
+        "noUploadsComment": true
+      },
+      "workspace": {
+        "noUploadsComment": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": ["apps/web/**"],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "repo",
+          "noUploadsComment": "repo",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "workspace uiPaths apply when the repo sets none",
+      "repo": {
+        "noUploadsComment": true
+      },
+      "workspace": {
+        "uiPaths": ["src/ui/**"]
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": ["src/ui/**"],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "workspace",
+          "noUploadsComment": "repo",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "a repo's empty uiPaths replaces the workspace list",
+      "repo": {
+        "uiPaths": []
+      },
+      "workspace": {
+        "uiPaths": ["src/ui/**"]
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "repo",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "repo check settings override auto",
+      "repo": {
+        "checkRequire": ["uploads"],
+        "checkSkipLabels": ["no-ui"]
+      },
+      "workspace": null,
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": ["uploads"],
+          "checkSkipLabels": ["no-ui"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "repo",
+          "checkSkipLabels": "repo",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "workspace requireUploads requires uploads when the repo sets no check.require",
+      "repo": null,
+      "workspace": {
+        "requireUploads": true
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": ["uploads"],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "workspace",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "a repo's check.require replaces the workspace requireUploads",
+      "repo": {
+        "checkRequire": ["before-after"]
+      },
+      "workspace": {
+        "requireUploads": true
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": ["before-after"],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "repo",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
+        }
+      }
+    },
+    {
+      "name": "workspace requireUploads false requires nothing",
+      "repo": null,
+      "workspace": {
+        "requireUploads": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true,
+          "uiPaths": [],
+          "noUploadsComment": true,
+          "checkRequire": [],
+          "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+          "checkAi": []
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto",
+          "uiPaths": "auto",
+          "noUploadsComment": "auto",
+          "checkRequire": "auto",
+          "checkSkipLabels": "auto",
+          "checkAi": "auto"
         }
       }
     }

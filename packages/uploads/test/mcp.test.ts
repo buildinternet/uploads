@@ -478,6 +478,23 @@ describe("createMcpServer protocol", () => {
 });
 
 describe("tools/list", () => {
+  /**
+   * /docs/mcp marks which tools only the local `uploads mcp` server has, so
+   * the page reads this list rather than a hand-kept copy. Run
+   * `pnpm --filter @buildinternet/uploads test -u` after adding a tool.
+   */
+  it("keeps the docs list of local tools in sync", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/list");
+    const tools = (res.result.tools as Array<{ name: string; title?: string }>).map((tool) => ({
+      name: tool.name,
+      title: tool.title ?? tool.name,
+    }));
+    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot(
+      "../../../apps/web/src/data/mcp-tools-local.json",
+    );
+  });
+
   it("lists all CLI-mirroring tools with object schemas", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/list");
@@ -496,8 +513,11 @@ describe("tools/list", () => {
       "attach",
       "list",
       "staged",
+      "unstage",
       "delete",
       "get_metadata",
+      "list_held",
+      "approve",
       "set_metadata",
       "find_files",
       "list_metadata_keys",
@@ -1662,6 +1682,48 @@ describe("tools/call usage, reconcile, purge_expired (output schema drift)", () 
     const res = await rpc(server, "tools/call", { name: "purge_expired", arguments: {} });
     expect(res.result.isError).toBe(false);
     expect(res.result.structuredContent.reconcile.usage).toEqual(fullUsage);
+  });
+});
+
+describe("tools/call list_held, approve", () => {
+  it("lists held files under a prefix and approves keys", async () => {
+    const { factory } = fakeFactory();
+    const approved: string[] = [];
+    const server = serverWith({
+      factory: (config) => ({
+        ...factory(config),
+        listHeld: async (prefix?: string) =>
+          [{ key: "shots/env.png", reason: "secret: api_key", moved: true }].filter((f) =>
+            f.key.startsWith(prefix ?? ""),
+          ),
+        approve: async (key: string) => {
+          approved.push(key);
+          return { key, approved: true as const };
+        },
+      }),
+    }).server;
+
+    const listed = await rpc(server, "tools/call", {
+      name: "list_held",
+      arguments: { prefix: "shots/" },
+    });
+    expect(listed.result.isError).toBe(false);
+    expect(listed.result.structuredContent).toEqual({
+      items: [{ key: "shots/env.png", reason: "secret: api_key" }],
+    });
+
+    const res = await rpc(server, "tools/call", {
+      name: "approve",
+      arguments: { keys: ["shots/env.png"] },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent).toEqual({
+      files: [{ key: "shots/env.png", action: "approved" }],
+    });
+    expect(approved).toEqual(["shots/env.png"]);
+
+    const neither = await rpc(server, "tools/call", { name: "approve", arguments: {} });
+    expect(neither.result.isError).toBe(true);
   });
 });
 

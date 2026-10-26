@@ -72,14 +72,13 @@ export function optStringArray(args: ToolArgs, name: string): string[] | undefin
 }
 
 /** Shared cue: `path` is the route `find_files` searches by. */
-export const METADATA_PATH_CUE =
-  "Use `path` for the route (e.g. /settings), not route/page/screen.";
+export const METADATA_PATH_CUE = "Use `path` for the route (e.g. /settings), not route/page.";
 
 /** put/screenshot/attach `metadata`. Key regex and caps stay in usage errors. */
 export const METADATA_DESCRIPTION =
   "Queryable tags for later search (key→value). " +
   METADATA_PATH_CUE +
-  " Omit to leave existing tags; pass an object (even {}) to replace them. `state` and `app` have their own fields.";
+  " Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields.";
 
 export const metadataProp = {
   type: "object",
@@ -104,8 +103,14 @@ export const appProp = {
     "Which surface is shown: web, ios, android, cli. Worth setting only when the same route exists on more than one surface.",
 };
 
+export const screenProp = {
+  type: "string",
+  description:
+    'The app screen shown, for views with no route (a mobile or desktop screen), e.g. "Chat". Shown under the image in the PR comment. Use `path` in metadata for web routes.',
+};
+
 /**
- * Canonical `state`/`app` pairs from their dedicated tool params. The schema
+ * Canonical `state`/`app`/`screen` pairs from their dedicated tool params. The schema
  * enum already constrains `state` for well-behaved clients; re-validate here
  * because a schema is a hint, not an enforcement boundary.
  */
@@ -131,11 +136,13 @@ export function canonicalMetaFromArgs(args: ToolArgs): Record<string, string> {
     const normalized = app.trim().toLowerCase();
     if (normalized.length > 0) meta.app = normalized;
   }
+  const screen = optString(args, "screen")?.trim();
+  if (screen) meta.screen = screen;
   return meta;
 }
 
 /**
- * The `metadata` tool arg merged with the canonical `state`/`app` params.
+ * The `metadata` tool arg merged with the canonical `state`/`app`/`screen` params.
  * `undefined` (leave stored metadata untouched) is preserved only when the
  * caller supplied none of the three.
  */

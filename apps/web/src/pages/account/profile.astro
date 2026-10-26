@@ -5,6 +5,7 @@ import {
   loadProfilePageData,
   renderSessionsHtml,
   renderSignInMethodsHtml,
+  renderWeeklyDigestHtml,
 } from "../../lib/account-profile-ui";
 import { serverAuthFetchImpl } from "../../lib/auth-proxy";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
@@ -42,23 +43,80 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
     <div class="settings-section">
       <h2>Email notifications</h2>
-      <label class="notify-row">
-        <input
-          type="checkbox"
-          id="notify-member-join"
-          checked={initial.user?.notifyMemberJoin ?? true}
+      {/* One .notify-group per channel or cadence; Slack alerts slot in as another group. */}
+      <div class="notify-group">
+        <h3 class="notify-group__title">Workspace alerts</h3>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-member-join"
+            checked={initial.user?.notifyMemberJoin ?? true}
+          />
+          <span>Someone joins a workspace I administer</span>
+        </label>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-usage-limits"
+            checked={initial.user?.notifyUsageLimits ?? true}
+          />
+          <span>A workspace I administer nears its usage limit</span>
+        </label>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-email-holds"
+            checked={initial.user?.notifyEmailHolds ?? false}
+          />
+          <span>An upload is held for review</span>
+        </label>
+      </div>
+      <div class="notify-group">
+        <h3 class="notify-group__title">Weekly digests</h3>
+        <p class="muted settings-note">
+          Off until you turn them on. An unsubscribe link turns off that workspace only. The admin
+          pulse is for workspaces you administer.
+        </p>
+        <div
+          id="weekly-digest-list"
+          class="digest-table-wrap"
+          set:html={initial.digestWorkspaces
+            ? renderWeeklyDigestHtml(initial.digestWorkspaces)
+            : `<p class="muted settings-note">Couldn’t load weekly digest settings.</p>`}
         />
-        <span>Email me when someone joins a workspace I administer.</span>
-      </label>
-      <label class="notify-row">
-        <input
-          type="checkbox"
-          id="notify-usage-limits"
-          checked={initial.user?.notifyUsageLimits ?? true}
-        />
-        <span>Email me when a workspace I administer nears its usage limit.</span>
-      </label>
+      </div>
+      <div class="notify-group">
+        <h3 class="notify-group__title">From uploads.sh</h3>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-product-updates"
+            checked={initial.user?.notifyProductUpdates ?? true}
+          />
+          <span>Product updates and announcements, like a CLI version you should update</span>
+        </label>
+      </div>
       <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="settings-section" id="slack">
+      <h2>Slack</h2>
+      <label class="notify-row">
+        <input
+          type="checkbox"
+          id="notify-slack-holds"
+          checked={initial.user?.notifySlackHolds ?? true}
+        />
+        <span>Message me in Slack when an upload is held for review.</span>
+      </label>
+      <p class="muted settings-note">
+        You get the message for your own uploads. When an upload has no known uploader, workspace
+        admins get it. It needs a connected Slack account.
+      </p>
+      <div id="slack-links" class="slack-links" aria-busy="true">
+        <p class="muted settings-note">Loading Slack connections…</p>
+      </div>
+      <p id="slack-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
 
     <div class="settings-section">
@@ -156,28 +214,131 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       gap: 8px;
       margin: 0;
     }
+    .notify-group + .notify-group {
+      margin-top: 20px;
+    }
+    .notify-group__title {
+      margin: 0 0 10px;
+      color: var(--fg);
+      font-size: var(--text-meta);
+      font-weight: var(--weight-semibold);
+    }
+    .notify-group .settings-note {
+      margin: 0 0 14px;
+    }
     .notify-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      padding: 4px 0;
       font-size: var(--text-meta);
+      color: var(--body);
     }
     .notify-row input {
       margin: 0;
+      flex: none;
+    }
+    .slack-links {
+      margin-top: 12px;
+    }
+    /* Injected with innerHTML by the client, so :global like the digest table. */
+    .slack-links :global(.slack-empty__actions) {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      margin: 10px 0 0;
+    }
+    /* The digest table is injected with set:html (and re-rendered on the
+       client), so its rules must be :global — scoped selectors never match. */
+    .digest-table-wrap {
+      overflow-x: auto;
+    }
+    .digest-table-wrap :global(.digest-table) {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--text-meta);
+      line-height: 1.4;
+    }
+    .digest-table-wrap :global(th),
+    .digest-table-wrap :global(td) {
+      padding: 10px 12px 10px 0;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+    .digest-table-wrap :global(thead th) {
+      padding-top: 0;
+      color: var(--muted);
+      font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .digest-table-wrap :global(tbody tr:last-child > *) {
+      border-bottom: 0;
+    }
+    .digest-table-wrap :global(tbody th) {
+      font-weight: inherit;
+    }
+    .digest-table-wrap :global(.digest-table__toggle) {
+      width: 9rem;
+      padding-right: 0;
+      text-align: center;
+    }
+    .digest-table-wrap :global(.digest-table__toggle input) {
+      margin: 0;
+    }
+    .digest-table-wrap :global(.digest-table__name) {
+      color: var(--fg);
+      font-weight: var(--weight-semibold);
+    }
+    .digest-table-wrap :global(.digest-table__role),
+    .digest-table-wrap :global(.digest-table__na) {
+      color: var(--muted);
+      font-size: var(--text-micro);
+    }
+    .digest-table-wrap :global(.digest-table__role) {
+      margin-left: 6px;
+    }
+    @media (max-width: 560px) {
+      .digest-table-wrap :global(.digest-table__toggle) {
+        width: 5.5rem;
+        padding-left: 8px;
+      }
+      .digest-table-wrap :global(thead th) {
+        white-space: normal;
+        line-height: 1.3;
+      }
+      .digest-table-wrap :global(.digest-table__role) {
+        display: block;
+        margin: 2px 0 0;
+      }
     }
   </style>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import { renderSessionsHtml, renderSignInMethodsHtml } from "../../lib/account-profile-ui";
+    import {
+      renderSessionsHtml,
+      renderSignInMethodsHtml,
+      renderSlackLinksHtml,
+      renderWeeklyDigestHtml,
+    } from "../../lib/account-profile-ui";
+    import { listSlackLinks, unlinkSlack } from "../../lib/slack-connect";
     import {
       getAccountInfo,
       getSession,
       linkGitHub,
       listAccounts,
+      listDigestPreferences,
       listSessions,
       revokeSession,
+      updateDigestPreference,
+      updateNotifyEmailHolds,
       updateNotifyMemberJoin,
+      updateNotifyProductUpdates,
+      updateNotifySlackHolds,
       updateNotifyUsageLimits,
       type AuthSession,
     } from "../../lib/auth-client";
@@ -423,12 +584,17 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
       const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
       const usageToggle = document.getElementById("notify-usage-limits") as HTMLInputElement | null;
+      const holdEmailToggle = document.getElementById(
+        "notify-email-holds",
+      ) as HTMLInputElement | null;
+      const productUpdatesToggle = document.getElementById(
+        "notify-product-updates",
+      ) as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
       }
-      // Both toggles share one status line and the same save-and-revert dance.
-      // Only the persistence call differs.
+      // Account-wide toggles share one status line and the same save-and-revert dance.
       function wireNotifyToggle(
         el: HTMLInputElement | null,
         save: (origin: string, value: boolean) => Promise<boolean>,
@@ -440,7 +606,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
             setNotifyStatus("Saving…");
             const ok = await save(authOrigin, desired);
             if (!ok) {
-              el.checked = !desired; // revert
+              el.checked = !desired;
               setNotifyStatus("Couldn’t save — try again.");
             } else {
               setNotifyStatus(desired ? "Notifications on." : "Notifications off.");
@@ -451,6 +617,93 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       }
       wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
       wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
+      wireNotifyToggle(holdEmailToggle, updateNotifyEmailHolds);
+      wireNotifyToggle(productUpdatesToggle, updateNotifyProductUpdates);
+
+      const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
+        .__UPLOADS_API_ORIGIN__;
+      const slackToggle = document.getElementById("notify-slack-holds") as HTMLInputElement | null;
+      const slackLinks = document.getElementById("slack-links");
+      const slackStatus = document.getElementById("slack-status");
+      function setSlackStatus(message: string): void {
+        if (slackStatus) slackStatus.textContent = message;
+      }
+      slackToggle?.addEventListener("change", () => {
+        void (async () => {
+          const desired = slackToggle.checked;
+          slackToggle.disabled = true;
+          setSlackStatus("Saving…");
+          const ok = await updateNotifySlackHolds(authOrigin, desired);
+          if (!ok) {
+            slackToggle.checked = !desired;
+            setSlackStatus("Couldn’t save — try again.");
+          } else {
+            setSlackStatus(desired ? "Slack messages on." : "Slack messages off.");
+          }
+          slackToggle.disabled = false;
+        })();
+      });
+      async function loadSlackLinks(): Promise<void> {
+        if (!slackLinks) return;
+        const links = await listSlackLinks(apiOrigin);
+        slackLinks.innerHTML = renderSlackLinksHtml(links);
+        slackLinks.setAttribute("aria-busy", "false");
+      }
+      slackLinks?.addEventListener("click", (event) => {
+        const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(
+          "[data-slack-unlink]",
+        );
+        const teamId = button?.dataset.teamId;
+        const slackUserId = button?.dataset.slackUserId;
+        if (!button || !teamId || !slackUserId) return;
+        void (async () => {
+          button.disabled = true;
+          setSlackStatus("Disconnecting…");
+          const ok = await unlinkSlack(apiOrigin, { teamId, slackUserId });
+          if (!ok) {
+            button.disabled = false;
+            setSlackStatus("Couldn’t disconnect — try again.");
+            return;
+          }
+          setSlackStatus("Disconnected.");
+          await loadSlackLinks();
+        })();
+      });
+
+      const digestList = document.getElementById("weekly-digest-list");
+      async function loadWeeklyDigests(): Promise<void> {
+        if (!digestList) return;
+        const workspaces = await listDigestPreferences(authOrigin);
+        digestList.innerHTML = workspaces
+          ? renderWeeklyDigestHtml(workspaces)
+          : `<p class="muted settings-note">Couldn’t load weekly digest settings.</p>`;
+      }
+      digestList?.addEventListener("change", (event) => {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        const organizationId = input.dataset.orgId;
+        const kind = input.dataset.digest;
+        if (!organizationId || (kind !== "member" && kind !== "admin")) return;
+        void (async () => {
+          const desired = input.checked;
+          input.disabled = true;
+          setNotifyStatus("Saving…");
+          const ok = await updateDigestPreference(
+            authOrigin,
+            organizationId,
+            kind === "admin"
+              ? { notifyWeeklyWorkspaceDigest: desired }
+              : { notifyWeeklyDigest: desired },
+          );
+          if (!ok) {
+            input.checked = !desired;
+            setNotifyStatus("Couldn’t save — try again.");
+          } else {
+            setNotifyStatus(desired ? "Notifications on." : "Notifications off.");
+          }
+          input.disabled = false;
+        })();
+      });
 
       onSession((user) => {
         requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
@@ -463,6 +716,17 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         if (usageToggle && typeof user.notifyUsageLimits === "boolean") {
           usageToggle.checked = user.notifyUsageLimits;
         }
+        if (holdEmailToggle && typeof user.notifyEmailHolds === "boolean") {
+          holdEmailToggle.checked = user.notifyEmailHolds;
+        }
+        if (productUpdatesToggle && typeof user.notifyProductUpdates === "boolean") {
+          productUpdatesToggle.checked = user.notifyProductUpdates;
+        }
+        if (slackToggle && typeof user.notifySlackHolds === "boolean") {
+          slackToggle.checked = user.notifySlackHolds;
+        }
+        void loadSlackLinks();
+        void loadWeeklyDigests();
         void loadAccounts();
         void loadSessions();
       });

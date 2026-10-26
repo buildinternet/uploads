@@ -1,7 +1,9 @@
-import { AppError, NotFoundError } from "@uploads/errors";
+import { NotFoundError } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { createDbSession, dbFor } from "./db-session";
+import { dbFor } from "./db-session";
+import { requestDbSession } from "./request-db-session";
 import { respondError } from "./error-response";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
@@ -22,12 +24,14 @@ import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runUsageAlertSweep } from "./usage-alert-sweep";
 import { runActiveContentHostSweep } from "./active-content-hosts";
+import { runWeeklyDigestSweep, WEEKLY_DIGEST_CRON } from "./weekly-digest-sweep";
 import { runObservabilityRetention } from "./observability-retention";
 import { purgeExpiredIdempotencyRequests } from "./idempotency-core";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { feeds } from "./routes/feeds";
 import { workspaceFeeds } from "./routes/workspace-feeds";
+import { workspaceScope } from "./routes/workspace-scope";
 import { publicFeeds } from "./routes/public-feeds";
 import { publicFiles } from "./routes/public-files";
 import { publicGithubAvatars } from "./routes/public-github-avatars";
@@ -45,6 +49,8 @@ import { githubLink } from "./routes/github-link";
 import { githubHealth } from "./routes/github-health";
 import { githubActivity } from "./routes/github-activity";
 import { internalBilling } from "./routes/internal-billing";
+import { internalClassify } from "./routes/internal-classify";
+import { internalSlack } from "./routes/internal-slack";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 import { ROBOTS_TXT } from "./robots";
 
@@ -86,21 +92,7 @@ const consoleCors = cors({
 
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
-  // D1 Sessions API (issue #808): one Session per request, set before any
-  // handler runs. Everything downstream reads D1 via `dbFor(env)`
-  // (src/db-session.ts) instead of `env.DB` directly, so it's ready to have
-  // reads served by a replica once D1 read replication is enabled — while
-  // replication stays disabled, this is a no-op (queries still land on the
-  // primary). `DB` is a required binding in production, but some tests and
-  // local setups omit it (or fake it with a plain object that doesn't
-  // implement `withSession`), hence the guards — `dbFor` falls back to the
-  // raw binding whenever no session was created here.
-  .use("*", async (c, next) => {
-    if (c.env?.DB && typeof c.env.DB.withSession === "function") {
-      c.env.DB_SESSION = createDbSession(c.env.DB);
-    }
-    await next();
-  })
+  .use("*", requestDbSession)
   .get("/health", (c) => c.json({ ok: true }))
   .get("/robots.txt", (c) =>
     c.text(ROBOTS_TXT, 200, {
@@ -163,6 +155,9 @@ export const app = new Hono<WorkspaceVars>()
   // `workspaceFiles` above.
   .route("/v1/workspaces", workspaceGalleries)
   .route("/v1/workspaces", workspaceFeeds)
+  // Files views (spec 2026-10-04): `/pulls`, `/repos`, `/scope/:owner/:repo/files`.
+  // Dual-auth, files:read; own auth + error boundary like the verticals above.
+  .route("/v1/workspaces", workspaceScope)
   .route("/v1/workspaces", workspaceUsage)
   // Canonical dual-auth github vertical (issue #613 phase 3):
   // `/v1/workspaces/:workspace/github/*`, collapsing the five sub-routers
@@ -239,74 +234,58 @@ export const app = new Hono<WorkspaceVars>()
   // /v1 and the workspaceAuth guard entirely — same "brings its own auth"
   // treatment as /v1/github/webhook above. See routes/internal-billing.ts.
   .route("/internal/billing", internalBilling)
+  // uploads-slack's Approve button on a held-upload DM. Service-binding only
+  // (host api.internal); see routes/internal-slack.ts.
+  .route("/internal/slack", internalSlack)
+  // uploads-mcp hands hosted uploads over to be classified here. Same
+  // service-binding-only guard; see routes/internal-classify.ts.
+  .route("/internal/classify", internalClassify)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 
-/** Worker entry: fetch + daily retention cron + GitHub webhook queue consumer. */
+const DAILY_MAINTENANCE_CRON = "0 6 * * *";
+
+/** Worker entry: fetch + daily retention cron + weekly digest + GitHub webhook queue. */
 export default {
   fetch: app.fetch.bind(app),
   // GitHub webhook ingestion queue + its DLQ (issue #287); see
   // github-webhook-queue.ts. Batch handling never throws.
   queue: handleGithubWebhookBatch,
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    // A second cron must not re-run retention. An unset cron (tests) keeps
+    // the daily sweeps, which is what those tests drive.
+    if (controller.cron === WEEKLY_DIGEST_CRON) {
+      ctx.waitUntil(
+        runWeeklyDigestSweep(env).catch((err) => {
+          reportHandledError(err);
+        }),
+      );
+      return;
+    }
+    if (controller.cron && controller.cron !== DAILY_MAINTENANCE_CRON) return;
     ctx.waitUntil(
       runRetentionSweep(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "retention_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       runObservabilityRetention(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "observability_retention_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       purgeExpiredIdempotencyRequests(dbFor(env)).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "idempotency_retention_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       runUsageAlertSweep(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "usage_alert_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       runActiveContentHostSweep(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "active_content_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
   },

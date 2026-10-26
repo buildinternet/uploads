@@ -31,6 +31,16 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://uploads.sh/docs/feeds</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://uploads.sh/docs/slack</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://uploads.sh/docs/github-app</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -42,6 +52,16 @@
   </url>
   <url>
     <loc>https://uploads.sh/docs/agents</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://uploads.sh/docs/mcp</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://uploads.sh/docs/api</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -89,6 +109,11 @@
     <loc>https://uploads.sh/guides/cloud-agent-screenshots</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://uploads.sh/pricing</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://uploads.sh/terms</loc>

@@ -1,0 +1,239 @@
+---
+title: MCP server
+description: Connect Claude Code, Codex, Cursor, OpenCode, or any MCP client to the hosted uploads.sh server. Authentication, scopes, the stage-then-promote flow, and a reference for every tool.
+heading: MCP server
+tagline: Upload, attach, and search files from any MCP client.
+navLabel: MCP server
+navSlug: mcp
+navOrder: 2
+navGroup: start
+toc:
+  - { id: connect, label: Connect }
+  - { id: auth, label: Authentication }
+  - { id: stage-and-promote, label: Stage, then promote }
+  - { id: hosted-vs-local, label: Hosted vs. local }
+  - { id: tools, label: Tools }
+  - { id: protocol, label: Protocol details }
+---
+
+import McpToolReference from "../../components/docs/McpToolReference.astro";
+import TabItem from "../../components/docs/TabItem.astro";
+import Tabs from "../../components/docs/Tabs.astro";
+
+<section class="lead" id="connect">
+
+## Connect <a class="anchor" href="#connect" aria-label="Link to this section">#</a>
+
+The hosted server gives an agent upload tools without a local shell or checkout. With it an agent can:
+
+- Upload a file from base64 or a public URL and get back a public URL and GitHub-ready markdown.
+- [Stage screenshots on a branch](#stage-and-promote) and promote them into a pull request.
+- Search files by [metadata](#tool-find_files) and list recent activity for a repo.
+- Create [galleries](/docs/galleries) and [live links](/docs/feeds).
+
+The server works with any MCP client that supports remote servers over HTTP. Add it to yours:
+
+<Tabs syncKey="agent-runtime">
+  <TabItem label="Claude Code">
+
+```bash
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
+
+  </TabItem>
+  <TabItem label="Codex">
+
+```bash
+codex mcp add uploads --url https://agents.uploads.sh/mcp
+```
+
+  </TabItem>
+  <TabItem label="Cursor">
+
+Add it in Cursor's MCP settings, or in `.cursor/mcp.json`:
+
+```json title=".cursor/mcp.json" frame="code"
+{
+  "mcpServers": {
+    "uploads": { "url": "https://agents.uploads.sh/mcp" }
+  }
+}
+```
+
+  </TabItem>
+  <TabItem label="OpenCode">
+
+```bash
+opencode mcp add uploads --url https://agents.uploads.sh/mcp
+```
+
+  </TabItem>
+  <TabItem label="Other clients">
+
+Add a remote (Streamable HTTP) server with this URL:
+
+```text
+https://agents.uploads.sh/mcp
+```
+
+  </TabItem>
+</Tabs>
+
+The client opens a browser to sign in on first use.
+
+<div class="pointer">
+  Have the CLI? `uploads install` registers the server with Claude Code, Codex, and Grok if
+  they are installed.
+</div>
+
+<div class="pointer">
+  Using claude.ai or Cowork? Add uploads from the
+  [Claude directory](https://claude.ai/directory/uploads) instead.
+</div>
+
+</section>
+
+<section id="auth">
+
+## Authentication <a class="anchor" href="#auth" aria-label="Link to this section">#</a>
+
+The server accepts two kinds of bearer token.
+
+- **OAuth (recommended).** Clients that support MCP authorization find the authorization server
+  on their own. You sign in at uploads.sh and choose one workspace for the grant.
+- **Workspace token.** Send the `up_<workspace>_…` token that `uploads login` creates, or a
+  `ups_<workspace>_…` service token that a workspace admin creates for CI. The server reads the
+  workspace from the token.
+
+Send the token in the `Authorization` header:
+
+```http
+Authorization: Bearer up_<workspace>_…
+```
+
+Most tools need one scope. The [tool reference](#tools) shows it next to each tool.
+
+| Scope          | Grants                                         |
+| -------------- | ---------------------------------------------- |
+| `files:read`   | List, search, and read files, metadata, usage  |
+| `files:write`  | Upload, promote, unstage, set metadata, galleries, feeds. Also delete a `gh/` file the server stamped as this token's. Older uploads need `files:delete` |
+| `files:delete` | Delete any file, and purge expired ones        |
+
+<div class="note">
+  Client developers: discovery, client registration, and token details are in
+  [auth.md](/auth.md).
+</div>
+
+</section>
+
+<section id="stage-and-promote">
+
+## Stage, then promote <a class="anchor" href="#stage-and-promote" aria-label="Link to this section">#</a>
+
+An agent usually takes screenshots before the pull request exists. The hosted server has no git
+checkout, so pass `repo` and `branch` to `put` to stage each file for that branch:
+
+```json title="put arguments" frame="code"
+{
+  "contentUrl": "https://cdn.example/settings-after.png",
+  "repo": "acme/web",
+  "branch": "feat/settings",
+  "state": "after"
+}
+```
+
+After the agent opens the PR, call `promote` with the same branch. It copies the staged files
+into the PR and updates the attachments comment:
+
+```json title="promote arguments" frame="code"
+{ "repo": "acme/web", "pr": 12, "branch": "feat/settings" }
+```
+
+<div class="pointer">
+  PR already open? Pass `pr` and `repo` to `put` to attach in one call.
+</div>
+
+If the [GitHub App](/docs/github-app) is installed, it promotes staged files when the PR opens,
+and `promote` is safe to call again.
+
+`unstage` clears that branch without deleting the files. Pass `repo` and `branch`, or
+`keys`. Set `dryRun` to preview. A file marked unstaged is skipped by `promote`.
+
+</section>
+
+<section id="cloud-sandboxes">
+
+## Upload from a sandbox <a class="anchor" href="#cloud-sandboxes" aria-label="Link to this section">#</a>
+
+An agent in a cloud sandbox has its screenshots on disk but no CLI. Sending them through `put`
+means typing every byte as base64. Call `sign_upload_url` instead. It returns a short-lived URL
+and a `curl` line per file, and the agent uploads straight from disk:
+
+```json title="sign_upload_url arguments" frame="code"
+{ "files": [{ "filename": "settings-after.png" }], "repo": "acme/web", "pr": 12 }
+```
+
+```bash title="Run in the sandbox" frame="code"
+curl -sS --fail-with-body -T 'settings-after.png' 'https://agents.uploads.sh/u/…'
+```
+
+Each upload answers with the same JSON as `put`, including `markdown`. With `pr` or `issue`, call
+`comment` once after the uploads to update the attachments comment. URLs expire after 15 minutes
+and take files up to the workspace's upload limit (each URL's `maxBytes`, at most 100 MB), so
+videos work too. Files over 25 MiB stream straight to storage, so they get no video poster or PDF
+preview, and they skip [AI labels and hold checks](/docs/ai-labels#held-uploads). Smaller uploads
+through the hosted server get both.
+
+<div class="pointer">
+  The sandbox has to reach agents.uploads.sh. If curl fails with a 403 from a proxy, add
+  agents.uploads.sh to the environment's allowed domains.
+</div>
+
+</section>
+
+<section id="hosted-vs-local">
+
+## Hosted vs. local <a class="anchor" href="#hosted-vs-local" aria-label="Link to this section">#</a>
+
+The CLI also runs an MCP server on your machine with `uploads mcp`. It reads local files and
+fills in `repo` and `branch` from git. Most tools are the same on both servers.
+
+| Server  | Only this server has                                               |
+| ------- | ------------------------------------------------------------------ |
+| Hosted  | `sign_upload_url`, `promote`, `list_activity`, `list_repo_files`, `repo_link_status` |
+| Local   | `attach`, `staged`, `screenshot`, `doctor`, `report`               |
+
+To register the local server instead, see [Skill vs. MCP](/docs/agents#skill-vs-mcp).
+
+</section>
+
+<section id="tools">
+
+## Tools <a class="anchor" href="#tools" aria-label="Link to this section">#</a>
+
+Every tool on the hosted server, as `tools/list` returns it. Tools marked "Hosted only" are not
+on the local server.
+
+<McpToolReference />
+
+</section>
+
+<section id="protocol">
+
+## Protocol details <a class="anchor" href="#protocol" aria-label="Link to this section">#</a>
+
+These matter only if you write your own client.
+
+- **Transport.** Stateless Streamable HTTP. Each `POST` carries one JSON-RPC message and gets
+  a plain JSON reply. There are no sessions and no SSE stream, so `GET` and `DELETE` return 405.
+- **Headers.** Every `POST` must send `Content-Type: application/json` and
+  `Accept: application/json, text/event-stream`. A missing content type returns 415, and a
+  missing `Accept` returns 406.
+- **Spec versions.** The server speaks the `2026-07-28` revision and the earlier
+  `initialize`-based flow on the same endpoint.
+- **Limits.** The REST API's upload limits apply, and writes are rate limited per workspace. See
+  [Plans & limits](/docs/limits).
+- **Discovery.** The server card is at
+  [/.well-known/mcp/server-card.json](/.well-known/mcp/server-card.json).
+
+</section>

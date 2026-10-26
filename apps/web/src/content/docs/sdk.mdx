@@ -1,0 +1,141 @@
+---
+title: TypeScript SDK
+description: Call the uploads.sh API from TypeScript with @buildinternet/uploads-sdk. Install, upload a file, attach uploads to a pull request, handle errors and retries, and configure the client.
+heading: TypeScript SDK
+tagline: A typed, dependency-free client for the REST API.
+navLabel: TypeScript SDK
+navSlug: sdk
+navOrder: 4
+navGroup: start
+toc:
+  - { id: install, label: Install }
+  - { id: upload, label: Upload a file }
+  - { id: methods, label: Methods }
+  - { id: errors, label: Errors and retries }
+  - { id: options, label: Options }
+---
+
+<section class="lead" id="install">
+
+## Install <a class="anchor" href="#install" aria-label="Link to this section">#</a>
+
+`@buildinternet/uploads-sdk` wraps the [REST API](/docs/api) in typed methods. It has no
+dependencies and uses only `fetch`, so it runs in Node 22+, Bun, Deno, Cloudflare Workers and
+browsers.
+
+```sh
+npm install @buildinternet/uploads-sdk
+```
+
+Create a client with a workspace token. A personal token comes from `uploads login` or
+[Developers](/account/developers). For CI and bots, use a service token from the workspace
+settings.
+
+```ts
+import { createUploadsClient } from "@buildinternet/uploads-sdk";
+
+const uploads = createUploadsClient({
+  token: process.env.UPLOADS_TOKEN!,
+  workspace: "acme",
+});
+```
+
+<div class="note">
+  A token can read and write the whole workspace, so keep it on a server. Never ship one to a
+  browser.
+</div>
+
+</section>
+
+<section id="upload">
+
+## Upload a file <a class="anchor" href="#upload" aria-label="Link to this section">#</a>
+
+`put` takes the object key, the bytes, and optional metadata. It returns the public `url` and an
+`embedUrl` for GitHub markdown.
+
+```ts
+const file = await uploads.put("screenshots/settings.png", bytes, {
+  contentType: "image/png",
+  metadata: { path: "/settings", state: "after" },
+});
+console.log(file.url);
+```
+
+- An existing key throws `KEY_EXISTS`. Pass `replace: true` to overwrite it.
+- Pass `idempotencyKey` to make the upload safe to retry.
+- Omit `contentType` and the API detects the type from the bytes.
+
+To post a workspace's uploads on a pull request as the uploads.sh comment:
+
+```ts
+await uploads.upsertGithubComment({ repo: "acme/web", num: 42, kind: "pull" });
+```
+
+</section>
+
+<section id="methods">
+
+## Methods <a class="anchor" href="#methods" aria-label="Link to this section">#</a>
+
+| Area                          | Methods                                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Files                         | `put`, `previewPut`, `head`, `delete`, `list`, `listAll`, `findFiles`, `findFilesAll`, `getMetadata`, `patchMetadata`, `listMetadataKeys`, `listMetadataValues` |
+| [Holds](/docs/ai-labels)      | `listHeld`, `approve`                                                                                                                                         |
+| [Galleries](/docs/galleries)  | `createGallery`, `getGallery`, `listGalleries`, `deleteGallery`, `addGalleryItem`, plus linking a gallery to a PR or issue                                     |
+| [Live links](/docs/feeds)     | `createFeed`, `getFeed`, `listFeeds`, `deleteFeed`                                                                                                            |
+| GitHub                        | `upsertGithubComment`                                                                                                                                         |
+| Usage                         | `usage`, `reconcile`, `purgeExpired`, `health`                                                                                                                |
+
+`listAll` and `findFilesAll` follow the cursor for you. For a route with no method,
+`uploads.request(method, path, options)` sends an authenticated request and returns the parsed
+JSON. Every route is in the [endpoint reference](/docs/api#endpoints).
+
+</section>
+
+<section id="errors">
+
+## Errors and retries <a class="anchor" href="#errors" aria-label="Link to this section">#</a>
+
+Every method throws `UploadsError` on a failed request. Branch on `code`, a stable string, and
+read `status` for the HTTP status.
+
+```ts
+import { UploadsError } from "@buildinternet/uploads-sdk";
+
+try {
+  await uploads.put(key, bytes);
+} catch (err) {
+  if (err instanceof UploadsError && err.code === "KEY_EXISTS") {
+    console.log("already uploaded:", err.existingUrl);
+  } else throw err;
+}
+```
+
+Common codes are `UNAUTHORIZED`, `INSUFFICIENT_SCOPE`, `NOT_FOUND`, `KEY_EXISTS`,
+`STORAGE_QUOTA`, `UPLOAD_BUDGET` and `NETWORK`.
+
+Requests time out after 15 seconds, or 60 seconds for an upload. A GET, or an upload with an
+`idempotencyKey`, is retried once after a network error, a `429` or a `503`.
+
+</section>
+
+<section id="options">
+
+## Options <a class="anchor" href="#options" aria-label="Link to this section">#</a>
+
+```ts
+const uploads = createUploadsClient(
+  { token, workspace, apiUrl: "https://api.uploads.sh" },
+  {
+    fetch, // your own fetch, for tests or tracing
+    userAgent: "my-app/1.0",
+    onRetry: ({ reason, delayMs }) => console.warn(`retrying: ${reason}`),
+    onTokenExpiry: (expiresAt) => console.log(`token expires ${expiresAt}`),
+  },
+);
+```
+
+The client never reads environment variables or config files. Pass everything in.
+
+</section>

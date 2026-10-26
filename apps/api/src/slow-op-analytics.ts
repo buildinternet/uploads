@@ -28,7 +28,7 @@
  * (self-hosters, tests, local dev) is a silent no-op, same contract as
  * `writeAdoptionPoint`.
  */
-import type { SlowOpEvent } from "@uploads/observability";
+import { reportHandledError, type SlowOpEvent } from "@uploads/observability";
 
 /**
  * Blob positions are a contract with the SQL read path
@@ -53,7 +53,6 @@ export function writeSlowOpPoint(env: Env, event: SlowOpEvent): void {
       doubles: [event.wallMs, event.execMs ?? -1],
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(JSON.stringify({ message: "slow-op analytics write failed", error: message }));
+    reportHandledError(err);
   }
 }

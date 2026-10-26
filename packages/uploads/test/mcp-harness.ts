@@ -22,7 +22,7 @@ export const MODERN_PROTOCOL_VERSION = "2026-07-28";
 /**
  * A 2026-07-28 POST: the per-request `_meta` envelope replaces the removed
  * `initialize` handshake, and SEP-2243 mirrors the method — plus the tool name
- * for `tools/call` — into `Mcp-Method` / `Mcp-Name` headers.
+ * for `tools/call` — into `Mcp-Method` / `Mcp-Name`, and sends `MCP-Protocol-Version`.
  */
 export function modernRequest(method: string, params?: unknown, id: number | string = 1): Request {
   const p = (typeof params === "object" && params !== null ? params : {}) as Record<
@@ -33,8 +33,10 @@ export function modernRequest(method: string, params?: unknown, id: number | str
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
     "mcp-method": method,
+    "mcp-protocol-version": MODERN_PROTOCOL_VERSION,
   };
   if (method === "tools/call" && typeof p.name === "string") headers["mcp-name"] = p.name;
+  if (method === "resources/read" && typeof p.uri === "string") headers["mcp-name"] = p.uri;
   return new Request("https://uploads.test/mcp", {
     method: "POST",
     headers,
@@ -61,6 +63,7 @@ export function modernNotification(method: string, params?: Record<string, unkno
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
       "mcp-method": method,
+      "mcp-protocol-version": MODERN_PROTOCOL_VERSION,
     },
     body: JSON.stringify({
       jsonrpc: "2.0",
@@ -112,16 +115,21 @@ export async function legacyFetch(server: McpServer, body: string): Promise<Resp
     enableJsonResponse: true,
   });
   await server.connect(transport);
-  return await transport.handleRequest(
-    new Request("https://uploads.test/mcp", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-      },
-      body,
-    }),
-  );
+  try {
+    return await transport.handleRequest(
+      new Request("https://uploads.test/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body,
+      }),
+    );
+  } finally {
+    // A server serves one connection. Close it so the next call can connect.
+    await server.close();
+  }
 }
 
 export async function legacyRpc(

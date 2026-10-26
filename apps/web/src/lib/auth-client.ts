@@ -1,44 +1,27 @@
 /**
- * Auth client for apps/web (plan D6, Phase 2).
- *
- * Decision: plain `fetch()` wrappers against the auth worker's REST
- * endpoints, NOT the `better-auth/client` bundle. apps/web ships zero
- * client-side npm dependencies today — `invite.astro` is a plain inline
- * `<script>` tag with no component-island framework (no
- * React in this repo) and a deliberately strict CSP. Pulling in
- * `better-auth/client` would be this app's first client-bundle dependency,
- * for a page surface (`/login`, `/admin`, `/account/profile`) that
- * needs session, magic-link, sign-out, GitHub sign-in, and link-social — not a
- * full client SDK. The plan explicitly sanctions this fallback when the
- * client-bundle approach is awkward for the inline-script model (see plan D6).
- *
- * `credentials: "include"` on every call so the cross-subdomain session
- * cookie (`.uploads.sh`, see apps/auth/src/auth.ts's crossSubDomainCookies)
- * rides along.
+ * Auth client for apps/web: plain `fetch()` wrappers against the auth
+ * worker's REST endpoints rather than `better-auth/client`, which would be
+ * the app's first client-bundle dependency under a strict CSP and
+ * inline-script pages. `credentials: "include"` on every call.
  */
+import { emitIssueContext } from "./issue-context";
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { normalizeConsentScopes, type ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
+import {
+  parseDigestPreferences,
+  type DigestWorkspacePreference,
+} from "@uploads/auth/digest-preferences-wire";
 
 /**
- * Same-origin (#731 phase B): browser auth traffic goes through this
- * origin's `/api/auth` proxy, not a configured auth-worker origin. Every
- * page that injects a browser-facing auth origin (layouts, login, device,
- * console, oauth/consent, accept-invitation, the static-layout fallbacks)
- * uses this constant rather than a copy-pasted `const authOrigin = "";` so
- * the one same-origin decision lives in one place.
+ * Browser auth traffic goes through this origin's `/api/auth` proxy. Pages
+ * that inject a browser-facing auth origin use this constant.
  */
 export const SAME_ORIGIN_AUTH_BASE = "";
 
 /**
- * Public origin of the auth worker. Falls back to the documented local dev
- * origin (apps/auth's pinned wrangler dev port — see apps/auth/wrangler.jsonc
- * and .dev.vars.example) when unset (`undefined`/omitted).
- *
- * `""` (`SAME_ORIGIN_AUTH_BASE`) is a distinct, deliberate value (#731 phase
- * B): same-origin. Every caller in this file templates
- * `` `${authOrigin(origin)}/api/auth/...` ``, so `""` turns that into a
- * same-origin relative URL (`/api/auth/...`) that hits this origin's
- * `/api/auth/[...path]` proxy instead of the auth worker directly.
+ * Public origin of the auth worker, defaulting to the local dev origin when
+ * unset. `""` (`SAME_ORIGIN_AUTH_BASE`) means same-origin: templates become
+ * `/api/auth/...`, which hits this origin's proxy.
  */
 export function authOrigin(configuredOrigin?: string): string {
   if (configuredOrigin === "") return "";
@@ -59,7 +42,15 @@ export interface SessionUser {
   notifyMemberJoin?: boolean | null;
   /** Per-user pref: email me when a workspace I administer nears its usage limit. */
   notifyUsageLimits?: boolean | null;
+  /** Per-user pref: message me in Slack when an upload is held for review. */
+  notifySlackHolds?: boolean | null;
+  /** Per-user pref: email me when an upload is held for review. Default off. */
+  notifyEmailHolds?: boolean | null;
+  /** Per-user pref: email me product updates and announcements. Default on. */
+  notifyProductUpdates?: boolean | null;
 }
+
+export type { DigestWorkspacePreference };
 
 /** Operator-facing copy when sign-in is refused for a banned account. */
 export const BANNED_ACCOUNT_MESSAGE =
@@ -117,26 +108,14 @@ export type SessionResult =
 
 const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 /** Keep in sync with `LOCAL_STACK_DEV_HOST` in `apps/auth/src/local-demo.ts`. */
-const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
+const LOCAL_STACK_DEV_HOST = "local.uploadrouter.dev";
 
 /**
- * True only when `pageOrigin` is a recognized local-stack web origin: the
- * raw stack's pinned loopback port, a leftover portless `*.localhost`
- * origin (optionally worktree-prefixed), or the owned
- * `uploads.local.buildinternet.dev` zone (worktree prefix
- * `fix-ui.uploads.local.buildinternet.dev`).
- *
- * #731 phase C: this used to compare the injected auth origin against its
- * own pinned loopback port, but Phase B made every injected auth origin `""`
- * (same-origin) in every environment — that comparison was permanently
- * false, silently disabling the local demo session everywhere. Same-origin
- * mode means the browser never learns the auth worker's own origin at all,
- * so the only signal left to gate on is the PAGE's origin. This is a
- * convenience check to avoid probing the endpoint outside dev; the auth
- * worker's `/api/auth/dev-session` route (`apps/auth/src/index.ts`) is the
- * real, authoritative enforcement — it re-validates the request `Origin`
- * against `env.WEB_ORIGIN` and `localDemoEnabled`'s own env gate
- * server-side regardless of what this returns.
+ * True only for a recognized local-stack web origin: the raw stack's
+ * loopback port, a portless `*.localhost` origin, or the
+ * `local.uploadrouter.dev` zone (optionally worktree-prefixed). Auth origins
+ * are always same-origin now, so the page origin is the only signal. A
+ * convenience check; the auth worker's `/api/auth/dev-session` enforces.
  */
 export function isLocalDemoStack(pageOrigin: string): boolean {
   const normalized = pageOrigin.replace(/\/$/, "");
@@ -160,15 +139,10 @@ type LocalDemoSessionStart =
   | { kind: "unavailable"; reason: RequestFailure | "server" };
 
 /**
- * Parses a get-session HTTP response into the `SessionResult` union: a valid
- * no-session response (`401`, or a `200` with a `null` body) is distinct from
- * an outage (non-2xx server error) or a malformed `200` body, so protected
- * pages never send a user to sign in when the service is merely unavailable.
- *
- * Shared by `getSession` (browser path, over `fetchWithTimeout`) and
- * `serverSessionFromRequest` (SSR path, over the `AUTH` binding via
- * `serverGetSession` — see auth-proxy.ts) so both keep this distinction
- * identically rather than each parsing the response their own way.
+ * Parses a get-session response. "No session" (401, or 200 with null) stays
+ * distinct from an outage or malformed body, so protected pages never send
+ * someone to sign in when the service is merely down. Shared by the browser
+ * and SSR paths.
  */
 export async function sessionResultFromResponse(response: Response): Promise<SessionResult> {
   if (response.status === 401) return { kind: "signed_out" };
@@ -176,21 +150,18 @@ export async function sessionResultFromResponse(response: Response): Promise<Ses
   const body = (await response.json().catch(() => undefined)) as SessionResponse | null | undefined;
   if (body === null) return { kind: "signed_out" };
   if (!body || !body.user) return { kind: "unavailable", reason: "malformed" };
-  // Ban clears sessions; if a banned flag still appears, treat as signed out
-  // so shells never paint account chrome for a deactivated user.
+  // Treat a banned user as signed out so shells never paint account chrome.
   if (body.user.banned === true) return { kind: "signed_out" };
+  emitIssueContext({
+    userId: body.user.id,
+    sessionId: typeof body.session?.id === "string" ? body.session.id : undefined,
+  });
   return { kind: "signed_in", session: body };
 }
 
 /**
- * GET /api/auth/get-session. See `sessionResultFromResponse` for the result
- * shape and why "no session" and "unavailable" stay distinct.
- *
- * `opts.cookie` lets an Astro frontmatter resolve the session during the
- * server render by forwarding the incoming request's cookie header — a
- * server-to-server fetch has no cookie jar, so `credentials: "include"` alone
- * does nothing there (same pattern as `sessionFetchInit` in api-client.ts).
- * Omitted in the browser, where the ambient session cookie rides along.
+ * GET /api/auth/get-session. `opts.cookie` forwards the request's cookie for
+ * a server render, where `credentials: "include"` does nothing.
  */
 export async function getSession(
   origin: string,
@@ -210,10 +181,9 @@ export async function getSession(
 }
 
 /**
- * Creates the ordinary local demo session when, and only when, this page and
- * Auth both use the stack's exact loopback origins. The Auth worker applies
- * the authoritative gate again; this browser-side check keeps production and
- * arbitrary development origins from ever probing the endpoint.
+ * Creates the local demo session only when this page and Auth both use the
+ * stack's exact loopback origins. Auth checks again; this keeps other
+ * origins from ever probing the endpoint.
  */
 export async function startLocalDemoSession(
   origin: string,
@@ -227,9 +197,8 @@ export async function startLocalDemoSession(
   const result = await fetchWithTimeout(`${normalizedOrigin}/api/auth/dev-session`, {
     method: "POST",
     credentials: "include",
-    // better-call (better-auth's router) sees a non-null `request.body` for
-    // every POST under the Workers runtime, even with no body supplied, so
-    // it always runs its Content-Type gate and 415s without this header.
+    // better-call sees a non-null body on every POST under Workers and 415s
+    // without a Content-Type.
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
@@ -241,9 +210,8 @@ export async function startLocalDemoSession(
 }
 
 /**
- * Better Auth social/link endpoints return `{ url }` instead of 302ing.
- * Navigate when present; return false if the worker rejects or GitHub is
- * unconfigured (D3's gate).
+ * Social/link endpoints return `{ url }` instead of 302ing. Navigate when
+ * present; false when rejected or GitHub is unconfigured.
  */
 async function redirectToGitHubOAuth(
   origin: string,
@@ -277,9 +245,9 @@ export async function signInWithGitHub(origin: string, callbackURL: string): Pro
 }
 
 /**
- * Link GitHub to the current session (POST /link-social). Profile page uses
- * this so magic-link users can add GitHub without signing out. Failures return
- * to `callbackURL` with `?error=` (also used as errorCallbackURL).
+ * Link GitHub to the current session (POST /link-social), so magic-link users
+ * can add it without signing out. Failures return to `callbackURL` with
+ * `?error=`.
  */
 export async function linkGitHub(origin: string, callbackURL: string): Promise<boolean> {
   return redirectToGitHubOAuth(origin, "/api/auth/link-social", {
@@ -291,9 +259,7 @@ export async function linkGitHub(origin: string, callbackURL: string): Promise<b
 
 /**
  * Write the "email me when someone joins a workspace I administer" preference
- * via Better Auth's update-user endpoint (the field is an `input: true`
- * additionalField). Same-origin through the /api/auth proxy; session cookie
- * rides along. Returns false on any failure so the toggle can revert.
+ * through update-user. False on any failure so the toggle can revert.
  */
 export async function updateNotifyMemberJoin(origin: string, value: boolean): Promise<boolean> {
   try {
@@ -309,12 +275,7 @@ export async function updateNotifyMemberJoin(origin: string, value: boolean): Pr
   }
 }
 
-/**
- * Write the "email me when a workspace I administer nears its usage limit"
- * preference via Better Auth's update-user endpoint (an `input: true`
- * additionalField). Same-origin through the /api/auth proxy; returns false on
- * any failure so the toggle can revert.
- */
+/** Write the usage-limit email preference. Same contract as `updateNotifyMemberJoin`. */
 export async function updateNotifyUsageLimits(origin: string, value: boolean): Promise<boolean> {
   try {
     const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
@@ -329,14 +290,97 @@ export async function updateNotifyUsageLimits(origin: string, value: boolean): P
   }
 }
 
+/** Write the Slack held-upload preference. Same contract as `updateNotifyMemberJoin`. */
+export async function updateNotifySlackHolds(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifySlackHolds: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Write the email held-upload preference. Same contract as `updateNotifyMemberJoin`. */
+export async function updateNotifyEmailHolds(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyEmailHolds: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Write the product-updates preference. Same contract as `updateNotifyMemberJoin`. */
+export async function updateNotifyProductUpdates(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyProductUpdates: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * OAuth AS resume support (issue #224, Lane B). When the AS sends an
- * unauthenticated user to `/login?<signed authorize query>`, the server only
- * resumes the authorize flow if the sign-in POST body carries `oauth_query` =
- * `location.search` with the leading "?" stripped. Mirrors the official
- * oauth-provider client plugin's fetch hook, which injects this whenever
- * `location.search` contains `sig=` — that param only appears on a signed
- * query, so its presence is the trigger.
+ * Weekly digest switches, one row per workspace the signed-in user belongs
+ * to. Null when the request fails, so the page can tell "couldn't load"
+ * from "not in any workspace".
+ */
+export async function listDigestPreferences(
+  origin: string,
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
+): Promise<DigestWorkspacePreference[] | null> {
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}/api/auth/digest-preferences`,
+    {
+      credentials: "include",
+      cache: "no-store",
+      ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
+    },
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  return parseDigestPreferences(await result.response.json().catch(() => null));
+}
+
+/** Writes one workspace's digest switch. Returns false so the toggle can revert. */
+export async function updateDigestPreference(
+  origin: string,
+  organizationId: string,
+  patch: { notifyWeeklyDigest?: boolean; notifyWeeklyWorkspaceDigest?: boolean },
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/digest-preferences`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationId, ...patch }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * OAuth resume: when the AS sends an unauthenticated user to
+ * `/login?<signed authorize query>`, sign-in must post `oauth_query` (the
+ * query without "?") to resume. Triggered by `sig=`, as in the official
+ * oauth-provider client plugin.
  */
 function oauthResumeBody(): { oauth_query: string } | Record<string, never> {
   if (typeof location === "undefined") return {};
@@ -361,9 +405,8 @@ export async function sendMagicLink(
 }
 
 /**
- * POST /api/auth/sign-out. The JSON header/body are load-bearing: better-call
- * runs its Content-Type gate on every POST under the Workers runtime and 415s
- * a bare POST (see `devSession` above), leaving the session cookie intact.
+ * POST /api/auth/sign-out. The JSON header and body are needed: a bare POST
+ * 415s and leaves the session cookie intact.
  */
 export async function signOut(origin: string): Promise<void> {
   await fetch(`${authOrigin(origin)}/api/auth/sign-out`, {
@@ -374,10 +417,7 @@ export async function signOut(origin: string): Promise<void> {
   }).catch(() => undefined);
 }
 
-/**
- * Phase 3 (plan D4/D6): organization-plugin wrappers for the
- * `/accept-invitation/[id]` page.
- */
+/** Organization-plugin wrappers for `/accept-invitation/[id]`. */
 export interface InvitationInfo {
   id: string;
   email: string;
@@ -387,11 +427,8 @@ export interface InvitationInfo {
 }
 
 /**
- * GET /api/auth/organization/get-invitation?id=. Better Auth's own endpoint
- * requires an authenticated session whose email matches the invite (it 401s
- * otherwise) — this page calls it after sign-in to show invite context and
- * confirm before accepting; it also tolerates the pre-sign-in case by
- * returning null on any non-2xx rather than throwing.
+ * GET /api/auth/organization/get-invitation?id=. 401s unless the session
+ * email matches the invite; returns null on any non-2xx.
  */
 export async function getInvitation(origin: string, id: string): Promise<InvitationInfo | null> {
   try {
@@ -408,20 +445,16 @@ export async function getInvitation(origin: string, id: string): Promise<Invitat
 }
 
 /**
- * Phase 4 (plan D5/D6): device-authorization (RFC 8628) wrappers for the
- * `/device` approval page — the browser half of `uploads login`. The CLI
- * speaks the `/device/code` + `/device/token` endpoints directly; this page
- * only needs to look up, approve, or deny a user code.
+ * Device-authorization wrappers for the `/device` approval page, the browser
+ * half of `uploads login`.
  */
 export type DeviceStatus = "pending" | "approved" | "denied";
 export type DeviceLookup = { ok: true; status: DeviceStatus } | { ok: false; code?: string };
 
 /**
- * GET /api/auth/device?user_code=. Verifies the code and — when a session is
- * present and the code is still pending+unclaimed — CLAIMS it (binds it to the
- * signed-in user), which is what makes a subsequent approve succeed. Returns
- * `{ ok: false, code }` for an invalid/expired code, mirroring the other
- * helpers' never-throw contract.
+ * GET /api/auth/device?user_code=. With a session and a pending code, this
+ * claims it for the user, which approve requires. `{ ok: false, code }` for
+ * an invalid or expired code.
  */
 export async function getDeviceStatus(origin: string, userCode: string): Promise<DeviceLookup> {
   try {
@@ -479,10 +512,8 @@ export interface DeviceWorkspaceLookup {
 }
 
 /**
- * GET /api/auth/device/workspace — what the terminal asked for plus the
- * workspaces this account can pick (issue #362). Returns `{ ok: false }` for
- * an unusable code or an outage so the caller can fall back to approving
- * without a workspace decision.
+ * GET /api/auth/device/workspace — the requested workspace and the ones this
+ * account can pick. `{ ok: false }` on an unusable code or outage.
  */
 export async function getDeviceWorkspace(
   origin: string,
@@ -539,11 +570,8 @@ export interface OrganizationSummary {
 }
 
 /**
- * GET /api/auth/organization/list — the signed-in user's organizations
- * (Better Auth organization plugin). Returns null when the list couldn't be
- * loaded (outage, network) so callers can tell "no orgs" from "don't know" —
- * the consent page routes genuinely org-less users into workspace creation
- * and must not misroute users on a transient failure.
+ * GET /api/auth/organization/list. Null when it couldn't load, so the consent
+ * page doesn't misroute users into workspace creation on a blip.
  */
 export async function listOrganizations(origin: string): Promise<OrganizationSummary[] | null> {
   try {
@@ -562,10 +590,8 @@ export async function listOrganizations(origin: string): Promise<OrganizationSum
 export type AcceptInvitationResult = { ok: true } | { ok: false; status: number; code?: string };
 
 /**
- * POST /api/auth/organization/accept-invitation. Requires a valid session.
- * Returns `{ ok: false, status: 0 }` on a thrown fetch (network error, CSP
- * block, etc.) rather than throwing — matching getSession/getInvitation's
- * defensiveness so a caller can always branch on the result.
+ * POST /api/auth/organization/accept-invitation. Requires a session. A thrown
+ * fetch returns `{ ok: false, status: 0 }`.
  */
 export async function acceptInvitation(
   origin: string,
@@ -587,12 +613,8 @@ export async function acceptInvitation(
 }
 
 /**
- * GET a JSON array from the auth worker. Returns null on outage/auth/malformed
- * so callers can distinguish "couldn't load" from an empty list.
- *
- * `opts.cookie` forwards a caller-supplied cookie header for a server-side
- * fetch (same pattern as getSession's doc comment) — omitted in the browser,
- * where the ambient session cookie rides along via `credentials: "include"`.
+ * GET a JSON array from the auth worker. Null on outage, auth, or malformed
+ * body. `opts.cookie` as in getSession.
  */
 async function getAuthArray(
   origin: string,
@@ -613,11 +635,7 @@ async function getAuthArray(
   return Array.isArray(body) ? body : null;
 }
 
-/**
- * GET /api/auth/list-sessions — active sessions (browser + CLI device flow).
- * `opts.cookie` lets an Astro frontmatter resolve this during the server
- * render by forwarding the incoming request's cookie header (see getSession).
- */
+/** GET /api/auth/list-sessions (browser and CLI sessions). `opts.cookie` as in getSession. */
 export async function listSessions(
   origin: string,
   opts?: { cookie?: string; fetchImpl?: typeof fetch },
@@ -821,11 +839,7 @@ export function isBannedAuthError(input: {
   );
 }
 
-/**
- * GET /api/auth/list-accounts — linked identity providers (e.g. GitHub).
- * `opts.cookie` lets an Astro frontmatter resolve this during the server
- * render by forwarding the incoming request's cookie header (see getSession).
- */
+/** GET /api/auth/list-accounts — linked providers. `opts.cookie` as in getSession. */
 export async function listAccounts(
   origin: string,
   opts?: { cookie?: string; fetchImpl?: typeof fetch },
@@ -860,11 +874,9 @@ export async function listAccounts(
 }
 
 /**
- * GET /api/auth/account-info — live profile from the linked OAuth provider
- * (uses the stored access token). Pass accountId from list-accounts; without
- * it Better Auth only resolves via an account cookie we do not enable.
- * `opts.cookie` lets an Astro frontmatter resolve this during the server
- * render by forwarding the incoming request's cookie header (see getSession).
+ * GET /api/auth/account-info — live provider profile. Pass accountId from
+ * list-accounts (no account cookie is enabled). `opts.cookie` as in
+ * getSession.
  */
 export async function getAccountInfo(
   origin: string,
@@ -916,15 +928,9 @@ export async function revokeSession(origin: string, token: string): Promise<bool
 }
 
 /**
- * Stripe phase 2, task 6: organization-subscription wrappers for the
- * workspace billing tab. Plain `fetch()` against the `@better-auth/stripe`
- * plugin's REST endpoints (`/subscription/upgrade`, `/subscription/billing-
- * portal`) rather than pulling in `better-auth/client` + `@better-auth/
- * stripe/client` — this file's top-of-file doc explains why apps/web stays
- * off the client-bundle SDK, and that reasoning applies here too: two POSTs
- * with a JSON `{ url }` response don't need a client library. Both
- * endpoints reply `{ url, redirect }` on success (server never itself
- * redirects); callers navigate to `url` themselves.
+ * Organization-subscription wrappers for the billing tab, against the
+ * `@better-auth/stripe` endpoints. Both reply `{ url, redirect }`; callers
+ * navigate to `url`.
  */
 export type SubscriptionActionResult = { ok: true; url: string } | { ok: false; message: string };
 
@@ -984,20 +990,15 @@ export function openOrganizationBillingPortal(
   });
 }
 
-/**
- * Issue #890: one OAuth grant on `/account/connected-apps` — consent ⋈
- * client, plus an active-token indicator. Imported from the producing auth
- * module (issue #896 pattern) rather than re-declared here.
- */
+/** One OAuth grant on `/account/connected-apps`. */
 export type { ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
 
 function isConnectedAppGrant(value: unknown): value is ConnectedAppGrant {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
   const stringOrNull = (v: unknown) => typeof v === "string" || v === null;
-  // Scopes may arrive as a JSON-array string (double-encoded consent row)
-  // or space-delimited OAuth text. Normalize in place so a bad payload
-  // cannot drop the whole grant from `/account/connected-apps`.
+  // Scopes may be a JSON-array string or space-delimited; normalize so a bad
+  // payload can't drop the grant.
   r.scopes = normalizeConsentScopes(r.scopes);
   return (
     typeof r.id === "string" &&
@@ -1015,11 +1016,8 @@ function isConnectedAppGrant(value: unknown): value is ConnectedAppGrant {
 }
 
 /**
- * GET /api/auth/oauth2/connected-apps — the session user's OAuth grants,
- * newest first. `opts.cookie` forwards a caller-supplied cookie header for
- * an Astro frontmatter's server-side fetch (same pattern as `getSession`).
- * Returns null on any failure/no-session so the page can fall back to a
- * placeholder rather than an empty list.
+ * GET /api/auth/oauth2/connected-apps — the user's grants, newest first.
+ * Null on any failure. `opts.cookie` as in getSession.
  */
 export async function listConnectedApps(
   origin: string,
@@ -1043,10 +1041,8 @@ export async function listConnectedApps(
 }
 
 /**
- * POST /api/auth/oauth2/connected-apps/revoke — revoke one OAuth grant
- * (deletes the consent row and revokes its access/refresh tokens). Returns
- * false on any non-2xx or thrown fetch, matching this file's other
- * never-throw wrappers.
+ * POST /api/auth/oauth2/connected-apps/revoke — delete the consent and revoke
+ * its tokens. False on failure.
  */
 export async function revokeConnectedApp(origin: string, id: string): Promise<boolean> {
   const result = await fetchWithTimeout(
@@ -1062,12 +1058,9 @@ export async function revokeConnectedApp(origin: string, id: string): Promise<bo
 }
 
 /**
- * OAuth AS client metadata (issue #224, Lane B): fields the `/oauth/consent`
- * page reads off `@better-auth/oauth-provider`'s public-client response.
- * `client_uri`/`logo_uri` are attacker-controlled (any registered DCR
- * client) — callers must scheme-check before rendering them as links/images.
- * `official` is added by the auth worker from the operator-set flag; it is
- * the only field here a client cannot choose for itself.
+ * Public-client fields the `/oauth/consent` page reads. `client_uri` and
+ * `logo_uri` are attacker-controlled: scheme-check before rendering.
+ * `official` comes from the operator flag, the only field a client can't set.
  */
 export interface OAuthPublicClient {
   client_id: string;
@@ -1078,9 +1071,8 @@ export interface OAuthPublicClient {
 }
 
 /**
- * GET /api/auth/oauth2/public-client?client_id=. Session-gated (credentialed
- * fetch). Returns null on any failure, malformed body, or missing session —
- * the consent page falls back to displaying the raw client_id.
+ * GET /api/auth/oauth2/public-client?client_id=. Null on any failure; the
+ * page then shows the raw client_id.
  */
 export async function getOAuthPublicClient(
   origin: string,
@@ -1100,21 +1092,9 @@ export async function getOAuthPublicClient(
 }
 
 /**
- * POST /api/auth/oauth2/workspace-choice (issue #231). Multi-workspace users
- * pick which membership gets baked into the access token; call this before
- * `submitOAuthConsent` on accept when the consent page shows a workspace
- * picker. `workspace` is the org slug. Returns false on any non-2xx or thrown
- * fetch — matching this file's other never-throw wrappers — so the caller can
- * keep the user on the consent panel and show an error rather than submit
- * consent for the wrong (or no) workspace.
- */
-/**
- * GET /api/auth/oauth2/workspace-choice — the AS's server-resolved effective
- * workspace (stored choice if still a live membership, else oldest
- * membership). The consent picker defaults to this so an untouched Allow
- * round-trips the AS's own resolution instead of a client-side guess (org
- * `createdAt` order is only a display order, not membership age). Null on
- * any failure — callers fall back to the first listed org.
+ * GET /api/auth/oauth2/workspace-choice — the AS's resolved workspace (stored
+ * choice if still valid, else oldest membership). The picker defaults to it
+ * so an untouched Allow keeps the AS's answer. Null on failure.
  */
 export async function getOAuthWorkspaceChoice(origin: string): Promise<string | null> {
   try {
@@ -1130,6 +1110,11 @@ export async function getOAuthWorkspaceChoice(origin: string): Promise<string | 
   }
 }
 
+/**
+ * POST /api/auth/oauth2/workspace-choice: which membership the token gets.
+ * Call before `submitOAuthConsent` when the picker is shown. False on any
+ * failure, so the page doesn't submit consent for the wrong workspace.
+ */
 export async function setOAuthWorkspaceChoice(origin: string, workspace: string): Promise<boolean> {
   try {
     const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/workspace-choice`, {
@@ -1145,18 +1130,10 @@ export async function setOAuthWorkspaceChoice(origin: string, workspace: string)
 }
 
 /**
- * location.search → the `oauth_query` string the AS's consent endpoint
- * expects, repairing a specific corruption: better-auth 1.6.23's magic-link
- * verify decodes its callbackURL one time too many, so a signed OAuth query
- * that round-tripped through a sign-in email lands with the sig param's
- * base64 `%2B` collapsed to a literal `+` — which query parsing then folds
- * into a space, and the AS rejects the whole request with
- * `invalid_signature`. A literal `+` can never legitimately appear in `sig`
- * (base64 has no spaces to encode), so re-encoding it is a no-op for clean
- * queries and repairs corrupted ones regardless of which hop dropped the
- * encoding. The double-decode is lossless for sig's other specials (`%2F`→
- * `/`, `%3D`→`=` survive parsing) and for the remaining signed params, whose
- * values (URLs, base64url state/code_challenge) contain no encoded `+`.
+ * location.search → `oauth_query`, repairing a known corruption: magic-link
+ * verify decodes its callbackURL once too often, collapsing `%2B` in `sig` to
+ * `+`, which parses as a space and fails `invalid_signature`. `sig` can never
+ * contain a literal `+`, so re-encoding is a no-op for clean queries.
  */
 export function repairOAuthQuery(search: string): string {
   return search
@@ -1172,23 +1149,14 @@ export type OAuthConsentResult =
   | {
       ok: false;
       error: string;
-      /**
-       * True when retrying Allow/Deny on this page can never succeed — the
-       * consent page should stop inviting a doomed retry (disable the
-       * buttons) rather than leave them clickable.
-       */
+      /** Retrying can never succeed; disable Allow/Deny. */
       permanent: boolean;
     };
 
 /**
- * Copy for `@better-auth/oauth-provider` wire codes that are permanent for
- * this page: the signed authorize query in `location.search` no longer
- * verifies. `verifyOAuthQueryParams` (apps/auth/node_modules/@better-auth/
- * oauth-provider/dist/utils-*.mjs) folds a bad signature and an elapsed `exp`
- * into the same boolean check, so both surface as `invalid_signature` — there
- * is no separate expiry code. Neither cause is fixable by clicking Allow
- * again; the client app holds the PKCE verifier needed to restart the flow,
- * so recovery has to happen there.
+ * Copy for a signed query that no longer verifies. A bad signature and an
+ * elapsed `exp` both surface as `invalid_signature`. Clicking again can't
+ * fix it; only the client app can restart the flow.
  */
 export const OAUTH_QUERY_EXPIRED_MESSAGE =
   "This authorization request has expired. Return to the app you were connecting and start the connection again.";
@@ -1196,28 +1164,17 @@ const OAUTH_CONSENT_PERMANENT_ERRORS: Record<string, string> = {
   invalid_signature: OAUTH_QUERY_EXPIRED_MESSAGE,
 };
 
-/**
- * True when the signed query's `exp` (unix seconds, set by
- * @better-auth/oauth-provider's `signParams`) has already elapsed. Lets the
- * consent page render the permanent expired state at load time instead of
- * waiting on a POST /oauth2/consent that can only fail with
- * `invalid_signature`.
- */
+/** True when the signed query's `exp` has elapsed, so the page can show the expired state up front. */
 export function isOAuthQueryExpired(search: string, now: number = Date.now()): boolean {
   const exp = Number(new URLSearchParams(search.replace(/^\?/, "")).get("exp"));
   return Number.isFinite(exp) && exp > 0 && exp * 1000 <= now;
 }
 
 /**
- * POST /api/auth/oauth2/consent. `oauthQuery` is `location.search` with the
- * leading "?" stripped (the signed consent query the AS handed the browser) —
- * required so the AS can resolve which pending authorize request this is.
- * `scope` is the space-delimited set of scopes the user is granting; omit on
- * deny. Response carries the redirect target (`url` on better-auth 1.6.23,
- * `redirect_uri` in older builds) on success. On rejection, Better Auth 1.7's
- * oauth-provider envelopes are often a bare `{"error": "<code>"}` with no
- * description — `error_description`/`message` win when present, otherwise a
- * known `error` code maps to actionable copy, otherwise the generic fallback.
+ * POST /api/auth/oauth2/consent. `oauthQuery` is the signed query without
+ * "?". `scope` is the granted scopes; omit on deny. Errors are often a bare
+ * `{"error": "<code>"}`: `error_description`/`message` win, then known codes
+ * map to copy, then the generic fallback.
  */
 export async function submitOAuthConsent(
   origin: string,
@@ -1250,8 +1207,7 @@ export async function submitOAuthConsent(
         permanent: mapped !== undefined,
       };
     }
-    // better-auth 1.6.23 responds `{ redirect: true, url }` (prod-verified);
-    // `redirect_uri` is the shape older plugin builds documented. Accept both.
+    // `url` today; `redirect_uri` in older plugin builds.
     const redirectUri = body?.url ?? body?.redirect_uri;
     if (!redirectUri) {
       return {

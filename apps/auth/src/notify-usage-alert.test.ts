@@ -46,6 +46,11 @@ describe("notifyAdminsOfUsageAlert", () => {
       stripeCustomerId: null,
       notifyMemberJoin: over.notifyMemberJoin ?? true,
       notifyUsageLimits: over.notifyUsageLimits ?? true,
+      notifySlackHolds: true,
+      notifyEmailHolds: false,
+      notifyProductUpdates: true,
+      notifyWeeklyDigest: over.notifyWeeklyDigest ?? false,
+      notifyWeeklyWorkspaceDigest: over.notifyWeeklyWorkspaceDigest ?? false,
     };
     await orm.insert(schema.user).values(u);
     return u;

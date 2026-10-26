@@ -62,19 +62,45 @@ interface Env {
    * both apps' actual binding shape instead of only apps/api's.
    */
   MEDIA?: MediaBinding;
+  /**
+   * Cloudflare Images transform binding. The file classifier uses it to fit
+   * PNG, JPEG, WebP, GIF, and AVIF into Jev's pixel window. Optional: an
+   * absent binding skips files that need a resize (`ai.skip=resize_failed`).
+   * A PNG or JPEG that already fits does not need it. apps/mcp type-checks
+   * this module and does not bind Images (classification does not run
+   * there: that worker has no `FLAGS`).
+   */
+  IMAGES?: ImagesBinding;
   FLAGS?: Flagship;
   POSTER_LIMITER?: RateLimit;
   /**
-   * Workers AI (experimental file classifier). Optional: an absent binding
-   * skips classification. Declared here because apps/mcp type-checks
+   * Workers AI (weekly digest highlight). Optional: an absent binding skips
+   * curation and the digest keeps the newest screenshot. The file classifier
+   * does not use this binding. Declared here because apps/mcp type-checks
    * files-core.ts without an `ai` block in its wrangler.jsonc.
    */
   AI?: Ai;
   /**
-   * AI Gateway id used as `env.AI.run(..., { gateway: { id } })`. Unset
-   * falls back to `uploads-classifier`. Not a secret.
+   * AI Gateway id for the weekly digest's Workers AI call
+   * (`env.AI.run(..., { gateway: { id } })`). Unset falls back to
+   * `uploads-classifier`. The file classifier does not use this gateway.
+   * Not a secret.
    */
   AI_GATEWAY_ID?: string;
+  /**
+   * Optional classifier decision provider. `luna` selects
+   * `openai/gpt-6-luna-decisions`. `jev` pins `~typesafe/jev-latest` and
+   * ignores Flagship `llm-file-classifier-luna`. Unset defers to that flag
+   * (default off, so Jev Latest stays). Not a secret.
+   */
+  CLASSIFIER_PROVIDER?: string;
+  /**
+   * OpenRouter API key for file classification. Set with
+   * `wrangler secret put OPENROUTER_API_KEY`. Both Jev Latest and Luna call
+   * `https://openrouter.ai/api/alpha/decisions` with this key. Unset skips
+   * classification: the upload still succeeds, and no `ai.*` rows are written.
+   */
+  OPENROUTER_API_KEY?: string;
   /**
    * Browser Run (screenshot rendering, `POST /v1/render`). Like `MEDIA`, this
    * has no local Miniflare simulation and self-hosters may skip the block

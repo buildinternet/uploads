@@ -1,0 +1,231 @@
+@import "@uploads/ui/theme.css";
+@source "./";
+
+body {
+  margin: 0;
+}
+.tray {
+  max-width: 960px;
+  margin-inline: auto;
+  padding: 20px;
+}
+.tray-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.tray-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.tray-title h1 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.tray-count,
+.tray-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.tray-scope {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.tray-scope label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--body);
+}
+.tray-scope-row {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.tray-scope-row > label {
+  flex: 1;
+}
+.tray-scope-trigger {
+  width: 100%;
+  min-width: 0;
+}
+.tray-scope-trigger > [data-slot="select-value"] {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tray-scope-option span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  flex-shrink: 1;
+}
+.tray-manual {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+}
+.tray-section {
+  margin-top: 20px;
+}
+.tray-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tray-section-title h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.tray-scope-label {
+  padding-block: 14px;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--body);
+}
+.tray-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.tray-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+.tray-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: var(--surface-muted);
+}
+.tray-preview img,
+.tray-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.tray-image-button {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.tray-image-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border-radius: var(--radius-sm);
+  padding: 4px 7px;
+  background: rgb(0 0 0 / 75%);
+  color: white;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.tray-image-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.tray-image-dialog[data-slot="dialog-content"] {
+  width: calc(100vw - 24px);
+  max-width: 960px;
+  height: min(90dvh, 900px);
+  max-height: calc(100dvh - 24px);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.tray-image-title {
+  padding-right: 32px;
+  overflow-wrap: anywhere;
+}
+.tray-image-view {
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface-muted);
+}
+.tray-image-view img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.tray-image-view-actual img {
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+.tray-placeholder {
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}
+.tray-caption {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+}
+.tray-filename {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tray-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--mono);
+  color: var(--muted);
+  font-size: 11px;
+}
+.tray-meta span {
+  overflow-wrap: anywhere;
+}
+.tray-error {
+  margin-block: 16px;
+  border: 1px solid var(--red);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  font-size: 13px;
+}
+.tray-loading {
+  padding-block: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.tray-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 16px;
+}
+@media (max-width: 520px) {
+  .tray {
+    padding: 16px;
+  }
+  .tray-grid {
+    grid-template-columns: 1fr;
+  }
+  .tray-manual {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tray-manual button {
+    justify-self: start;
+  }
+}

@@ -41,8 +41,9 @@ const REPO = "https://github.com/buildinternet/uploads";
         the branch you're already on.
       </li>
       <li>
-        Collect media into a <a href="/docs/galleries">gallery</a> behind one link, or share a
-        <a href="/docs/feeds">change feed</a> of recent screenshots for a repo or pull request.
+        Collect media into a <a href="/docs/galleries">gallery</a> behind one link, or share a <a
+          href="/docs/feeds">live link</a
+        > to the files on a repo or pull request.
       </li>
     </ul>
   </section>
@@ -100,7 +101,7 @@ const REPO = "https://github.com/buildinternet/uploads";
     </h2>
     <div class="cards">
       <a class="card" href="/docs/attach-pull-request-images">
-        <h3>Attach artifacts to pull requests <span class="go">→</span></h3>
+        <h3>Attach to pull requests <span class="go">→</span></h3>
         <p>Post files to a PR or issue, stage them before it opens, and get a URL for any file.</p>
       </a>
       <a class="card" href="/docs/capture">
@@ -116,25 +117,41 @@ const REPO = "https://github.com/buildinternet/uploads";
           when the PR opens.
         </p>
       </a>
+      <a class="card" href="/docs/require-screenshots">
+        <h3>Screenshots in CI <span class="go">→</span></h3>
+        <p>
+          Add a screenshot check to your pull requests, next to your tests, and block merges without
+          one.
+        </p>
+      </a>
       <a class="card" href="/docs/agents">
         <h3>Set up your agent <span class="go">→</span></h3>
+        <p>Install the agent skills and the MCP server so your agent uploads on its own.</p>
+      </a>
+      <a class="card" href="/docs/mcp">
+        <h3>MCP server <span class="go">→</span></h3>
         <p>
-          Install the agent skills and the MCP server so your agent uploads on its own. Covers
-          <a href="/docs/agents#experimental-ai-tags">experimental AI labels</a>.
+          Connect any MCP client to the hosted server. Authentication, scopes, and every tool's
+          parameters.
         </p>
+      </a>
+      <a class="card" href="/docs/api">
+        <h3>REST API <span class="go">→</span></h3>
+        <p>Call api.uploads.sh directly. Auth, pagination, errors, and every endpoint.</p>
+      </a>
+      <a class="card" href="/docs/sdk">
+        <h3>TypeScript SDK <span class="go">→</span></h3>
+        <p>A typed client for the API that runs in Node, Bun, Deno, Workers and browsers.</p>
       </a>
       <a class="card" href="/docs/galleries">
         <h3>Galleries <span class="go">→</span></h3>
-        <p>
-          Ordered sets of media behind one public link at <code>/g/&lt;id&gt;</code>, linkable to a
-          PR or issue.
-        </p>
+        <p>Ordered sets of media behind one public link, linkable to a PR or issue.</p>
       </a>
       <a class="card" href="/docs/feeds">
-        <h3>Change feeds <span class="go">→</span></h3>
+        <h3>Live links <span class="go">→</span></h3>
         <p>
-          A newest-first screenshot feed for a GitHub repo — or one pull request — behind a public
-          link at <code>/c/&lt;id&gt;</code>.
+          A newest-first page of the files on a GitHub repo, or one pull request, behind one public
+          link.
         </p>
       </a>
       <a class="card" href="/docs/reference">
@@ -149,8 +166,9 @@ const REPO = "https://github.com/buildinternet/uploads";
     <div class="note">
       More: <a href="/docs/comment-config">comment config</a>, <a href="/docs/byo-bucket"
         >bring your own bucket</a
-      >, and the <a href="/github-screenshots">agent walkthrough</a>. Deeper material — the REST
-      API, enrollment internals, self-hosting, and operator docs — lives in <a href={REPO}
+      >, <a href="/docs/ai-labels">AI labels &amp; holds</a>, and the <a href="/github-screenshots"
+        >agent walkthrough</a
+      >. Enrollment internals, self-hosting, and operator docs live in <a href={REPO}
         >the GitHub repository</a
       >. Agents can also read <a href="/llms.txt">/llms.txt</a> (index) or <a href="/llms-full.txt"
         >/llms-full.txt</a

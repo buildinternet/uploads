@@ -3,6 +3,7 @@ import { SAME_ORIGIN_AUTH_BASE } from "../../lib/auth-client";
 import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
 import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
+import ThemeToggle from "../../components/ThemeToggle.astro";
 import Footer from "../../components/Footer.astro";
 
 export const prerender = false;
@@ -284,6 +285,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     </style>
   </head>
   <body>
+    <ThemeToggle floating />
     <main>
       <div class="brandbar"><Brand /></div>
 
@@ -486,8 +488,6 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         "files:read": "Read your files",
         "files:write": "Upload and modify files",
         "files:delete": "Delete files",
-        openid: "Verify your uploads.sh account identity",
-        email: "Read your email address and its verification status",
         offline_access: "Stay connected without signing in again",
       };
 

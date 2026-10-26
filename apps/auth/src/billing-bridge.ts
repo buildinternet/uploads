@@ -8,8 +8,8 @@
  * Deliberately never throws: a webhook handler calling this must not 500
  * because the KV bridge hiccuped. The entire body — including the org-slug
  * lookup — runs inside a single try/catch so a D1 failure can't escape as a
- * rejected promise either. Every failure path here is `console.error` +
- * return, not a thrown error.
+ * rejected promise either. Every failure path here reports the Error and
+ * returns, rather than throwing.
  *
  * Because failures are swallowed, the webhook returns 2xx and Stripe will
  * NOT retry a failed sync. The auth-side `subscription` table remains the
@@ -18,6 +18,7 @@
  * `billing_plan_outbox` (billing-outbox.ts) so the cron drain retries it —
  * issue #451, ahead of opening signups.
  */
+import { reportHandledError } from "@uploads/observability";
 import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import type { AuthEnv } from "./auth";
@@ -70,13 +71,15 @@ export async function syncWorkspacePlan(
       body: JSON.stringify({ workspace: slug, plan }),
     });
     if (!response.ok) {
-      console.error(
-        `syncWorkspacePlan: POST /internal/billing/plan for workspace ${slug} failed with status ${response.status}`,
+      reportHandledError(
+        new Error(
+          `syncWorkspacePlan: POST /internal/billing/plan for workspace ${slug} failed with status ${response.status}`,
+        ),
       );
       await enqueuePlanSync(db, referenceId, `status ${response.status}`);
     }
   } catch (error) {
-    console.error(`syncWorkspacePlan: failed for organization ${referenceId}`, error);
+    reportHandledError(error);
     // Also covers a failed org-slug lookup: the D1 read above is inside this
     // try, and a transient D1 error there is exactly the kind of failure the
     // queue exists to survive.

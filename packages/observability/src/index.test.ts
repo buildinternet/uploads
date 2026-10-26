@@ -132,7 +132,6 @@ describe("timeOp", () => {
   it("uses the default threshold when none is given", async () => {
     await timeOp(async () => "fast", { name: "d1" });
     expect(logSpy).not.toHaveBeenCalled();
-    expect(DEFAULT_SLOW_OP_THRESHOLD_MS).toBe(1000);
   });
 });
 

@@ -19,6 +19,7 @@ the open-source service.
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><b>npm →</b></a> &nbsp;·&nbsp;
   <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
   <a href="#what-it-looks-like">What it looks like</a> &nbsp;·&nbsp;
+  <a href="#require-screenshots-in-ci">Screenshots in CI</a> &nbsp;·&nbsp;
   <a href="#whats-in-this-repo">What's in this repo</a> &nbsp;·&nbsp;
   <a href="#local-development">Develop</a>
 </p>
@@ -56,9 +57,9 @@ GitHub's own attachments work from a browser and, since GitHub CLI 2.99
 exists, and the files stay behind GitHub's own hosting, where they cannot be
 embedded or fetched anywhere else. uploads.sh gives agents a stable
 public URL from the same terminal where they build and test the change, while
-the branch is still in progress. The hosted MCP server does the same for agents
-that cannot run a command at all, taking files as bytes or a URL. GitHub has no
-public API (yet) for that.
+the branch is still in progress; GitHub has no public API (yet) for that. The
+hosted MCP server does the same for agents that cannot run a command at all,
+taking files as bytes or a URL.
 
 Keys are hash-free, so re-uploading the same filename overwrites in place and
 the URL never changes — every embed of it updates at once. Workspaces keep
@@ -155,7 +156,30 @@ Sign in with GitHub or a magic link, then create your own workspace or accept
 an invite into one — see [enrollment](docs/enrollment.md). Hosted files are
 public URLs — private-repo attachments get non-guessable links
 ([how that works](docs/private-attachments.md)), but anyone holding a URL can
-view the file. Do not upload secrets or sensitive UI.
+view the file. A file that looks like it shows a credential, ID, or card number
+is held for your review before it goes public, but don't rely on that: do not
+upload secrets or sensitive UI.
+
+## Require screenshots in CI
+
+The GitHub App adds an `uploads.sh` check to pull requests that change UI
+files, next to your tests and builds. No workflow or Actions step is needed.
+Out of the box it only reports, so nobody is blocked. Turn on **Require
+screenshots on UI changes** in the workspace's **Settings → GitHub**, or set it
+for one repo in `.uploads.yml`, and the check fails until screenshots arrive:
+
+```yaml
+comment:
+  check:
+    require: [before-after, desktop, mobile] # or just [uploads]
+```
+
+The PR comment shows a checklist that ticks itself as files arrive. Images
+dragged into the PR on GitHub count too, so contributors without uploads.sh are
+never stuck, and a `skip-uploads` label skips a PR that needs no screenshots.
+Add `uploads.sh` as a required status check in branch protection to make it
+block merges. Setup, which files count as UI, and skip labels are in
+[Require screenshots on pull requests](https://uploads.sh/docs/require-screenshots).
 
 ## Connect your agent
 
@@ -190,7 +214,10 @@ On Claude Code or Codex, the [plugin](https://uploads.sh/docs/agents#plugin)
 bundles the skills, the MCP server, and a pre-PR screenshot reminder. In
 Claude Code it also shows staged screenshots above the prompt and attaches
 them when the PR opens. On claude.ai and in Cowork, add uploads from the
-[Claude directory](https://claude.ai/directory/uploads).
+[Claude directory](https://claude.ai/directory/uploads). The same folder
+(`plugins/claude/uploads`) is the common agent-plugin layout, and it is
+submitted to the [xAI plugin marketplace](https://github.com/xai-org/plugin-marketplace)
+as `uploads`.
 
 Full CLI usage, including annotations, managed comments, public galleries,
 and change feeds (repo-wide or one pull request), lives in
@@ -208,13 +235,13 @@ REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
 
-| Path                              | What                                                                                                                                                                                                                             |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/`                           | The deployables: the REST API worker (`api.uploads.sh`), the auth worker, the remote MCP server, and the Astro site at uploads.sh                                                                                                |
-| `packages/`                       | Shared code — most notably `@buildinternet/uploads` (the CLI, published to npm), `@uploads/storage` (the files-sdk adapter factory all storage goes through), and `@uploads/plugin` (Claude/Codex plugin version, not published) |
-| `skills/`                         | The three agent skills that ship to users                                                                                                                                                                                        |
-| `hooks/`, `plugins/`, `.mcp.json` | Agent-runtime wiring: the shared pre-PR screenshot hook and the Claude / Codex plugin manifests                                                                                                                                  |
-| `server.json`                     | MCP Registry listing (`sh.uploads/mcp`): stdio `uploads mcp` plus the hosted remote                                                                                                                                              |
+| Path                              | What                                                                                                                                                                                                                                           |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/`                           | The deployables: the REST API worker (`api.uploads.sh`), the optional [public viewer](docs/public-viewer.md), the auth worker, the remote MCP server, the Slack app (link previews and held-upload messages), and the Astro site at uploads.sh |
+| `packages/`                       | Shared code — most notably `@buildinternet/uploads` (the CLI, published to npm), `@uploads/storage` (the files-sdk adapter factory all storage goes through), and `@uploads/plugin` (Claude/Codex plugin version, not published)               |
+| `skills/`                         | The three agent skills that ship to users                                                                                                                                                                                                      |
+| `hooks/`, `plugins/`, `.mcp.json` | Agent-runtime wiring: the shared pre-PR screenshot hook and the Claude / Codex plugin manifests                                                                                                                                                |
+| `server.json`                     | MCP Registry listing (`sh.uploads/mcp`): stdio `uploads mcp` plus the hosted remote                                                                                                                                                            |
 
 Each worker and the web app deploy separately. All storage access goes through
 `createStorage()` in `packages/storage` — adding a provider is one new case

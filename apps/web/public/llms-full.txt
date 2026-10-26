@@ -235,6 +235,7 @@ Install: `npx skills add buildinternet/uploads` or `uploads install`.
 - Public storage: https://storage.uploads.sh
 - Embed (GitHub Camo-friendly): https://embed.uploads.sh
 - oEmbed: https://uploads.sh/oembed?url=<page-url>&format=json
+- Video player (public share-page videos): https://uploads.sh/player?url=<page-url>
 
 ## Machine-readable discovery
 
@@ -267,6 +268,9 @@ staged files are promoted into the PR's attachments comment automatically.
 
 - Uploads are public until deleted. Private GitHub repos do not make media private.
 - `gh/<owner>/<repo>/pull|issues/<num>/<name>` keys are predictable.
+- A file that likely shows a secret or personal data can be held for review: the
+  managed comment shows `🔒 N files are held for review`. `uploads approve --pr <n>`
+  lists them; check each, then `uploads approve --pr <n> --all`.
 - Prefer short compressed clips over large raw video on PRs.
 - Exit codes (CLI): `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
 - Telemetry is anonymous command-name pings; opt out with `DO_NOT_TRACK=1` or
@@ -282,9 +286,10 @@ staged files are promoted into the PR's attachments comment automatically.
 - Capture & annotate: https://uploads.sh/docs/capture
 - Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
+- Slack: https://uploads.sh/docs/slack
 - Comment config (`.uploads.yml`): https://uploads.sh/docs/comment-config
 - Agents: https://uploads.sh/docs/agents
-- Experimental AI labels: https://uploads.sh/docs/agents#experimental-ai-tags (`ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary`; `uploads meta get` / `uploads find`; MCP `get_metadata` / `find_files`)
+- Experimental AI labels: https://uploads.sh/docs/ai-labels (`ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary`; internal `ai.rating` / `ai.content` / `ai.secret` / `ai.pii` plus `.confidence` buckets, not shown on public pages; identical bytes keep a stored flag and new bytes start fresh; `uploads meta get` / `uploads find`; MCP `get_metadata` / `find_files`)
 - Reference: https://uploads.sh/docs/reference
 - Plans & limits: https://uploads.sh/docs/limits
 - Bring your own bucket: https://uploads.sh/docs/byo-bucket

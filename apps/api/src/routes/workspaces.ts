@@ -53,6 +53,7 @@ import {
   type GovernanceVars,
   isWorkspaceTokenShaped,
 } from "../workspace";
+import { workspaceKeyMetadata } from "../workspace-byob";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { dbFor } from "../db-session";
 
@@ -207,7 +208,9 @@ export const workspaces = new Hono<SessionVars>().post(
     await provisionOrg(c.env, { slug: name, ownerUserId: user.id });
     const record = selfServeWorkspaceRecord({ name, userId: user.id, now: new Date() });
     try {
-      await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+      await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record), {
+        metadata: workspaceKeyMetadata(record),
+      });
     } catch (err) {
       // Best-effort rollback; if this also fails the org is inert (no KV
       // record → no storage access) and an admin can clean it up. Log loudly

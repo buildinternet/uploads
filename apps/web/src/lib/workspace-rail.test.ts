@@ -16,18 +16,75 @@ function ghItem(overrides: Partial<GhWorkItem> = {}): GhWorkItem {
 }
 
 describe("renderConnectedWorkHtml", () => {
+  it("links a pull row to the Files PR page and keeps a GitHub link when the workspace is known", () => {
+    const html = renderConnectedWorkHtml(
+      [
+        ghItem({
+          repo: "Acme/Web",
+          number: "7",
+          ref: "Acme/Web#7",
+          url: "https://github.com/Acme/Web/pull/7",
+          label: "Acme/Web#7",
+        }),
+      ],
+      undefined,
+      "acme",
+    );
+    expect(html).toContain('href="/account/workspaces/acme/files/acme/web/pull/7"');
+    expect(html).toContain('href="https://github.com/Acme/Web/pull/7"');
+    expect(html).toContain('aria-label="Open Acme/Web#7 on GitHub"');
+  });
+
+  it("opens the GitHub arrow in a new tab and the Files label in the same tab", () => {
+    const html = renderConnectedWorkHtml(
+      [ghItem({ repo: "acme/web", number: "7" })],
+      undefined,
+      "acme",
+    );
+    const anchors = html.match(/<a\b[^>]*>/g) ?? [];
+    const filesLink = anchors.find((tag) => tag.includes('href="/account/workspaces/acme/files/'));
+    const githubLink = anchors.find((tag) => tag.includes('class="ws-rail__connected-gh"'));
+    expect(filesLink).toBeDefined();
+    expect(filesLink).not.toContain("target=");
+    expect(githubLink).toContain('target="_blank"');
+    expect(githubLink).toContain('rel="noopener noreferrer"');
+  });
+
+  it("keeps issue rows pointing at GitHub only", () => {
+    const html = renderConnectedWorkHtml(
+      [
+        ghItem({
+          kind: "issue",
+          number: "3",
+          ref: "acme/web#3",
+          url: "https://github.com/acme/web/issues/3",
+          label: "acme/web#3",
+          kindLabel: "issue",
+        }),
+      ],
+      undefined,
+      "acme",
+    );
+    expect(html).not.toContain("/files/");
+    expect(html).toContain('href="https://github.com/acme/web/issues/3"');
+  });
+
   it("returns an empty string for no items", () => {
     expect(renderConnectedWorkHtml([])).toBe("");
   });
 
-  it("renders a pull-request row with the label link and a kind icon (no subtitle)", () => {
+  it("renders a pull-request row with the label link and a single state icon (no subtitle)", () => {
     const html = renderConnectedWorkHtml([ghItem()]);
     expect(html).toContain('href="https://github.com/buildinternet/uploads/pull/1789"');
-    expect(html).toContain(">buildinternet/uploads#1789<");
+    expect(html).toContain('<span class="pr-label__text">buildinternet/uploads #1789</span>');
+    expect(html).toContain('class="pr-label pr-label--md"');
+    expect(html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(html).toContain("ws-rail__connected-item");
-    // The octicon carries the kind (title/aria-label); no repeated word subtitle.
+    // The label's state icon carries the kind (aria-label); no repeated word
+    // subtitle and no second kind octicon beside it.
     expect(html).not.toContain("ws-rail__connected-sub");
-    expect(html).toContain("<title>pull request</title>");
+    expect(html).toContain('aria-label="Pull request #1789 in buildinternet/uploads"');
+    expect(html.match(/<svg/g)).toHaveLength(1);
     // No apiOrigin → no avatar img (client always passes origin from the rail).
     expect(html).not.toContain("ws-rail__connected-avatar");
   });
@@ -54,14 +111,20 @@ describe("renderConnectedWorkHtml", () => {
         kindLabel: "issue",
       }),
     ]);
-    expect(issueHtml).toContain(">issue<");
+    expect(issueHtml).toContain('aria-label="Issue #1740 in buildinternet/uploads"');
     expect(issueHtml).not.toBe(pullHtml);
-    // Different octicon path data per kind.
-    const pullIconPath = pullHtml.match(/<path[^>]* d="([^"]+)"/)?.[1];
-    const issueIconPath = issueHtml.match(/<path[^>]* d="([^"]+)"/)?.[1];
-    expect(pullIconPath).toBeTruthy();
-    expect(issueIconPath).toBeTruthy();
-    expect(pullIconPath).not.toBe(issueIconPath);
+    // Different label icon per kind.
+    const pullIcon = pullHtml.match(/data-icon="([^"]+)"/)?.[1];
+    const issueIcon = issueHtml.match(/data-icon="([^"]+)"/)?.[1];
+    expect(pullIcon).toBeTruthy();
+    expect(issueIcon).toBeTruthy();
+    expect(pullIcon).not.toBe(issueIcon);
+  });
+
+  it("renders the resolved title and a state dot", () => {
+    const html = renderConnectedWorkHtml([ghItem({ title: "Fix nav", state: "merged" })]);
+    expect(html).toContain('data-state="merged"');
+    expect(html).toContain('<span class="pr-label__text">#1789 Fix nav</span>');
   });
 
   it("renders one row per item, in order", () => {
@@ -83,7 +146,7 @@ describe("renderConnectedWorkHtml", () => {
   it("escapes interpolated label/url/kindLabel", () => {
     const html = renderConnectedWorkHtml([
       ghItem({
-        label: '<script>alert("x")</script>',
+        title: '<script>alert("x")</script>',
         url: 'https://github.com/x/y"><script>alert(1)</script>',
         kindLabel: "pull request",
       }),
@@ -148,6 +211,14 @@ describe("renderDetailsHtml", () => {
 });
 
 describe("planTitleRepaint", () => {
+  it("repaints when only the live state changes", () => {
+    const items = [ghItem({ title: "Same", label: "Same", state: "open" })];
+    const out = planTitleRepaint(items, {
+      "buildinternet/uploads#1789": { title: "Same", state: "merged", kind: "pull" },
+    });
+    expect(out?.[0].state).toBe("merged");
+  });
+
   it("returns relabeled items when any fetched title changes a label", () => {
     const items = [ghItem()];
     const out = planTitleRepaint(items, {
@@ -157,7 +228,7 @@ describe("planTitleRepaint", () => {
   });
 
   it("returns null when nothing changed or the fetch failed", () => {
-    const items = [ghItem()];
+    const items = [ghItem({ state: "open" })];
     expect(planTitleRepaint(items, null)).toBeNull();
     expect(planTitleRepaint(items, {})).toBeNull();
     expect(

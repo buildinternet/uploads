@@ -1,0 +1,180 @@
+---
+// Endpoint reference for /docs/api, built at render time from the published
+// OpenAPI document (public/.well-known/openapi.json). The spec is checked
+// against the real routes by apps/api/src/openapi-contract.test.ts, so this
+// page can't list an endpoint the API doesn't serve.
+import spec from "../../../public/.well-known/openapi.json";
+import { buildApiReference } from "../../lib/openapi-reference";
+
+const groups = buildApiReference(spec as Record<string, unknown>);
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Spec descriptions use Markdown backticks; render those spans as inline code. */
+function inlineCode(text: string): string {
+  return escapeHtml(text).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+---
+
+<div class="api-ref">
+  {
+    groups.map((group) => (
+      <>
+        <h3 id={`endpoints-${group.id}`} class="api-group">
+          {group.title}
+        </h3>
+        {group.operations.map((op) => {
+          const ok = op.responses.filter((r) => r.status.startsWith("2"));
+          const errors = op.responses.filter((r) => !r.status.startsWith("2"));
+          // `{workspace}` is on every route and explained once above the reference.
+          const params = op.params.filter(
+            (p) => !(p.location === "path" && p.name === "workspace"),
+          );
+          return (
+            <article class="api-op" id={op.id}>
+              <h4>
+                <a href={`#${op.id}`}>
+                  <span class="api-method">{op.method}</span>
+                  <code>{op.path}</code>
+                </a>
+              </h4>
+              <p class="api-meta">
+                <span>{op.summary}</span>
+                {op.isPublic ? (
+                  <span>No auth</span>
+                ) : (
+                  <span class="api-codes">
+                    {op.scopes.map((scope) => (
+                      <code>{scope}</code>
+                    ))}
+                  </span>
+                )}
+                {op.bodyContentType && op.bodyContentType !== "application/json" && (
+                  <span>
+                    Body <code>{op.bodyContentType}</code>
+                  </span>
+                )}
+              </p>
+              {op.description && <p set:html={inlineCode(op.description)} />}
+              {params.length > 0 && (
+                <div class="api-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Parameter</th>
+                        <th>In</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {params.map((param) => (
+                        <tr>
+                          <th scope="row">
+                            <code>{param.name}</code>
+                            {param.required && <span class="api-required">required</span>}
+                          </th>
+                          <td>{param.location}</td>
+                          <td>
+                            <code>{param.type}</code>
+                          </td>
+                          <td set:html={inlineCode(param.description)} />
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {ok.map((response) => (
+                <p class="api-meta">
+                  <span>
+                    <code>{response.status}</code>{" "}
+                    <span set:html={inlineCode(response.description)} />
+                  </span>
+                  {response.fields.length > 0 && (
+                    <span class="api-codes">
+                      Returns
+                      {response.fields.map((field) => (
+                        <code>{field}</code>
+                      ))}
+                    </span>
+                  )}
+                </p>
+              ))}
+              {errors.length > 0 && (
+                <p class="api-meta">
+                  <span class="api-codes">
+                    <a href="#errors">Errors</a>
+                    {errors.map((response) => (
+                      <code title={response.description}>{response.status}</code>
+                    ))}
+                  </span>
+                </p>
+              )}
+            </article>
+          );
+        })}
+      </>
+    ))
+  }
+</div>
+
+<style>
+  .api-group {
+    margin-top: 40px;
+  }
+  .api-op {
+    margin: 28px 0 0;
+    scroll-margin-top: 80px;
+  }
+  .api-op h4 {
+    margin: 0 0 6px;
+  }
+  .api-op h4 a {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .api-method {
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: var(--text-ui);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.02em;
+  }
+  .api-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: var(--text-ui);
+  }
+  .api-codes {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+    min-width: 0;
+  }
+  .api-required {
+    display: block;
+    color: var(--muted);
+    font-weight: var(--weight-regular);
+    font-size: var(--text-micro);
+  }
+  .api-scroll {
+    overflow-x: auto;
+  }
+  .api-scroll table {
+    min-width: 560px;
+  }
+  .api-op table th[scope="row"] {
+    white-space: nowrap;
+  }
+</style>

@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import app from "../src/index";
+import { STAGED_MEDIA_RESOURCE } from "../src/staged-media-ui";
 import { ROBOTS_TXT } from "../src/robots";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
@@ -152,6 +153,7 @@ async function makeEnv(
   env: Env;
   bucket: FakeR2Bucket;
   metadata: Map<string, Map<string, string>>;
+  clientActivity: unknown[][];
 }> {
   const record: WorkspaceRecord = {
     ...workspace,
@@ -163,6 +165,7 @@ async function makeEnv(
   // real enough to exercise putObject's file_metadata read/write/delete path
   // (see apps/api/test/routes-files.test.ts's makeFakeDB for the fuller version).
   const metadata = new Map<string, Map<string, string>>();
+  const clientActivity: unknown[][] = [];
   const scopeKey = (ws: string, objectKey: string) => `${ws} ${objectKey}`;
   const env = {
     REGISTRY: {
@@ -198,11 +201,26 @@ async function makeEnv(
             return null;
           },
           async run() {
-            if (normalized.startsWith("INSERT INTO file_metadata")) {
+            if (normalized.startsWith("INSERT INTO client_activity")) {
+              clientActivity.push(values);
+            } else if (normalized.startsWith("INSERT INTO file_metadata")) {
               const [ws, objectKey, key, value] = values as [string, string, string, string];
               const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
               map.set(key, value);
               metadata.set(scopeKey(ws, objectKey), map);
+            } else if (
+              normalized.includes("meta_key NOT IN (") &&
+              normalized.startsWith("DELETE")
+            ) {
+              // replaceFileMetadata keeps the bound safety-flag keys.
+              const [ws, objectKey, ...keep] = values as string[];
+              const map = metadata.get(scopeKey(ws, objectKey));
+              if (map) {
+                const sticky = new Set(keep);
+                for (const key of map.keys()) {
+                  if (!sticky.has(key)) map.delete(key);
+                }
+              }
             } else if (normalized.includes("meta_key = ?") && normalized.startsWith("DELETE")) {
               const [ws, objectKey, key] = values as [string, string, string];
               metadata.get(scopeKey(ws, objectKey))?.delete(key);
@@ -370,7 +388,7 @@ async function makeEnv(
       ? {}
       : { OPENAI_APPS_CHALLENGE: options.openaiAppsChallenge }),
   } as unknown as Env;
-  return { env, bucket, metadata };
+  return { env, bucket, metadata, clientActivity };
 }
 
 async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
@@ -402,6 +420,57 @@ async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
     WRITE_LIMITER: { limit: async () => ({ success: true }) },
   } as unknown as Env;
   return { env, bucket };
+}
+
+type JsonSchema = {
+  type?: string | string[];
+  enum?: unknown[];
+  items?: JsonSchema;
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+};
+
+type ListedTool = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema: JsonSchema;
+  outputSchema?: JsonSchema;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
+  _meta?: { securitySchemes?: { type: string; scopes?: string[] }[] };
+};
+
+/** A JSON Schema type as a short label for the docs table (`string[]`, `"a" | "b"`). */
+function schemaTypeLabel(schema: JsonSchema): string {
+  if (schema.enum) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type ?? "object"];
+  return types
+    .map((type) => (type === "array" && schema.items ? `${schemaTypeLabel(schema.items)}[]` : type))
+    .join(" | ");
+}
+
+/** Projects a tools/list entry onto what the /docs/mcp reference renders. */
+function docsCatalogEntry(tool: ListedTool) {
+  const required = new Set(tool.inputSchema.required ?? []);
+  return {
+    name: tool.name,
+    title: tool.title ?? tool.name,
+    description: tool.description ?? "",
+    access: tool.annotations?.readOnlyHint
+      ? "read"
+      : tool.annotations?.destructiveHint
+        ? "destructive"
+        : "write",
+    scopes: (tool._meta?.securitySchemes ?? []).flatMap((scheme) => scheme.scopes ?? []),
+    params: Object.entries(tool.inputSchema.properties ?? {}).map(([name, schema]) => ({
+      name,
+      type: schemaTypeLabel(schema),
+      required: required.has(name),
+      description: schema.description ?? "",
+    })),
+    returns: Object.keys(tool.outputSchema?.properties ?? {}),
+  };
 }
 
 async function rpc(
@@ -634,6 +703,43 @@ describe("mcp worker", () => {
     }
   });
 
+  it("404s authorization-server and OIDC metadata probes instead of challenging", async () => {
+    const { env } = await makeEnv();
+    for (const path of [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/mcp",
+      "/.well-known/openid-configuration",
+      "/.well-known/openid-configuration/mcp",
+      "/mcp/.well-known/oauth-authorization-server",
+      "/mcp/.well-known/openid-configuration",
+    ]) {
+      const response = await app.request(
+        `https://agents.uploads.sh${path}`,
+        { method: "GET" },
+        env,
+      );
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("WWW-Authenticate"), path).toBeNull();
+    }
+  });
+
+  it("still challenges an unauthenticated POST /mcp with 401", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request(
+      "https://agents.uploads.sh/mcp",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+      },
+      env,
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain(
+      'resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource"',
+    );
+  });
+
   it("404s the OpenAI apps challenge when no token is configured", async () => {
     const { env } = await makeEnv();
     const response = await app.request(
@@ -705,6 +811,29 @@ describe("mcp worker", () => {
     expect(body.result.serverInfo.icons?.[0]?.src).toBe("https://uploads.sh/apple-touch-icon.png");
   });
 
+  it("records the MCP host's clientInfo against the credential", async () => {
+    const { env, clientActivity } = await makeEnv();
+    await rpc(env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "claude-code", version: "2.1.0" },
+      },
+    });
+    expect(clientActivity).toHaveLength(1);
+    const [ws, principal, surface, , , name, version] = clientActivity[0]!;
+    expect({ ws, surface, name, version }).toEqual({
+      ws: "test-ws",
+      surface: "mcp-remote",
+      name: "claude-code",
+      version: "2.1.0",
+    });
+    expect(principal).toMatch(/^legacy:[0-9a-f]{8}$/);
+  });
+
   it("lists exactly the remote tools", async () => {
     const { env } = await makeEnv();
     const response = await rpc(env, {
@@ -716,6 +845,7 @@ describe("mcp worker", () => {
       result: { tools: { name: string }[] };
     };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "approve",
       "changelog",
       "comment",
       "delete",
@@ -729,17 +859,42 @@ describe("mcp worker", () => {
       "gallery_link",
       "get_metadata",
       "list",
+      "list_activity",
+      "list_attached_media",
+      "list_held",
       "list_metadata_keys",
+      "list_repo_files",
+      "list_staged_media",
+      "list_staged_scopes",
+      "open_staged_media",
       "promote",
       "purge_expired",
       "put",
       "reconcile",
       "repo_link_status",
+      "resolve_media_context",
       "search_docs",
       "set_metadata",
+      "sign_upload_url",
+      "unstage",
       "usage",
       "whoami",
     ]);
+  });
+
+  /**
+   * The /docs/mcp tool reference renders from this catalog, so the page can't
+   * drift from what tools/list actually serves. A schema or description change
+   * fails here; run `pnpm --filter @uploads/mcp test -u` and commit the JSON.
+   */
+  it("keeps the docs tool catalog in sync with tools/list", async () => {
+    const { env } = await makeEnv();
+    const response = await rpc(env, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const body = (await response.json()) as { result: { tools: ListedTool[] } };
+    const catalog = body.result.tools.map(docsCatalogEntry);
+    await expect(`${JSON.stringify(catalog, null, 2)}\n`).toMatchFileSnapshot(
+      "../../web/src/data/mcp-tools.json",
+    );
   });
 
   it("uploads base64 content and returns url + markdown", async () => {
@@ -1336,6 +1491,78 @@ describe("mcp worker", () => {
     expect(missing.isError).toBe(true);
   });
 
+  it("list_held, get_metadata, and approve cover a held file", async () => {
+    const { env, metadata } = await makeEnv();
+    const key = "gh/acme/web/pull/12/env.png";
+    // A moved hold: rows only, no object in the bucket.
+    metadata.set(
+      `test-ws ${key}`,
+      new Map([
+        ["ai.hold", "pending"],
+        ["ai.secret", "api_key"],
+        ["ai.hold.area", "0.1,0.2,0.3,0.4"],
+      ]),
+    );
+    metadata.set(`test-ws other/held.png`, new Map([["ai.hold", "pending"]]));
+
+    const listed = await callTool(env, "list_held", { pr: 12, repo: "acme/web" });
+    expect(listed.isError).toBe(false);
+    expect(listed.structuredContent).toMatchObject({
+      items: [{ key, reason: "secret: api_key" }],
+    });
+
+    const meta = await callTool(env, "get_metadata", { key });
+    expect(meta.isError).toBe(false);
+    expect(meta.structuredContent).toMatchObject({ metadata: { "ai.hold": "pending" } });
+
+    const approved = await callTool(env, "approve", { keys: [key] });
+    expect(approved.isError).toBe(false);
+    expect(approved.structuredContent).toEqual({ files: [{ key, action: "approved" }] });
+    expect(metadata.get(`test-ws ${key}`)?.get("ai.hold")).toBe("approved");
+
+    const again = await callTool(env, "approve", { pr: 12, repo: "acme/web" });
+    expect(again.structuredContent).toEqual({ files: [] });
+
+    const neither = await callTool(env, "approve", {});
+    expect(neither.isError).toBe(true);
+  });
+
+  it.each([
+    "ui://uploads/staged-media-v1.html",
+    "ui://uploads/media-v2.html",
+    "ui://uploads/media-v3.html",
+    STAGED_MEDIA_RESOURCE,
+    `ui://uploads/media/c1/${"0".repeat(64)}.html`,
+  ])("gates the App opener and resource through authenticated read scope: %s", async (uri) => {
+    for (const canRead of [false, true]) {
+      const token = `up_test-ws_tray-${canRead}`;
+      const { env } = await makeEnv({
+        d1: {
+          tokenHash: await sha256Hex(token),
+          scopes: JSON.stringify([canRead ? "files:read" : "files:write"]),
+        },
+      });
+      const listed = (await (
+        await rpc(env, { jsonrpc: "2.0", id: 1, method: "tools/list" }, token)
+      ).json()) as { result: { tools: Array<{ name: string }> } };
+      expect(listed.result.tools.some((tool) => tool.name === "open_staged_media")).toBe(canRead);
+      const resource = (await (
+        await rpc(env, { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri } }, token)
+      ).json()) as { result?: { contents: Array<{ uri: string }> }; error?: unknown };
+      const anonymous = await rpc(
+        env,
+        { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri } },
+        "",
+      );
+      expect(anonymous.status).toBe(401);
+      if (canRead) expect(resource.result?.contents[0].uri).toBe(uri);
+      else {
+        expect(resource.error).toBeDefined();
+        expect(resource.result).toBeUndefined();
+      }
+    }
+  });
+
   it("get_metadata enforces files:read scope", async () => {
     const token = "up_test-ws_write-only-token";
     const { env } = await makeEnv({
@@ -1353,7 +1580,10 @@ describe("mcp worker", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:read scope" },
+      {
+        type: "text",
+        text: "This token needs the files:read scope. Ask a workspace admin, or mint a token with files:read at https://uploads.sh/account/developers.",
+      },
     ]);
     expect(result._meta?.["mcp/www_authenticate"]).toEqual([
       'Bearer resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource", error="insufficient_scope", error_description="This tool requires the files:read scope"',
@@ -1407,6 +1637,39 @@ describe("mcp worker", () => {
     expect(result.content).toEqual([{ type: "text", text: "object not found" }]);
   });
 
+  it("set_metadata rejects setting or deleting a safety flag and leaves the stored flag", async () => {
+    const { env, metadata } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+    });
+    const stored = metadata.get("test-ws shots/tagged.png") ?? new Map<string, string>();
+    stored.set("ai.secret", "api_key");
+    stored.set("ai.secret.confidence", "high");
+    metadata.set("test-ws shots/tagged.png", stored);
+
+    const setResult = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+      set: { "ai.secret": "none" },
+    });
+    expect(setResult.isError).toBe(true);
+    expect(setResult.content).toEqual([{ type: "text", text: "reserved metadata key: ai.secret" }]);
+
+    const deleteResult = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+      delete: ["ai.secret"],
+    });
+    expect(deleteResult.isError).toBe(true);
+    expect(deleteResult.content).toEqual([
+      { type: "text", text: "reserved metadata key: ai.secret" },
+    ]);
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toMatchObject({
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+    });
+  });
+
   it("set_metadata rejects a reserved key as a tool error", async () => {
     const { env } = await makeEnv();
     await callTool(env, "put", {
@@ -1437,7 +1700,10 @@ describe("mcp worker", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:write scope" },
+      {
+        type: "text",
+        text: "This token needs the files:write scope. Ask a workspace admin, or mint a token with files:write at https://uploads.sh/account/developers.",
+      },
     ]);
   });
 
@@ -1605,7 +1871,10 @@ describe("mcp worker", () => {
     // The shared usage() helper throws UploadsError, whose code the server
     // core appends to the tool error text.
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:write scope" },
+      {
+        type: "text",
+        text: "This token needs the files:write scope. Ask a workspace admin, or mint a token with files:write at https://uploads.sh/account/developers.",
+      },
     ]);
     expect(bucket.store.size).toBe(0);
 
@@ -1753,6 +2022,7 @@ describe("modern-era (2026-07-28) requests", () => {
           Authorization: `Bearer ${token}`,
           Accept: "application/json, text/event-stream",
           "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
           ...extraHeaders,
         },
       },
@@ -1865,6 +2135,50 @@ describe("modern-era (2026-07-28) requests", () => {
       {},
     );
     expect(response.status).toBe(400);
+  });
+
+  it("accepts a put larger than the SDK 4 MiB default on the legacy and modern paths", async () => {
+    const { env, bucket } = await makeEnv();
+    // ~6 MiB of base64, past the SDK's 4 MiB default. A missing
+    // maxRequestBodySize on isLegacyRequest, the legacy transport, or
+    // createMcpHandler rejects one of these two calls.
+    const bytes = new Uint8Array(4_500_000);
+    bytes.set(PNG_BYTES);
+    const contentBase64 = Buffer.from(bytes).toString("base64");
+    const legacyBody = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "put",
+        arguments: { contentBase64, filename: "big.png", key: "shots/big-legacy.png" },
+      },
+    };
+    expect(JSON.stringify(legacyBody).length).toBeGreaterThan(4 * 1024 * 1024);
+
+    const legacy = await rpc(env, legacyBody);
+    expect(legacy.status).toBe(200);
+    expect(((await legacy.json()) as { result: { isError: boolean } }).result.isError).toBe(false);
+    expect(bucket.store.has("shots/big-legacy.png")).toBe(true);
+
+    const modernBody = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "put",
+        arguments: { contentBase64, filename: "big.png", key: "shots/big-modern.png" },
+        _meta: MODERN_META,
+      },
+    };
+    expect(JSON.stringify(modernBody).length).toBeGreaterThan(4 * 1024 * 1024);
+    const modern = await modernRpc(env, modernBody, {
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": "put",
+    });
+    expect(modern.status).toBe(200);
+    expect(((await modern.json()) as { result: { isError: boolean } }).result.isError).toBe(false);
+    expect(bucket.store.has("shots/big-modern.png")).toBe(true);
   });
 
   it("still 401s an unauthenticated modern request — auth runs before any MCP processing", async () => {
@@ -2064,7 +2378,10 @@ describe("OAuth JWT bearer (issue #224)", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:write scope" },
+      {
+        type: "text",
+        text: "This token needs the files:write scope. Ask a workspace admin, or mint a token with files:write at https://uploads.sh/account/developers.",
+      },
     ]);
     expect(bucket.store.size).toBe(0);
   });
@@ -2380,5 +2697,371 @@ describe("uploader attribution (issue #345)", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
+  const SECRET = "test-workspace-secrets-key";
+
+  async function signedEnv(options: Parameters<typeof makeEnv>[0] = {}) {
+    const made = await makeEnv(options);
+    (made.env as unknown as Record<string, unknown>).WORKSPACE_SECRETS_KEY = SECRET;
+    return made;
+  }
+
+  type Signed = {
+    workspace: string;
+    expiresAt: string;
+    uploads: { file: string; uploadUrl: string; curl: string; maxBytes: number }[];
+    next?: string;
+    hint: string;
+  };
+
+  async function sign(env: Env, args: Record<string, unknown>): Promise<Signed> {
+    const result = await callTool(env, "sign_upload_url", args);
+    expect(result.isError).toBe(false);
+    return result.structuredContent as unknown as Signed;
+  }
+
+  function putTo(env: Env, uploadUrl: string, body: Uint8Array, headers?: Record<string, string>) {
+    const { pathname } = new URL(uploadUrl);
+    return app.request(
+      pathname,
+      {
+        method: "PUT",
+        body,
+        headers: headers ?? { "Content-Length": String(body.byteLength) },
+      },
+      env,
+    );
+  }
+
+  it("signs a URL per file and uploads the PUT body through the put path", async () => {
+    const { env, bucket } = await signedEnv();
+    const signed = await sign(env, {
+      files: [{ filename: "before.png" }, { filename: "after.png", alt: "After" }],
+      repo: "acme/web",
+    });
+    expect(signed.uploads.map((u) => u.file)).toEqual(["before.png", "after.png"]);
+    expect(signed.next).toBeUndefined();
+    const [, after] = signed.uploads;
+    expect(after!.uploadUrl).toMatch(/^http:\/\/localhost\/u\/[\w-]+\.[\w-]+\.[\w-]+$/);
+    expect(after!.curl).toBe(`curl -sS --fail-with-body -T 'after.png' '${after!.uploadUrl}'`);
+
+    const response = await putTo(env, after!.uploadUrl, PNG_BYTES);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    expect(body).toMatchObject({ workspace: "test-ws", size: 11, contentType: "image/png" });
+    expect(body.key).toMatch(/^screenshots\/acme-web\//);
+    expect(body.markdown).toBe(`![After](${body.url})`);
+    expect(bucket.store.get(body.key!)?.data).toEqual(PNG_BYTES);
+  });
+
+  it("attaches to a PR without syncing the comment and says to call comment", async () => {
+    const { env, bucket } = await signedEnv();
+    const signed = await sign(env, { files: [{ filename: "shot.png" }], pr: 12, repo: "acme/web" });
+    expect(signed.next).toContain("call `comment`");
+
+    // The fetch stub throws on any GitHub call, so a comment sync would fail here.
+    const response = await putTo(env, signed.uploads[0]!.uploadUrl, PNG_BYTES);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.key).toBe("gh/acme/web/pull/12/shot.png");
+    expect(body).not.toHaveProperty("comment");
+    expect(body).not.toHaveProperty("commentError");
+    expect(bucket.store.has("gh/acme/web/pull/12/shot.png")).toBe(true);
+  });
+
+  it("checks put's arguments before signing anything", async () => {
+    const { env } = await signedEnv();
+    const missingRepo = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      pr: 12,
+    });
+    expect(missingRepo.isError).toBe(true);
+    expect((missingRepo.content[0] as { text: string }).text).toContain("repo is required");
+
+    const dupes = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }, { filename: "shot.png" }],
+    });
+    expect(dupes.isError).toBe(true);
+
+    const prAndBranch = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      pr: 12,
+      branch: "feat",
+      repo: "acme/web",
+    });
+    expect(prAndBranch.isError).toBe(true);
+  });
+
+  it("refuses a prefix the workspace's key policy disallows before signing", async () => {
+    const { env } = await signedEnv({ record: { allowedKeyPrefixes: ["screenshots/"] } });
+    const refused = await callTool(env, "sign_upload_url", {
+      files: [{ filename: "shot.png" }],
+      prefix: "tests",
+    });
+    expect(refused.isError).toBe(true);
+    expect((refused.content[0] as { text: string }).text).toContain("key prefix not allowed");
+
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    expect(signed.uploads).toHaveLength(1);
+  });
+
+  it("is unavailable without WORKSPACE_SECRETS_KEY", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toContain("use put");
+  });
+
+  it("rejects a tampered ticket, other methods, and bodies it can't size", async () => {
+    const { env, bucket } = await signedEnv();
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    const url = signed.uploads[0]!.uploadUrl;
+
+    // Change the signature's first character: its last one carries base64url
+    // padding bits, so swapping A for B there can leave the signature valid.
+    const tampered = await putTo(
+      env,
+      url.replace(
+        /\.([^.])([^.]*)$/,
+        (_, c: string, rest: string) => `.${c === "A" ? "B" : "A"}${rest}`,
+      ),
+      PNG_BYTES,
+    );
+    expect(tampered.status).toBe(401);
+
+    const get = await app.request(new URL(url).pathname, { method: "GET" }, env);
+    expect(get.status).toBe(405);
+
+    const tooBig = await putTo(env, url, PNG_BYTES, {
+      "Content-Length": String(signed.uploads[0]!.maxBytes + 1),
+    });
+    expect(tooBig.status).toBe(413);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  describe("bodies over the buffer limit", () => {
+    const LARGE = 25 * 1024 * 1024 + 1;
+    const video = { maxVideoUploadBytes: 100_000_000 };
+    // An mp4 `ftyp` box up front, zeros after.
+    function mp4(size: number): Uint8Array {
+      const bytes = new Uint8Array(size);
+      bytes.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
+      return bytes;
+    }
+    // A request body that arrives in pieces, like one off the network.
+    function chunked(bytes: Uint8Array, chunkSize = 1024 * 1024): ReadableStream<Uint8Array> {
+      let offset = 0;
+      return new ReadableStream({
+        pull(controller) {
+          if (offset >= bytes.byteLength) return controller.close();
+          controller.enqueue(bytes.slice(offset, (offset += chunkSize)));
+        },
+      });
+    }
+    function streamTo(env: Env, uploadUrl: string, bytes: Uint8Array) {
+      return app.request(
+        new URL(uploadUrl).pathname,
+        {
+          method: "PUT",
+          body: chunked(bytes),
+          headers: { "Content-Length": String(bytes.byteLength) },
+          duplex: "half",
+        } as RequestInit,
+        env,
+      );
+    }
+
+    it("signs URLs up to the workspace's video limit", async () => {
+      const { env } = await signedEnv({ record: video });
+      const signed = await sign(env, { files: [{ filename: "demo.mp4" }] });
+      expect(signed.uploads[0]!.maxBytes).toBe(100_000_000);
+    });
+
+    it("streams a large video to storage", async () => {
+      const { env, bucket } = await signedEnv({ record: video });
+      const signed = await sign(env, { files: [{ filename: "demo.mp4" }], repo: "acme/web" });
+      const bytes = mp4(LARGE);
+      const response = await streamTo(env, signed.uploads[0]!.uploadUrl, bytes);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({ size: LARGE, contentType: "video/mp4" });
+      expect(body.key).toMatch(/^screenshots\/acme-web\/[\d-]+\/demo-[0-9a-f]+\.mp4$/);
+      const stored = bucket.store.get(body.key as string)!;
+      expect(stored.data.byteLength).toBe(LARGE);
+      expect(stored.data.subarray(0, 12)).toEqual(bytes.subarray(0, 12));
+      // The hash is only known after the write, so it isn't in the R2 bag.
+      expect(body.provenance).not.toHaveProperty("content-sha256");
+    });
+
+    it("refuses a large file it can only verify in full", async () => {
+      const { env, bucket } = await signedEnv({ record: { maxUploadBytes: 100_000_000 } });
+      const signed = await sign(env, { files: [{ filename: "log.txt" }] });
+      const response = await streamTo(
+        env,
+        signed.uploads[0]!.uploadUrl,
+        new Uint8Array(LARGE).fill(0x61),
+      );
+      expect(response.status).toBe(415);
+      expect(bucket.store.size).toBe(0);
+    });
+
+    it("applies the type's own limit to the declared length", async () => {
+      // Images stay at the general limit even when video may be larger.
+      const { env, bucket } = await signedEnv({ record: video });
+      const signed = await sign(env, { files: [{ filename: "huge.png" }] });
+      const png = new Uint8Array(LARGE);
+      png.set(PNG_BYTES);
+      const response = await streamTo(env, signed.uploads[0]!.uploadUrl, png);
+      expect(response.status).toBe(413);
+      expect(bucket.store.size).toBe(0);
+    });
+  });
+
+  it("charges the write rate limit on each PUT", async () => {
+    const { env, bucket } = await signedEnv({ rateLimitOk: false });
+    // Signing doesn't spend budget, so this succeeds even when it's gone.
+    const signed = await sign(env, { files: [{ filename: "shot.png" }] });
+    const response = await putTo(env, signed.uploads[0]!.uploadUrl, PNG_BYTES);
+    expect(response.status).toBe(429);
+    expect(bucket.store.size).toBe(0);
+  });
+});
+
+describe("classifying hosted uploads (issue #1148)", () => {
+  /** An execution context that records what was handed to `waitUntil`. */
+  function executionCtx() {
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => void pending.push(promise),
+      passThroughOnException: () => undefined,
+      props: {},
+    } as unknown as ExecutionContext;
+    return { ctx, pending };
+  }
+
+  /** An env whose `API` binding records each handoff to uploads-api. */
+  async function classifyingEnv() {
+    const made = await makeEnv();
+    const handoffs: { url: URL; contentType: string | null; size: number }[] = [];
+    const env = made.env as unknown as Record<string, unknown>;
+    env.WORKSPACE_SECRETS_KEY = "test-workspace-secrets-key";
+    env.API = {
+      fetch: async (input: URL, init: RequestInit) => {
+        handoffs.push({
+          url: new URL(input),
+          contentType: new Headers(init.headers).get("Content-Type"),
+          size: (init.body as Uint8Array).byteLength,
+        });
+        return new Response(null, { status: 202 });
+      },
+    };
+    return { ...made, handoffs };
+  }
+
+  it("hands put's bytes to uploads-api and says a hold may follow", async () => {
+    const { env, handoffs } = await classifyingEnv();
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      "/test-ws/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "put",
+            arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+      },
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as {
+      result: { structuredContent: Record<string, unknown> };
+    };
+    expect(body.result.structuredContent).toMatchObject({
+      key: "shots/shot.png",
+      holdCheck: "pending",
+    });
+    await Promise.all(pending);
+    expect(handoffs).toHaveLength(1);
+    const [handoff] = handoffs;
+    expect(handoff!.url.host).toBe("api.internal");
+    expect(handoff!.url.pathname).toBe("/internal/classify");
+    expect(Object.fromEntries(handoff!.url.searchParams)).toEqual({
+      workspace: "test-ws",
+      key: "shots/shot.png",
+      enforceHold: "1",
+    });
+    expect(handoff!.contentType).toBe("image/png");
+    expect(handoff!.size).toBe(PNG_BYTES.length);
+  });
+
+  it("hands a signed upload to uploads-api", async () => {
+    const { env, handoffs } = await classifyingEnv();
+    const signed = await callTool(env, "sign_upload_url", { files: [{ filename: "shot.png" }] });
+    const [upload] = (signed.structuredContent as { uploads: { uploadUrl: string }[] }).uploads;
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      new URL(upload!.uploadUrl).pathname,
+      { method: "PUT", body: PNG_BYTES, headers: { "Content-Length": String(PNG_BYTES.length) } },
+      env,
+      ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ holdCheck: "pending" });
+    await Promise.all(pending);
+    expect(handoffs).toHaveLength(1);
+  });
+
+  it("skips classification without the API binding or an execution context", async () => {
+    const { env, handoffs } = await classifyingEnv();
+    const noCtx = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(noCtx.structuredContent).not.toHaveProperty("holdCheck");
+    expect(handoffs).toHaveLength(0);
+
+    delete (env as unknown as Record<string, unknown>).API;
+    const { ctx, pending } = executionCtx();
+    const response = await app.request(
+      "/test-ws/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "put",
+            arguments: { contentBase64: PNG_B64, filename: "b.png", key: "shots/b.png" },
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+      },
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as {
+      result: { structuredContent: Record<string, unknown> };
+    };
+    expect(body.result.structuredContent).not.toHaveProperty("holdCheck");
+    expect(pending).toHaveLength(0);
   });
 });

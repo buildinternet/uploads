@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER, attachmentsMarker, ghPrivateKeyPrefix } from "./github-comment-render";
 import { findFeedByScope } from "./feeds";
-import { feedItemId } from "./feed-service";
+import { feedItemIdFor } from "@uploads/comment-render/scope";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
 import { replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
 import { objectPublicUrls, storageConfig } from "./storage";
@@ -25,6 +25,7 @@ const MIGRATION = [
   "migrations/20260903120000_github_attachments.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
+  "migrations/20261004120000_feeds_source.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -87,6 +88,216 @@ describe("gatherCommentBody", () => {
     expect(result.count).toBe(0);
     expect(result.body).toContain("_No attachments are currently associated");
     expect(result.body).toContain("<code>uploads put &lt;file&gt; --pr 12</code>");
+  });
+
+  it("swaps in the no-uploads how-to when an empty PR changes uiPaths", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    kv.store.set("repocfg:acme/web", {
+      value: JSON.stringify({
+        found: true,
+        path: ".uploads.yml",
+        config: { uiPaths: ["apps/web/**"] },
+        warnings: [],
+      }),
+    });
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () =>
+          Response.json([{ filename: "apps/web/a.astro" }, { filename: "apps/api/b.ts" }]),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(result).toMatchObject({ count: 0, noUploads: true, uiFiles: ["apps/web/a.astro"] });
+      expect(result.body).toContain("**No uploads on this PR yet**");
+      expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
+
+      // Turned off for the workspace: the check still learns about the UI
+      // files, but the comment keeps the neutral empty state.
+      const off = await gatherCommentBody(
+        env,
+        { ...ws, githubNoUploadsComment: false },
+        workspaceName,
+        target,
+        { detectUiChanges: true },
+      );
+      expect(off).toMatchObject({ noUploads: false, uiFiles: ["apps/web/a.astro"] });
+      expect(off.body).toContain("_No attachments are currently associated");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("counts images committed to the repo and linked from the PR", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    kv.store.set("repocfg:acme/web", {
+      value: JSON.stringify({
+        found: true,
+        path: ".uploads.yml",
+        config: { uiPaths: ["apps/web/**"], checkRequire: ["uploads"] },
+        warnings: [],
+      }),
+    });
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    const body = [
+      "![page](https://github.com/acme/web/blob/e8f02ef/.github/pr-screenshots/12/page.png?raw=true)",
+      '<img width="260" src="https://github.com/acme/web/blob/e8f02ef/.github/pr-screenshots/12/mobile.png?raw=true">',
+      "![other repo](https://github.com/acme/elsewhere/blob/main/shot.png?raw=true)",
+      "[source](https://github.com/acme/web/blob/main/apps/web/a.astro)",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () => Response.json([{ filename: "apps/web/a.astro" }]),
+        "/issues/12/labels": () => Response.json([]),
+        "/issues/12/comments": () =>
+          Response.json([
+            {
+              body: "https://raw.githubusercontent.com/acme/web/e8f02ef/docs/after.gif",
+              user: { type: "User" },
+            },
+          ]),
+        "/issues/12": () => Response.json({ body }),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      // Two in the description and one in a comment; the other repo's image and the source link don't count.
+      expect(result).toMatchObject({ count: 0, githubAttachments: 3, noUploads: false });
+      expect(result.requirement?.checklist).toEqual([{ label: "Uploads", met: true }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("counts screenshots attached on GitHub in place of uploads", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    kv.store.set("repocfg:acme/web", {
+      value: JSON.stringify({
+        found: true,
+        path: ".uploads.yml",
+        config: { uiPaths: ["apps/web/**"], checkRequire: ["uploads", "mobile"] },
+        warnings: [],
+      }),
+    });
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    const shot =
+      "![shot](https://github.com/user-attachments/assets/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b)";
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () => Response.json([{ filename: "apps/web/a.astro" }]),
+        "/issues/12/labels": () => Response.json([]),
+        "/issues/12/comments": () =>
+          Response.json([
+            { body: shot.replace("0f1e", "1f1e"), user: { type: "User" } },
+            { body: shot.replace("0f1e", "2f1e"), user: { type: "Bot" } },
+          ]),
+        "/issues/12": () => Response.json({ body: `Fixes the header\n\n${shot}` }),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      // The bot's comment doesn't count; mobile still needs uploads.sh, so the how-to stays.
+      expect(result).toMatchObject({ count: 0, githubAttachments: 2, noUploads: true });
+      expect(result.requirement?.checklist).toEqual([
+        { label: "Uploads", met: true },
+        { label: "Mobile", met: false },
+      ]);
+
+      kv.store.set("repocfg:acme/web", {
+        value: JSON.stringify({
+          found: true,
+          path: ".uploads.yml",
+          config: { uiPaths: ["apps/web/**"], checkRequire: ["uploads"] },
+          warnings: [],
+        }),
+      });
+      const met = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(met).toMatchObject({ githubAttachments: 2, noUploads: false });
+      expect(met.body).not.toContain("No uploads on this PR yet");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to the built-in UI paths for the check, without the how-to", async () => {
+    const { env, ws, workspaceName, kv } = makeTestEnv();
+    Object.assign(env, {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    });
+    const setRepoConfig = (config: Record<string, unknown>) =>
+      kv.store.set("repocfg:acme/web", {
+        value: JSON.stringify({ found: true, path: ".uploads.yml", config, warnings: [] }),
+      });
+    setRepoConfig({});
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({
+        "/pulls/12/files": () =>
+          Response.json([
+            { filename: "src/Button.tsx" },
+            { filename: "apps/api/b.ts" },
+            { filename: "src/email/welcome.ts" },
+          ]),
+      }),
+    );
+    try {
+      const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+      const result = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(result).toMatchObject({
+        noUploads: false,
+        uiFiles: ["src/Button.tsx", "src/email/welcome.ts"],
+      });
+      expect(result.body).toContain("_No attachments are currently associated");
+
+      // A repo's explicit empty list turns UI detection off entirely.
+      kv.store.delete("repocfg:acme/web");
+      setRepoConfig({ uiPaths: [] });
+      const optedOut = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(optedOut.uiFiles).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("uses --issue <num> in the add-media hint for issue targets", async () => {
@@ -157,8 +368,9 @@ describe("gatherCommentBody", () => {
     const result = await gatherCommentBody(env, ws, workspaceName, target);
     expect(result.body).toContain("private.png");
     expect(result.count).toBe(1);
-    // Plain prefix + the one private prefix that holds the object.
-    expect(bucket.listCalls).toBe(2);
+    // Plain prefix + the one private prefix that holds the object, each
+    // with its import folder.
+    expect(bucket.listCalls).toBe(4);
   });
 
   it("never lists another repo's private prefix for the same target number (#934 isolation)", async () => {
@@ -177,8 +389,9 @@ describe("gatherCommentBody", () => {
     const result = await gatherCommentBody(env, ws, workspaceName, targetB);
     expect(result.body).not.toContain("secret.png");
     expect(result.count).toBe(0);
-    // Plain prefix only: repo A's id is not a candidate for repo B.
-    expect(bucket.listCalls).toBe(1);
+    // Plain prefix and its import folder only: repo A's id is not a
+    // candidate for repo B.
+    expect(bucket.listCalls).toBe(2);
   });
 
   it("finds a metadata-less private object under the repo-level prefix for an issue target (#934)", async () => {
@@ -195,7 +408,26 @@ describe("gatherCommentBody", () => {
     const result = await gatherCommentBody(env, ws, workspaceName, target);
     expect(result.body).toContain("shot.png");
     expect(result.count).toBe(1);
-    expect(bucket.listCalls).toBe(2);
+    expect(bucket.listCalls).toBe(4);
+  });
+
+  it("includes imported GitHub attachments, plain and private, but not detached ones", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+    const sentinelId = await getOrMintPrefixId(env.DB, "acme/web", "");
+    const plainKey = "gh/acme-web/pull-12/plain-import.png";
+    const privateKey = `gh/private/${sentinelId}/ingest/pull-12/private-import.png`;
+    const detachedKey = "gh/acme-web/pull-12/removed-import.png";
+    for (const key of [plainKey, privateKey, detachedKey]) {
+      await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    }
+    await replaceFileMetadata(env.DB, workspaceName, detachedKey, { "gh.detached": "true" });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("plain-import.png");
+    expect(result.body).toContain("private-import.png");
+    expect(result.body).not.toContain("removed-import.png");
+    expect(result.count).toBe(2);
   });
 
   it("links an attachment to its /f/ file page by default (flag absent)", async () => {
@@ -268,8 +500,9 @@ describe("gatherCommentBody", () => {
     );
     const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
     expect(feed).toBeTruthy();
-    const idA = await feedItemId(keyA);
-    const idB = await feedItemId(keyB);
+    expect(feed!.source).toBe("comment");
+    const idA = await feedItemIdFor(keyA);
+    const idB = await feedItemIdFor(keyB);
     expect(first.body).toContain(`/c/${feed!.id}/${idA}`);
     expect(first.body).toContain(`/c/${feed!.id}/${idB}`);
     expect(first.body).not.toContain(`/f/${workspaceName}/`);
@@ -297,7 +530,10 @@ describe("gatherCommentBody", () => {
       kind: "pull",
     });
     expect(result.body).toContain(`/f/${workspaceName}/`);
-    expect(result.body).not.toContain("/c/");
+    // The live link line still links `/c/<id>`; the untagged item must not
+    // get a `/c/<id>/<item>` link.
+    expect(result.body).not.toContain(await feedItemIdFor("gh/acme/web/pull/12/hero.png"));
+    expect(result.body).not.toMatch(/\/c\/[^"/]+\//);
   });
 
   it("renders galleries linked to the PR via an external reference, scoped to the calling workspace", async () => {
@@ -347,6 +583,196 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain("Launch media");
     expect(result.body).not.toContain("Not ours");
     expect(result.count).toBe(1);
+  });
+});
+
+describe("gatherCommentBody held uploads", () => {
+  const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+
+  it("leaves a held file out and adds an approve line that names no file", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    for (const name of ["shown.png", "secret-settings.png"]) {
+      await bucket.put(`acme/gh/acme/web/pull/12/${name}`, PNG, {
+        httpMetadata: { contentType: "image/png" },
+      });
+    }
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/secret-settings.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("shown.png");
+    expect(result.body).not.toContain("secret-settings");
+    expect(result.body).toContain(
+      "🔒 1 file is held for your review · approve with <code>uploads approve --pr 12</code>",
+    );
+    expect(result.count).toBe(2);
+  });
+
+  it("counts a held-only PR so the comment still carries the approve line", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/token.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/token.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    expect(result.body).not.toContain("No attachments are currently associated");
+    expect(result.body).not.toContain("token.png");
+    expect(result.body).toContain("1 file is held for your review");
+  });
+
+  it("counts a moved hold that has no public object left", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/moved.png", {
+      "ai.hold": "pending",
+      "ai.hold.moved": "1",
+    });
+    // Another PR's hold does not count here.
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/13/other.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    expect(result.body).toContain("1 file is held for your review");
+    expect(result.body).not.toContain("moved.png");
+  });
+
+  it("renders an approved file normally", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/ok.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/ok.png", {
+      "ai.hold": "approved",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("ok.png");
+    expect(result.body).not.toContain("held for your review");
+  });
+});
+
+describe("gatherCommentBody live link (spec: PR comment links to the live link)", () => {
+  const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+  const PR12 = { "gh.repo": "acme/web", "gh.number": "12", "gh.kind": "pull" };
+
+  async function putTagged(
+    env: Env,
+    bucket: FakeR2Bucket,
+    key: string,
+    meta: Record<string, string>,
+  ): Promise<void> {
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, "acme", key, meta);
+  }
+
+  it("renders the live link line and records the feed as comment-sourced", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    await putTagged(env, bucket, "gh/acme/web/pull/12/b.png", PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    expect(feed?.source).toBe("comment");
+    expect(result.body).toContain(
+      `<a href="https://uploads.test/c/${feed!.id}"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>2 files · `,
+    );
+  });
+
+  it("creates no live link on a workspace with no public base URL", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, publicBaseUrl: undefined },
+      workspaceName,
+      target,
+    );
+    expect(await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12)).toBeNull();
+    expect(result.body).not.toContain("view-on-uploads.svg");
+    expect(result.body).not.toContain("/c/");
+  });
+
+  it("omits the line when githubCommentLinkToFilePage is false", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, githubCommentLinkToFilePage: false },
+      workspaceName,
+      target,
+    );
+    expect(result.body).not.toContain("view-on-uploads.svg");
+    expect(result.body).not.toContain("/c/");
+  });
+
+  it("keeps /f/ for an item whose gh.number points at another PR", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const moved = "gh/acme/web/pull/12/moved.png";
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    await putTagged(env, bucket, moved, { ...PR12, "gh.number": "13" });
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    expect(result.body).not.toContain(await feedItemIdFor(moved));
+    expect(result.body).toContain(`/f/${workspaceName}/${moved}`);
+  });
+
+  it("keeps /f/ for a promoted copy", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const promoted = "gh/acme/web/pull/12/promoted.png";
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    await putTagged(env, bucket, promoted, { ...PR12, "gh.status": "promoted" });
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    expect(result.body).not.toContain(await feedItemIdFor(promoted));
+  });
+
+  it("links every in-scope item past the newest 50", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const keys = Array.from(
+      { length: 55 },
+      (_, i) => `gh/acme/web/pull/12/shot-${String(i).padStart(2, "0")}.png`,
+    );
+    for (const key of keys) await putTagged(env, bucket, key, PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    for (const key of keys) {
+      expect(result.body).toContain(`/c/${feed!.id}/${await feedItemIdFor(key)}`);
+    }
+    expect(result.body).toContain("<sub>55 files · ");
+  });
+
+  it("links in-scope items even when caption metadata is off", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/a.png";
+    await putTagged(env, bucket, key, PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, githubCommentShowMetadata: false },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    expect(result.body).toContain(`/c/${feed!.id}/${await feedItemIdFor(key)}`);
+    expect(result.body).toContain("<sub>1 file · ");
   });
 });
 
@@ -661,8 +1087,9 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     );
 
     // Three queries: the private-prefix discovery scan (issue #934), the
-    // unconditional gh.detached filter (issue #709), and the PR-feed
-    // membership lookup — the path/state fetch itself is still skipped.
+    // unconditional gh.detached + feed-scope read, and the moved-hold lookup
+    // (`listHeldKeys`). The path/state fetch is skipped, and the comment path
+    // no longer queries the PR scope.
     expect(metadataQueries).toBe(3);
     expect(result.body).not.toContain("<code>/settings");
   });

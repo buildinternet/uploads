@@ -1,14 +1,14 @@
 /**
  * Query-param sync for the account file browser's metadata search mode:
- *   /account/workspaces/<workspace>?meta.gh.repo=owner/name&meta.app=web
- *   /account/workspaces/<workspace>?name=screenshot
+ *   /account/workspaces/<workspace>/storage?meta.gh.repo=owner/name&meta.app=web
+ *   /account/workspaces/<workspace>/storage?name=screenshot
  *
  * Sibling to workspace-browse-url.ts (which owns folder `path`). Search mode
  * replaces `path` with a `name` term and/or one or more `meta.*` pairs.
  * Validation mirrors the API's META_KEY_RE / META_VALUE_MAX / SEARCH_NAME_MAX
  * so bad input is caught before a request.
  */
-import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
+import { isBrowseWorkspace, workspaceStoragePath } from "./workspace-browse-url";
 
 export interface MetaFilter {
   key: string;
@@ -78,37 +78,45 @@ export function buildSearchQuery(filters: MetaFilter[], name?: string): string {
 }
 
 /**
- * Write `name` and `meta.*` into the address bar (no history entry). Clears
- * `path` (search and folder-browse are mutually exclusive) and all prior
- * `name`/`meta.*` params. Workspace identity prefers the path-based route;
- * legacy `?ws=` is stripped when the pathname already carries the slug.
+ * `current` with search mode applied: clears `path` (and its `prefix`
+ * alias), `ws`, and every prior `name`/`meta.*`, writes the new terms, and
+ * moves the pathname to the Storage tab when `workspace` is valid. Search
+ * and folder-browse are mutually exclusive. Pure; the address-bar write is
+ * `replaceSearchLocation`'s job.
  */
+export function applySearchLocation(
+  current: URL,
+  workspace: string,
+  filters: MetaFilter[],
+  name?: string,
+): URL {
+  const next = new URL(current.href);
+  for (const param of Array.from(next.searchParams.keys())) {
+    if (param.startsWith("meta.")) next.searchParams.delete(param);
+  }
+  next.searchParams.delete("name");
+  next.searchParams.delete("path");
+  next.searchParams.delete("prefix");
+  next.searchParams.delete("ws");
+  if (isBrowseWorkspace(workspace)) {
+    const storagePath = workspaceStoragePath(workspace);
+    if (next.pathname !== storagePath) next.pathname = storagePath;
+  }
+  if (name !== undefined && isValidSearchName(name)) next.searchParams.set("name", name);
+  for (const { key, value } of filters) {
+    if (isValidMetaKey(key) && isValidMetaValue(value)) next.searchParams.set(`meta.${key}`, value);
+  }
+  return next;
+}
+
+/** Write `name` and `meta.*` into the address bar (no history entry). */
 export function replaceSearchLocation(
   workspace: string,
   filters: MetaFilter[],
   name?: string,
 ): void {
   if (typeof window === "undefined") return;
-  const next = new URL(window.location.href);
-  for (const param of Array.from(next.searchParams.keys())) {
-    if (param.startsWith("meta.")) next.searchParams.delete(param);
-  }
-  next.searchParams.delete("name");
-  next.searchParams.delete("path");
-  const ws = isBrowseWorkspace(workspace) ? workspace : "";
-  if (ws) {
-    const filesPath = `/account/workspaces/${encodeURIComponent(ws)}/files`;
-    if (next.pathname !== filesPath) {
-      next.pathname = filesPath;
-    }
-    next.searchParams.delete("ws");
-  } else {
-    next.searchParams.delete("ws");
-  }
-  if (name !== undefined && isValidSearchName(name)) next.searchParams.set("name", name);
-  for (const { key, value } of filters) {
-    if (isValidMetaKey(key) && isValidMetaValue(value)) next.searchParams.set(`meta.${key}`, value);
-  }
+  const next = applySearchLocation(new URL(window.location.href), workspace, filters, name);
   const target = `${next.pathname}${next.search}${next.hash}`;
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (target !== current) window.history.replaceState(window.history.state, "", target);

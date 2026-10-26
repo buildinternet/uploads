@@ -6,6 +6,7 @@
  * `metadata.official` flag (set from /admin/oauth; stripped from
  * registration bodies by oauth-dcr.ts).
  */
+import { reportHandledError } from "@uploads/observability";
 import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import { isOfficial } from "./oauth-client-serialize";
@@ -39,9 +40,6 @@ export async function annotatePublicClientOfficial(
       .limit(1);
     record.official = row ? isOfficial(row) : false;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({ message: "public-client official lookup failed", error: message }),
-    );
+    reportHandledError(new Error("public-client official lookup failed", { cause: err }));
   }
 }

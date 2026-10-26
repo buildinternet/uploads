@@ -6,11 +6,17 @@
   "exports": {
     ".": "./src/index.ts",
     "./workspace": "./src/workspace.ts",
+    "./client-activity": "./src/client-activity.ts",
     "./well-known": "./src/well-known.ts",
     "./storage": "./src/storage.ts",
     "./files": "./src/files-core.ts",
     "./file-metadata": "./src/file-metadata.ts",
     "./file-search": "./src/file-search.ts",
+    "./file-type-sql": "./src/file-type-sql.ts",
+    "./github-pr-activity": "./src/github-pr-activity.ts",
+    "./github-repo-links": "./src/github-repo-links.ts",
+    "./pr-scope": "./src/pr-scope.ts",
+    "./staged-scopes": "./src/staged-scopes.ts",
     "./guards": "./src/guards.ts",
     "./active-content": "./src/active-content.ts",
     "./budget": "./src/budget.ts",
@@ -21,6 +27,8 @@
     "./gallery-service": "./src/gallery-service.ts",
     "./feeds": "./src/feeds.ts",
     "./feed-service": "./src/feed-service.ts",
+    "./scope-wire": "./src/scope-wire.ts",
+    "./classifier-admin-wire": "./src/classifier-admin-wire.ts",
     "./external-references": "./src/external-references.ts",
     "./uploader-identity": "./src/uploader-identity.ts",
     "./github-comment-service": "./src/github-comment-service.ts",
@@ -28,7 +36,13 @@
     "./github-promote-service": "./src/github-promote-service.ts",
     "./github-branch-renames": "./src/github-branch-renames.ts",
     "./github-attach-service": "./src/github-attach-service.ts",
+    "./github-unstage": "./src/github-unstage.ts",
+    "./delete-auth": "./src/delete-auth.ts",
+    "./upload-hold": "./src/upload-hold.ts",
+    "./upload-hold-read": "./src/upload-hold-read.ts",
+    "./upload-hold-service": "./src/upload-hold-service.ts",
     "./github-repo-binding": "./src/github-repo-binding.ts",
+    "./github-pull-context": "./src/github-pull-context.ts",
     "./admin-ui": "./src/routes/admin-ui.ts",
     "./workspace-usage": "./src/routes/workspace-usage.ts",
     "./workspace-members": "./src/routes/workspace-members.ts",
@@ -45,7 +59,10 @@
     "workspace:limits": "node --env-file-if-exists=../../.env scripts/set-workspace-limits.mjs",
     "workspace:reencrypt-secrets": "node --env-file-if-exists=../../.env scripts/reencrypt-workspace-secrets.mjs",
     "typecheck": "wrangler types && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:viewer": "wrangler dev --config wrangler.viewer.jsonc",
+    "deploy:viewer": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy --config wrangler.viewer.jsonc",
+    "types:viewer": "mkdir -p .wrangler && wrangler types --config wrangler.viewer.jsonc --env-interface ViewerEnv --include-runtime false .wrangler/viewer-configuration.d.ts"
   },
   "dependencies": {
     "@uploads/billing": "workspace:^",
@@ -57,7 +74,7 @@
     "@uploads/storage": "workspace:^",
     "aws4fetch": "^1.0.20",
     "clawpdf": "^0.3.2",
-    "hono": "^4.13.3",
+    "hono": "^4.13.13",
     "jpeg-js": "^0.4.4",
     "mediabunny": "^1.50.9",
     "pngjs": "^7.0.0"
@@ -67,6 +84,6 @@
     "@uploads/auth": "workspace:^",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.134.0"
   }
 }

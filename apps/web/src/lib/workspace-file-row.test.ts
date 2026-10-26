@@ -8,6 +8,7 @@ import {
   isPrivateFile,
   leafName,
   pickThumbnail,
+  prChipRef,
   resolveWorkspaceInfo,
 } from "./workspace-file-row";
 
@@ -205,5 +206,43 @@ describe("resolveWorkspaceInfo", () => {
       status: "ready",
       hasPublicUrl: false,
     });
+  });
+});
+
+describe("prChipRef", () => {
+  it("pins a PR from gh.repo + gh.number, lowercasing the repo", () => {
+    expect(
+      prChipRef([
+        { key: "gh.repo", value: "Acme/Web" },
+        { key: "gh.number", value: "12" },
+      ]),
+    ).toEqual({ ghRef: "acme/web#12", kind: "pull" });
+  });
+
+  it("reads gh.kind for issues", () => {
+    expect(
+      prChipRef([
+        { key: "gh.repo", value: "acme/web" },
+        { key: "gh.number", value: "3" },
+        { key: "gh.kind", value: "issue" },
+      ]),
+    ).toEqual({ ghRef: "acme/web#3", kind: "issue" });
+  });
+
+  it("is null without a repo, without a number, or with a non-decimal number", () => {
+    expect(prChipRef([{ key: "gh.number", value: "12" }])).toBeNull();
+    expect(prChipRef([{ key: "gh.repo", value: "acme/web" }])).toBeNull();
+    expect(
+      prChipRef([
+        { key: "gh.repo", value: "acme/web" },
+        { key: "gh.number", value: "12a" },
+      ]),
+    ).toBeNull();
+    expect(
+      prChipRef([
+        { key: "gh.repo", value: "acme" },
+        { key: "gh.number", value: "12" },
+      ]),
+    ).toBeNull();
   });
 });

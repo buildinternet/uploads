@@ -64,4 +64,37 @@ describe("attachExistingObject with server-owned source metadata", () => {
     // not at all); never copied through the client-validated merge.
     expect(meta["video.poster"]).toBeUndefined();
   });
+
+  it("clears gh.status=staged on a branch source and does not copy it onto the PR (#1122)", async () => {
+    const { env, bucket, ws } = await seededEnv();
+    const sourceKey = "gh/acme/web/branch/feat-x/shot.png";
+    await bucket.put(`${PREFIX}${sourceKey}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await setFileMetadata(env.DB, WS, sourceKey, {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": "feat-x",
+      "gh.status": "staged",
+      "gh.staged-at": "2026-10-01T00:00:00.000Z",
+      path: "/settings",
+    });
+
+    const result = await attachExistingObject(env, ws, WS, {
+      source: sourceKey,
+      target: { repo: REPO, kind: "pull", num: 12 },
+    });
+
+    const dest = await getFileMetadata(env.DB, WS, result.key);
+    expect(dest["gh.status"]).toBeUndefined();
+    expect(dest["gh.kind"]).toBe("pull");
+    expect(dest["gh.branch"]).toBe("feat-x");
+    expect(dest.path).toBe("/settings");
+    expect(dest["gh.attached-at"]).toBeTruthy();
+
+    const source = await getFileMetadata(env.DB, WS, sourceKey);
+    expect(source["gh.status"]).toBe("promoted");
+    expect(source["gh.promoted-to"]).toBe("acme/web#12");
+    expect(source["gh.promoted-at"]).toBeTruthy();
+    expect(source["gh.branch"]).toBe("feat-x");
+    expect(source["gh.staged-at"]).toBe("2026-10-01T00:00:00.000Z");
+  });
 });

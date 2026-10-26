@@ -7,7 +7,7 @@
  * plain-vs-private key-mode decision inside `promoteBranchAttachments`.
  */
 import { describe, expect, it } from "vitest";
-import { getFileMetadata, replaceFileMetadata } from "./file-metadata";
+import { getFileMetadata, replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
 import {
   ghPrivateAttachmentKey,
   ghPrivateBranchAttachmentKey,
@@ -77,6 +77,7 @@ async function seedPlainStaged(seeded: Seeded, filename: string) {
     "gh.repo": REPO,
     "gh.kind": "branch",
     "gh.branch": BRANCH,
+    "gh.status": "staged",
     "gh.staged-at": new Date().toISOString(),
   });
 }
@@ -90,6 +91,7 @@ async function seedPrivateStaged(seeded: Seeded, prefixId: string, filename: str
     "gh.repo": REPO,
     "gh.kind": "branch",
     "gh.branch": BRANCH,
+    "gh.status": "staged",
     "gh.staged-at": new Date().toISOString(),
   });
   return key;
@@ -108,6 +110,7 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
       "gh.repo": REPO,
       "gh.kind": "branch",
       "gh.branch": staleBranch,
+      "gh.status": "staged",
       "gh.staged-at": new Date().toISOString(),
     });
 
@@ -144,6 +147,53 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
     const copyMeta = await getFileMetadata(seeded.env.DB, WS, destKey("hero.png"));
     expect(copyMeta["gh.kind"]).toBe("pull");
     expect(copyMeta["gh.number"]).toBe(String(NUM));
+  });
+
+  it("carries the staged file's classifier rows, including a hold, onto the copy", async () => {
+    const seeded = await seededEnv({ isPrivate: false });
+    await seedPlainStaged(seeded, "token.png");
+    await setServerFileMetadata(seeded.env.DB, WS, stagedKey("token.png"), {
+      "ai.classifier": "v5",
+      "ai.secret": "token",
+      "ai.secret.confidence": "high",
+      "ai.hold": "pending",
+    });
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    expect(result.promoted).toEqual([destKey("token.png")]);
+    const copyMeta = await getFileMetadata(seeded.env.DB, WS, destKey("token.png"));
+    expect(copyMeta["ai.hold"]).toBe("pending");
+    expect(copyMeta["ai.secret"]).toBe("token");
+    expect(copyMeta["ai.classifier"]).toBe("v5");
+  });
+
+  it("skips a file marked unstaged and does not copy it (issue #1124)", async () => {
+    const seeded = await seededEnv({ isPrivate: false });
+    await seedPlainStaged(seeded, "hero.png");
+    await replaceFileMetadata(seeded.env.DB, WS, stagedKey("hero.png"), {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": BRANCH,
+      "gh.status": "unstaged",
+    });
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    expect(result.promoted).toEqual([]);
+    expect(result.skipped).toEqual([{ key: stagedKey("hero.png"), reason: "unstaged" }]);
+    expect(seeded.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(false);
+    expect((await getFileMetadata(seeded.env.DB, WS, stagedKey("hero.png")))["gh.status"]).toBe(
+      "unstaged",
+    );
   });
 
   it("public repo: a stored text/plain object under an extension-less key keeps its content type on promote", async () => {

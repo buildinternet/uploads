@@ -20,7 +20,11 @@ import {
   rotatePrivatePrefix,
   type ResolveGhKeyRequest,
 } from "../github-private-prefix-service";
-import { listActivePrefixIds, listPrefixIdsForTarget } from "../github-private-prefixes";
+import {
+  listActivePrefixIds,
+  listBranchPrefixIds,
+  listPrefixIdsForTarget,
+} from "../github-private-prefixes";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
@@ -83,28 +87,59 @@ export async function githubPrivatePrefixHandler(c: Context<WorkspaceVars>) {
   // gh-fallback comment gather, not load-bearing for the mode the caller
   // just resolved. A transient D1 failure here must not turn an otherwise-
   // successful resolve into a 500 (same fail-open posture as
-  // `resolveGhKeyContext` itself) — degrade to an empty list instead.
-  let activePrefixIds: string[] = [];
+  // `resolveGhKeyContext` itself). Degrade to the id just resolved — an
+  // empty list makes installed CLIs skip the private prefix entirely
+  // (`activePrefixIds ?? [prefixId]` does not treat `[]` as missing).
+  //
+  // A branch with no target is what `uploads staged` resolves. The private
+  // staged key drops the branch name (`gh/private/<id>/branch/<file>`), and
+  // the id is per branch, so a repo-wide id list mixes every branch's files
+  // (issue #1122). `branchPrefixIds` and `activePrefixIds` are both that
+  // branch only (active id, then retired ids). Installed CLIs read
+  // `activePrefixIds`; newer ones prefer `branchPrefixIds` and ignore a
+  // repo-wide `activePrefixIds` from an older worker.
+  const db = dbFor(c.env);
+  let activePrefixIds: string[] = [result.prefixId];
+  let branchPrefixIds: string[] | undefined;
   try {
-    // With a target, only the prefixes that can hold that target's objects
-    // (issue #934) — the CLI's fallback gather lists each id it gets back,
-    // so a repo-wide list here fanned out one R2 list per branch. Without a
-    // target there is nothing to scope by; keep the repo-wide list.
-    activePrefixIds = req.target
-      ? await listPrefixIdsForTarget(dbFor(c.env), c.get("workspaceName"), req.repo, req.target, {
+    if (req.target) {
+      // Only the prefixes that can hold that target's objects (issue #934).
+      // The CLI's fallback gather lists each id it gets back, so a repo-wide
+      // list here fanned out one R2 list per branch.
+      activePrefixIds = await listPrefixIdsForTarget(
+        db,
+        c.get("workspaceName"),
+        req.repo,
+        req.target,
+        {
           headBranch: req.branch,
-        })
-      : await listActivePrefixIds(dbFor(c.env), req.repo);
+        },
+      );
+    } else if (req.branch !== undefined) {
+      branchPrefixIds = await listBranchPrefixIds(db, req.repo, req.branch, result.prefixId);
+      activePrefixIds = branchPrefixIds;
+    } else {
+      // No branch and no target: the repo-level sentinel. Issue attachments
+      // and branch-less callers still need every active id.
+      activePrefixIds = await listActivePrefixIds(db, req.repo);
+    }
   } catch (err) {
     console.error(
       JSON.stringify({
-        message: "private-prefix: listActivePrefixIds failed, degrading to empty list",
+        message: "private-prefix: listing prefix ids failed, degrading to the resolved id",
         repo: req.repo,
         error: err instanceof Error ? err.message : String(err),
       }),
     );
+    activePrefixIds = [result.prefixId];
+    if (req.branch !== undefined && req.target === undefined) branchPrefixIds = activePrefixIds;
   }
-  return c.json({ mode: "private" as const, prefixId: result.prefixId, activePrefixIds });
+  return c.json({
+    mode: "private" as const,
+    prefixId: result.prefixId,
+    activePrefixIds,
+    ...(branchPrefixIds ? { branchPrefixIds } : {}),
+  });
 }
 
 export const githubPrivatePrefix = new Hono<WorkspaceVars>().post(

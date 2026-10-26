@@ -30,6 +30,7 @@
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
+import { parseFileTypeQuery, parseSinceQuery, parseSurfaceQuery } from "../file-type-sql";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
@@ -39,8 +40,29 @@ import {
   type DualAuthVars,
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
 import {
+  attachmentResponse,
+  badKey,
+  downloadFilename,
+  listObjects,
+  setObjectVisibility,
+} from "../files-core";
+import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service";
+import { listHeldKeys } from "../upload-hold-read";
+import {
+  HOLD_APPROVED,
+  HOLD_AREA_KEY,
+  HOLD_AT_KEY,
+  HOLD_BY_KEY,
+  HOLD_META_KEY,
+  HOLD_MOVED_KEY,
+  HOLD_PENDING,
+  parseHoldArea,
+  storedHoldReason,
+} from "../upload-hold";
+import { readHeld } from "../held-storage";
+import {
+  getFileMetadata,
   getMetadataForKeys,
   getObjectUpdatedAt,
   groupObjectsByPath,
@@ -59,6 +81,7 @@ import { objectPublicUrls, publicUrl, resolveObjectLane, storage, storageConfig 
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord, requireScope } from "../workspace";
 import {
+  deleteFileHandler,
   getFileHandler,
   patchFileHandler,
   putFileHandler,
@@ -277,10 +300,15 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       // default (unfiltered) overview and general `meta.gh.merged=` search
       // semantics untouched.
       const mergedOnly = c.req.query("merged") === "1";
+      const type = parseFileTypeQuery(c.req.query("type"));
+      const surface = parseSurfaceQuery(c.req.query("surface"));
+      const since = parseSinceQuery(c.req.query("since"));
       const { groups, catalog, projects, latest, truncated, catalogTruncated } =
-        await boundedDataRead(c, () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly }), {
-          name: "d1_screenshots_by_path",
-        });
+        await boundedDataRead(
+          c,
+          () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly, type, surface, since }),
+          { name: "d1_screenshots_by_path" },
+        );
       const shotKeys = [
         ...groups.flatMap((group) => group.recent),
         ...latest.map((item) => item.key),
@@ -288,20 +316,21 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
       // `updatedAt` gives it the shot's upload time (the `latest` feed already
       // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
-      const metaByKey = await boundedDataRead(
-        c,
-        () =>
-          getMetadataForKeys(dbFor(c.env), name, shotKeys, {
-            metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
-          }),
-        { name: "d1_files_meta" },
-      );
-      const updatedByKey = await boundedDataRead(
-        c,
-        () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys),
-        { name: "d1_files_updated_at" },
-      );
-      const cfg = await storageConfig(c.env, record);
+      // Independent reads, so they run together rather than back to back.
+      const [metaByKey, updatedByKey, cfg] = await Promise.all([
+        boundedDataRead(
+          c,
+          () =>
+            getMetadataForKeys(dbFor(c.env), name, shotKeys, {
+              metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
+            }),
+          { name: "d1_files_meta" },
+        ),
+        boundedDataRead(c, () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys), {
+          name: "d1_files_updated_at",
+        }),
+        storageConfig(c.env, record),
+      ]);
       const shotItem = (key: string) => {
         const urls = objectPublicUrls(c.env, cfg, key);
         const meta = metaByKey.get(key);
@@ -326,6 +355,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         groups: groups.map((group) => ({
           project: group.project,
           path: group.path,
+          ...(group.by ? { by: group.by } : {}),
           count: group.count,
           lastUpdated: group.lastUpdated,
           recent: group.recent.map(shotItem),
@@ -337,6 +367,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         catalog: catalog.map((entry) => ({
           project: entry.project,
           path: entry.path,
+          ...(entry.by ? { by: entry.by } : {}),
           count: entry.count,
           lastUpdated: entry.lastUpdated,
           recent: entry.recent.map(shotItem),
@@ -348,6 +379,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           ...shotItem(item.key),
           project: item.project,
           path: item.path,
+          ...(item.by ? { by: item.by } : {}),
           uploadedAt: item.uploadedAt,
         })),
         truncated,
@@ -421,6 +453,99 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     },
   )
 
+  // Files held for approval (`upload-hold.ts`), optionally under one key
+  // prefix. A moved hold has no public object, so `list` cannot show it.
+  .get("/:workspace/files/held", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const name = c.get("workspaceName");
+    const prefix = c.req.query("prefix") ?? "";
+    const keys = (await listHeldKeys(c.env, name)).filter((key) => key.startsWith(prefix));
+    const meta = await getMetadataForKeys(dbFor(c.env), name, keys, {
+      metaKeys: [HOLD_MOVED_KEY, HOLD_AREA_KEY, "ai.secret", "ai.pii"],
+    });
+    return c.json({
+      items: keys.map((key) => {
+        const row = meta.get(key) ?? {};
+        return {
+          key,
+          reason: storedHoldReason(row),
+          moved: row[HOLD_MOVED_KEY] === "1",
+          // Where to look, as fractions of the image; null when unknown.
+          area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
+        };
+      }),
+    });
+  })
+
+  // A held file's bytes, for a member checking it before approval. Streams
+  // the held bucket's copy; a hold that never moved is served by the
+  // ordinary download paths.
+  .get("/:workspace/files/held/download", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const name = c.get("workspaceName");
+    const key = c.req.query("key") ?? "";
+    if (badKey(key)) throw new NotFoundError();
+    const body = await readHeld(c.env, name, key);
+    if (!body) throw new NotFoundError("no held copy of this file", { code: "not_held" });
+    return attachmentResponse(
+      {
+        type: body.httpMetadata?.contentType ?? "application/octet-stream",
+        size: body.size,
+        stream: () => body.body,
+      },
+      downloadFilename(key, body.customMetadata?.["source-name"]),
+    );
+  })
+
+  // Release a file held for approval (`upload-hold.ts`). Idempotent: a key
+  // that is not held answers 200 with `approved: false`.
+  .post(
+    "/:workspace/files/approve",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    async (c) => {
+      const record = c.get("workspace");
+      const workspaceName = c.req.param("workspace");
+      const key = c.req.query("key") ?? "";
+      if (badKey(key)) throw new NotFoundError();
+      const by = await approverLabel(c.env, c.get("uploaderIdentity"));
+      const result = await approveUpload(c.env, record, workspaceName, key, by);
+      return c.json({ key, ...result });
+    },
+  )
+
+  // Hold an approved file again (`holdAgain`), for a member who approved
+  // it by mistake. A file that is not approved answers 200 with
+  // `held: false`.
+  .post(
+    "/:workspace/files/hold",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    async (c) => {
+      const key = c.req.query("key") ?? "";
+      if (badKey(key)) throw new NotFoundError();
+      const result = await holdAgain(c.env, c.get("workspace"), c.req.param("workspace"), key);
+      return c.json({ key, ...result });
+    },
+  )
+
+  // A file's hold state for members: held, approved (with who and when),
+  // or never held. Feeds the file page's Reviewed note; the public API
+  // strips every `ai.*` row, so this is the only place it shows.
+  .get("/:workspace/files/review", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const key = c.req.query("key") ?? "";
+    if (badKey(key)) throw new NotFoundError();
+    const meta = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
+    const hold = meta[HOLD_META_KEY];
+    return c.json({
+      key,
+      hold: hold === HOLD_PENDING || hold === HOLD_APPROVED ? hold : null,
+      reason: hold ? storedHoldReason(meta) : null,
+      by: hold === HOLD_APPROVED ? (meta[HOLD_BY_KEY] ?? null) : null,
+      at: hold === HOLD_APPROVED ? (meta[HOLD_AT_KEY] ?? null) : null,
+    });
+  })
+
   // files-sdk's folder-aware browser gateway (issue #613 final phase, moved
   // verbatim from `routes/me.ts`). Session-member-gated only — see
   // `sessionFileBrowserGate`'s docblock. Its path is `/:workspace/file-browser`
@@ -482,17 +607,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // used at `DELETE /v1/:workspace/files/:key{.+}`; see the module docblock
   // for why the pre-existing `/me` query-param DELETE is aliased rather than
   // migrated in place).
-  .delete(
-    "/:workspace/files/:key{.+}",
-    dualWorkspaceAuth(),
-    rateLimited,
-    scoped("files:delete"),
-    async (c) => {
-      return c.json(
-        await deleteObject(c.env, c.get("workspace"), c.req.param("key"), c.get("workspaceName")),
-      );
-    },
-  )
+  .delete("/:workspace/files/:key{.+}", dualWorkspaceAuth(), rateLimited, shared(deleteFileHandler))
   // This router is `.fetch()`-ed directly (not only mounted via `.route()`)
   // by the old-path aliases in `routes/me.ts`'s `forwardToWorkspaceFiles`, so
   // it needs its own error boundary — Hono's default unhandled-throw

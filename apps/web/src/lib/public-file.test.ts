@@ -35,6 +35,8 @@ describe("public file headers", () => {
   it("locks down like the public gallery: no-store, noindex, strict CSP", () => {
     expect(PUBLIC_FILE_CSP).toContain("default-src 'none'");
     expect(PUBLIC_FILE_CSP).toContain("frame-ancestors 'none'");
+    // The held preview is an object URL.
+    expect(PUBLIC_FILE_CSP).toContain("img-src https: data: blob:");
     expect(PUBLIC_FILE_CSP).toContain("style-src 'self' 'unsafe-inline'");
     // Default CSP (prod API origin) allows Report-a-problem + RUM.
     expect(PUBLIC_FILE_CSP).toContain("connect-src https://api.uploads.sh");
@@ -87,6 +89,24 @@ describe("isPublicFile", () => {
     expect(isPublicFile({ ...file, embedUrl: "http://embed.uploads.sh/x" })).toBe(false);
     const { embedUrl: _omit, ...noEmbedUrl } = file;
     expect(isPublicFile(noEmbedUrl)).toBe(false);
+  });
+
+  it("accepts versioned previews and rejects unsafe preview URLs on either image", () => {
+    const counterpart = { key: "before.png", url: file.url, state: "before" };
+    expect(
+      isPublicFile({
+        ...file,
+        previewUrl: `${file.url}?v=abc`,
+        counterpart: { ...counterpart, previewUrl: `${file.url}?v=def` },
+      }),
+    ).toBe(true);
+    expect(isPublicFile({ ...file, previewUrl: "javascript:alert(1)" })).toBe(false);
+    expect(
+      isPublicFile({
+        ...file,
+        counterpart: { ...counterpart, previewUrl: "http://storage.uploads.sh/x" },
+      }),
+    ).toBe(false);
   });
 
   it("rejects non-https URLs, bad sizes, and over-long content types", () => {
@@ -303,6 +323,26 @@ describe("fetchTextPreview", () => {
     expect(result).toBe("hello world");
   });
 
+  it.each([200, 401, 404, 503])(
+    "forwards API phase timings on %s without caching the read",
+    async (status) => {
+      const onServerTiming = vi.fn();
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json(status === 200 ? file : { error: { code: "auth_required" } }, {
+          status,
+          headers: { "Server-Timing": "file_storage;dur=24, file_api;dur=51" },
+        }),
+      );
+      await fetchPublicFile("acme", "screenshots/shot.png", {
+        origin: "https://api.uploads.sh",
+        fetch: fetcher,
+        onServerTiming,
+      });
+      expect(onServerTiming).toHaveBeenCalledWith("file_storage;dur=24, file_api;dur=51");
+      expect(fetcher.mock.calls[0][1]?.cache).toBe("no-store");
+    },
+  );
+
   it("sends an identifying User-Agent so the storage zone's empty-UA WAF rule lets the SSR call through", async () => {
     const fetcher = vi.fn(
       async (_url: RequestInfo | URL, _init?: RequestInit) => new Response("hello world"),
@@ -362,6 +402,43 @@ describe("fetchPublicFile", () => {
     expect(String(fetcher.mock.calls[0][0])).toBe(
       "https://api.uploads.sh/public/files/acme/screenshots/shot.png",
     );
+  });
+
+  it("separates API headers from delayed body delivery and identifies the binding transport", async () => {
+    const onServerTiming = vi.fn();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const response = new Response(
+      new ReadableStream({
+        async start(controller) {
+          await blocked;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(file)));
+          controller.close();
+        },
+      }),
+      { headers: { "Server-Timing": "file_api;dur=17" } },
+    );
+    const pending = fetchPublicFile("acme", "screenshots/shot.png", {
+      origin: "https://api.uploads.sh",
+      fetch: async () => response,
+      transport: "binding",
+      onServerTiming,
+    });
+    try {
+      await vi.waitFor(() =>
+        expect(onServerTiming).toHaveBeenCalledWith(
+          expect.stringMatching(/^file_api_headers;dur=\d+;desc="binding"$/),
+        ),
+      );
+      expect(onServerTiming).not.toHaveBeenCalledWith(expect.stringContaining("file_api_body;"));
+    } finally {
+      release();
+    }
+    expect((await pending).status).toBe("ok");
+    expect(onServerTiming).toHaveBeenCalledWith(expect.stringMatching(/^file_api_body;dur=\d+$/));
+    expect(onServerTiming).toHaveBeenCalledWith("file_api;dur=17");
   });
 
   it("sends an identifying User-Agent so the API zone's empty-UA WAF rule lets the SSR call through", async () => {

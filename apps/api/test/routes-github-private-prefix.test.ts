@@ -10,7 +10,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { app } from "../src/index";
 import { recordRepoLink } from "../src/github-repo-links";
-import { getOrMintPrefixId } from "../src/github-private-prefixes";
+import { getOrMintPrefixId, retirePrefixId } from "../src/github-private-prefixes";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeKv } from "./fake-kv";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
@@ -120,10 +120,35 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
       mode: string;
       prefixId: string;
       activePrefixIds: string[];
+      branchPrefixIds: string[];
     };
     expect(body.mode).toBe("private");
     expect(body.prefixId).toMatch(/^[0-9a-f]{32}$/);
     expect(body.activePrefixIds).toEqual([body.prefixId]);
+    expect(body.branchPrefixIds).toEqual([body.prefixId]);
+  });
+
+  it("a branch resolve does not return another branch's prefix id (#1122)", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    githubCache.store.set(`ghinst:${REPO}`, { value: "42" });
+    githubCache.store.set(`ghpriv:${REPO}`, { value: "1" });
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    const otherId = await getOrMintPrefixId(db as unknown as D1Database, REPO, "other-branch");
+    const retiredId = await getOrMintPrefixId(db as unknown as D1Database, REPO, "feat-x");
+    await retirePrefixId(db as unknown as D1Database, REPO, "feat-x", retiredId);
+
+    const res = await post("/v1/acme/github/private-prefix", { repo: REPO, branch: "feat-x" }, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      prefixId: string;
+      activePrefixIds: string[];
+      branchPrefixIds: string[];
+    };
+    expect(body.prefixId).not.toBe(retiredId);
+    expect(body.prefixId).not.toBe(otherId);
+    // Active id first, then this branch's retired id. The other branch is absent.
+    expect(body.activePrefixIds).toEqual([body.prefixId, retiredId]);
+    expect(body.branchPrefixIds).toEqual([body.prefixId, retiredId]);
   });
 
   it("with a target: activePrefixIds is scoped to prefixes that can hold that target, not every branch in the repo (#934)", async () => {
@@ -151,21 +176,15 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
     expect(body.activePrefixIds).toEqual([body.prefixId]);
   });
 
-  it("D1 failure listing activePrefixIds: still 200, degrades to an empty list (fail-open)", async () => {
+  it("D1 failure listing branch prefix ids: still 200, degrades to the resolved id (fail-open)", async () => {
     const { env, db, githubCache } = await makeEnv();
     githubCache.store.set(`ghinst:${REPO}`, { value: "42" });
     githubCache.store.set(`ghpriv:${REPO}`, { value: "1" });
     await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
 
-    // Only the list-all query (no `branch = ?`) throws — minting the row
-    // itself must still succeed so `mode: "private"` is reached.
-    const throwingEnv = withThrowingDb(
-      env,
-      db,
-      (sql) =>
-        sql.trim().startsWith("SELECT prefix_id FROM github_private_prefixes") &&
-        !sql.includes("branch = ?"),
-    );
+    // The retired-id lookup throws. Minting the active row must still succeed
+    // so `mode: "private"` is reached, and the response keeps that id.
+    const throwingEnv = withThrowingDb(env, db, (sql) => sql.includes("rotated_at IS NOT NULL"));
     const res = await post(
       "/v1/acme/github/private-prefix",
       { repo: REPO, branch: "feat-x" },
@@ -176,10 +195,12 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
       mode: string;
       prefixId: string;
       activePrefixIds: string[];
+      branchPrefixIds: string[];
     };
     expect(body.mode).toBe("private");
     expect(body.prefixId).toMatch(/^[0-9a-f]{32}$/);
-    expect(body.activePrefixIds).toEqual([]);
+    expect(body.activePrefixIds).toEqual([body.prefixId]);
+    expect(body.branchPrefixIds).toEqual([body.prefixId]);
   });
 
   it('explicit empty branch ("") is rejected — the repo-level sentinel stays server-internal', async () => {

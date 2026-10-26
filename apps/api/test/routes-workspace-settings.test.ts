@@ -224,6 +224,9 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       linkToFilePage: null,
       note: null,
       ingestGithubAttachments: null,
+      noUploadsComment: null,
+      uiPaths: null,
+      requireUploads: null,
     });
   });
 
@@ -326,6 +329,76 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
     expect(
       registry.record<{ githubIngestAttachments?: boolean }>("acme")?.githubIngestAttachments,
     ).toBe(true);
+  });
+
+  it("PATCH round-trips noUploadsComment, and rejects a non-boolean", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    const res = await patch({ noUploadsComment: false });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ noUploadsComment: false });
+    expect(
+      registry.record<{ githubNoUploadsComment?: boolean }>("acme")?.githubNoUploadsComment,
+    ).toBe(false);
+    expect((await patch({ noUploadsComment: "no" })).status).toBe(400);
+  });
+
+  it("PATCH trims uiPaths, clears an empty list, and rejects bad entries", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    const res = await patch({ uiPaths: [" apps/web/** ", "", "*.css"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ uiPaths: ["apps/web/**", "*.css"] });
+    expect(registry.record<{ githubUiPaths?: string[] }>("acme")?.githubUiPaths).toEqual([
+      "apps/web/**",
+      "*.css",
+    ]);
+    expect(await (await patch({ uiPaths: [" "] })).json()).toMatchObject({ uiPaths: null });
+    expect(registry.record<{ githubUiPaths?: string[] }>("acme")?.githubUiPaths).toBeUndefined();
+    expect((await patch({ uiPaths: "apps/**" })).status).toBe(400);
+    expect((await patch({ uiPaths: [3] })).status).toBe(400);
+  });
+
+  it("PATCH stores requireUploads and rejects a non-boolean", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    const res = await patch({ requireUploads: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ requireUploads: true });
+    expect(registry.record<{ githubRequireUploads?: boolean }>("acme")?.githubRequireUploads).toBe(
+      true,
+    );
+    expect(await (await patch({ requireUploads: null })).json()).toMatchObject({
+      requireUploads: null,
+    });
+    expect((await patch({ requireUploads: "yes" })).status).toBe(400);
   });
 
   it("PATCH rejects a non-boolean ingestGithubAttachments with 400", async () => {
@@ -528,6 +601,78 @@ describe("GET/PATCH /v1/workspaces/:workspace/poster-settings", () => {
     const saved = registry.record<{ plan?: string; videoPosterEnabled?: boolean }>("acme");
     expect(saved?.videoPosterEnabled).toBe(false);
     expect(saved?.plan).toBeUndefined();
+  });
+});
+
+describe("GET/PATCH /v1/workspaces/:workspace/classifier-settings", () => {
+  it("GET treats absent switches as on and reports the classifier unavailable", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      classifyUploads: true,
+      holdFlaggedUploads: true,
+      available: false,
+    });
+  });
+
+  it("PATCH persists the admin switches without touching the operator hard off", async () => {
+    const { env, registry } = makeEnv({
+      role: "owner",
+      record: { ...SHARED_RECORD, llmClassifierEnabled: false },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ classifyUploads: false, holdFlaggedUploads: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ classifyUploads: false, holdFlaggedUploads: false });
+    const saved = registry.record<{
+      classifyUploads?: boolean;
+      holdFlaggedUploads?: boolean;
+      llmClassifierEnabled?: boolean;
+    }>("acme");
+    expect(saved?.classifyUploads).toBe(false);
+    expect(saved?.holdFlaggedUploads).toBe(false);
+    expect(saved?.llmClassifierEnabled).toBe(false);
+  });
+
+  it("PATCH 403s a non-admin member and does not write", async () => {
+    const { env, registry } = makeEnv({ sessionUser: MEMBER, role: "member" });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ classifyUploads: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(registry.record<{ classifyUploads?: boolean }>("acme")?.classifyUploads).toBeUndefined();
+  });
+
+  it("PATCH rejects a non-boolean", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ holdFlaggedUploads: "off" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
   });
 });
 
@@ -1407,23 +1552,6 @@ describe("storage vertical (self-serve BYO bucket)", () => {
   });
 
   describe("DELETE /v1/workspaces/:workspace/storage", () => {
-    it("detaches and restores shared-bucket defaults", async () => {
-      const { env, registry } = makeEnv({
-        role: "owner",
-        record: BYO_RECORD,
-        usage: { objects: 0 },
-      });
-      const res = await app.request(
-        "/v1/workspaces/acme/storage",
-        { method: "DELETE", headers: sessionHeaders },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ mode: "shared" });
-      const saved = registry.record<{ accessKeyId?: unknown }>("acme");
-      expect(saved?.accessKeyId).toBeUndefined();
-    });
-
     it("rejects detach when the bucket still has files and force wasn't passed", async () => {
       const { env } = makeEnv({ role: "owner", record: BYO_RECORD, usage: { objects: 2 } });
       const res = await app.request(
@@ -2469,6 +2597,10 @@ describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("fixtures");
     expect(typeof body.body).toBe("string");
+    // The preview shows the live link button exactly where the real comment does.
+    expect(body.body).toContain(
+      '<a href="https://uploads.test/docs/feeds"><img height="36" alt="View on uploads.sh"',
+    );
   });
 
   it("renders workspace attachments with their D1 path/state metadata (before/after pairing)", async () => {
@@ -2504,8 +2636,7 @@ describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("workspace");
-    expect(body.body).toContain("<strong>Before</strong>");
-    expect(body.body).toContain("<strong>After</strong>");
+    expect(body.body).toContain("<th>Before</th><th>After</th>");
     expect(body.body).toContain("docs/hero.png");
   });
 

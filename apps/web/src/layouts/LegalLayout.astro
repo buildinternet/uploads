@@ -1,5 +1,5 @@
 ---
-// Shared shell for the static legal pages (/terms, /privacy). Same flat dark
+// Shared shell for the static prose pages (/terms, /privacy, /pricing). Same flat dark
 // palette and Geist type as the landing page, tuned for long-form prose.
 // Full-bleed SiteHeader (releases/either pattern); article column is constrained.
 import BaseHead from "../components/BaseHead.astro";
@@ -23,6 +23,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
     <title>{title} · uploads.sh</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={`https://uploads.sh${path}`} />
+    <slot name="head" />
     <style>
       * {
         box-sizing: border-box;

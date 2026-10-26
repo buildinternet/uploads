@@ -22,10 +22,14 @@ successor to the external `github-screenshots` skill's bundled R2 scripts),
 the full CLI reference the others defer to. Keep all three in sync when the
 CLI's commands or flags change.
 
-The Claude plugin is self-contained in `plugins/claude/uploads/` so the Claude
+The agent plugin in `plugins/claude/uploads/` uses the common plugin layout
+(listed in the Claude Code marketplace; submitted to the xAI plugin
+marketplace as `uploads`, pending review). It is self-contained so the Claude
 plugin directory validates only that folder, not the whole monorepo.
-`.claude-plugin/marketplace.json` points `source` at it. Its `skills/` is a
-generated copy of the root `skills/`, because a plugin can't reference files
+`.claude-plugin/marketplace.json` points `source` at it. `.mcp.json` wraps
+the hosted server in `mcpServers` (Claude Code also loads the flat form; xAI's
+catalog scanner reads `mcpServers`). Its `skills/` is a generated copy of the
+root `skills/`, because a plugin can't reference files
 outside its folder and the directory rejects symlinks. Edit the root
 `skills/`, then run `pnpm plugin-skills:sync`; CI runs
 `pnpm plugin-skills:check`. The root `skills/` stays canonical because the
@@ -105,11 +109,11 @@ Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
 `wrangler deploy`. On merge to main, `.github/workflows/d1-migrations.yml`
 also applies remote migrations when `apps/api/migrations/**` changes
 (secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
-worker deploys normally happen via Workers Builds on push to main. For an
-isolated branch environment, `npx wrangler preview` from an app directory —
-playbook in [docs/previews.md](docs/previews.md); the Workers Builds bot's
-"Branch Preview URL" on PRs is a different, legacy mechanism that runs
-against production bindings.
+worker deploys still happen via Workers Builds on push to main. Pushing a
+branch does not preview `uploads-web`, `uploads-auth`, or `uploads-api`.
+`uploads-mcp`, `uploads-viewer`, and `uploads-slack` are unchanged. Do not
+upload a preview by default. The command is in
+[docs/previews.md](docs/previews.md#no-automatic-branch-preview).
 
 Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
 worker; BYO secrets use `WORKSPACE_SECRETS_KEY`, set on both `uploads-api` and
@@ -294,6 +298,10 @@ The PR shape (five sections) and title convention live in
 
 What agents get wrong most often, so it bears repeating here:
 
+- **Use conventional-commit format for PR titles and commit messages**, e.g.
+  `feat(slack): rewrite hold DMs once the hold ends` or `fix: …`. This applies to
+  every commit you make, not only the squash title, and to cloud agents as much as
+  local ones. Types and subject style are in CONTRIBUTING.md.
 - **Write for humans first**, not only for reviewers who already know the code.
   Lead with the problem and the outcome in plain language. Do not open with file
   paths, type names, or a flag list, and do not pad the description with a bullet

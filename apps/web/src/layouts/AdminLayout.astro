@@ -22,7 +22,8 @@ import "@uploads/ui/theme.css";
 import "../styles/signed-in-shell.css";
 import "../styles/admin.css";
 
-export type AdminSection = "workspaces" | "metrics" | "users" | "oauth" | "email";
+export type AdminSection =
+  "workspaces" | "clients" | "metrics" | "classifier" | "models" | "users" | "oauth" | "email";
 
 interface Props {
   section: AdminSection;
@@ -32,7 +33,10 @@ const { section } = Astro.props;
 
 const titles: Record<AdminSection, string> = {
   workspaces: "Admin",
+  clients: "Clients · Admin",
   metrics: "Metrics · Admin",
+  classifier: "Classifier · Admin",
+  models: "Models · Admin",
   users: "Users · Admin",
   oauth: "OAuth apps · Admin",
   email: "Email · Admin",

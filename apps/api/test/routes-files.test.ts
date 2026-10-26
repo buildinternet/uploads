@@ -5,7 +5,7 @@ import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { presignExpiresIn } from "../src/routes/files-shared-handlers";
-import { getFileMetadata } from "../src/file-metadata";
+import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { HOSTED_ACTIVE_CONTENT_HOSTS } from "../src/active-content-hosts";
 
@@ -1061,6 +1061,21 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({});
   });
 
+  it("rejects an upload header that sets a safety flag", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-ai.secret": "none" },
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
   it("rejects an upload trying to shadow the R2 visibility gate as custom metadata", async () => {
     const { env, db, bucket } = await makeEnv();
     const res = await putShot(env, {
@@ -1339,6 +1354,19 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
     expect(json.error.type).toBe("not_found");
   });
 
+  it("GET answers for a held file whose bytes left the bucket", async () => {
+    const { env, db } = await makeEnv();
+    await setServerFileMetadata(db as unknown as D1Database, "default", "screenshots/held.png", {
+      "ai.hold": "pending",
+      "ai.secret": "api_key",
+    });
+    const res = await getMeta(env, "screenshots/held.png");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      metadata: { "ai.hold": "pending", "ai.secret": "api_key" },
+    });
+  });
+
   it("PATCH set then GET round-trips the value", async () => {
     const { env } = await makeEnv();
     await putShot(env);
@@ -1365,6 +1393,41 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
 
     const res = await getMeta(env, "screenshots/shot.png");
     expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("PATCH rejects setting or deleting a safety flag and leaves the stored flag", async () => {
+    const { env, db } = await makeEnv();
+    await putShot(env);
+    await setServerFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png", {
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.pii.confidence": "medium",
+    });
+
+    const setPatch = await patchMeta(env, "screenshots/shot.png", {
+      set: { "ai.secret": "none" },
+    });
+    expect(setPatch.status).toBe(400);
+    const setJson = (await setPatch.json()) as { error: { type: string; code: string } };
+    expect(setJson.error.type).toBe("validation");
+    expect(setJson.error.code).toBe("file_metadata_reserved_key");
+
+    const deletePatch = await patchMeta(env, "screenshots/shot.png", {
+      delete: ["ai.secret", "ai.pii", "ai.secret.confidence"],
+    });
+    expect(deletePatch.status).toBe(400);
+    const deleteJson = (await deletePatch.json()) as { error: { code: string } };
+    expect(deleteJson.error.code).toBe("file_metadata_reserved_key");
+
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toMatchObject({
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.pii.confidence": "medium",
+    });
   });
 
   it("PATCH rejects setting the reserved visibility key with 400", async () => {
@@ -1470,8 +1533,10 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
 
     const patch = await patchMeta(env, "screenshots/shot.png", { set: { app: "web" } }, READ_TOKEN);
     expect(patch.status).toBe(403);
-    const json = (await patch.json()) as { error: { type: string } };
+    const json = (await patch.json()) as { error: { type: string; message: string } };
     expect(json.error.type).toBe("insufficient_scope");
+    expect(json.error.message).toContain("files:write");
+    expect(json.error.message).toContain("https://uploads.sh/account/developers");
   });
 
   it("a token mixing an operator scope with a file scope grants no extra file permissions (issue #257)", async () => {
@@ -2044,5 +2109,163 @@ describe("uploader attribution never breaks a cap-limit upload (issue #340 revie
     );
     expect(Object.keys(meta)).toHaveLength(24);
     expect(meta["gh.uploader-id"]).toBeUndefined();
+  });
+});
+
+describe("DELETE own gh objects with files:write (issue #1124)", () => {
+  const WRITE = "up_default_write_delete";
+  const KEY = "gh/acme/web/pull/12/shot.png";
+
+  async function writeEnv() {
+    return makeEnv(
+      {},
+      { scopedToken: { rawToken: WRITE, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+  }
+
+  async function putGh(env: Parameters<typeof app.request>[2]) {
+    const res = await putShot(env, {
+      key: KEY,
+      headers: {
+        Authorization: `Bearer ${WRITE}`,
+        "X-Uploads-Meta-gh.repo": "acme/web",
+        "X-Uploads-Meta-gh.kind": "pull",
+        "X-Uploads-Meta-gh.number": "12",
+      },
+    });
+    expect(res.status).toBe(201);
+  }
+
+  function del(env: Parameters<typeof app.request>[2], key: string, token = WRITE) {
+    return app.request(
+      `/v1/default/files/${key}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      env,
+    );
+  }
+
+  it("lets the uploading user delete their gh attachment", async () => {
+    const { env, bucket, db } = await writeEnv();
+    await putGh(env);
+    expect(db.metadata.get(`default ${KEY}`)?.get("gh.uploader-id")).toBe("user-1");
+    expect(db.metadata.get(`default ${KEY}`)?.get("gh.uploader-proof")).toBe("server");
+    const res = await del(env, KEY);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ key: KEY, deleted: true });
+    expect(bucket.store.has(`default/${KEY}`)).toBe(false);
+  });
+
+  it("refuses a different user's object, a non-gh key, and a read-only token", async () => {
+    const { env, db } = await writeEnv();
+    await putGh(env);
+    db.metadata.get(`default ${KEY}`)?.set("gh.uploader-id", "someone-else");
+    const other = await del(env, KEY);
+    expect(other.status).toBe(403);
+    const otherBody = (await other.json()) as {
+      error: { message: string; details?: { required_scope?: string } };
+    };
+    expect(otherBody.error.details?.required_scope).toBe("files:delete");
+    expect(otherBody.error.message).toContain("files:delete");
+    expect(otherBody.error.message).toContain("https://uploads.sh/account/developers");
+
+    const shot = await putShot(env, {
+      headers: { Authorization: `Bearer ${WRITE}`, "X-Uploads-Meta-page": "home" },
+    });
+    expect(shot.status).toBe(201);
+    const nonGh = await del(env, "screenshots/shot.png");
+    expect(nonGh.status).toBe(403);
+
+    const read = await makeEnv(
+      {},
+      {
+        scopedToken: { rawToken: "up_read_only", scopes: ["files:read"], mintingUserId: "user-1" },
+      },
+    );
+    await putShot(read.env, {
+      key: KEY,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Uploads-Meta-gh.repo": "acme/web",
+        "X-Uploads-Meta-gh.uploader-id": "user-1",
+      },
+    });
+    const stored = await getFileMetadata(read.db as unknown as D1Database, "default", KEY);
+    expect(stored["gh.uploader-id"]).toBeUndefined();
+    const denied = await del(read.env, KEY, "up_read_only");
+    expect(denied.status).toBe(403);
+    const deniedBody = (await denied.json()) as { error: { message: string } };
+    expect(deniedBody.error.message).toContain("files:delete");
+  });
+
+  it("rejects a client write of gh.uploader-id", async () => {
+    const { env } = await writeEnv();
+    await putGh(env);
+    const res = await patchMeta(env, KEY, { set: { "gh.uploader-id": "user-1" } }, WRITE);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("file_metadata_reserved_key");
+  });
+
+  it("rejects a client write of the uploader proof", async () => {
+    const { env } = await writeEnv();
+    await putGh(env);
+    const res = await patchMeta(env, KEY, { set: { "gh.uploader-proof": "server" } }, WRITE);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("file_metadata_reserved_key");
+  });
+
+  it("does not store a forged uploader id from a legacy token, and refuses own-delete", async () => {
+    const { env, db } = await writeEnv();
+    const res = await putShot(env, {
+      key: KEY,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Uploads-Meta-gh.repo": "acme/web",
+        "X-Uploads-Meta-gh.kind": "pull",
+        "X-Uploads-Meta-gh.number": "12",
+        "X-Uploads-Meta-gh.uploader-id": "user-1",
+        "X-Uploads-Meta-gh.uploader-proof": "server",
+      },
+    });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(db as unknown as D1Database, "default", KEY);
+    expect(meta["gh.uploader-id"]).toBeUndefined();
+    expect(meta["gh.uploader-proof"]).toBeUndefined();
+    expect(meta["gh.repo"]).toBe("acme/web");
+    const denied = await del(env, KEY);
+    expect(denied.status).toBe(403);
+  });
+
+  it("drops a forged uploader id when the upload is at the key cap, and refuses own-delete", async () => {
+    const { env, db } = await writeEnv();
+    // 24 client keys, one of them a forged id for this write token. Stripping
+    // that key leaves 23, and the server stamp (id + proof) does not fit.
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${WRITE}`,
+      "X-Uploads-Meta-gh.repo": "acme/web",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "12",
+      "X-Uploads-Meta-gh.uploader-id": "user-1",
+    };
+    for (let i = 1; i <= 20; i++) headers[`X-Uploads-Meta-extra${i}`] = "v";
+    const res = await putShot(env, { key: KEY, headers });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(db as unknown as D1Database, "default", KEY);
+    expect(meta["gh.uploader-id"]).toBeUndefined();
+    expect(meta["gh.uploader-proof"]).toBeUndefined();
+    expect(Object.keys(meta)).toHaveLength(23);
+    const denied = await del(env, KEY);
+    expect(denied.status).toBe(403);
+  });
+
+  it("refuses own-delete for an older row that has an uploader id and no proof", async () => {
+    const { env, db } = await writeEnv();
+    await putGh(env);
+    db.metadata.get(`default ${KEY}`)?.delete("gh.uploader-proof");
+    const denied = await del(env, KEY);
+    expect(denied.status).toBe(403);
+    const allowed = await del(env, KEY, TOKEN);
+    expect(allowed.status).toBe(200);
   });
 });

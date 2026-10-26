@@ -8,6 +8,7 @@
 import { NOTE_MAX_CHARS } from "@uploads/comment-config";
 import { runActiveContentHostSweep } from "../active-content-hosts";
 import { adminTokenRows } from "../admin-token-list";
+import { clientActivityResponse, listClientActivity } from "../client-activity";
 import {
   ForbiddenError,
   NotFoundError,
@@ -23,8 +24,10 @@ import {
   resolvePreviewRecipient,
   sendEmailPreview,
 } from "../admin-email-preview";
+import { runCliUpgradeCampaign } from "../cli-upgrade-campaign";
 import {
   fetchBreakdown,
+  fetchClassifierCostSeries,
   fetchSlowOps,
   type BreakdownDimension,
   type SlowOpWindow,
@@ -49,7 +52,27 @@ import {
 import { allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
-import { ALLOWED_WINDOWS, cachedOverview } from "../metrics-overview";
+import { cachedKvJson, cachedOverview } from "../metrics-overview";
+import {
+  buildClassifierOverview,
+  CLASSIFIER_CACHE_TTL,
+  CLASSIFIER_FLAGGED_DEFAULT_LIMIT,
+  CLASSIFIER_FLAGGED_MAX_LIMIT,
+  classifierCacheKey,
+  decodeFlaggedCursor,
+  listFlaggedFiles,
+} from "../classifier-admin";
+import { releaseHolds } from "../upload-hold-service";
+import { countHeldByWorkspace } from "../upload-hold-read";
+import {
+  ADMIN_METRIC_WINDOWS,
+  CLASSIFIER_SAFETY_FIELDS,
+  type ClassifierAdminWindow,
+  type ClassifierSafetyField,
+} from "../classifier-admin-wire";
+import { parseLimit } from "../query-params";
+import { utcDay } from "../adoption";
+import { uploadsOnDay, windowStart, workspaceUploadSeries } from "../adoption-queries";
 import {
   invitesForOrg,
   membersForOrg,
@@ -70,13 +93,23 @@ import {
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   type WorkspaceRecord,
+  WS_NAME_RE,
 } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
 import { getPlan, resolveEffectiveLimits, type WorkspacePlanLimits } from "@uploads/billing";
-import { isByoRecord, storageStatusResponse } from "./workspace-storage";
+import { storageStatusResponse } from "./workspace-storage";
+import { listWorkspaceByobStatus } from "../workspace-byob";
 import { dbFor } from "../db-session";
+import { fetchAgentModelOptions } from "../openrouter-models";
+import {
+  getPlatformSetting,
+  OPENROUTER_MODEL_ID,
+  setPlatformSetting,
+  SLACK_AGENT_DEFAULT_MODEL,
+  SLACK_AGENT_MODEL_KEY,
+} from "../platform-settings";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -181,7 +214,8 @@ function parseBanReason(body: unknown): string {
 // `routes/workspace-members.ts`'s member-kind links) lives in `auth-db.ts`.
 
 interface OrgSummary {
-  organization: { id: string; slug: string; name: string };
+  /** `createdAt` is ISO; absent from an auth worker deployed before it was added. */
+  organization: { id: string; slug: string; name: string; createdAt?: string };
   memberCount: number;
   pendingInviteCount: number;
 }
@@ -202,6 +236,16 @@ async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
   return map;
 }
 
+/** Earliest valid token `createdAt` (ISO strings compare chronologically). */
+function earliestTokenAt(record: WorkspaceRecord | null): string | undefined {
+  let earliest: string | undefined;
+  for (const { createdAt } of record?.tokens ?? []) {
+    if (!Number.isFinite(Date.parse(createdAt))) continue;
+    if (earliest === undefined || createdAt < earliest) earliest = createdAt;
+  }
+  return earliest;
+}
+
 /**
  * One row of the `/admin-ui/workspaces` list: the KV workspace + its org
  * counts, plus the two at-a-glance signals an operator otherwise had to
@@ -217,6 +261,7 @@ function workspaceSummaryResponse(
   name: string,
   summary: OrgSummary | undefined,
   record: WorkspaceRecord | null,
+  byob: boolean,
 ) {
   return {
     workspace: name,
@@ -224,7 +269,13 @@ function workspaceSummaryResponse(
     memberCount: summary?.memberCount ?? 0,
     pendingInviteCount: summary?.pendingInviteCount ?? 0,
     plan: getPlan(record?.plan).id,
-    byob: record ? isByoRecord(record) : false,
+    byob,
+    // The backing org is provisioned with the workspace, so its timestamp is
+    // the best creation date available. Without an org, fall back to the
+    // record's own creation stamp, then (legacy records without one) to its
+    // earliest token.
+    createdAt:
+      summary?.organization.createdAt ?? record?.createdAt ?? earliestTokenAt(record) ?? null,
   };
 }
 
@@ -549,27 +600,79 @@ export type AdminPlanResponse = ReturnType<typeof planResponse> &
 export type AdminStorageResponse = ReturnType<typeof adminStorageResponse>;
 export type AdminGithubLink = ReturnType<typeof repoLinkResponse>;
 export type { AdminTokenRow } from "../admin-token-list";
+export type { AdminClientActivity } from "../client-activity";
 export type { MetricsOverview } from "../metrics-overview";
+export type * from "../classifier-admin-wire";
 export type { OrgInvite, OrgMember } from "../org-workspaces";
 export type { OpenEnrollment } from "../auth-db";
 /** `/admin-ui/oauth-clients*` passes the auth worker's body through unchanged. */
 export type { SerializedOauthClient } from "@uploads/auth/oauth-client-serialize";
 
+/** `days` for the operator metrics views: default 30, else one of `ADMIN_METRIC_WINDOWS`. */
+function parseWindowDays(raw: string | undefined): ClassifierAdminWindow {
+  const days = raw === undefined ? 30 : Number(raw);
+  if (!ADMIN_METRIC_WINDOWS.includes(days as ClassifierAdminWindow)) {
+    throw new ValidationError(`days must be one of ${ADMIN_METRIC_WINDOWS.join(", ")}`, {
+      code: "invalid_window",
+    });
+  }
+  return days as ClassifierAdminWindow;
+}
+
+async function slackAgentModelResponse(env: Env) {
+  const stored = await getPlatformSetting(dbFor(env), SLACK_AGENT_MODEL_KEY);
+  return {
+    model: stored?.value ?? SLACK_AGENT_DEFAULT_MODEL,
+    defaultModel: SLACK_AGENT_DEFAULT_MODEL,
+    isDefault: !stored,
+    updatedBy: stored?.updatedBy ?? null,
+    updatedAt: stored?.updatedAt ?? null,
+  };
+}
+export type AdminSlackAgentModel = Awaited<ReturnType<typeof slackAgentModelResponse>>;
+export type { AgentModelOption } from "../openrouter-models";
+
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
 
   // Cached operator adoption-metrics overview (D1 rollups + auth-worker
-  // signup history). `days` selects the window; only ALLOWED_WINDOWS are
+  // signup history). `days` selects the window; only ADMIN_METRIC_WINDOWS are
   // accepted so the cache stays small. `fresh=1` bypasses the KV cache.
   .get("/metrics/overview", async (c) => {
-    const raw = c.req.query("days");
-    const days = raw === undefined ? 30 : Number(raw);
-    if (!ALLOWED_WINDOWS.includes(days as (typeof ALLOWED_WINDOWS)[number])) {
-      throw new ValidationError(`days must be one of ${ALLOWED_WINDOWS.join(", ")}`, {
-        code: "invalid_window",
-      });
-    }
+    const days = parseWindowDays(c.req.query("days"));
     return c.json(await cachedOverview(c.env, days, c.req.query("fresh") === "1"));
+  })
+
+  // On-demand uploads drill-down behind the overview's bounded summary: all
+  // contributors for one UTC day, and one workspace's daily series. Kept out
+  // of the cached overview so its size doesn't scale with workspaces x days.
+  .get("/metrics/uploads/day", async (c) => {
+    const day = c.req.query("day") ?? "";
+    const parsed = new Date(`${day}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+      Number.isNaN(parsed.getTime()) ||
+      utcDay(parsed) !== day
+    ) {
+      throw new ValidationError("day must be a valid YYYY-MM-DD date", { code: "invalid_day" });
+    }
+    const rows = await uploadsOnDay(dbFor(c.env), day);
+    return c.json({
+      day,
+      total: rows.reduce((sum, row) => sum + row.count, 0),
+      contributors: rows.map(({ workspace, count, bytes }) => ({ workspace, count, bytes })),
+    });
+  })
+
+  .get("/metrics/uploads/workspace", async (c) => {
+    const workspace = c.req.query("workspace") ?? "";
+    if (!workspace || workspace.length > 100) {
+      throw new ValidationError("workspace is required", { code: "invalid_workspace" });
+    }
+    const days = parseWindowDays(c.req.query("days"));
+    const since = windowStart(days);
+    const series = await workspaceUploadSeries(dbFor(c.env), workspace, since);
+    return c.json({ workspace, window: { days, since }, series });
   })
 
   // Analytics Engine upload breakdown by dimension (surface, content type,
@@ -593,31 +696,152 @@ export const adminUi = new Hono<SessionVars>()
     return c.json(await fetchSlowOps(c.env, window));
   })
 
+  // Which CLI / MCP client (and version) each credential last used, newest
+  // first (client-activity.ts). `?workspace=` narrows to one tenant; `?days=`
+  // (default 30, 0 = all) drops rows not seen in that window. Outdatedness
+  // is judged client-side against /cli-version.json.
+  .get("/clients", async (c) => {
+    const workspace = c.req.query("workspace")?.trim() || undefined;
+    if (workspace && !WS_NAME_RE.test(workspace)) {
+      throw new ValidationError("invalid workspace name");
+    }
+    const days = Number(c.req.query("days") ?? 30);
+    const rows = await listClientActivity(dbFor(c.env), {
+      workspace,
+      sinceDays: Number.isFinite(days) && days > 0 ? Math.min(days, 365) : undefined,
+    });
+    return c.json({ clients: rows.map(clientActivityResponse) });
+  })
+
+  // Operator classifier views (classifier-admin.ts). Overview is cached in KV
+  // like /metrics/overview; the flagged list is a live keyset-paged read.
+  .get("/classifier/overview", async (c) => {
+    const days = parseWindowDays(c.req.query("days"));
+    return c.json(
+      await cachedKvJson(
+        c.env,
+        classifierCacheKey(days),
+        CLASSIFIER_CACHE_TTL,
+        c.req.query("fresh") === "1",
+        () =>
+          buildClassifierOverview(
+            dbFor(c.env),
+            days,
+            new Date(),
+            fetchClassifierCostSeries(c.env, days),
+          ),
+      ),
+    );
+  })
+
+  // Admin → Models: which OpenRouter model the Slack mention agent runs.
+  // uploads-slack reads the same row on each mention (platform-settings.ts).
+  .get("/models/slack-agent", async (c) => {
+    return c.json(await slackAgentModelResponse(c.env));
+  })
+
+  .patch("/models/slack-agent", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { model?: unknown };
+    const model = typeof body.model === "string" ? body.model.trim() : body.model;
+    if (model !== null && (typeof model !== "string" || !OPENROUTER_MODEL_ID.test(model))) {
+      throw new ValidationError("model must be an OpenRouter model id like provider/model", {
+        code: "invalid_model",
+      });
+    }
+    const user = c.get("sessionUser");
+    const by = user?.name?.trim() || user?.email || "operator";
+    const value = model === SLACK_AGENT_DEFAULT_MODEL ? null : model;
+    await setPlatformSetting(dbFor(c.env), SLACK_AGENT_MODEL_KEY, value, by);
+    console.log({ event: "slack_agent_model_set", model: value ?? "default" });
+    return c.json(await slackAgentModelResponse(c.env));
+  })
+
+  // Models the agent can run (images + tools), with prices. Cached an hour.
+  .get("/models/agent-options", async (c) => {
+    return c.json(
+      await cachedKvJson(
+        c.env,
+        "admin:openrouter-agent-models:v1",
+        3600,
+        c.req.query("fresh") === "1",
+        () => fetchAgentModelOptions(),
+      ),
+    );
+  })
+
+  // Held uploads (upload-hold.ts): per-workspace counts, and the operator
+  // release that approves pending holds in batches (the page loops).
+  .get("/classifier/holds", async (c) => {
+    const workspaces = await countHeldByWorkspace(c.env);
+    const total = workspaces.reduce((sum, row) => sum + row.count, 0);
+    return c.json({ total, workspaces });
+  })
+
+  .post("/classifier/holds/release", async (c) => {
+    if (!(await allowWrite(c.env, "operator-holds"))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { workspace?: unknown };
+    const workspace =
+      typeof body.workspace === "string" && body.workspace.trim()
+        ? body.workspace.trim()
+        : undefined;
+    if (workspace && !WS_NAME_RE.test(workspace)) {
+      throw new ValidationError("invalid workspace name", { code: "invalid_workspace" });
+    }
+    return c.json(await releaseHolds(c.env, { workspace }));
+  })
+
+  .get("/classifier/flagged", async (c) => {
+    const field = c.req.query("field") || undefined;
+    if (field && !(CLASSIFIER_SAFETY_FIELDS as readonly string[]).includes(field)) {
+      throw new ValidationError(`field must be one of ${CLASSIFIER_SAFETY_FIELDS.join(", ")}`, {
+        code: "invalid_field",
+      });
+    }
+    const confidence = c.req.query("confidence") || undefined;
+    if (confidence && confidence !== "high") {
+      throw new ValidationError("confidence must be high", { code: "invalid_confidence" });
+    }
+    const workspace = c.req.query("workspace")?.trim() || undefined;
+    if (workspace && !WS_NAME_RE.test(workspace)) {
+      throw new ValidationError("invalid workspace name", { code: "invalid_workspace" });
+    }
+    const rawCursor = c.req.query("cursor");
+    const cursor = rawCursor ? decodeFlaggedCursor(rawCursor) : undefined;
+    const limit = parseLimit(
+      c.req.query("limit"),
+      CLASSIFIER_FLAGGED_DEFAULT_LIMIT,
+      CLASSIFIER_FLAGGED_MAX_LIMIT,
+    );
+    return c.json(
+      await listFlaggedFiles(dbFor(c.env), {
+        field: field as ClassifierSafetyField | undefined,
+        highConfidenceOnly: confidence === "high",
+        workspace,
+        cursor,
+        limit,
+      }),
+    );
+  })
+
   // List every KV workspace joined with its org + member/invite counts.
   .get("/workspaces", async (c) => {
-    const names: string[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await c.env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-      for (const entry of page.keys) {
-        const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-        if (name) names.push(name);
-      }
-      cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
-
+    const byobStatus = await listWorkspaceByobStatus(c.env);
+    const names = [...byobStatus.keys()];
     const summaries = await allOrgSummaries(c.env);
-    // Plan + BYOB come off each workspace record. KV has no multi-get and the
-    // list enumeration returns keys only, so a per-workspace read is
-    // unavoidable; run them as one parallel fan-out rather than serially. This
-    // adds N subrequests (one KV get each) on top of the list pages — fine for
-    // the operator surface's current workspace count, but note it scales with N
-    // and would need chunking or a denormalized summary blob before N could
-    // approach the Workers subrequest ceiling. A null record (soft-deleted /
-    // purged tombstone) falls back to free / shared, same as an unknown workspace.
+    // BYOB comes off the `ws:` key metadata on the paged list (#1094), so it
+    // costs no per-workspace read. Plan still lives on the record, so that
+    // read remains; a null record (soft-deleted / purged tombstone) falls back
+    // to free, same as an unknown workspace.
     const records = await Promise.all(names.map((name) => loadWorkspaceRecord(c.env, name)));
     const workspaces = names.map((name, i) =>
-      workspaceSummaryResponse(name, summaries.get(name), records[i]),
+      workspaceSummaryResponse(
+        name,
+        summaries.get(name),
+        records[i],
+        byobStatus.get(name) ?? false,
+      ),
     );
     return c.json({ workspaces });
   })
@@ -1097,6 +1321,16 @@ export const adminUi = new Hono<SessionVars>()
     const to = resolvePreviewRecipient(c.get("sessionUser")?.email, body.to);
     const { subject } = await sendEmailPreview(c.env, type, to);
     return c.json({ ok: true, type, to, subject });
+  })
+
+  // Operator-run "update your CLI" campaign. Without `send: true` this only
+  // counts; with it, it emails the next batch (see ../cli-upgrade-campaign.ts).
+  .post("/campaigns/cli-upgrade", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      minimumVersion?: unknown;
+      send?: unknown;
+    };
+    return c.json(await runCliUpgradeCampaign(c.env, body));
   })
 
   // On-demand run of the hosted-host SVG/XML sandboxing-CSP probe (issue

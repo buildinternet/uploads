@@ -95,6 +95,124 @@ describe("parseAiLabels", () => {
       summary: undefined,
     });
   });
+
+  it("stays silent when every chip is a placeholder", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.kind": "other",
+      "ai.screen": " OTHER ",
+      "ai.surface": "unknown",
+      "ai.tags": "other, Unknown",
+    };
+    expect(parseAiLabels(metadata)).toBeNull();
+    expect(hasAiMetadata(metadata)).toBe(false);
+  });
+
+  it("stays silent for placeholder chips even without a classifier", () => {
+    const metadata = {
+      "ai.kind": "Other",
+      "ai.surface": "Unknown",
+      "ai.screen": "other",
+      "ai.tags": "unknown",
+    };
+    expect(parseAiLabels(metadata)).toBeNull();
+    expect(hasAiMetadata(metadata)).toBe(false);
+  });
+
+  it("keeps a real screen and drops a placeholder surface", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.screen": "login",
+      "ai.surface": "unknown",
+      "ai.kind": "other",
+    };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: "v5",
+      kind: undefined,
+      surface: undefined,
+      screen: "login",
+      tags: [],
+      summary: undefined,
+    });
+    expect(hasAiMetadata(metadata)).toBe(true);
+  });
+
+  it("drops placeholder tags and keeps the rest", () => {
+    const metadata = { "ai.tags": "ui, other, Unknown, settings, another" };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: undefined,
+      kind: undefined,
+      surface: undefined,
+      screen: undefined,
+      tags: ["ui", "settings", "another"],
+      summary: undefined,
+    });
+    expect(hasAiMetadata(metadata)).toBe(true);
+  });
+
+  it("ignores internal safety flags even when display chips are present", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.kind": "screenshot",
+      "ai.screen": "login",
+      "ai.rating": "explicit",
+      "ai.rating.confidence": "high",
+      "ai.content": "sexual",
+      "ai.content.confidence": "medium",
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.pii.confidence": "low",
+    };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: "v5",
+      kind: "screenshot",
+      surface: undefined,
+      screen: "login",
+      tags: [],
+      summary: undefined,
+    });
+    const split = splitFileDetailMeta(metadata);
+    expect(split.other).toEqual([]);
+    const rendered = JSON.stringify(split);
+    expect(rendered).not.toContain("api_key");
+    expect(rendered).not.toContain("explicit");
+    expect(rendered).not.toContain("contact");
+    expect(rendered).not.toContain("sexual");
+  });
+
+  it("stays silent when only internal safety flags are set", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.rating": "safe",
+      "ai.rating.confidence": "high",
+      "ai.content": "none",
+      "ai.secret": "none",
+      "ai.secret.confidence": "low",
+      "ai.pii": "none",
+      "ai.pii.confidence": "medium",
+    };
+    expect(parseAiLabels(metadata)).toBeNull();
+    expect(hasAiMetadata(metadata)).toBe(false);
+    expect(splitFileDetailMeta(metadata)).toEqual({ primary: [], other: [], ai: null });
+  });
+
+  it("keeps a summary when the chips are only placeholders", () => {
+    const metadata = {
+      "ai.kind": "other",
+      "ai.surface": "unknown",
+      "ai.summary": "A blurry photo",
+    };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: undefined,
+      kind: undefined,
+      surface: undefined,
+      screen: undefined,
+      tags: [],
+      summary: "A blurry photo",
+    });
+    expect(hasAiMetadata(metadata)).toBe(true);
+  });
 });
 
 describe("splitFileDetailMeta", () => {

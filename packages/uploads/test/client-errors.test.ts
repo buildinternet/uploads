@@ -39,7 +39,9 @@ describe("insufficient_scope error mapping", () => {
       );
     expect(err).toBeInstanceOf(UploadsError);
     expect((err as UploadsError).code).toBe("INSUFFICIENT_SCOPE");
-    expect((err as UploadsError).message).toContain("files:delete");
+    expect((err as UploadsError).requiredScope).toBe("files:delete");
+    expect((err as UploadsError).message).toContain("token lacks the files:delete scope");
+    expect((err as UploadsError).message).toContain("https://uploads.sh/account/developers");
   });
 
   it("keeps the server message when details carry no scope", async () => {

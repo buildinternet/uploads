@@ -52,6 +52,7 @@ export const PUT_LIKE_FLAGS: readonly string[] = [
   "--meta",
   "--state",
   "--app",
+  "--screen",
   "--workspace",
   "-w",
   "--help",
@@ -102,6 +103,7 @@ export const SCREENSHOT_FLAGS: readonly string[] = [
   "--meta",
   "--state",
   "--app",
+  "--screen",
   "--dry-run",
   "--format",
   "--workspace",
@@ -148,6 +150,14 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   {
     name: "staged",
     summary: "Show what's staged for a branch, and whether it will auto-attach",
+  },
+  {
+    name: "unstage",
+    summary: "Clear a branch's staged files without deleting them",
+  },
+  {
+    name: "approve",
+    summary: "Release uploads held for review (a likely secret or personal data)",
   },
   {
     name: "screenshot",

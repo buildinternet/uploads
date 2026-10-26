@@ -23,7 +23,8 @@ src/pages/changelog.astro            /changelog — platform updates + CLI relea
 src/pages/changelog.xml.ts           Atom twin of /changelog, served at /changelog.xml
 src/pages/changelog.json.ts          JSON twin of /changelog, served at /changelog.json
 src/pages/docs.json.ts               Docs catalog for `uploads docs` / MCP `search_docs`
-src/pages/oembed.ts                  oEmbed 1.0 JSON endpoint for shareable /f and /g pages
+src/pages/oembed.ts                  oEmbed 1.0 JSON endpoint for shareable /f, /g, and /c pages
+src/pages/player.ts                  iframe player for a public video (Twitter/oEmbed)
 src/lib/                             Public gallery/file fetch + oEmbed resolution
 public/_headers                      Per-path response headers (Link, robots, types)
 public/robots.txt                    Crawl policy + Content Signals + AI bot rules
@@ -48,15 +49,15 @@ wrangler.jsonc                       Hybrid Worker, static assets, skills index,
 The landing page, `/docs`, and the `/github-screenshots` use-case guide are meant
 for search engines. Agent discovery docs are public but not listed in the sitemap.
 
-| Path                                                        | Indexable | Notes                                                                                                 |
-| ----------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `/`                                                         | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs                                              |
-| `/docs`                                                     | yes       | Plain-language setup guide; in `sitemap.xml`                                                          |
-| `/github-screenshots`                                       | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD                                            |
-| `/changelog`                                                | yes       | Product updates + CLI releases; in `sitemap.xml`; Atom at `/changelog.xml`; JSON at `/changelog.json` |
-| `/invite`                                                   | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`                                                 |
-| `/404`,`/500`                                               | **no**    | Status pages                                                                                          |
-| `/auth.md`, `/llms.txt`, `/llms-full.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                                                                      |
+| Path                                                                       | Indexable | Notes                                                                                                 |
+| -------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| `/`                                                                        | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs                                              |
+| `/docs`                                                                    | yes       | Plain-language setup guide; in `sitemap.xml`                                                          |
+| `/github-screenshots`                                                      | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD                                            |
+| `/changelog`                                                               | yes       | Product updates + CLI releases; in `sitemap.xml`; Atom at `/changelog.xml`; JSON at `/changelog.json` |
+| `/invite`                                                                  | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`                                                 |
+| `/404`,`/500`                                                              | **no**    | Status pages                                                                                          |
+| `/auth.md`, `/pricing.md`, `/llms.txt`, `/llms-full.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap (`/pricing.md` mirrors `/pricing`)                                   |
 
 `robots.txt` includes explicit `User-agent` blocks for common AI crawlers and
 `Content-Signal` preferences (`search=yes`, `ai-input=yes`, `ai-train=no`).
@@ -69,19 +70,19 @@ rules there.
 
 ## Agent discovery (easy wins)
 
-| Check             | Location                                                                |
-| ----------------- | ----------------------------------------------------------------------- |
-| robots.txt        | `/robots.txt`                                                           |
-| sitemap           | `/sitemap.xml` (referenced from robots)                                 |
-| Link headers      | homepage `/` via `_headers`                                             |
-| Integrations      | `/.well-known/integrations.json` (integrations.sh v3 declaration)       |
-| API catalog       | `/.well-known/api-catalog`                                              |
-| OpenAPI           | `/.well-known/openapi.json` (canonical) and `/openapi.json` (probe)     |
-| MCP server card   | `/.well-known/mcp/server-card.json`                                     |
-| MCP Registry auth | `/.well-known/mcp-registry-auth` (HTTP domain proof for `sh.uploads/*`) |
-| Agent skills      | `/.well-known/agent-skills/index.json`                                  |
-| Auth for agents   | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS)    |
-| oEmbed            | `/oembed?url=…` for public `/f/…`, `/g/…`, and `/c/…` pages (JSON only) |
+| Check             | Location                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------ |
+| robots.txt        | `/robots.txt`                                                                                    |
+| sitemap           | `/sitemap.xml` (referenced from robots)                                                          |
+| Link headers      | homepage `/` via `_headers`                                                                      |
+| Integrations      | `/.well-known/integrations.json` (integrations.sh v3 declaration)                                |
+| API catalog       | `/.well-known/api-catalog`                                                                       |
+| OpenAPI           | `/.well-known/openapi.json` (canonical) and `/openapi.json` (probe)                              |
+| MCP server card   | `/.well-known/mcp/server-card.json`                                                              |
+| MCP Registry auth | `/.well-known/mcp-registry-auth` (HTTP domain proof for `sh.uploads/*`)                          |
+| Agent skills      | `/.well-known/agent-skills/index.json`                                                           |
+| Auth for agents   | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS)                             |
+| oEmbed            | `/oembed?url=…` for public `/f/…`, `/g/…`, and `/c/…` pages (JSON only; videos iframe `/player`) |
 
 ### Integration surfaces (`/.well-known/integrations.json`)
 

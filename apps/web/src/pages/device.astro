@@ -7,9 +7,11 @@ import {
 } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
 import LegalConsent from "../components/LegalConsent.astro";
+import ProductUpdatesConsent from "../components/ProductUpdatesConsent.astro";
 
 export const prerender = false;
 
@@ -220,6 +222,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
     </style>
   </head>
   <body>
+    <ThemeToggle floating />
     <main>
       <div class="brandbar"><Brand /></div>
       <h1>Authorize device</h1>
@@ -281,6 +284,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         <div class="ul-callout status" id="signin-error" data-state="error" role="alert" hidden>
         </div>
         <LegalConsent />
+        <ProductUpdatesConsent />
       </div>
 
       <div id="sent-state" hidden>

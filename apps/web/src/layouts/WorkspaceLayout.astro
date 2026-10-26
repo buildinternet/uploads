@@ -2,22 +2,19 @@
 /**
  * Workspace shell: `AccountLayout` + content slot + right-rail summary.
  * Section links live in the sidebar switcher; tab routes only wrap content.
- * Rail data is filled by `initWorkspaceRail` (connected work / usage). The
- * usage section only renders with `showUsage` — billing and screenshots set
- * it. Meters on every tab were noise (issue #365 follow-up), but screenshots
- * is the workspace home, so the meters belong there too.
- * `initWorkspaceRail` tolerates `[data-rail-usage]` being absent from the
- * DOM on every other tab.
+ * Rail data is filled by `initWorkspaceRail` (connected work). Usage meters
+ * moved to the sidebar's footer (`SidebarUsage`), so the rail keeps only
+ * page-specific asides.
  *
  * The details section (slug + base URL) that used to sit here was dropped —
  * the switcher/URL already carries the slug and the settings tab has its own
  * slug/public-url summary, so the rail copy was pure duplication. Slug and
- * base URL still render via `renderDetailsHtml`, just on the settings page
- * only.
+ * base URL still render via `renderDetailsHtml`, just in the Storage tab's
+ * Bucket section only.
  *
  * `tip` is a per-page static hint, server-rendered (no JS, no placeholder):
  * one short line, optionally linked. Omit it on pages with nothing worth
- * saying (billing's usage meters already occupy the rail).
+ * saying.
  *
  * The `preview` named slot puts page-specific content at the top of the
  * rail, above connected work / usage / tip / quick actions — the comment-
@@ -27,13 +24,12 @@
  * paired with `wideRail`, widens the rail to ~430px for that column.
  */
 import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
-import { renderUsagePlaceholderHtml } from "../lib/workspace-ui";
+import { workspaceStorageBucketHref } from "../lib/workspace-browse-url";
 import AccountLayout from "./AccountLayout.astro";
+import "../styles/pr-label.css";
 
 interface Props {
   workspace: string;
-  /** Show the rail's usage section. Billing and screenshots — see module doc. */
-  showUsage?: boolean;
   /** Static per-tab hint. `body` may include inline markup (e.g. `<code>`). */
   tip?: { body: string; href?: string; linkLabel?: string; label?: string };
   /**
@@ -50,17 +46,11 @@ interface Props {
   showQuickActions?: boolean;
 }
 
-const {
-  workspace,
-  showUsage = false,
-  tip,
-  wideRail = false,
-  showQuickActions = true,
-} = Astro.props;
+const { workspace, tip, wideRail = false, showQuickActions = true } = Astro.props;
 const hasPreview = Astro.slots.has("preview");
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
-const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settings/storage`;
+const storagePath = workspaceStorageBucketHref(workspace);
 ---
 
 <AccountLayout
@@ -79,7 +69,7 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
     <div class="ws-storage-alert__body">
       <p class="ws-storage-alert__msg" data-storage-health-message></p>
       <a class="ws-storage-alert__link" data-storage-health-link href={storagePath}
-        >Fix storage settings</a
+        >Fix the bucket</a
       >
     </div>
     <button
@@ -104,18 +94,6 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
               <span class="ws-rail__rule" />
             </div>
             <div class="ws-rail__connected-list" data-rail-connected-list />
-          </section>
-        )
-      }
-
-      {
-        showUsage && (
-          <section class="ws-rail__section">
-            <div class="ws-rail__head">
-              <span class="ws-rail__label">usage</span>
-              <span class="ws-rail__rule" />
-            </div>
-            <div class="ws-rail__usage" data-rail-usage set:html={renderUsagePlaceholderHtml()} />
           </section>
         )
       }
@@ -268,16 +246,11 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
     background: var(--panel);
     border: 1px solid var(--line);
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__connected-icon) {
-    width: 14px;
-    height: 14px;
-    color: var(--fg);
-    flex: none;
-  }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta) {
     min-width: 0;
-    display: grid;
-    gap: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a) {
     color: var(--fg);
@@ -285,19 +258,15 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
     font-size: var(--text-meta);
     text-decoration: none;
   }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a.ws-rail__connected-gh) {
+    flex: none;
+    color: var(--muted);
+    font-weight: var(--weight-regular);
+  }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:hover),
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:focus-visible) {
     color: var(--accent);
     outline: none;
-  }
-
-  /* Usage — meters use global `.ul-progress*`; style plain-text fallback only. */
-  :global(.account-shell) .ws-rail :global(.usage-text) {
-    color: var(--muted);
-  }
-  :global(.account-shell) .ws-rail :global(.usage-meta) {
-    margin-top: 8px;
-    color: var(--muted);
   }
 
   /* Tip — server-rendered, static. Filled panel (vs. the plain-list other

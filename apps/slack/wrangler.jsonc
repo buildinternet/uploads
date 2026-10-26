@@ -1,0 +1,77 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-slack",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    // The only origin whose share links this app unfurls.
+    "WEB_ORIGIN": "https://uploads.sh",
+    // Public API origin. Requests go over the API binding when it's bound;
+    // this is the host they're addressed to, and the plain-fetch target in dev.
+    "API_ORIGIN": "https://api.uploads.sh",
+    // This worker's public origin; the OAuth redirect URI is
+    // `${SLACK_ORIGIN}/slack/oauth/callback` and must match manifest.json.
+    "SLACK_ORIGIN": "https://agents.uploads.sh",
+    // The Slack app's public identifiers (not secrets).
+    "SLACK_APP_ID": "A0CA0AWAJCD",
+    "SLACK_CLIENT_ID": "12373944164736.12340370358421",
+    // "on" adds Work Object metadata to unfurls (src/entities.ts). Needs
+    // features.rich_previews in the synced manifest; "off" sends blocks only.
+    "SLACK_WORK_OBJECTS": "on",
+    // Image hosts Slack may open full size (comma-separated). Each needs a CORS
+    // rule allowing https://app.slack.com; see README "Work Objects".
+    "SLACK_FULL_SIZE_HOSTS": "storage.uploads.sh,store.uploads.sh",
+  },
+  // Served as a path on the agent subdomain instead of a hostname of its own.
+  // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same
+  // hostname runs before the Custom Domain worker, so only /slack/* reaches
+  // this worker and everything else still goes to uploads-mcp.
+  "routes": [
+    {
+      "pattern": "agents.uploads.sh/slack/*",
+      "zone_name": "uploads.sh",
+    },
+  ],
+  // Static files (the Work Object icons under public/slack/icons) are served
+  // before the worker runs.
+  "assets": { "directory": "./public" },
+  "workers_dev": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    // Traces back the mention agent's spans (src/tracing.ts) in the
+    // Agents dashboard: model calls with token counts, and tool calls.
+    "traces": {
+      "enabled": true,
+    },
+    "issues": {
+      "enabled": true,
+    },
+  },
+  "upload_source_maps": true,
+  // Preview data comes from uploads-api's public read endpoints
+  // (/public/files|feeds|galleries) over a service binding: no edge
+  // subrequest, and immune to WAF rules on the public origin (see #998).
+  // Without the binding (local dev) the worker falls back to fetch().
+  "services": [
+    {
+      "binding": "API",
+      "service": "uploads-api",
+    },
+  ],
+  // Shared with uploads-api; migrations are managed from apps/api
+  // (slack_installations: 20261018160000_slack_installations.sql).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+    },
+  ],
+  // Secrets, set with `wrangler secret put <NAME> --config apps/slack/wrangler.jsonc`:
+  //   SLACK_SIGNING_SECRET  verifies every inbound request (fail closed: 503 when unset)
+  //   SLACK_CLIENT_SECRET   OAuth client secret for /slack/install (installs answer 503 when unset)
+  //   SLACK_TOKENS_KEY      master key that seals bot tokens in D1 and signs OAuth state (16+ chars)
+  //   OPENROUTER_API_KEY    the mention agent's model calls (same key as uploads-api); unset, mentions say "not yet"
+}

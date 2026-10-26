@@ -5,7 +5,14 @@
  * matches galleries: anyone who knows the URL can view the feed.
  */
 import { type D1Queryable } from "./db-session";
+import type { FeedSource } from "./scope-wire";
 
+/**
+ * Live repo-scoped feeds (`number = 0`) per workspace, whatever their source
+ * (legacy NULL-source rows included). Only user creates are checked against
+ * it. PR- and issue-scoped feeds (`number > 0`) are uncapped from every source
+ * (API, CLI `gh` fallback, GitHub App): they are one row per real PR or issue.
+ */
 export const MAX_FEEDS_PER_WORKSPACE = 50;
 export const MAX_FEED_PAGE_SIZE = 100;
 export const FEED_ITEM_LIMIT = 50;
@@ -14,7 +21,11 @@ export const FEED_REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 export const FEED_KIND_VALUES = ["", "pull", "issue"] as const;
 export type FeedKind = (typeof FEED_KIND_VALUES)[number];
 
-const FEED_SELECT = "id, workspace, repo, path, number, kind, created_at, updated_at, deleted_at";
+const FEED_SELECT =
+  "id, workspace, repo, path, number, kind, source, created_at, updated_at, deleted_at";
+
+/** Who created a feed row. Comment-sync rows are uncapped; see `createFeed`. */
+export type { FeedSource };
 
 export interface FeedRecord {
   id: string;
@@ -23,6 +34,8 @@ export interface FeedRecord {
   path: string;
   number: number;
   kind: FeedKind;
+  /** `null` on rows created before the column existed. */
+  source: FeedSource | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -151,6 +164,7 @@ function row(record: FeedRecord): FeedRecord {
     path: record.path,
     number: Number(record.number) || 0,
     kind: record.kind === "pull" || record.kind === "issue" ? record.kind : "",
+    source: record.source === "comment" || record.source === "user" ? record.source : null,
     created_at: record.created_at,
     updated_at: record.updated_at,
     deleted_at: record.deleted_at,
@@ -212,9 +226,17 @@ export async function findFeedByRepoPath(
   return findFeedByScope(db, workspace, repo, path, 0);
 }
 
-async function countLiveFeeds(db: D1Queryable, workspace: string): Promise<number> {
+/**
+ * Live repo-scoped feeds (`number = 0`), whatever their source. Comment sync
+ * only creates `number > 0` rows, so in practice these are user-created and
+ * legacy (NULL-source) repo feeds. PR/issue-scoped rows do not count.
+ */
+async function countRepoFeeds(db: D1Queryable, workspace: string): Promise<number> {
   const found = await db
-    .prepare(`SELECT COUNT(*) AS count FROM feeds WHERE workspace = ? AND deleted_at IS NULL`)
+    .prepare(
+      `SELECT COUNT(*) AS count FROM feeds
+       WHERE workspace = ? AND deleted_at IS NULL AND number = 0`,
+    )
     .bind(workspace)
     .first<{ count: number }>();
   return found?.count ?? 0;
@@ -230,6 +252,7 @@ export async function createFeed(
     kind?: unknown;
     pr?: unknown;
     issue?: unknown;
+    source?: FeedSource;
     now?: Date;
   },
 ): Promise<FeedMutationResult<FeedRecord>> {
@@ -249,7 +272,16 @@ export async function createFeed(
   );
   if (existing) return { status: "ok", value: existing, created: false };
 
-  if ((await countLiveFeeds(db, input.workspace)) >= MAX_FEEDS_PER_WORKSPACE) {
+  // One live row per scope whatever the source: the lookup above already
+  // returned an existing comment-sync row to a user caller without touching
+  // the cap. Only user creates of repo-scoped feeds are checked against it;
+  // PR/issue-scoped feeds (number > 0) are uncapped whatever the source.
+  const source: FeedSource = input.source ?? "user";
+  if (
+    source === "user" &&
+    scopeResult.value.number === 0 &&
+    (await countRepoFeeds(db, input.workspace)) >= MAX_FEEDS_PER_WORKSPACE
+  ) {
     return { status: "limit", limit: MAX_FEEDS_PER_WORKSPACE };
   }
 
@@ -261,14 +293,15 @@ export async function createFeed(
     path: pathResult.value,
     number: scopeResult.value.number,
     kind: scopeResult.value.kind,
+    source,
     created_at: now,
     updated_at: now,
     deleted_at: null,
   };
   await db
     .prepare(
-      `INSERT INTO feeds (id, workspace, repo, path, number, kind, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      `INSERT INTO feeds (id, workspace, repo, path, number, kind, source, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     )
     .bind(
       record.id,
@@ -277,6 +310,7 @@ export async function createFeed(
       record.path,
       record.number,
       record.kind,
+      record.source,
       record.created_at,
       record.updated_at,
     )

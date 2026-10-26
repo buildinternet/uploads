@@ -19,16 +19,16 @@ pnpm typecheck        # wrangler types + tsc across workspaces
 ## Named local URLs (portless)
 
 `pnpm dev:stack` runs through [portless](https://npmjs.com/portless) on the
-shared `local.buildinternet.dev` infra zone, same as the sibling repos. WEB
-gets a stable named HTTPS origin instead of a bare port. Google and Apple
-reject `*.localhost` redirect URIs; this hostname is a real Public Suffix
-domain that they accept.
+project's own `local.uploadrouter.dev` zone. WEB gets a stable named HTTPS
+origin instead of a bare port. Many OAuth providers reject `*.localhost`
+redirect URIs; this hostname is a real public domain, so a provider's
+callback can point at it.
 
-| Service | URL                                       | Browser-visible?                                      |
-| ------- | ----------------------------------------- | ----------------------------------------------------- |
-| web     | `https://uploads.local.buildinternet.dev` | yes — the only origin the browser talks to            |
-| auth    | plain loopback (dynamic)                  | no — internal upstream behind web's `/api/auth` proxy |
-| api     | plain loopback (dynamic)                  | no — internal upstream behind web's `/api` proxy      |
+| Service | URL                              | Browser-visible?                                      |
+| ------- | -------------------------------- | ----------------------------------------------------- |
+| web     | `https://local.uploadrouter.dev` | yes — the only origin the browser talks to            |
+| auth    | plain loopback (dynamic)         | no — internal upstream behind web's `/api/auth` proxy |
+| api     | plain loopback (dynamic)         | no — internal upstream behind web's `/api` proxy      |
 
 The name and TLD live in the repo (`portless.json` plus `PORTLESS_TLD=dev` on
 `dev:stack`). You do not set `PORTLESS_NAME` in a local env file. A short
@@ -45,22 +45,34 @@ as plain `127.0.0.1` loopback processes on ports assigned dynamically at boot
 is host-only on the web origin (same shape as prod's host-only `uploads.sh`
 cookie), and signed-in pages (`/account/*`, `/admin/*`) just work in a local
 browser, including agent browser panels. In a linked git worktree, portless
-prefixes the branch name (`fix-ui.uploads.local.buildinternet.dev`); nothing
+prefixes the branch name (`fix-ui.local.uploadrouter.dev`); nothing
 else changes. `dev:stack` prints the resolved `previewUrl` when ready, and
 `pnpm dev:stack:check --json` reports it too.
 
-The zone is deliberately not under uploads.sh. Prod's session cookie is
+The zone is deliberately not under uploads.sh, and not shared with other
+projects. Prod's session cookie is
 host-only on `uploads.sh`, and keeping local dev off that host means a local
 stack never shares an origin with production. DNS:
-`local.buildinternet.dev` + `*.local.buildinternet.dev` are public DNS-only
+`local.uploadrouter.dev` + `*.local.uploadrouter.dev` are public DNS-only
 A records → `127.0.0.1` (never proxy them), so the names resolve to loopback
 on any machine, worktree prefixes included.
 `pnpm exec portless hosts sync` is only a fallback for offline work.
 
-Register OAuth redirect URIs on the web origin:
-`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
-Auth has no named subdomain — it is a loopback upstream that web forwards
-`/api/auth/*` to. `pnpm dev:stack:oauth` is an alias of `pnpm dev:stack`.
+GitHub is the only sign-in provider. The dev GitHub OAuth app registers
+these redirect URIs:
+
+| Redirect URI                                              | Stack                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------ |
+| `https://local.uploadrouter.dev/api/auth/callback/github` | `pnpm dev:stack` (wildcard matching on, for worktrees) |
+| `http://127.0.0.1:4321/api/auth/callback/github`          | `pnpm dev:stack:raw`                                   |
+| `http://127.0.0.1:8788/api/auth/callback/github`          | legacy: auth worker run directly on its own port       |
+
+Better Auth derives the `redirect_uri` from `BETTER_AUTH_URL`, which is the
+web origin in both stacks, so real GitHub sign-in works with no override. A
+new provider registers `https://local.uploadrouter.dev/api/auth/callback/<provider>`
+the same way. Auth has no named subdomain — it is a loopback upstream that
+web forwards `/api/auth/*` to. `pnpm dev:stack:oauth` is an alias of
+`pnpm dev:stack`.
 
 The zero-input `/api/auth/dev-session` bypass stays fail-closed: it only
 enables for a recognized local-stack web-origin shape (the pinned loopback
@@ -80,15 +92,9 @@ Notes:
   pinned loopback ports (`127.0.0.1:4321/8787/8788`) — same-origin mode there
   too (the auth worker's `BETTER_AUTH_URL` is set to the web origin,
   `http://127.0.0.1:4321`, even though the worker process itself still
-  listens on its own pinned `:8788`). This raw mode is also the path to use
-  when testing the dev GitHub OAuth app, whose callback is pinned to
-  `http://127.0.0.1:8788/api/auth/callback/github` — note that pinned
-  callback is now a DIFFERENT origin than `BETTER_AUTH_URL`
-  (`http://127.0.0.1:4321`), so Better Auth's derived `redirect_uri` won't
-  match it; day-to-day GitHub sign-in testing should stay on the
-  `dev-session` bypass below, or temporarily point `BETTER_AUTH_URL` back at
-  `http://127.0.0.1:8788` (see `apps/auth/.dev.vars.example`) to exercise the
-  real GitHub OAuth flow. The `stack-raw` launch config (.claude/launch.json)
+  listens on its own pinned `:8788`). Real GitHub sign-in works here too,
+  through the `127.0.0.1:4321` redirect URI above. The `stack-raw` launch
+  config (.claude/launch.json)
   boots the same thing with a port-based preview; in portless mode the web
   port is dynamic, so open the printed `previewUrl` directly instead.
 
@@ -126,15 +132,15 @@ curl -X PUT http://127.0.0.1:8787/v1/default/files/test.txt \
   --data-binary "hello"
 ```
 
-## Verifying the screenshots page with real thumbnails
+## Verifying the Files By page view with real thumbnails
 
-`/account/workspaces/[name]/screenshots` needs a signed-in session, fixture
+`/account/workspaces/[name]/files?view=pages` needs a signed-in session, fixture
 uploads, and a place to actually serve their bytes from — none of which the
 smoke test above sets up. This recipe uses the raw loopback stack
 (`pnpm dev:stack:raw`, or `pnpm dev` + `pnpm dev:auth` + `pnpm dev:web`
 separately) so thumbnail bytes can come from a loopback `publicBaseUrl`.
 `pnpm dev:stack` also enables the `dev-session` bypass on
-`https://uploads.local.buildinternet.dev`. A few steps here aren't obvious
+`https://local.uploadrouter.dev`. A few steps here aren't obvious
 from the API alone:
 
 1. **Sign in with the `dev-session` bypass, from a page already on

@@ -1,0 +1,154 @@
+---
+/**
+ * Workspace settings — Previews sub-page: the PDF first-page preview and
+ * video poster switches. Hidden until the admin-gated load lands; a member
+ * who isn't an admin gets a note instead.
+ */
+import SettingRow from "../../../../../components/settings/SettingRow.astro";
+import SettingSwitch from "../../../../../components/settings/SettingSwitch.astro";
+import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+---
+
+<WorkspaceLayout workspace={workspace}>
+  <section class="card settings-page">
+    <div id="previews-forbidden" class="ul-callout" data-state="muted" role="status" hidden>
+      Only workspace admins and owners can change preview settings.
+    </div>
+    <div class="settings-section" id="poster-section" hidden>
+      <h2>Previews</h2>
+      <p class="settings-note muted">
+        These switches save either way, and they take effect when poster generation is on for the
+        platform.
+      </p>
+      <div id="poster-error" class="ul-callout" data-state="error" role="alert" hidden></div>
+      <div class="setting-rows">
+        <SettingRow
+          label="PDF first-page previews"
+          description="A preview of the first page, shown in comments and on the file page."
+        >
+          <SettingSwitch id="poster-pdf" label="PDF first-page previews" />
+        </SettingRow>
+        <SettingRow
+          label="Video posters"
+          description="A still frame from the video, shown in comments and on the file page."
+        >
+          <SettingSwitch id="poster-video" label="Video posters" />
+        </SettingRow>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../../../lib/account-shell";
+    import {
+      getWorkspacePosterSettings,
+      patchWorkspacePosterSettings,
+      type PosterSettings,
+    } from "../../../../../lib/api-client";
+    import { setRowStatus } from "../../../../../lib/setting-row-status";
+    import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
+    onAstroPageLoad(() => {
+      const sectionEl = document.getElementById("poster-section");
+      if (!sectionEl) return;
+      const section = sectionEl;
+
+      const page = "workspace poster settings";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      const pdfToggle = requireElement<HTMLButtonElement>("#poster-pdf", page);
+      const videoToggle = requireElement<HTMLButtonElement>("#poster-video", page);
+      const errorEl = requireElement<HTMLElement>("#poster-error", page);
+      const forbiddenEl = requireElement<HTMLElement>("#previews-forbidden", page);
+
+      function toggleOn(btn: HTMLButtonElement): boolean {
+        return btn.getAttribute("aria-checked") === "true";
+      }
+      function paintToggle(btn: HTMLButtonElement, on: boolean): void {
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+      }
+      function showError(message: string | null): void {
+        if (!message) {
+          errorEl.hidden = true;
+          errorEl.textContent = "";
+          return;
+        }
+        errorEl.hidden = false;
+        errorEl.textContent = message;
+      }
+      function paint(settings: PosterSettings): void {
+        paintToggle(pdfToggle, settings.pdfPosterEnabled);
+        paintToggle(videoToggle, settings.videoPosterEnabled);
+      }
+
+      function setBusy(busy: boolean): void {
+        pdfToggle.disabled = busy;
+        videoToggle.disabled = busy;
+      }
+      function wire(btn: HTMLButtonElement, key: "pdfPosterEnabled" | "videoPosterEnabled"): void {
+        btn.addEventListener("click", () => {
+          const desired = !toggleOn(btn);
+          paintToggle(btn, desired);
+          setBusy(true);
+          showError(null);
+          setRowStatus(btn, "saving");
+          void (async () => {
+            const result = await patchWorkspacePosterSettings(apiOrigin, workspaceName, {
+              [key]: desired,
+            });
+            if (!stillHere()) return;
+            setBusy(false);
+            if (result.kind === "ok") {
+              paint(result.settings);
+              setRowStatus(btn, "saved");
+              return;
+            }
+            paintToggle(btn, !desired);
+            setRowStatus(btn, "clear");
+            showError(result.kind === "invalid" ? result.message : "Couldn’t save. Try again.");
+          })();
+        });
+      }
+
+      wire(pdfToggle, "pdfPosterEnabled");
+      wire(videoToggle, "videoPosterEnabled");
+
+      async function loadPosterSettings(): Promise<void> {
+        const result = await getWorkspacePosterSettings(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind !== "ok") {
+          if (result.reason === "forbidden") forbiddenEl.hidden = false;
+          return;
+        }
+        paint(result.settings);
+        section.hidden = false;
+      }
+
+      onSession(() => {
+        void loadPosterSettings();
+      });
+    });
+  </script>
+</WorkspaceLayout>

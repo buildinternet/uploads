@@ -115,7 +115,7 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghAttachmentKey(pr, "my shot (1).png")).toBe(
-      "gh/buildinternet/uploads/pull/123/my-shot--1-.png",
+      "gh/buildinternet/uploads/pull/123/my-shot-1.png",
     );
   });
 });
@@ -136,7 +136,7 @@ describe("ghBranchKeyPrefix / ghBranchAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghBranchAttachmentKey("o/r", "main", "my shot (1).png")).toBe(
-      "gh/o/r/branch/main/my-shot--1-.png",
+      "gh/o/r/branch/main/my-shot-1.png",
     );
   });
 });
@@ -165,7 +165,7 @@ describe("ghPrivateKeyPrefix / ghPrivateAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghPrivateAttachmentKey(PREFIX_ID, pr, "my shot (1).png")).toBe(
-      `gh/private/${PREFIX_ID}/pull/12/my-shot--1-.png`,
+      `gh/private/${PREFIX_ID}/pull/12/my-shot-1.png`,
     );
   });
   it("throws when prefixId fails the 32-lowercase-hex shape", () => {
@@ -174,8 +174,7 @@ describe("ghPrivateKeyPrefix / ghPrivateAttachmentKey", () => {
     expect(() => ghPrivateKeyPrefix(PREFIX_ID.slice(0, 31), pr)).toThrow();
     expect(() => ghPrivateAttachmentKey("bad", pr, "x.png")).toThrow();
   });
-  it("GH_PRIVATE_ROOT is the shared literal prefix", () => {
-    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
+  it("private prefixes start with GH_PRIVATE_ROOT", () => {
     expect(ghPrivateKeyPrefix(PREFIX_ID, pr).startsWith(GH_PRIVATE_ROOT)).toBe(true);
   });
 });
@@ -191,7 +190,7 @@ describe("ghPrivateBranchKeyPrefix / ghPrivateBranchAttachmentKey", () => {
   });
   it("sanitizes filename characters", () => {
     expect(ghPrivateBranchAttachmentKey(PREFIX_ID, "my shot (1).png")).toBe(
-      `gh/private/${PREFIX_ID}/branch/my-shot--1-.png`,
+      `gh/private/${PREFIX_ID}/branch/my-shot-1.png`,
     );
   });
   it("throws when prefixId fails the 32-lowercase-hex shape", () => {
@@ -457,5 +456,44 @@ describe("attachmentsCommentBody", () => {
     expect(body).not.toContain("<code>/</code>");
     expect(body).not.toContain("/ · before");
     expect(body).toContain("<code>before</code>");
+  });
+
+  it("captions an app screen, alongside the path when both are set", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/chat.webp",
+        url: "https://x.test/chat.webp",
+        embedUrl: "https://embed.test/chat.webp",
+        meta: { screen: "Chat" },
+      },
+      {
+        key: "gh/o/r/pull/1/thread.webp",
+        url: "https://x.test/thread.webp",
+        embedUrl: "https://embed.test/thread.webp",
+        meta: { screen: "Thread", path: "/chat/[id]" },
+      },
+    ]);
+    expect(body).toContain("<code>Chat</code>");
+    expect(body).toContain("<code>Thread</code> · <code>/chat/[id]</code>");
+  });
+
+  it("pairs a before and after by screen", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/one.webp",
+        url: "https://x.test/one.webp",
+        embedUrl: "https://embed.test/one.webp",
+        meta: { screen: "Chat", state: "before" },
+      },
+      {
+        key: "gh/o/r/pull/1/two.webp",
+        url: "https://x.test/two.webp",
+        embedUrl: "https://embed.test/two.webp",
+        meta: { screen: "Chat", state: "after" },
+      },
+    ]);
+    expect(body).toContain("Before");
+    expect(body).toMatch(/one\.webp[\s\S]*<code>Chat<\/code>[\s\S]*two\.webp/);
+    expect(body.match(/<td align="center">/g)?.length).toBe(2);
   });
 });

@@ -1,10 +1,11 @@
 /**
  * Expressive Code presentation for the site's fenced code blocks.
  *
- * The palette is dark by construction (see packages/ui/src/tokens.css), so a
- * single dark theme is configured rather than a light/dark pair — `vitesse-dark`
- * is the theme the hand-rolled `<Code>` YAML example on /docs/comment-config
- * already used, so highlighting stays continuous across the migration.
+ * Two themes, renamed to `dark` and `light` so they follow the same
+ * `data-theme` attribute the rest of the site uses. `vitesse-dark` stays the
+ * base (no selector) so a block renders dark before the theme script runs.
+ * The media query is off: an explicit Dark choice must not flip back to light
+ * because the OS prefers light.
  *
  * `styleOverrides` maps Expressive Code's own settings onto the site's design
  * tokens (panel surface, hairline border, mono face, meta type size) so a code
@@ -16,9 +17,11 @@
  * @type {import("astro-expressive-code").AstroExpressiveCodeOptions}
  */
 export const expressiveCodeOptions = {
-  themes: ["vitesse-dark"],
-  // The site has one theme; no media query or class selector to switch on.
+  themes: ["vitesse-dark", "vitesse-light"],
   useDarkModeMediaQuery: false,
+  customizeTheme: (theme) => {
+    theme.name = theme.type === "light" ? "light" : "dark";
+  },
   defaultProps: {
     frame: "none",
     // Commands and config stay on one line each, so a wrapped flag never
@@ -56,7 +59,7 @@ export const expressiveCodeOptions = {
       terminalTitlebarForeground: "var(--muted)",
       terminalTitlebarBorderBottomColor: "var(--line)",
       inlineButtonBorder: "var(--line)",
-      inlineButtonForeground: "var(--accent)",
+      inlineButtonForeground: "var(--muted)",
       inlineButtonBackgroundActiveOpacity: "0.2",
       inlineButtonBackgroundHoverOrFocusOpacity: "0.12",
       tooltipSuccessBackground: "var(--green)",

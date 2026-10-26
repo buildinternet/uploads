@@ -22,6 +22,7 @@ import {
   startLocalDemoSession,
   submitOAuthConsent,
   unbanUser,
+  updateDigestPreference,
   updateNotifyMemberJoin,
   updateNotifyUsageLimits,
   upgradeOrganizationSubscription,
@@ -796,9 +797,9 @@ describe("isLocalDemoStack", () => {
     expect(isLocalDemoStack("http://uploads.localhost:1355")).toBe(true);
   });
 
-  it("matches the owned local.buildinternet.dev zone, including worktree-prefixed", () => {
-    expect(isLocalDemoStack("https://uploads.local.buildinternet.dev")).toBe(true);
-    expect(isLocalDemoStack("https://fix-ui.uploads.local.buildinternet.dev")).toBe(true);
+  it("matches the owned local.uploadrouter.dev zone, including worktree-prefixed", () => {
+    expect(isLocalDemoStack("https://local.uploadrouter.dev")).toBe(true);
+    expect(isLocalDemoStack("https://fix-ui.local.uploadrouter.dev")).toBe(true);
   });
 
   it("rejects production and other non-local-stack origins", () => {
@@ -961,6 +962,33 @@ describe("updateNotifyUsageLimits", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("nope", { status: 500 }));
     expect(await updateNotifyUsageLimits("", true)).toBe(false);
+    fetchMock.mockRestore();
+  });
+});
+
+describe("updateDigestPreference", () => {
+  it("POSTs one workspace switch and returns true on ok", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    const ok = await updateDigestPreference("", "org-acme", { notifyWeeklyDigest: true });
+    expect(ok).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/auth/digest-preferences");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      organizationId: "org-acme",
+      notifyWeeklyDigest: true,
+    });
+    fetchMock.mockRestore();
+  });
+
+  it("returns false on a non-ok response", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("nope", { status: 500 }));
+    expect(
+      await updateDigestPreference("", "org-acme", { notifyWeeklyWorkspaceDigest: false }),
+    ).toBe(false);
     fetchMock.mockRestore();
   });
 });

@@ -21,10 +21,12 @@ import { BLOB_ORDER } from "./adoption";
 import { fillDaySeries, normalizeUtcDay } from "./day-series";
 import { windowStart } from "./adoption-queries";
 import { SLOW_OP_BLOB_ORDER } from "./slow-op-analytics";
+import type { ClassifierCostDay, ClassifierCostSeries } from "./classifier-admin-wire";
 
 const SQL_ENDPOINT = "https://api.cloudflare.com/client/v4/accounts";
 const DATASET = "uploads_adoption";
 const SLOW_OP_DATASET = "uploads_slow_ops";
+const CLASSIFIER_CALL_DATASET = "uploads_classifier_calls";
 
 /**
  * Dimensions the breakdown panel lets an operator group by — a DELIBERATELY
@@ -291,6 +293,76 @@ export async function fetchSlowOps(
       return { available: false, reason: "query_failed" };
     }
     return { available: true, rows: (payload.data as SlowOpRow[] | undefined) ?? [] };
+  } catch {
+    return { available: false, reason: "query_failed" };
+  }
+}
+
+/**
+ * Per-day Decisions calls and their summed `usage.cost` from
+ * `uploads_classifier_calls` (written by `classifier-call-analytics.ts`).
+ * `double1` is the cost, -1 when a response carried none, and `double2`
+ * the input tokens. Input tokens of priced calls are summed apart so the
+ * page can scale cost per input token to the calls without one.
+ */
+export function classifierCostSeriesQuery(days: number): string {
+  const window = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
+  return `SELECT formatDateTime(toStartOfInterval(timestamp, INTERVAL '1' DAY), '%Y-%m-%d') AS day,
+                 SUM(_sample_interval) AS calls,
+                 SUM(double2 * _sample_interval) AS inputTokens,
+                 SUM(if(double1 >= 0, double2 * _sample_interval, 0)) AS pricedInputTokens,
+                 SUM(if(double1 >= 0, double1 * _sample_interval, 0)) AS cost
+          FROM ${CLASSIFIER_CALL_DATASET}
+          WHERE timestamp > NOW() - INTERVAL '${window}' DAY
+          GROUP BY day
+          ORDER BY day`;
+}
+
+export async function fetchClassifierCostSeries(
+  env: Env,
+  days: number,
+  fetchImpl: typeof fetch = fetch,
+  now = new Date(),
+): Promise<ClassifierCostSeries> {
+  const account = (env as { CLOUDFLARE_ACCOUNT_ID?: string }).CLOUDFLARE_ACCOUNT_ID;
+  const token = (env as { ANALYTICS_API_TOKEN?: string }).ANALYTICS_API_TOKEN;
+  if (!account || !token) return { available: false, reason: "not_configured" };
+
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
+
+  try {
+    const res = await fetchImpl(`${SQL_ENDPOINT}/${account}/analytics_engine/sql`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: classifierCostSeriesQuery(days),
+    });
+    if (!res.ok) return { available: false, reason: "query_failed" };
+    const payload = (await res.json()) as { data?: unknown };
+    if (payload.data !== undefined && !Array.isArray(payload.data)) {
+      return { available: false, reason: "query_failed" };
+    }
+    const points: ClassifierCostDay[] = [];
+    for (const row of (payload.data as Array<Record<string, unknown>> | undefined) ?? []) {
+      const day = normalizeUtcDay(row.day);
+      if (!day) continue;
+      points.push({
+        day,
+        calls: Number(row.calls) || 0,
+        inputTokens: Number(row.inputTokens) || 0,
+        pricedInputTokens: Number(row.pricedInputTokens) || 0,
+        cost: Number(row.cost) || 0,
+      });
+    }
+    return {
+      available: true,
+      days: fillDaySeries(windowStart(windowDays, now), windowDays, points, (day) => ({
+        day,
+        calls: 0,
+        inputTokens: 0,
+        pricedInputTokens: 0,
+        cost: 0,
+      })),
+    };
   } catch {
     return { available: false, reason: "query_failed" };
   }

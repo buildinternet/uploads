@@ -2,6 +2,12 @@ packages:
   - apps/*
   - packages/*
   - scripts/demos
+overrides:
+  "@modelcontextprotocol/sdk": ^1.32.0
+  hono: ^4.13.13
+  "@hono/node-server": ^1.19.15
+  "undici@7": ^7.29.1
+  "undici@8": ^8.10.2
 allowBuilds:
   "@parcel/watcher": false
   esbuild: true
@@ -25,7 +31,7 @@ minimumReleaseAgeExclude:
   - "@aws-sdk/s3-request-presigner@3.1080.0"
   - "@aws-sdk/token-providers@3.1080.0"
   - "@cloudflare/workers-types@5.20260706.1"
-  - files-sdk@2.2.4 || 2.3.1
   - hono@4.12.28
 patchedDependencies:
   "@better-auth/oauth-provider": patches/@better-auth__oauth-provider.patch
+  pngjs@7.0.0: patches/pngjs@7.0.0.patch

@@ -23,18 +23,18 @@ import * as schema from "./schema";
 export const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 
 /**
- * Default portless hostname (TLD `dev` + name `uploads.local.buildinternet`).
+ * Default portless hostname (TLD `dev` + name `local.uploadrouter`).
  * Keep in sync with `portless.json`, `PORTLESS_BASE` in
  * `scripts/dev-stack-common.mjs`, and `isLocalDemoStack` in the web app.
  */
-export const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
+export const LOCAL_STACK_DEV_HOST = "local.uploadrouter.dev";
 
 /**
  * True for a local-stack WEB origin shape: the raw stack's pinned loopback
  * port, a leftover portless `*.localhost` origin (optionally worktree-
  * prefixed, optionally on the sudo-less proxy port), or the owned
- * `uploads.local.buildinternet.dev` zone (same sibling convention as Either;
- * worktree prefix `fix-ui.uploads.local.buildinternet.dev`). Bare
+ * `local.uploadrouter.dev` zone (the project's dedicated dev domain;
+ * worktree prefix `fix-ui.local.uploadrouter.dev`). Bare
  * `uploads.dev` is not local — that is the collision you get if the app name
  * stays `uploads` under `--tld dev`.
  */
@@ -68,7 +68,7 @@ const DEMO_ORGANIZATION = { id: "local-dev-demo-org", slug: "dev-demo", name: "D
  * see scripts/dev-stack.mjs), so this requires that equality PLUS a
  * recognized local-stack web-origin shape (the raw stack's pinned loopback
  * port, a leftover `*.localhost` origin, or the owned
- * `uploads.local.buildinternet.dev` zone). Unrelated real TLDs never enable
+ * `local.uploadrouter.dev` zone). Unrelated real TLDs never enable
  * the bypass, even if they happen to be same-origin.
  */
 export function localDemoEnabled(env: AuthEnv): boolean {

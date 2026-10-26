@@ -43,8 +43,10 @@ Same product, two transports. Skills do not install a binary.
 | Need                                                  | Use                                             | Why                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
+| File on a sandbox disk, shell but no CLI              | Hosted MCP `sign_upload_url`                    | Returns one URL + `curl -T` line per file (15 min, up to the plan's upload limit). The PUT response is `put`'s JSON. With `pr`/`issue`, call `comment` once after. Sandbox must allow agents.uploads.sh.                                                                                                               |
 | File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
 | List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
+| Recent tagged files, by pull request or by repo       | Hosted MCP `list_activity` / `list_repo_files`  | Hosted only. `list_activity` groups by pull (default) or repo. `list_repo_files` needs `repo`. Times are tag metadata, not upload time. Does not publish a feed.                                                                                                                                                       |
 | Live page of this PR's (or repo's) screenshots        | Either                                          | CLI `uploads feed create` or MCP `feed_create`. Repo-wide: `repo` only. One PR: `repo` + `pr`, or `github` (`owner/repo#123` / a GitHub URL). Same product — not a curated gallery. `feed_get` / `uploads feed show` opens an existing feed.                                                                           |
 | Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                                                                                                                                               |
 | `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                                                                                                                                                                               |
@@ -107,15 +109,67 @@ uploads staged --format json
 ```
 
 Same branch/repo resolution as `attach --branch` (current git branch by
-default, worktree-safe). Files already promoted to a PR (`gh.status=promoted`)
-are not listed. Human mode prints one compact line per staged file
-(filename, size, `gh.staged-at`, public URL), then a `binding:` line and
-`once the PR exists: uploads attach --promote` (the promote line is omitted
-for `binding: other` — promoting from a non-owning workspace would be
-rejected by the cross-tenant gate). Nothing staged prints a
-single zero-state line. `--format json` (or global `--json`) always emits a
-valid document — `{ repo, branch, files, binding }` — even with zero files;
-`files` is `[]`, never empty stdout.
+default, worktree-safe). A file already on a pull request is not listed.
+That includes `gh.status=promoted`, a `gh.promoted-to` or `gh.promoted-at`
+marker, and a pull-request copy of the same filename whose copy is at least
+as new as `gh.staged-at`. A newer re-stage of that filename stays. On a
+private repo the staged key is `gh/private/<id>/branch/<filename>`. The
+branch name is not in the key, because the id belongs to one branch.
+`uploads staged --branch` lists that id and keeps a file whose `gh.branch`
+is that branch. A file with no `gh.branch` stays, because it was listed
+under this branch's prefix. A file with `gh.status=unstaged` is omitted.
+`uploads staged` never writes.
+
+**Release held files: `uploads approve`.** The classifier can hold a file
+it thinks shows a secret or sensitive personal data. The managed comment then
+shows `🔒 N files are held for review` instead of the image. Check each file
+before approving; if it shows a real credential, rotate it and replace the
+file. Needs `files:write`.
+
+```bash
+uploads approve --pr 123          # list held files and why; changes nothing
+uploads approve --pr 123 --all    # approve every held file on the PR
+uploads approve gh/owner/name/pull/123/settings.png
+```
+
+From MCP: `list_held` (pass `pr`/`issue`, plus `repo` on the hosted server)
+lists held files and why, and `approve` takes `keys` or a `pr`/`issue`.
+`get_metadata` still answers for a held file and shows `ai.hold=pending`.
+The classifier decides after the upload returns, so a put that may still be
+held carries `holdCheck: "pending"`. Later syncs of the PR comment report
+`held: <n>` (and the CLI prints a line) while files there are held.
+
+**Clear a branch: `uploads unstage`.** Marks files `gh.status=unstaged` so
+they drop out of `uploads staged`, auto-promotion, and the Claude plugin
+band. The object and its URL stay. Needs `files:write`, not `files:delete`.
+
+```bash
+uploads unstage --branch feature/thing
+uploads unstage --branch feature/thing --repo owner/name --dry-run
+uploads unstage gh/owner/name/branch/feature-thing/shot.png
+```
+
+`--branch` does not default to the current git branch. Pass keys instead of
+`--branch` to unstage those objects, including one that was already promoted.
+On a private repo the command lists this branch's prefix ids
+(`gh/private/<id>/branch/…`), the same set `uploads staged` uses. Keys and
+`--branch` together are an error.
+
+Local stdio MCP mirrors this as `unstage` (`branch` or `keys`, optional
+`repo` and `dryRun`). The hosted MCP tool is also `unstage`. Hosted has no
+git defaults, so `repo` is required with `branch`.
+
+`uploads list` has no `--branch`. An unknown flag, including `--branch`, is
+an error. Use `uploads staged --branch <name>`.
+
+Human mode prints one compact line per staged file (filename, size,
+`gh.staged-at`, public URL), then a `binding:` line and `once the PR exists:
+uploads attach --promote` (the promote line is omitted for `binding: other`
+— promoting from a non-owning workspace would be rejected by the
+cross-tenant gate). Nothing staged prints a single zero-state line.
+`--format json` (or global `--json`) always emits a valid document —
+`{ repo, branch, files, binding }` — even with zero files; `files` is `[]`,
+never empty stdout.
 
 `binding` folds in the same repo↔workspace check the stage-time warning uses
 (see "Repo binding" below), so you don't have to separately reason about it:
@@ -284,8 +338,14 @@ agent as `UPLOADS_TOKEN`, or an enrollment code (`upe_…`, an alternative invit
 when you don't have the recipient's email) can be exchanged with `uploads login --code`.
 Neither is the normal path for new setups.
 
-The resulting token defaults to 90 days and `files:read` plus `files:write`; it cannot
-delete files unless an administrator explicitly grants `files:delete`. Verify or inspect
+The resulting token defaults to 90 days and `files:read` plus `files:write`. In its
+last week the CLI warns once a day on stderr; `uploads login --force` renews it. That
+token can delete a `gh/` object the server stamped as that user's. Files uploaded
+before that stamp, someone else's object, a non-`gh/` key, and running
+`purge-expired` still needs `files:delete`. A missing scope returns 403
+`insufficient_scope` and names the scope plus
+`https://uploads.sh/account/developers`. A service token or a legacy token with
+no uploader id cannot use the own-object path. Verify or inspect
 setup at any time:
 
 ```bash
@@ -558,7 +618,7 @@ provenance) — tag uploads at put time, then find them later.
 
 ### The canonical vocabulary
 
-Metadata is only useful if it is spelled the same way every time. These ten keys
+Metadata is only useful if it is spelled the same way every time. These eleven keys
 are the agreed vocabulary; **most are derived for you**, so the main job is not
 to fight them by inventing a different spelling.
 
@@ -574,15 +634,23 @@ to fight them by inventing a different spelling.
 | `captured` | auto — image EXIF          | `2026-07-20T20:35:39`          |
 | `state`    | **you** — `--state`        | `before` \| `after`            |
 | `app`      | **you** — `--app`          | `web` \| `ios`                 |
+| `screen`   | **you** — `--screen`       | `Chat`                         |
 
 **`path` and `state` are the two highest-value keys — pass both, every time,
 as a habit.** `path` is the key most worth getting right (the one agents most
-often misspell as `route`, `page`, or `screen` — a near-miss warns on stderr
+often misspell as `route` or `page` — a near-miss warns on stderr
 and suggests the canonical spelling, but is never rewritten for you, so fix it
 at the source) and `state` captures the before/after pattern that dominates
 PR screenshots — nothing can infer either one from the image alone. `state` is
 a closed set: `before`, `after`, `empty`, `error`, `loading` (a near-miss like
 `--state post` fails fast and suggests `after`).
+
+**Mobile and desktop app shots have screens, not routes.** Name the screen
+with `--screen` (sets `screen=`), using the name your app or team uses for
+it, e.g. `--app ios --screen "Chat"`. If the app has real routes (Expo
+Router, a deep link path), pass `path` as well. The PR comment shows
+`screen` and `path` under the image whenever they are set (both when both
+are), and before/after shots pair on them.
 
 `uploads screenshot` derives `path` automatically from the captured URL, so
 you only need to add `--state`. `uploads put`/`uploads attach` of an
@@ -590,13 +658,15 @@ already-existing file have nothing to derive `path` from, so pass it
 explicitly with `--meta path=/route` — and `attach`/`put --pr`/`put --issue`
 print a `tip: add --meta path=/route so this shot is findable by page` on
 stderr (plus a JSON `hint` field) when an image lands with no `path` meta, as
-a reminder (respects `--quiet`).
+a reminder (respects `--quiet`). A `screen` counts too, and when the image
+is from a non-web `--app` the tip suggests `--screen <name>` instead.
 
 ```bash
 uploads screenshot https://app.example/settings --state before
 # → stamps url, path=/settings, viewport, state=before
 
 uploads put ./after.png --pr 123 --meta path=/settings --state after --app web
+uploads put ./chat.png --pr 123 --app ios --screen "Chat" --state after
 uploads find path=/settings state=after        # what it was all for
 ```
 
@@ -626,7 +696,7 @@ lens serial numbers, `Artist`/`Copyright`/`OwnerName`, and free-form user
 comments. Note the flip side: `device` and `software` were previously discarded
 and now become queryable metadata that renders on the public `/f/` page.
 
-**Precedence:** explicit `--meta`/`--state`/`--app` > screenshot capture facts >
+**Precedence:** explicit `--meta`/`--state`/`--app`/`--screen` > screenshot capture facts >
 sidecar manifest > EXIF > unset. Derived keys are also dropped first if the
 24-key cap is reached — your own keys are never dropped, and a full key
 budget never fails an upload.
@@ -674,18 +744,45 @@ know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
 
 **Experimental AI labels (`ai.*`).** Off by default. When Flagship
 `llm-file-classifier` serves on for the workspace slug (`org` / `workspace`
-targeting context), a server-mediated put may later write `ai.tags`
-(up to five kebab-case labels), `ai.summary`, `ai.kind`
+targeting context), a server-mediated put may later write `ai.kind`
 (`screenshot|photo|diagram|document|code|ui|other`), `ai.surface`
 (`mobile|desktop|tablet|unknown`), `ai.screen`
 (`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`),
-and `ai.classifier=v2`.
+and `ai.classifier=v5` (`v6` when the image was resized for Jev, `v4` when a
+Luna try is on, `skipped` when the model does not see an image). `ai.skip`
+is `small`, `unsupported`, `resize_failed`, or `resize_timeout`. A skip
+writes no kind, surface, screen, or safety value. A failed call writes
+`ai.classifier=failed` and `ai.error` (`timeout|provider_error|no_answer`). The same call may also
+write internal `ai.rating`
+(`safe|suggestive|explicit`), `ai.content`
+(`none|sexual|violence|gore|drugs|hate|self_harm|other`), `ai.secret`
+(`none|api_key|password|private_key|token|connection_string|other`), and
+`ai.pii` (`none|contact|identity_document|financial|other`). Each stored
+flag also gets `ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up
+to 0.85), or `low` (0.50 up to 0.70). Those four flags are internal: they
+are not chips, and public pages, galleries, feeds, embeds, and pull request
+comments omit them. A high-confidence `ai.secret` (not `none`), or a
+high-confidence `ai.pii` of `identity_document|financial` (`identity_document`
+includes a written-out government ID number such as an SSN), holds the
+file (`ai.hold=pending`) when it was uploaded with CLI 0.59.0 or newer: the managed comment leaves it out and shows a held
+count, public feeds and galleries withhold it, and its `/f/` page asks for
+sign-in. On hosted storage the raw URL returns 404 until approval, which
+restores the same URL. Check the file, then run
+`uploads approve --pr <n>` to list held files and `--all` to approve them,
+or `uploads approve <key>`. If the file does show a credential, rotate it and
+replace or delete the file instead of approving. The classifier
+version is not bumped for them. The labeler does not write `ai.tags` or
+`ai.summary`. Older files may still have those keys.
 Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
-`uploads find ai.kind=screenshot` or `uploads find ai.screen=login`. Do not
-set `ai.*` yourself — the prefix is server-owned and the API rejects client
-writes. Labels are not in the put response; they land shortly after via
-`waitUntil`. Presigned uploads are not classified. See `docs/ops.md`
-(Experimental LLM file classifier).
+`uploads find ai.kind=screenshot`, `uploads find ai.screen=login`, or
+`uploads find ai.secret=api_key`. A name or an email in a header is not
+`ai.secret` and is not `ai.pii`. A stored flag stays until a later
+classification writes that key. A skip does not write a safety value.
+Re-uploading identical bytes does not clear a flag. New bytes start fresh,
+and a skip on those bytes leaves the flags clear. Do not set `ai.*`
+yourself — the prefix is server-owned and the API rejects client writes. Labels are not in the put
+response; they land shortly after via `waitUntil`. Presigned uploads are
+not classified. See `docs/ops.md` (Experimental LLM file classifier).
 
 Search results are paged. When more matches remain, `find` prints `truncated:
 true` and the next page's opaque `cursor` on stderr. `--json` carries the same
@@ -832,8 +929,10 @@ uploads comment --pr 123
 uploads comment --issue 45 --repo buildinternet/uploads
 ```
 
-Removed the wrong screenshots? `delete` the object(s) and re-run `comment` to
-re-sync. When the **last** attachment and gallery are gone, the managed comment
+Removed the wrong screenshots? `delete` the object(s). Deleting a `gh/…/pull/`
+or `gh/…/issues/` key refreshes the managed comment when the bot can post, and
+prints `uploads comment --pr <n>` (or `--issue`) when it cannot. Re-run
+`comment` yourself if you still need a refresh. When the **last** attachment and gallery are gone, the managed comment
 is rewritten in place to a neutral empty state (`No attachments are currently
 associated with this pull request.`) — it is never deleted (a later upload
 repopulates it) and never created just to say it's empty:
@@ -904,7 +1003,7 @@ URLs. The same command also copies public Cursor cloud-agent rewrite URLs
 agent-page links are skipped; enable **Allow posting artifacts to GitHub** so
 the PR gets a public `/c/` URL. `uploads ingest --pr <n>` (or `--issue <n>`)
 scans the description and comments for that media, mirrors any new ones into
-the workspace (indexed, not added to the managed comment), and detaches ones
+the workspace (indexed and included in the managed comment), and detaches ones
 no longer referenced — a reattached one un-detaches without a re-fetch:
 
 ```bash
@@ -1055,7 +1154,21 @@ uploads --api-url http://localhost:8787 doctor
   `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
   as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
   `find_files` accepts optional `name` (filename substring) with or without
-  `filters`. Both support multi-file `put` in one call. Stdio takes `files`
+  `filters`. Hosted MCP also has `list_activity` and `list_repo_files`
+  (not on the local `uploads mcp` server). `list_activity` lists recent
+  GitHub-tagged activity. `by` is `pull` (default) or `repo`. Pull rows are
+  pull requests that received media tagged `gh.kind=pull`, newest
+  `last_media_at` first, from the last 90 days unless `all` is true. A pull
+  `title` is present only when that repo is linked to this workspace. Repo
+  rows are distinct `gh.repo` values, newest metadata `updated_at` first.
+  `list_repo_files` takes a required `repo` and optional `pr`, `path`, and
+  `type` (`screenshot`, `video`, or `other`; a PDF is `other`). It returns
+  that repo's tagged files, newest metadata `updated_at` first, with `url`
+  and `embedUrl`. These times are not the object's `uploaded-at`. Untagged
+  uploads are absent. Neither tool publishes a `/c/<id>` feed. Use
+  `feed_create` when you want that public page.
+
+  Stdio and hosted `put` both accept multiple files in one call. Stdio takes `files`
   as paths. Hosted takes
   `files: [{ filename?, contentBase64 | contentUrl, alt? }]` (max 20/call).
   Filename is required with `contentBase64`, and optional with `contentUrl`
@@ -1120,6 +1233,10 @@ uploads --api-url http://localhost:8787 doctor
   put  { contentUrl: "https://cdn.example/after.png", repo: "owner/name", branch: "feature/x", state: "after" }
   # → key gh/owner/name/branch/feature-x/<filename>, gh.status=staged
 
+  # Drop staged files without deleting them (CLI uploads unstage).
+  unstage  { repo: "owner/name", branch: "feature/x" }
+  unstage  { keys: ["gh/owner/name/branch/feature-x/after.png"], dryRun: true }
+
   # Promote staged files into a PR once it exists (CLI attach --promote).
   promote  { repo: "owner/name", pr: 123, branch: "feature/x" }
   # optional comment: false to skip the managed comment refresh (default on)
@@ -1128,22 +1245,31 @@ uploads --api-url http://localhost:8787 doctor
   put  { contentBase64, filename, repo: "owner/name", pr: 123, branch: "feature/x" }
   ```
 
-  **Hosted MCP: checking what's staged.** There's no dedicated
-  `staged` tool on the hosted server — it has no local git context to default
-  `branch` from, so it always needs the caller's own `repo`/`branch`. Answer
-  "what's staged?" with the existing tools instead:
+  **Hosted MCP: reviewing staged and attached media.** Read the current checkout's Git
+  remote and branch, then pass both explicitly. The hosted server cannot infer
+  the local checkout. Never substitute a remembered branch after a checkout change.
 
   ```text
-  list  { prefix: "gh/<owner>/<repo>/branch/<branch>/" }
-  # or
-  find_files  { filters: { "gh.branch": "<branch>" } }
+  open_staged_media { repo: "owner/name", branch: "feature/x" }
+  list_staged_media { repo: "owner/name", branch: "feature/x" }
+  list_staged_scopes {}
   ```
 
-  `find_files` returns each match's metadata inline, so `gh.staged-at` gives
-  recency without a second call; add `"gh.repo": "<owner>/<repo>"` to the
-  filters when branch names aren't unique across repos you're working in. For
-  the binding question ("will these auto-attach?"), use the hosted `repo_link_status`
-  tool (issue #422):
+  `open_staged_media` opens the read-only Uploads conversation panel with separate
+  Staged and Attached sections. Pass the current `pr` number when known, alongside
+  `repo` and `branch`. Otherwise `resolve_media_context` can resolve a unique PR
+  through the authorized repository link; manual PR entry remains available.
+  `list_attached_media` reads one explicit `repo`, `branch`, and `pr` with its own
+  cursor. Both sections retain private/held placeholders and require `files:read`.
+  With no
+  arguments, it opens a scope picker without listing files. `list_staged_scopes`
+  lists distinct repository/branch pairs with staged files. Select one pair;
+  never combine branches. `list_staged_media` excludes promoted and unstaged
+  files and returns safe public previews or placeholders. All three require
+  `files:read`. Follow non-null cursors even when a page has no items.
+  Refresh keeps the displayed scope; call the opener with new values when the
+  checkout changes. For whether staged files will auto-attach, use
+  `repo_link_status`:
 
   ```text
   repo_link_status  { repo: "<owner>/<repo>" }

@@ -8,7 +8,9 @@ the CLI package's transport-agnostic MCP core (`@buildinternet/uploads/mcp`).
 
 Stateless MCP Streamable HTTP: one JSON-RPC message per POST, no sessions or
 SSE (GET/DELETE on the endpoint are 405). Tools cover put/list/delete, metadata
-(`get_metadata` / `set_metadata` / `find_files`), galleries, change feeds
+(`get_metadata` / `set_metadata` / `find_files`), recent tagged files
+(`list_activity` by pull request or repo, `list_repo_files` for one repo),
+galleries, change feeds
 (`feed_create` / `feed_get` — pass `pr` or `github` to scope a feed to one
 pull request), usage, whoami,
 branch staging (`put` with `branch` + `repo`), promote (`promote` with
@@ -26,8 +28,9 @@ picks the era per request:
 - **`2026-07-28` (modern).** No `initialize` handshake. Each request carries
   its protocol version and client capabilities in a per-request `_meta`
   envelope (`io.modelcontextprotocol/protocolVersion`,
-  `io.modelcontextprotocol/clientCapabilities`), and the `Mcp-Method` and
-  `Mcp-Name` headers are required — a request missing either gets a 400. A
+  `io.modelcontextprotocol/clientCapabilities`), and the
+  `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` headers are required —
+  a request missing a required one gets a 400. A
   client can call `server/discover` to read back supported versions and
   capabilities before sending anything else. `tools/list` responses carry
   cache hints (`ttlMs: 3600000`, `cacheScope: "private"`): the tool catalog is

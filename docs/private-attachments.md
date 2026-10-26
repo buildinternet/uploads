@@ -86,6 +86,18 @@ derivable keys when no GitHub identity is entitled to claim it. That
 fallback is silent, and it's the same behavior the repo had before this
 feature.
 
+## Listing what is staged
+
+A private staged key is `gh/private/<id>/branch/<filename>`. The branch name
+is not in the key. The id is one active id per branch, so the key does not
+repeat the branch. Repeating it would put the branch name in the URL.
+
+`uploads staged --branch <name>` lists that branch's id (and any retired id
+for the same branch). It keeps a file when `gh.branch` matches, or when the
+file has no `gh.branch`. A file already copied onto a pull request is left
+out. That includes a branch object whose `gh.status` is still `staged`, when
+the pull-request copy is at least as new as the stage.
+
 ## Rotating a prefix
 
 ```bash

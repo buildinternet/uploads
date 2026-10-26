@@ -25,11 +25,11 @@ import {
   CircleUser,
   CreditCard,
   Dot,
-  File,
-  Frame,
+  HardDrive,
   Images,
   KeyRound,
   LayoutGrid,
+  Link2,
   Mail,
   ChartColumn,
   Plus,
@@ -48,6 +48,7 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -62,6 +63,7 @@ import {
   useSidebar,
 } from "@uploads/ui/components/ui/sidebar";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
+import { SidebarUsage } from "./SidebarUsage";
 import {
   accountNavSections,
   workspaceSwitcherData,
@@ -100,9 +102,9 @@ export interface ShellSidebarIslandProps extends ShellSidebarProps {
  * weight, so the collapsed icon rail stays consistent with the rest of the DS.
  */
 const ICON_MAP: Record<ShellNavIcon | "switcher" | "plus", LucideIcon> = {
-  screenshots: Frame,
-  files: File,
-  galleries: Images,
+  files: Images,
+  links: Link2,
+  storage: HardDrive,
   people: Users,
   billing: CreditCard,
   settings: Settings,
@@ -289,7 +291,7 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
   return (
     <SidebarProvider
       defaultOpen={props.defaultOpen}
-      className="relative min-h-0 w-auto items-stretch"
+      className="relative h-full min-h-0 w-auto items-stretch"
     >
       <SidebarToggleBridge />
       <Sidebar
@@ -297,8 +299,9 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
         // In-flow inside the shell's nav column instead of the kit's default
         // viewport-fixed placement; the container keeps its own width
         // transition, so collapse-to-icons still animates the grid track.
-        // The now-redundant spacer is hidden in account-shell.css.
-        className="relative inset-auto h-auto"
+        // The now-redundant spacer is hidden in account-shell.css, which also
+        // sizes the nav to the viewport so the footer docks at the bottom.
+        className="relative inset-auto h-full"
       >
         <SidebarHeader>
           {switcher ? (
@@ -323,6 +326,16 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
             <NavGroup key={section.label} section={section} />
           ))}
         </SidebarContent>
+
+        {/* Workspace routes only. Its own boundary, so a usage crash never
+            takes the navigation down with it. */}
+        {account?.section === "workspaces" && account.workspace && (
+          <SidebarFooter>
+            <IslandErrorBoundary fallback={null}>
+              <SidebarUsage apiOrigin={account.apiOrigin} workspace={account.workspace} />
+            </IslandErrorBoundary>
+          </SidebarFooter>
+        )}
       </Sidebar>
     </SidebarProvider>
   );

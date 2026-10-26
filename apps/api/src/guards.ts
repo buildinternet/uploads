@@ -9,23 +9,20 @@ import type { MiddlewareHandler } from "hono";
 import type { WorkspaceVars } from "./workspace";
 
 /**
- * Upload guardrails for the hosted API: byte caps and a content-type
- * allowlist backed by magic-byte sniffing, plus a per-workspace write rate
- * limit. Defaults live here; per-workspace overrides ride on the
- * `WorkspaceRecord` and are merged in `resolveUploadPolicy`.
+ * Upload guardrails: byte caps, a content-type allowlist backed by magic-byte
+ * sniffing, and per-workspace rate limits. Per-workspace overrides are merged
+ * in `resolveUploadPolicy`.
  */
 
 /** Default ceiling on a single upload. Covers screenshots and short clips. */
-export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MiB
+export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /** Coarse family for 413 payloads and the optimizer/poster branches. */
 export type UploadKind = "image" | "video" | "file";
 
 /**
- * One declared row's verdict on a body: accepted, or rejected — with a
- * machine-readable `details.reason` for the 415 when the failure is more
- * specific than "the declared type didn't pass its check" (today just
- * `"active_markup"`).
+ * A declared row's verdict. `reason` is a machine-readable 415 detail when
+ * the failure is more specific than "didn't pass" (`"active_markup"`).
  */
 type Admission = { ok: true } | { ok: false; reason?: string };
 
@@ -33,29 +30,18 @@ type UploadTypeRow = {
   readonly type: string;
   readonly kind: UploadKind;
   /**
-   * `sniff` — recognized by `detectContentType` from its magic bytes.
-   * `declared` — no magic bytes at all; accepted only when the client
-   * declares the type and the body passes the row's `admit` check
-   * (defaults to `admitText` when the row doesn't name its own).
+   * `sniff`: recognized from magic bytes. `declared`: no magic bytes;
+   * accepted only when the client declares the type and the body passes
+   * `admit` (default `admitText`).
    */
   readonly verify: "sniff" | "declared";
-  /** First entry is canonical: the extension derived when naming a key from a type. Empty for a declaration-only type with no key convention (`text/xml`). */
+  /** First entry is canonical. Empty for a declaration-only type (`text/xml`). */
   readonly extensions: readonly string[];
-  /**
-   * Declared-row admission check `inspectDeclared` runs instead of the bare
-   * `admitText` default. Every declared row that names one relies on it
-   * entirely (not layered on top of `looksLikeText` by the caller) — the
-   * gated SVG/XML rows below compose `looksLikeText` themselves.
-   */
+  /** Replaces the `admitText` default entirely; gated rows compose `looksLikeText` themselves. */
   readonly admit?: (bytes: Uint8Array) => Admission;
   /**
-   * Per-row byte ceiling, tighter than the workspace's own `maxBytes`/
-   * `maxVideoBytes` — set on the gated SVG/XML rows (issue #929 review) so
-   * `inspectDeclared` can reject an oversize declared body with 413 *before*
-   * `admit` ever decodes/regex-scans it (the decode and
-   * `containsActiveMarkup` are O(body size), and these rows are meant to
-   * stay small). Absent means "no tighter cap than the workspace's own" —
-   * see `maxBytesForContentType`.
+   * Per-row byte ceiling tighter than the workspace's, so an oversize body
+   * 413s before `admit` decodes and scans it. Set on the gated rows.
    */
   readonly maxBytes?: number;
 };
@@ -63,19 +49,12 @@ type UploadTypeRow = {
 /**
  * The single table behind every upload-type decision: the default allowlist,
  * the video family, which types have no magic bytes, and the extension
- * mapping in both directions.
+ * mapping both ways.
  *
- * Intended payloads: static images, the short gif/video clips embedded in
- * GitHub repos, and the non-media artifacts agents produce (reports, logs,
- * JSON, archives). Deliberately excludes `text/html` outright — served
- * inline from a bare R2 custom domain with no Worker in front of it (the
- * stored content type is the only control), it can always carry script.
- * `image/svg+xml`/`application/xml`/`text/xml` (below, `GATED_UPLOAD_TYPES`)
- * carry the same risk but are accepted — declared-only, plausibility-
- * filtered, and only on a lane proven to serve them behind a sandboxing CSP
- * (issue #929, `./active-content.ts`). Everything else renders as inert
- * text, opens in a sandboxed viewer (PDF), or has no inline handler at all
- * (zip/gzip).
+ * `text/html` is excluded outright: served inline from a bare R2 domain, the
+ * stored type is the only control, and it can always carry script. SVG/XML
+ * carry the same risk but are gated (`GATED_UPLOAD_TYPES`). Everything else
+ * renders inert, opens in a sandboxed viewer, or has no inline handler.
  */
 const UNGATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
   { type: "image/png", kind: "image", verify: "sniff", extensions: ["png"] },
@@ -101,20 +80,12 @@ const UNGATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
 ];
 
 /**
- * `image/svg+xml`, `application/xml`, `text/xml` — accepted only on a lane
- * whose public host is verified to serve them behind a sandboxing CSP
- * (issue #929, spec "Guards"). Declared-only, never sniffed, on purpose: a
- * `.log` that starts with `<?xml` keeps being `text/plain`, and a `.png`
- * carrying SVG bytes still 415s (sniffing wins in `inspectUpload` whenever
- * it recognizes anything at all). Each row's `admit` runs a reputation
- * pre-filter over a *buffered* body — PUT, MCP, and server-side copies all
- * decode it — which is not the control: the sandboxing CSP on the serving
- * host is what actually neutralizes an active payload, and a presigned
- * upload writes straight to the bucket with no server inspection at all,
- * `admit` included. `maxBytes` caps every row at 4 MiB, well under the
- * general upload ceiling, so `inspectDeclared` can reject an oversize body
- * with 413 before `admit` decodes/regex-scans it at all — see
- * `maxBytesForContentType`.
+ * SVG/XML rows: accepted only on a lane whose host is verified to serve them
+ * behind a sandboxing CSP (`./active-content.ts`). Declared-only, never
+ * sniffed, so a `.log` starting with `<?xml` stays text/plain and a `.png`
+ * with SVG bytes still 415s. `admit` is a reputation pre-filter on buffered
+ * bodies, not the control (presigned uploads skip it entirely); the CSP is.
+ * Capped at 4 MiB so the scan never runs on a large body.
  */
 const GATED_MAX_BYTES = 4 * 1024 * 1024;
 
@@ -124,10 +95,8 @@ function admitText(bytes: Uint8Array): Admission {
 }
 
 /**
- * Admission for a gated SVG/XML row: the row's own shape check first, then —
- * over a single decode of the whole (small, `maxBytes`-capped) body — the
- * `containsActiveMarkup` reputation filter, whose failure is specific enough
- * to name in the 415.
+ * Admission for a gated row: its shape check, then `containsActiveMarkup`
+ * over one decode of the capped body.
  */
 function admitMarkup(shape: (bytes: Uint8Array) => boolean): (bytes: Uint8Array) => Admission {
   return (bytes) => {
@@ -158,8 +127,7 @@ const GATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
     admit: admitXml,
   },
   {
-    // Declaration-only: no extension maps to it, so a key's extension alone
-    // can never claim this type — only an explicit Content-Type header can.
+    // No extension maps here; only an explicit Content-Type can claim it.
     type: "text/xml",
     kind: "file",
     verify: "declared",
@@ -175,15 +143,14 @@ const ROW_BY_TYPE: ReadonlyMap<string, UploadTypeRow> = new Map(
   UPLOAD_TYPES.map((row) => [row.type, row]),
 );
 
-/** The ungated default allowlist — unchanged by issue #929; see `GATED_CONTENT_TYPES`. */
+/** The ungated default allowlist. See `GATED_CONTENT_TYPES`. */
 export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = UNGATED_UPLOAD_TYPES.map(
   (row) => row.type,
 );
 
 /**
- * `image/svg+xml`, `application/xml`, `text/xml` — never in
- * `DEFAULT_ALLOWED_CONTENT_TYPES`; `resolveUploadPolicy` adds them only when
- * its caller's `activeContent` gate passed (issue #929).
+ * The gated SVG/XML types. Never in the default allowlist;
+ * `resolveUploadPolicy` adds them only when the `activeContent` gate passed.
  */
 export const GATED_CONTENT_TYPES: readonly string[] = GATED_UPLOAD_TYPES.map((row) => row.type);
 
@@ -204,7 +171,7 @@ export function uploadKind(contentType: string): UploadKind {
   return "file";
 }
 
-/** True when `type` is one of the lane-gated SVG/XML rows (issue #929). */
+/** True when `type` is one of the lane-gated SVG/XML rows. */
 export function isGatedContentType(type: string): boolean {
   return GATED_SET.has(type);
 }
@@ -233,11 +200,8 @@ export interface UploadPolicyOverrides {
    */
   allowedContentTypes?: string[];
   /**
-   * Subscription plan (issue #613). Set → `maxUploadBytes`/`maxVideoUploadBytes`
-   * fall back to that plan's `defaultLimits` (via `resolveEffectiveLimits`)
-   * instead of `DEFAULT_MAX_UPLOAD_BYTES` when the record carries no explicit
-   * override. Unset (legacy/operator-provisioned workspaces) reproduces
-   * pre-billing behavior byte-for-byte: no plan defaults apply.
+   * Subscription plan. When set, missing upload caps fall back to the plan's
+   * defaults; when unset, to `DEFAULT_MAX_UPLOAD_BYTES`.
    */
   plan?: string;
 }
@@ -247,22 +211,13 @@ function positiveBytes(value: unknown): number | undefined {
 }
 
 /**
- * The workspace's byte ceilings, resolved from its own overrides and its
- * plan's defaults. Deliberately separate from admission (`resolveUploadPolicy`
- * below): a limit is plan-and-override arithmetic only, so it is the same
- * number whether or not the active-content gate (issue #929) is open. That is
- * why every caller that only needs a ceiling — the PUT route's pre-buffer
- * `Content-Length` check, the MCP `put` pre-decode ceiling, `github-ingest` —
- * calls this instead of building a whole policy behind a made-up gate value:
- * the gated SVG/XML rows change which *types* are admitted, never how many
- * bytes a workspace may send.
+ * The workspace's byte ceilings from its overrides and plan defaults.
+ * Separate from admission: the gated rows change which types are admitted,
+ * never how many bytes, so callers that only need a ceiling use this.
  */
 export function uploadLimits(record: UploadPolicyOverrides): UploadLimits {
-  // Sanitize before handing off to the shared resolution seam, same pattern
-  // as `budget.ts`'s `resolveBudgetLimits`: a zero/negative/non-finite
-  // override collapses to "unset" here, *before* `resolveEffectiveLimits`
-  // decides whether that counts as an explicit override or falls back to
-  // the plan default.
+  // A zero, negative or non-finite override collapses to unset before
+  // `resolveEffectiveLimits` decides override vs. plan default.
   const resolved = resolveEffectiveLimits({
     plan: record.plan,
     maxUploadBytes: positiveBytes(record.maxUploadBytes),
@@ -275,14 +230,10 @@ export function uploadLimits(record: UploadPolicyOverrides): UploadLimits {
 }
 
 /**
- * Builds the effective upload policy for a workspace: `uploadLimits` plus the
- * admitted type set. `opts.activeContent` (issue #929) is required — never
- * defaulted — so no caller can forget to pass its `activeContentAllowed(env,
- * ws)` result and silently open (or close) the gated SVG/XML rows. When
- * `false`, the gated types are stripped from the resulting `allowed` set even
- * when the workspace's own `allowedContentTypes` override names one
- * explicitly — an override extends or restricts the ungated allowlist, it
- * can't bypass lane verification.
+ * The effective upload policy: `uploadLimits` plus the admitted types.
+ * `opts.activeContent` is required so no caller can forget the gate. When
+ * false, gated types are stripped even from an explicit
+ * `allowedContentTypes` override.
  */
 export function resolveUploadPolicy(
   record: UploadPolicyOverrides,
@@ -299,12 +250,7 @@ export function resolveUploadPolicy(
   return { ...limits, allowed };
 }
 
-/**
- * The effective byte ceiling for one content type: the workspace's own
- * `maxVideoBytes`/`maxBytes`, tightened by the row's own `maxBytes` when it
- * has one (issue #929 review — the gated SVG/XML rows cap at 4 MiB
- * regardless of how high a workspace's general upload ceiling is set).
- */
+/** Byte ceiling for one type: the workspace's cap, tightened by the row's own `maxBytes`. */
 export function maxBytesForContentType(limits: UploadLimits, contentType: string): number {
   const base = VIDEO_TYPES.has(contentType) ? limits.maxVideoBytes : limits.maxBytes;
   const rowMax = ROW_BY_TYPE.get(contentType)?.maxBytes;
@@ -342,8 +288,7 @@ export function detectContentType(bytes: Uint8Array): string | null {
   if (matches(bytes, [0x52, 0x49, 0x46, 0x46]) && matches(bytes, [0x57, 0x45, 0x42, 0x50], 8)) {
     return "image/webp";
   }
-  // WebM / Matroska (EBML header). We only serve webm; an .mkv would be
-  // labeled webm, which is close enough for a guardrail.
+  // WebM / Matroska (EBML header); an .mkv is labeled webm, close enough.
   if (matches(bytes, [0x1a, 0x45, 0xdf, 0xa3])) return "video/webm";
   // ISO base media (ftyp box at offset 4) — AVIF and MP4 share the container,
   // so split on the major brand at offset 8.
@@ -396,23 +341,17 @@ export function looksLikeText(bytes: Uint8Array): boolean {
 const XML_SNIFF_BYTES = 4 * 1024;
 
 /**
- * Best-effort UTF-8 decode of `bytes`, never throwing (mirrors
- * `TextDecoder`'s default non-fatal mode). `ignoreBOM: false` means a
- * leading BOM is consumed rather than left in the output — the explicit
- * manual strip in `looksLikeSvg` below is a defensive fallback, not the
- * primary mechanism.
+ * Non-throwing UTF-8 decode. `ignoreBOM: false` consumes a leading BOM; the
+ * manual strip in `looksLikeSvg` is a fallback.
  */
 function decodeLossy(bytes: Uint8Array): string {
   return new TextDecoder("utf-8", { fatal: false, ignoreBOM: false }).decode(bytes);
 }
 
 /**
- * Shape check for a declared `image/svg+xml` upload: `looksLikeText`, and
- * — in the first {@link XML_SNIFF_BYTES} decoded — the text starts with
- * `<svg` once a leading BOM and any number of `<?xml … ?>` prologs,
- * `<!-- … -->` comments, and `<!DOCTYPE …>` declarations (in any order) are
- * stripped. Pure shape; the reputation pre-filter (`containsActiveMarkup`)
- * is a separate, composed check — see `GATED_UPLOAD_TYPES`.
+ * Shape check for declared `image/svg+xml`: `looksLikeText`, and the decoded
+ * prefix starts with `<svg` after any BOM, `<?xml ?>` prologs, comments and
+ * doctypes. Shape only; `containsActiveMarkup` is separate.
  */
 export function looksLikeSvg(bytes: Uint8Array): boolean {
   if (!looksLikeText(bytes)) return false;
@@ -431,11 +370,8 @@ export function looksLikeSvg(bytes: Uint8Array): boolean {
 }
 
 /**
- * Shape check for a declared `application/xml`/`text/xml` upload:
- * `looksLikeText`, and the first non-whitespace character (within the first
- * {@link XML_SNIFF_BYTES} decoded) is `<`. Deliberately looser than
- * {@link looksLikeSvg} — any well-formed-looking XML document, not just one
- * rooted at a specific element.
+ * Shape check for declared XML: `looksLikeText`, and the first non-whitespace
+ * character is `<`.
  */
 export function looksLikeXml(bytes: Uint8Array): boolean {
   if (!looksLikeText(bytes)) return false;
@@ -444,10 +380,8 @@ export function looksLikeXml(bytes: Uint8Array): boolean {
 }
 
 /**
- * Known HTML/SVG/SMIL event-handler attribute names. Deliberately a fixed
- * list rather than `on[a-z]+` — that broader pattern also matches ordinary
- * non-handler attributes that happen to start with "on", e.g. `online=` or
- * `once=` on an unrelated element.
+ * Known event-handler attribute names. A fixed list, since `on[a-z]+` also
+ * matches attributes like `online=` and `once=`.
  */
 const EVENT_HANDLER_ATTRS = [
   "onabort",
@@ -565,11 +499,8 @@ const NAMED_XML_ENTITIES: Readonly<Record<string, string>> = {
 };
 
 /**
- * Decode numeric character references (`&#106;`, `&#x6A;`) and the five
- * named XML entities before scanning, so an evasion like `&#106;avascript:`
- * or `&lt;script&gt;` is judged on what it decodes to, not its literal
- * source text. Deliberately not a general XML/HTML parser — just enough to
- * unwrap the handful of entities a reputation filter needs to see through.
+ * Decode numeric references and the five named XML entities, so
+ * `&#106;avascript:` is judged on what it decodes to. Not a general parser.
  */
 function decodeXmlEntities(text: string): string {
   return text.replace(
@@ -592,28 +523,15 @@ function decodeXmlEntities(text: string): string {
 }
 
 /**
- * Reputation pre-filter for a gated SVG/XML body (issue #929, sharpened for
- * #936): true when the (entity-decoded) text contains a `<script` tag, a
- * known event-handler attribute (`onload=`, `onclick=`, …), a `javascript:`
- * URL, `<foreignObject` (SVG can embed arbitrary HTML through it), an
- * `<?xml-stylesheet` processing instruction (can point at an XSLT that runs
- * script), or a SMIL `<set>`/`<animate>` retargeting an event attribute via
- * `attributeName="onclick"`.
+ * Reputation pre-filter for gated SVG/XML: true for `<script`, a known event
+ * handler, `javascript:`, `<foreignObject`, `<?xml-stylesheet`, or SMIL
+ * `<set>`/`<animate>` retargeting an event attribute.
  *
- * This is a *reputation* filter, not the security control: it exists to
- * reject the obviously-hostile case cheaply and without false positives, not
- * to be sound against a determined attacker. The actual control is the
- * sandboxing CSP the serving lane is verified to send
- * (`./active-content.ts`) — every gated response ships it regardless of what
- * this function decides, so a body that slips past this filter still can't
- * execute script or navigate the top frame when served. Accordingly this
- * function does not attempt full XML/HTML parsing, does not track element
- * nesting or attribute boundaries precisely, and can both under- and
- * over-reject unusual-but-inert markup; that's an acceptable, expected
- * trade-off here, not a bug to chase. It only ever runs on a *buffered* body
- * a server handler actually reads — the PUT route, the MCP `put` tool, and
- * server-side copies. A presigned upload writes straight to the bucket over
- * HTTP with no server in the loop, so nothing here ever inspects it.
+ * Not the security control: the sandboxing CSP on the serving lane is, and
+ * every gated response ships it. This only rejects the obviously hostile
+ * case cheaply; it doesn't parse precisely and can mis-judge unusual markup.
+ * It only sees buffered bodies (PUT, MCP put, server copies), never
+ * presigned uploads.
  */
 export function containsActiveMarkup(text: string): boolean {
   const decoded = decodeXmlEntities(text);
@@ -625,17 +543,10 @@ export function containsActiveMarkup(text: string): boolean {
 }
 
 /**
- * Extension → content type, built from `UPLOAD_TYPES`. Only the
- * `verify: "declared"` rows can change an admission outcome (an extension is
- * one of the two ways a client declares a text type — see
- * `resolveDeclaredContentType`); the sniffed media rows are here so
- * `details.declared` on a 415 is informative, so a key's extension still
- * names a type, and so the CLI-side `inferContentType`
- * (packages/uploads/src/embed.ts) stays a readable mirror of this list.
- * `svg`/`xml` map to their gated types (declaration-only still applies —
- * this table only ever feeds `contentTypeFromKey`, which names a claim, not
- * an acceptance); `text/xml` has no extension, so it can only ever be
- * claimed by an explicit Content-Type header. `html` never appears.
+ * Extension → content type. Only declared rows can change admission; the
+ * sniffed rows are here so 415 details and key extensions name a type, and
+ * so the CLI's `inferContentType` can mirror this list. `svg`/`xml` name a
+ * claim, not an acceptance. `html` never appears.
  */
 const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = Object.fromEntries(
   UPLOAD_TYPES.flatMap((row) => row.extensions.map((ext) => [ext, row.type] as const)),
@@ -662,12 +573,9 @@ export function normalizeDeclaredContentType(raw: string): string {
 }
 
 /**
- * The type a client *claims* for an upload: its Content-Type header when
- * specific, else the key's extension. Only consulted by `inspectUpload` for
- * text types (everything else is sniffed). `application/octet-stream` and an
- * empty header count as unspecified so older CLIs (which send octet-stream
- * for `.log`) and the hosted MCP (which sends no type) still resolve via the
- * key.
+ * The type a client claims: its Content-Type when specific, else the key's
+ * extension. `application/octet-stream` and an empty header count as
+ * unspecified (older CLIs, the hosted MCP).
  */
 export function resolveDeclaredContentType(
   header: string | undefined,
@@ -687,12 +595,9 @@ export interface ImageDimensions {
 const SVG_DIMENSION_SNIFF_BYTES = 8 * 1024;
 
 /**
- * Best-effort pixel dimensions read straight from an image's header —
- * PNG (IHDR), GIF (logical screen descriptor), JPEG (first SOF marker),
- * WebP (VP8X/VP8/VP8L chunk), SVG (root `<svg>` tag's `width`/`height`, or
- * `viewBox` as a fallback). Returns `undefined` for any other content type
- * or a header it can't decode; callers that gate on dimensions must fail
- * open on `undefined` rather than treating it as zero.
+ * Best-effort pixel dimensions from an image header (PNG, GIF, JPEG, WebP,
+ * SVG width/height or viewBox). `undefined` when unknown; callers must fail
+ * open on that.
  */
 export function detectImageDimensions(
   bytes: Uint8Array,
@@ -756,11 +661,8 @@ export function detectImageDimensions(
     return undefined;
   }
   if (contentType === "image/svg+xml") {
-    // Declared-only, no magic bytes to sniff: decode a capped prefix as
-    // UTF-8, find the root `<svg …>` start tag, and read its `width`/
-    // `height` attributes (plain numbers or a `px` suffix only — percent,
-    // em, and other units aren't resolvable without a layout box, so they
-    // fall through to `viewBox`'s width/height, rounded to integers).
+    // Declared-only: read the root `<svg>`'s width/height (plain numbers or
+    // px only; other units need a layout box), else viewBox.
     const head = decodeLossy(
       bytes.subarray(0, Math.min(bytes.byteLength, SVG_DIMENSION_SNIFF_BYTES)),
     );
@@ -814,20 +716,10 @@ function tooLarge(
 }
 
 /**
- * Pre-buffer size gate: reject on a declared `Content-Length` over the
- * ceiling before the body is read into isolate memory. `inspectUpload` is
- * the authoritative backstop for type-specific limits.
- *
- * The ceiling starts at the larger of the workspace's image/video caps — the
- * loosest any body could be admitted at — and is *tightened*, never raised,
- * when `declaredType` names a row with its own `maxBytes` (the gated
- * SVG/XML rows cap at 4 MiB and their `admit` check decodes the whole
- * body), so a declared 50 MB SVG is refused before it is buffered rather
- * than after. A declared type with no row-level cap of its own (an ordinary
- * image/video type) never narrows the ceiling below the workspace's general
- * limit, even when that type's own per-type max (`maxBytesForContentType`)
- * would be lower — this check only ever tightens for rows that carry their
- * own cap.
+ * Pre-buffer size gate on a declared `Content-Length`. `inspectUpload` is
+ * the backstop. The ceiling is the larger of the image/video caps, tightened
+ * only when `declaredType` names a row with its own `maxBytes`, so a 50 MB
+ * "SVG" is refused before buffering.
  */
 export function checkDeclaredLength(
   contentLength: string | undefined,
@@ -842,12 +734,8 @@ export function checkDeclaredLength(
 }
 
 /**
- * The shared 415. `reason` is a machine-readable narrowing of *why*, present
- * only in the two cases specific enough to name (issue #929 review): the
- * declared type is gated and this workspace's lane hasn't verified for it
- * (`lane_not_verified`), or the gate is open but the body's own reputation
- * filter, not its shape, is what failed (`active_markup`). Every other
- * rejection carries none — the generic 415 stands.
+ * The shared 415. `reason` is set only for `lane_not_verified` (gated type,
+ * unverified lane) and `active_markup` (gate open, reputation filter failed).
  */
 function unsupported(
   policy: UploadPolicy,
@@ -868,12 +756,8 @@ function unsupported(
 }
 
 /**
- * The declared-type branch of `inspectUpload`: bytes no sniffer recognized,
- * under a claim the policy allows and a row that accepts claims at all.
- * Size first, admission second — a declared row's `admit` (the gated
- * SVG/XML rows especially) decodes and regex-scans the *whole* body, so an
- * oversize payload has to 413 before that scan runs, not after (issue #929
- * review).
+ * The declared-type branch of `inspectUpload`. Size before admission, since a
+ * gated row's `admit` scans the whole body.
  */
 function inspectDeclared(
   bytes: Uint8Array,
@@ -892,23 +776,23 @@ function inspectDeclared(
 }
 
 /**
- * Validate a fully-buffered upload body against the policy. Sniffed bytes
- * decide the stored type whenever they can; `declaredType` (from the request
- * header or the key's extension — see `resolveDeclaredContentType`) is
- * consulted only when sniffing finds nothing and the claim is a declared
- * row, which have no magic. Then the type-specific size cap.
+ * Validate a buffered body against the policy. Sniffed bytes decide the
+ * stored type when they can; `declaredType` is only consulted when sniffing
+ * finds nothing. Then the type-specific size cap.
  */
 export function inspectUpload(
   bytes: Uint8Array,
   policy: UploadPolicy,
   declaredType?: string,
+  /** Whole-body size when `bytes` is only its head (a streamed upload). */
+  size = bytes.byteLength,
 ): UploadInspection {
   const detected = detectContentType(bytes);
   if (detected !== null) {
     if (!policy.allowed.has(detected))
       return unsupported(policy, declaredType, laneReason(policy, declaredType));
     const maxBytes = maxBytesForContentType(policy, detected);
-    return bytes.byteLength > maxBytes
+    return size > maxBytes
       ? tooLarge(maxBytes, { contentType: detected, kind: uploadKind(detected) })
       : { ok: true, contentType: detected };
   }
@@ -929,20 +813,12 @@ function laneReason(policy: UploadPolicy, declaredType?: string): string | undef
 }
 
 /**
- * Builds a per-workspace rate-limit guard on top of a named `RateLimit`
- * binding: a Hono middleware that 429s when the limit is exceeded, plus the
- * standalone `allow` check for non-route callers. Keyed by workspace name so
- * one tenant's traffic can't exhaust another's budget. Fails open when the
- * binding is absent (some local/dev setups, tests) — the window/quota
- * themselves are fixed per-binding in wrangler.jsonc (fixed sliding windows,
- * per-colo rather than globally exact — enough to blunt abuse, not billing).
+ * A per-workspace rate-limit guard over a `RateLimit` binding: middleware
+ * that 429s, plus a standalone `allow`. Fails open without the binding.
+ * Windows are per-colo, enough to blunt abuse.
  *
- * `opts.windowSeconds` is the binding's configured `simple.period`, mirrored
- * here purely so the 429 can carry an honest `Retry-After`: the window length
- * is the only recovery figure a Cloudflare `RateLimit` binding makes knowable
- * — `limit()` returns `{ success }` and nothing else, so limit/remaining/reset
- * are deliberately never emitted (see `respondError`). Waiting out one full
- * window is always sufficient, which is exactly what `Retry-After` promises.
+ * `opts.windowSeconds` mirrors the binding's period so the 429 can send an
+ * honest `Retry-After`; the binding reveals nothing else.
  */
 export function makeRateLimitGuard<BindingKey extends string>(
   bindingKey: BindingKey,
@@ -971,8 +847,6 @@ export function makeRateLimitGuard<BindingKey extends string>(
   };
 
   const middleware: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
-    // `c.env` is the worker's full Env; narrowed here since this guard only
-    // ever reads the single `bindingKey` binding off of it.
     const env = c.env as unknown as Partial<Record<BindingKey, RateLimit>>;
     if (!(await allow(env, c.get("workspaceName")))) reject();
     await next();
@@ -992,10 +866,8 @@ export const writeRateLimit = writeRateLimitGuard.middleware;
 export const allowWrite = writeRateLimitGuard.allow;
 
 /**
- * Burst rate limit for POST /v1/render (`RENDER_LIMITER`) — browser-hours
- * bill to our account, so this guards against a hot loop hammering the
- * endpoint independent of the monthly upload-budget check (`checkPutBudget`,
- * reused for renders in routes/render.ts).
+ * Burst limit for POST /v1/render. Browser hours bill to us, so this guards
+ * against hot loops independent of the monthly budget.
  */
 const renderRateLimitGuard = makeRateLimitGuard("RENDER_LIMITER", "render rate limit exceeded", {
   windowSeconds: 60,
@@ -1011,11 +883,9 @@ const posterRateLimitGuard = makeRateLimitGuard("POSTER_LIMITER", "poster rate l
 export const allowPoster = posterRateLimitGuard.allow;
 
 /**
- * Strict per-user rate limit for self-serve workspace creation. Kept separate
- * from WRITE_LIMITER (60/60s) so the create-cap check (3 self-serve workspaces
- * per user) can't be raced past via concurrent requests — this limiter's
- * window matches the cap. Fails open when the binding is absent (some
- * local/dev setups, tests).
+ * Per-user limit for self-serve workspace creation, with a window matching
+ * the create cap so concurrent requests can't race past it. Fails open
+ * without the binding.
  */
 export async function allowWorkspaceCreate(
   env: { WS_CREATE_LIMITER?: RateLimit },

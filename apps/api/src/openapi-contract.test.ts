@@ -4,23 +4,19 @@
  * (`app.routes`), the OpenAPI document served at
  * `apps/web/public/.well-known/openapi.json`, and the narrative reference in
  * `docs/api.md`. Deterministic — no network, no fixtures — so it fails the
- * moment a canonical route is added, renamed, or removed without updating
- * both docs.
+ * moment a public route is added, renamed, or removed without updating both
+ * docs.
  *
- * Scope: the canonical `/v1/workspaces/:workspace/files...`, `/usage...`,
- * `/galleries...`, and `/feeds...` verticals (issue #829 §1), plus
- * `/public/galleries/:id` and `/public/feeds/:id`. These are the token-authable "public developer
- * API" surface documented in `docs/api.md`'s "Canonical routes" table. The
- * canonical `github`/`members`/`storage`/`billing`/`comment-settings`
- * verticals (issue #613 phases 2-3) are mostly session-only account
- * management, covered by their own docs, and out of scope here — folding
- * them in is tracked separately, not silently expanded into this guard. The
- * legacy `/v1/:workspace/...` bearer-only alias family is also excluded:
- * `docs/api.md`'s "Compatibility routes" section documents that whole family
- * by convention rather than path by path, and the OpenAPI document does the
- * same (see its description field). `KNOWN_UNDOCUMENTED` below is the
- * explicit, reasoned exception list for in-scope routes that stay out of the
- * OpenAPI document on purpose.
+ * Scope: every `/v1/workspaces/...` and `/public/...` route. Each one is
+ * either public (documented in both places) or listed in `INTERNAL_PREFIXES`
+ * / `KNOWN_UNDOCUMENTED` with a reason, so a new route has to be classified
+ * on purpose. The OpenAPI document is the public contract a typed SDK is
+ * built from; internal routes can change without notice. The legacy
+ * `/v1/:workspace/...` bearer-only alias family is excluded: `docs/api.md`'s
+ * "Compatibility routes" section documents that whole family by convention,
+ * and the OpenAPI document does the same (see its description field).
+ * `/me`, `/admin`, `/internal` and the other top-level families are internal
+ * by construction and never enter scope.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -52,58 +48,86 @@ function toComparablePath(honoOrOpenApiPath: string): string {
     .replace(/\{[A-Za-z0-9_]+\}/g, "{param}");
 }
 
-/** Path prefixes under `/v1/workspaces/:workspace/` that are in scope — see the module docblock. */
-const IN_SCOPE_VERTICALS = ["files", "usage", "galleries", "feeds"];
+const WS = "/v1/workspaces/:workspace";
 
 /**
- * Canonical public-API routes registered on the live app, restricted to the
- * files/usage/galleries verticals and the one public gallery read. Each is a
- * "METHOD comparable-path" string. A Hono `.all(...)` route (method `ALL`)
- * expands to one entry per HTTP method, matching how a real client request
- * actually reaches it.
+ * In-scope route families that stay out of the public API. A prefix covers
+ * the path itself and everything under it.
  */
-function canonicalRoutes(): Set<string> {
+const INTERNAL_PREFIXES: Record<string, string> = {
+  // Workspace settings and account management: session-only or web-app
+  // shaped, managed from uploads.sh rather than through an SDK.
+  [`${WS}/billing`]: "web billing page",
+  [`${WS}/classifier-settings`]: "workspace settings page",
+  [`${WS}/comment-preview`]: "workspace settings page",
+  [`${WS}/comment-settings`]: "workspace settings page",
+  [`${WS}/poster-settings`]: "workspace settings page",
+  [`${WS}/invite-links`]: "member management",
+  [`${WS}/invites`]: "member management",
+  [`${WS}/members`]: "member management",
+  [`${WS}/people`]: "member management",
+  [`${WS}/service-tokens`]: "service tokens are minted from a signed-in session",
+  [`${WS}/storage`]: "bring-your-own bucket setup",
+  [`${WS}/summary`]: "web dashboard summary",
+  [`${WS}/file-browser`]: "files-sdk folder browser for the web app",
+  [`${WS}/restore`]: "workspace lifecycle",
+  [`${WS}/tokens`]: "workspace lifecycle",
+  // CLI and GitHub App plumbing. Only `github/comment` is public.
+  [`${WS}/github/activity`]: "CLI GitHub plumbing",
+  [`${WS}/github/attach`]: "CLI GitHub plumbing",
+  [`${WS}/github/branch-rename`]: "CLI GitHub plumbing",
+  [`${WS}/github/health`]: "CLI GitHub plumbing",
+  [`${WS}/github/ingest`]: "CLI GitHub plumbing",
+  [`${WS}/github/link`]: "CLI GitHub plumbing",
+  [`${WS}/github/private-prefix`]: "CLI GitHub plumbing",
+  [`${WS}/github/promote`]: "CLI GitHub plumbing",
+  [`${WS}/github/repo-link`]: "CLI GitHub plumbing",
+  [`${WS}/github/repo-links`]: "CLI GitHub plumbing",
+  [`${WS}/github/status`]: "CLI GitHub plumbing",
+  [`${WS}/github/titles`]: "CLI GitHub plumbing",
+  "/public/github/avatars": "avatar proxy for the web app",
+};
+
+/** Exact in-scope routes that stay out of the public API, with the reason inline. */
+const KNOWN_UNDOCUMENTED = new Set<string>([
+  // Soft-deletes a whole workspace; an owner does that from the web app.
+  "delete /v1/workspaces/{param}",
+]);
+
+const internalPrefixes = Object.keys(INTERNAL_PREFIXES).map(toComparablePath);
+
+function isInScope(comparablePath: string): boolean {
+  if (!comparablePath.startsWith("/v1/workspaces/") && !comparablePath.startsWith("/public/"))
+    return false;
+  return !internalPrefixes.some(
+    (prefix) => comparablePath === prefix || comparablePath.startsWith(`${prefix}/`),
+  );
+}
+
+/**
+ * Public routes registered on the live app, as "method comparable-path"
+ * strings. A Hono `.all(...)` route (method `ALL`) expands to one entry per
+ * HTTP method, matching how a real client request actually reaches it.
+ */
+function publicRoutes(): Set<string> {
   const routes = new Set<string>();
   for (const route of app.routes) {
-    const path = route.path;
-    const isPublicGallery = path === "/public/galleries/:id" || path === "/public/feeds/:id";
-    const isInScopeWorkspaceRoute = IN_SCOPE_VERTICALS.some(
-      (vertical) =>
-        path === `/v1/workspaces/:workspace/${vertical}` ||
-        path.startsWith(`/v1/workspaces/:workspace/${vertical}/`),
-    );
-    if (!isInScopeWorkspaceRoute && !isPublicGallery) continue;
-
+    const path = toComparablePath(route.path);
+    if (!isInScope(path)) continue;
     const methods =
       route.method.toLowerCase() === "all" ? HTTP_METHODS : [route.method.toLowerCase()];
     for (const method of methods) {
       if (!HTTP_METHODS.includes(method)) continue;
-      routes.add(`${method} ${toComparablePath(path)}`);
+      const entry = `${method} ${path}`;
+      if (!KNOWN_UNDOCUMENTED.has(entry)) routes.add(entry);
     }
   }
   return routes;
 }
 
-/**
- * Registered in-scope routes that are deliberately absent from the OpenAPI
- * document, with the reason inline. Keep this list short — a new omission
- * should be a conscious decision, not a silent gap. Empty today: the
- * files-sdk folder-browser gateway (`/v1/workspaces/:workspace/file-browser`)
- * is a sibling of the `files` vertical rather than a route under it, so it
- * never enters `canonicalRoutes()` in the first place and needs no entry
- * here.
- */
-const KNOWN_UNDOCUMENTED = new Set<string>();
-
 function openApiRoutes(): Set<string> {
   const routes = new Set<string>();
   for (const [path, methods] of Object.entries(openapi.paths)) {
-    if (
-      !path.startsWith("/v1/workspaces/") &&
-      path !== "/public/galleries/{galleryId}" &&
-      path !== "/public/feeds/{feedId}"
-    )
-      continue;
     for (const method of Object.keys(methods)) {
       if (!HTTP_METHODS.includes(method)) continue; // skips the sibling "parameters" key
       routes.add(`${method} ${toComparablePath(path)}`);
@@ -112,58 +136,51 @@ function openApiRoutes(): Set<string> {
   return routes;
 }
 
-describe("openapi.json vs. registered canonical routes", () => {
-  it("documents every registered canonical route (or lists it as a known exception)", () => {
-    const registered = canonicalRoutes();
+function registeredComparable(): Set<string> {
+  return new Set(app.routes.map((route) => toComparablePath(route.path)));
+}
+
+describe("openapi.json vs. registered routes", () => {
+  it("documents every public route", () => {
     const documented = openApiRoutes();
-    const missing = [...registered].filter(
-      (route) => !documented.has(route) && !KNOWN_UNDOCUMENTED.has(route),
-    );
+    const missing = [...publicRoutes()].filter((route) => !documented.has(route));
     expect(missing).toEqual([]);
   });
 
-  it("has no stale exceptions — every KNOWN_UNDOCUMENTED entry is still a real route", () => {
-    const registered = canonicalRoutes();
-    const stale = [...KNOWN_UNDOCUMENTED].filter((route) => !registered.has(route));
+  it("has no stale paths — every documented route is a registered public route", () => {
+    const registered = publicRoutes();
+    const stale = [...openApiRoutes()].filter((route) => !registered.has(route));
     expect(stale).toEqual([]);
   });
 
-  it("has no stale paths — every documented in-scope route still exists on the app", () => {
-    const registered = canonicalRoutes();
-    const documented = openApiRoutes();
-    const stale = [...documented].filter((route) => !registered.has(route));
-    expect(stale).toEqual([]);
+  it("has no stale exceptions — every internal entry still matches a real route", () => {
+    const paths = registeredComparable();
+    const stalePrefixes = internalPrefixes.filter(
+      (prefix) => ![...paths].some((path) => path === prefix || path.startsWith(`${prefix}/`)),
+    );
+    const staleRoutes = [...KNOWN_UNDOCUMENTED].filter(
+      (entry) => !paths.has(entry.slice(entry.indexOf(" ") + 1)),
+    );
+    expect([...stalePrefixes, ...staleRoutes]).toEqual([]);
   });
 });
 
-describe("docs/api.md vs. registered canonical routes", () => {
-  it("mentions every registered canonical route's literal path at least once", () => {
-    const registered = new Set<string>();
-    for (const route of app.routes) {
-      const path = route.path;
-      const isPublicGallery = path === "/public/galleries/:id" || path === "/public/feeds/:id";
-      const isInScopeWorkspaceRoute = IN_SCOPE_VERTICALS.some(
-        (vertical) =>
-          path === `/v1/workspaces/:workspace/${vertical}` ||
-          path.startsWith(`/v1/workspaces/:workspace/${vertical}/`),
-      );
-      if (isInScopeWorkspaceRoute || isPublicGallery) registered.add(path);
-    }
-
-    const undocumentedComparable = new Set(
-      [...KNOWN_UNDOCUMENTED].map((route) => route.split(" ")[1]),
-    );
+describe("docs/api.md vs. registered public routes", () => {
+  it("mentions every public route's literal path at least once", () => {
     // Param *names* legitimately differ between the route source and the
     // prose (`:item` vs. `:itemId`); normalize both sides to `:param` before
     // substring-matching so this checks path *shape*, not naming.
     const normalizedApiMd = apiMd.replace(/:([A-Za-z0-9_]+)/g, ":param");
     const toDocsPath = (honoPath: string) =>
       honoPath.replace(/:([A-Za-z0-9_]+)(\{[^}]*\})?/g, ":param");
-    const missing = [...registered].filter(
-      (path) =>
-        !undocumentedComparable.has(toComparablePath(path)) &&
-        !normalizedApiMd.includes(toDocsPath(path)),
-    );
+    const publicPaths = new Set([...publicRoutes()].map((route) => route.split(" ")[1]));
+    const missing = [
+      ...new Set(
+        app.routes
+          .map((route) => route.path)
+          .filter((path) => publicPaths.has(toComparablePath(path))),
+      ),
+    ].filter((path) => !normalizedApiMd.includes(toDocsPath(path)));
     expect(missing).toEqual([]);
   });
 });

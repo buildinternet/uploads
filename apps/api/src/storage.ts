@@ -1,9 +1,11 @@
-import { AppError, ServiceUnavailableError } from "@uploads/errors";
+import { ServiceUnavailableError } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
 import {
   createStorage,
   publicAndEmbedUrls,
   publicUrl,
   type EmbedUrlOptions,
+  type FileInfo,
   type Files,
   type StorageConfig,
 } from "@uploads/storage";
@@ -78,15 +80,8 @@ async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promis
     if (err instanceof SecretsKeyUnconfiguredError) {
       // This Worker holds no KEK at all, so it can read no BYO workspace. That
       // is an operator problem, and the settings page cannot fix it — a re-seal
-      // there uses uploads-api's key and this Worker still has none. Log it
-      // distinctly so a missing secret is greppable, and tell the caller the
-      // truth instead of sending them round a loop.
-      console.error(
-        JSON.stringify({
-          message: "secrets_key_unconfigured_on_read",
-          hint: "set WORKSPACE_SECRETS_KEY on this worker to the same value uploads-api holds — see docs/ops.md#secrets",
-        }),
-      );
+      // there uses uploads-api's key and this Worker still has none. The 503
+      // carries the cause so Issues records the missing-key error.
       throw new ServiceUnavailableError(
         "workspace storage is unavailable because of a server configuration problem; reconfiguring storage will not fix it",
         { code: "secrets_key_unconfigured", cause: err },
@@ -191,20 +186,11 @@ async function resolveFallbackLane(env: Env, lane: StorageLane): Promise<Storage
   try {
     return await resolveStorageConfig(env, lane);
   } catch (err) {
-    // Skipping is quiet by design at the request level (a stale fallback must
-    // never take down the active lane), but it is never quiet in the logs: a
-    // read that 404s because its only lane was skipped is otherwise
-    // indistinguishable from a genuinely missing object. `code` carries the
-    // typed reason, so `secrets_key_unconfigured` — the whole-worker
-    // misconfiguration — is greppable rather than buried in prose.
-    console.error(
-      JSON.stringify({
-        message: "storage_lane_skipped",
-        laneId: lane.id,
-        code: err instanceof AppError ? err.code : undefined,
-        reason: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    // Skipping is quiet at the request level (a stale fallback must never
+    // take down the active lane). The Error still goes to Issues: a read
+    // that 404s because its only lane was skipped is otherwise
+    // indistinguishable from a genuinely missing object.
+    reportHandledError(err);
     return null;
   }
 }
@@ -243,6 +229,11 @@ export interface ResolvedLane extends LaneConfig {
   store: Files;
 }
 
+/** A fresh metadata read from the same lookup that selected the storage lane. */
+export interface ResolvedLaneWithHead extends ResolvedLane {
+  head: FileInfo;
+}
+
 /**
  * Resolves and caches each lane's store/config at most once per resolver
  * instance — a batch of `resolve()` calls against many keys (gallery
@@ -263,6 +254,8 @@ export interface LaneResolver {
    * `exists` call.
    */
   resolve(key: string): Promise<ResolvedLane | null>;
+  /** Like `resolve`, but returns fresh metadata using one HEAD per attempted lane. Object results are never cached. */
+  resolveWithHead(key: string): Promise<ResolvedLaneWithHead | null>;
   /** The active lane's store, resolved (and cached) the same way `resolve` would — for a caller that already knows it's writing to (or otherwise doesn't need to search past) the active lane. */
   activeStore(): Promise<Files>;
   /** The active lane's config, resolved (and cached) the same way `resolve` would. */
@@ -302,6 +295,38 @@ export function createLaneResolver(env: Env, ws: WorkspaceRecord): LaneResolver 
     async activeConfig() {
       return (await active()).config;
     },
+    async resolveWithHead(key) {
+      const probe = async (lane: ResolvedLane): Promise<ResolvedLaneWithHead | null> => {
+        try {
+          return { ...lane, head: await lane.store.head(key) };
+        } catch (err) {
+          // files-sdk normalizes provider failures; only NotFound permits
+          // falling through. Never hide a provider outage or access denial.
+          if (err && typeof err === "object" && "code" in err && err.code === "NotFound") {
+            return null;
+          }
+          throw err;
+        }
+      };
+      const resolved = await active();
+      const hit = await probe({
+        ...resolved,
+        laneId: ws.storageLaneId ?? null,
+        role: "active",
+      });
+      if (hit) return hit;
+      for (const lane of ws.storageLanes ?? []) {
+        const resolvedFallback = await fallback(lane);
+        if (!resolvedFallback) continue;
+        const fallbackHit = await probe({
+          ...resolvedFallback,
+          laneId: lane.id,
+          role: "fallback",
+        });
+        if (fallbackHit) return fallbackHit;
+      }
+      return null;
+    },
     async resolve(key) {
       const { store: activeStore, config: activeConfig } = await active();
       if (await activeStore.exists(key)) {
@@ -336,6 +361,15 @@ export async function resolveObjectLane(
   key: string,
 ): Promise<ResolvedLane | null> {
   return createLaneResolver(env, ws).resolve(key);
+}
+
+/** Resolve a key and its current metadata without a separate existence check. */
+export async function resolveObjectLaneWithHead(
+  env: Env,
+  ws: WorkspaceRecord,
+  key: string,
+): Promise<ResolvedLaneWithHead | null> {
+  return createLaneResolver(env, ws).resolveWithHead(key);
 }
 
 export { publicUrl };

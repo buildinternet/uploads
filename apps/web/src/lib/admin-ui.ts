@@ -11,6 +11,14 @@ import { skeletonBarHtml } from "./workspace-ui";
  * visually identical without duplicating long class lists — the CSS
  * equivalents these replace lived in admin.css's `.admin-table` block.
  */
+/** "Sep 2, 2026" in the viewer's locale, or "-" for a missing/unparseable date. */
+export function formatAdminDate(value: string | Date | null | undefined): string {
+  const d = value instanceof Date ? value : new Date(value ?? NaN);
+  return Number.isNaN(d.getTime())
+    ? "-"
+    : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
 export const ADMIN_TH =
   "text-left font-medium text-(length:--text-micro) uppercase tracking-[0.06em] text-muted-foreground pr-3 pb-[10px] border-b border-border whitespace-nowrap last:pr-0";
 export const ADMIN_TH_NUM = `${ADMIN_TH} text-right tabular-nums pl-4`;
@@ -62,7 +70,7 @@ export interface AdminSkeletonColumn {
  * reserving close-to-real height before async data lands. Pairs with a
  * static `<thead>` already present in the page's server HTML — callers swap
  * only the `<tbody>` in place once data arrives, same as `workspace-ui.ts`'s
- * `renderGalleriesPlaceholderHtml` reserves for its table.
+ * `renderMembersPlaceholderHtml` reserves for its table.
  */
 export function renderAdminTableSkeletonRowsHtml(columns: AdminSkeletonColumn[], rows = 3): string {
   return Array.from(

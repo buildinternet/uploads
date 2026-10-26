@@ -5,7 +5,7 @@ heading: Reference
 tagline: Manage what you've uploaded, and what's worth knowing before you rely on it.
 navLabel: Reference
 navSlug: reference
-navOrder: 10
+navOrder: 16
 navGroup: workspace
 ---
 
@@ -24,6 +24,8 @@ uploads list          # see your files
 uploads delete <key>  # remove a file
 uploads usage         # storage used by your workspace
 uploads staged        # what's queued for this branch
+uploads unstage --branch <name>  # drop staged files, keep the URL
+uploads approve --pr <n>         # list files held for review
 uploads --help        # everything else
 ```
 
@@ -37,7 +39,7 @@ uploads --help        # everything else
   Everything you upload shows up in your workspace, grouped by where it came from — pages by `path`,
   projects by `repo` or `app`. Open any file to get its share page: copy-ready embeds, the raw URL,
   and a delete button. When a workspace has [experimental AI
-  labels](/docs/agents#experimental-ai-tags) on, classified files also show a read-only AI labels
+  labels](/docs/ai-labels) on, classified files also show a read-only AI labels
   block under `path` / `state`.
 </div>
 
@@ -68,8 +70,8 @@ uploads --help        # everything else
   them first with [`uploads annotate`](/docs/capture#annotate) or
   `screenshot --annotate` (blurred text can be recoverable).
 - **The visibility toggle unlists — it doesn't lock down bytes.** Marking a file "private" hides it
-  from your workspace's public file listing and gates the `/f/…` page behind sign-in. The raw file
-  URL (`storage.uploads.sh/…`) keeps serving the same bytes to anyone who already has it, and edge
+  from your workspace's public file listing and gates its page behind sign-in. The raw file
+  URL keeps serving the same bytes to anyone who already has it, and edge
   caches can keep serving recently-public bytes for a short window after the toggle. Treat it as
   "unlisted," not "private." True byte-level privacy would require a workspace with no public domain
   (signed URLs only), which isn't how uploads.sh workspaces work today.
@@ -78,10 +80,10 @@ uploads --help        # everything else
   shows them on the file's public page. It never keeps GPS coordinates, serial numbers, or personal
   names. Pass `--no-auto` to save none of it, `--keep-exif` to keep the EXIF, or `--no-optimize` to
   skip processing entirely.
-- **Share pages support embeds.** Every public file, gallery, and [change feed](/docs/feeds) has a
-  page at `/f/…`, `/g/…`, or `/c/…` with [oEmbed](https://oembed.com/) discovery, so tools that
-  unfurl links can show the media. Resolve one directly via `/oembed`, passing the page URL as its
-  `url` query param. Feed item pages (`/c/<id>/<item>`) page through that set.
+- **Share pages support embeds.** Every public file, gallery, and [live link](/docs/feeds) has a
+  public page with [oEmbed](https://oembed.com/) discovery. An image unfurls
+  large. A public video unfurls as a player. Resolve one directly via `/oembed`, passing the page
+  URL as its `url` query param.
 - **Getting access.** Sign in and create your own workspace with a linked GitHub account, or get
   invited to an existing one. A workspace admin can invite by email from the workspace's People page,
   or generate a join link there — anyone signed in who opens it joins the workspace. Join links can be
@@ -94,8 +96,9 @@ uploads --help        # everything else
   change. Feedback is welcome — open an issue on <a href={REPO}>the GitHub repo</a>.
 
 <div class="note">
-  Looking for deeper material like the REST API, enrollment internals, self-hosting, or operator
-  docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also read
+  Building an integration? See the [MCP server](/docs/mcp) and [REST API](/docs/api)
+  references. Enrollment internals, self-hosting, and operator docs live in
+  <a href={REPO}>the GitHub repository</a>. Agents can also read
   [/llms.txt](/llms.txt) (index) or [/llms-full.txt](/llms-full.txt) (one-file guide).
 </div>
 

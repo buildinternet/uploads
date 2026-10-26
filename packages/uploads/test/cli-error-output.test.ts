@@ -100,3 +100,77 @@ describe("missing token is an onboarding nudge, not an error: framing", () => {
     expect(parsed.error).toMatch(/uploads login/);
   });
 });
+
+describe("insufficient scope names the scope and how to get it", () => {
+  beforeEach(() => {
+    vi.stubEnv("BUILDINTERNET_CONFIG", "/nonexistent/uploads-scope-test-config");
+    vi.stubEnv("UPLOADS_TOKEN", "up_test_scope");
+    vi.stubEnv("UPLOADS_WORKSPACE", "test");
+    vi.stubEnv("UPLOADS_API_URL", "https://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function forbidden() {
+    return new Response(
+      JSON.stringify({
+        error: {
+          type: "insufficient_scope",
+          code: "insufficient_scope",
+          message: "forbidden",
+          details: { required_scope: "files:delete" },
+        },
+      }),
+      { status: 403, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  it("puts required_scope and the remedy hint on --json", async () => {
+    const out: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      out.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => forbidden()),
+    );
+
+    const code = await runCli(["node", "uploads", "--json", "delete", "screenshots/a.png"]);
+    expect(code).not.toBe(0);
+    const parsed = JSON.parse(out.join("")) as {
+      error: string;
+      code: string;
+      required_scope?: string;
+      hint?: string;
+    };
+    expect(parsed.code).toBe("INSUFFICIENT_SCOPE");
+    expect(parsed.required_scope).toBe("files:delete");
+    expect(parsed.error).toContain("files:delete");
+    expect(parsed.hint).toContain("https://uploads.sh/account/developers");
+    expect(parsed.error).toContain(parsed.hint);
+  });
+
+  it("prints the remedy once on a human error", async () => {
+    const err: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      err.push(String(chunk));
+      return true;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => forbidden()),
+    );
+
+    await runCli(["node", "uploads", "delete", "screenshots/a.png"]);
+    const printed = err.join("");
+    expect(printed).toContain("files:delete");
+    expect(printed).toContain("https://uploads.sh/account/developers");
+    expect(printed.match(/uploads\.sh\/account\/developers/g)).toHaveLength(1);
+  });
+});

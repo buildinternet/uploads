@@ -6,6 +6,7 @@
   "exports": {
     "./oauth-client-serialize": "./src/oauth-client-serialize.ts",
     "./connected-apps-wire": "./src/connected-apps-wire.ts",
+    "./digest-preferences-wire": "./src/digest-preferences-wire.ts",
     "./billing-prices": "./src/billing-prices.ts"
   },
   "scripts": {
@@ -16,21 +17,22 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/cimd": "^1.7.1",
-    "@better-auth/infra": "^0.4.1",
-    "@better-auth/oauth-provider": "^1.7.1",
-    "@better-auth/stripe": "^1.7.1",
+    "@better-auth/cimd": "^1.7.7",
+    "@better-auth/infra": "^0.4.14",
+    "@better-auth/oauth-provider": "^1.7.7",
+    "@better-auth/stripe": "^1.7.7",
     "@uploads/billing": "workspace:^",
     "@uploads/email": "workspace:^",
-    "better-auth": "^1.7.1",
+    "@uploads/observability": "workspace:^",
+    "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.3",
+    "hono": "^4.13.13",
     "stripe": "^22.3.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.134.0"
   }
 }

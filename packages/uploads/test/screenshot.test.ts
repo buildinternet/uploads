@@ -232,8 +232,8 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureRemoteImpl: async () => ({ png, clipped: false }),
     });
-    expect(before.filename).toBe("example.com-docs-mcp-before.png");
-    expect(after.filename).toBe("example.com-docs-mcp-after.png");
+    expect(before.filename).toBe("example-com-docs-mcp-before.png");
+    expect(after.filename).toBe("example-com-docs-mcp-after.png");
     expect(before.filename).not.toBe(after.filename);
   });
 
@@ -245,7 +245,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureRemoteImpl: async () => ({ png, clipped: false }),
     });
-    expect(result.filename).toBe("example.com-docs-mcp.png");
+    expect(result.filename).toBe("example-com-docs-mcp.png");
   });
 
   it("uses local when --via local is requested", async () => {

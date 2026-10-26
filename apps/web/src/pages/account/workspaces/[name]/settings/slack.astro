@@ -1,0 +1,180 @@
+---
+/**
+ * Workspace settings — Slack sub-page: Add to Slack, and which Slack
+ * workspaces can run `/uploads search` over this workspace (#1165).
+ * "Search from Slack" always renders; a non-admin or a failed load gets a
+ * line saying why instead of the list. Once a Slack workspace is connected,
+ * the Add to Slack box gives way to that list (same as the GitHub install box).
+ */
+import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import { SLACK_INSTALL_URL } from "../../../../../lib/account-profile-ui";
+import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "Full members of a bound Slack workspace can run <code>/uploads search &lt;filename&gt;</code>.",
+  href: "/docs/slack#search",
+  linkLabel: "Slack docs →",
+};
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip}>
+  <section class="card settings-page">
+    <div class="settings-section" id="slack-section">
+      <h2>Slack</h2>
+      <p class="settings-note muted">
+        Previews for uploads.sh links posted in Slack, a direct message when an upload is held for
+        review, and <code>/uploads search</code> for this workspace’s public files.
+      </p>
+      <div class="settings-connect" id="slack-connect" hidden>
+        <p>
+          Add the app to your Slack workspace, then connect your account from its Home tab. Your
+          connections and Slack notification setting are in <a href="/account/profile#slack"
+            >account settings</a
+          >.
+        </p>
+        <a class="ul-btn" href={SLACK_INSTALL_URL}>Add to Slack</a>
+      </div>
+      <div id="slack-search">
+        <h3>Search from Slack</h3>
+        <p class="settings-note muted">
+          Lets full members of a Slack workspace run <code>/uploads search &lt;filename&gt;</code>
+          to find this workspace’s public files. Guests and people from other organizations can’t.
+        </p>
+        <p id="slack-search-message" class="settings-note muted" hidden></p>
+        <p id="slack-search-empty" class="settings-note muted" hidden>
+          Connect your account from the app’s Home tab in Slack, and that Slack workspace shows up
+          here.
+        </p>
+        <div id="slack-search-teams" class="setting-rows"></div>
+        <p id="slack-add-another" class="slack-add-another" hidden>
+          <a class="text-btn" href={SLACK_INSTALL_URL}>Add another Slack workspace</a>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../../../lib/account-shell";
+    import {
+      listSlackSearchTeams,
+      setSlackSearch,
+      type SlackSearchTeam,
+    } from "../../../../../lib/slack-connect";
+    import { setRowStatus } from "../../../../../lib/setting-row-status";
+    import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
+    import { escapeHtml } from "../../../../../lib/workspace-ui";
+    import { SLACK_MARK_PATH } from "../../../../../lib/brand-icons";
+    onAstroPageLoad(() => {
+      if (!document.getElementById("slack-search")) return;
+
+      const page = "workspace slack search";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+      const listEl = requireElement<HTMLElement>("#slack-search-teams", page);
+      const emptyEl = requireElement<HTMLElement>("#slack-search-empty", page);
+      const messageEl = requireElement<HTMLElement>("#slack-search-message", page);
+      const connectEl = requireElement<HTMLElement>("#slack-connect", page);
+      const addAnotherEl = requireElement<HTMLElement>("#slack-add-another", page);
+
+      function render(teams: SlackSearchTeam[]): void {
+        emptyEl.hidden = teams.length > 0;
+        connectEl.hidden = teams.length > 0;
+        addAnotherEl.hidden = teams.length === 0;
+        listEl.innerHTML = teams
+          .map((team) => {
+            const name = escapeHtml(team.teamName ?? team.teamId);
+            const needsUpdate = team.missingScopes.includes("commands");
+            const desc = needsUpdate
+              ? `This Slack workspace needs to approve updated permissions first: open the app’s Home tab in Slack and press <strong>Update permissions</strong>.`
+              : "Let members of this Slack workspace search this workspace’s public files.";
+            return `<div class="setting-row">
+              <div class="min-w-0">
+                <span class="setting-row__label slack-team">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path fill="currentColor" d="${SLACK_MARK_PATH}"/></svg>
+                  ${name}
+                  <span class="ul-badge ul-badge--ok">Connected</span>
+                </span>
+                <p class="setting-row__desc">${desc}</p>
+              </div>
+              <div class="setting-row__control">
+                <span class="setting-row__status" role="status" aria-live="polite"></span>
+                <button type="button" class="setting-switch" role="switch" data-team-id="${escapeHtml(team.teamId)}"
+                  aria-checked="${team.bound ? "true" : "false"}" aria-label="Search from ${name}">
+                  <span class="setting-switch__thumb" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>`;
+          })
+          .join("");
+      }
+
+      async function load(): Promise<void> {
+        const teams = await listSlackSearchTeams(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        const message =
+          teams === "forbidden"
+            ? "Only workspace admins and owners can turn this on."
+            : teams === null
+              ? "Couldn’t load your Slack workspaces. Reload the page to try again."
+              : "";
+        messageEl.textContent = message;
+        messageEl.hidden = !message;
+        if (Array.isArray(teams)) render(teams);
+        else {
+          emptyEl.hidden = true;
+          connectEl.hidden = false;
+          addAnotherEl.hidden = true;
+          listEl.innerHTML = "";
+        }
+      }
+
+      listEl.addEventListener("click", (event) => {
+        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-team-id]");
+        const teamId = btn?.dataset.teamId;
+        if (!btn || !teamId || btn.disabled) return;
+        const desired = btn.getAttribute("aria-checked") !== "true";
+        btn.setAttribute("aria-checked", desired ? "true" : "false");
+        btn.disabled = true;
+        setRowStatus(btn, "saving");
+        void (async () => {
+          const ok = await setSlackSearch(apiOrigin, workspaceName, teamId, desired);
+          if (!stillHere()) return;
+          if (ok) {
+            await load();
+            const toggle = listEl.querySelector(`[data-team-id="${CSS.escape(teamId)}"]`);
+            if (toggle) setRowStatus(toggle, "saved");
+          } else {
+            setRowStatus(btn, "error", "Couldn’t save. Try again.");
+            btn.setAttribute("aria-checked", desired ? "false" : "true");
+            btn.disabled = false;
+          }
+        })();
+      });
+
+      onSession(() => {
+        void load();
+      });
+    });
+  </script>
+</WorkspaceLayout>

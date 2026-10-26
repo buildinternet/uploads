@@ -4,9 +4,13 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
-import { publicObjectDateFields } from "./files-core";
-import { getMetadataForKeys } from "./file-metadata";
-import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
+import { publicObjectDateFields } from "./files-read";
+import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
+import {
+  isDerivedPosterContentType,
+  videoPresentation,
+  type VideoDimensions,
+} from "./poster-presentation";
 import {
   type GalleryCursor,
   type GalleryItemRecord,
@@ -21,19 +25,13 @@ import {
   projectPublicGallery,
 } from "./galleries";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
-import type { StorageConfig } from "@uploads/storage";
+import type { FileInfo, StorageConfig } from "@uploads/storage";
+import { HELD_FILENAME } from "./upload-hold";
+import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
-
-/** Fields we read from a Files SDK head when hydrating gallery items. */
-type GalleryObjectHead = {
-  type?: string;
-  size?: number;
-  lastModified?: number;
-  metadata?: Record<string, string>;
-};
 
 export interface GalleryItemDto {
   id: string;
@@ -57,6 +55,8 @@ export interface GalleryItemDto {
   posterUrl?: string;
   /** Real video dimensions for reserving aspect ratio before playback. */
   videoDimensions?: VideoDimensions;
+  /** Public queryable tags, excluding internal metadata. */
+  metadata?: Record<string, string>;
 }
 export interface PublicGalleryItemDto {
   id: string;
@@ -78,6 +78,8 @@ export interface PublicGalleryItemDto {
   posterUrl?: string;
   /** Real video dimensions for reserving aspect ratio before playback. */
   videoDimensions?: VideoDimensions;
+  /** Public queryable tags, excluding internal metadata. */
+  metadata?: Record<string, string>;
 }
 export interface GalleryDto {
   id: string;
@@ -256,7 +258,7 @@ export async function hydrateGalleryItems(
   env: Env,
   workspace: WorkspaceRecord,
   items: GalleryItemRecord[],
-  opts: { audience: "owner" | "public" } = { audience: "owner" },
+  opts: { audience: "owner" | "public"; heldOut?: Set<string> } = { audience: "owner" },
 ): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
   // Two-lane storage (PR C audit): each item resolves its OWN lane via a
   // shared `LaneResolver` — a gallery can reference objects uploaded before
@@ -276,18 +278,29 @@ export async function hydrateGalleryItems(
     });
   }
   const laneConfigByKey = new Map<string, StorageConfig>();
+  // Held uploads (`upload-hold.ts`) are withheld from a public gallery the
+  // same way private ones are.
+  const heldKeys =
+    opts.audience === "public" && workspace.name
+      ? await heldKeysAmong(
+          env,
+          workspace.name,
+          items.map((item) => item.object_key),
+        )
+      : new Set<string>();
+  for (const key of heldKeys) opts.heldOut?.add(key);
   const hydrated = await mapBounded(
     items,
     8,
     async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
-      let meta: GalleryObjectHead | null;
+      let meta: FileInfo | null;
       let itemConfig: StorageConfig | null = null;
       try {
         const lane = await resolver.resolve(item.object_key);
         if (lane) {
           itemConfig = lane.config;
           laneConfigByKey.set(item.object_key, lane.config);
-          meta = (await lane.store.head(item.object_key)) as GalleryObjectHead;
+          meta = await lane.store.head(item.object_key);
         } else {
           meta = null;
         }
@@ -298,7 +311,7 @@ export async function hydrateGalleryItems(
         });
       }
       const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
-      const withheld = opts.audience === "public" && isPrivate;
+      const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(item.object_key));
       const urls =
         meta && !withheld && itemConfig
           ? objectPublicUrls(env, itemConfig, item.object_key)
@@ -318,7 +331,7 @@ export async function hydrateGalleryItems(
         status: withheld ? "withheld" : meta ? "available" : "missing",
         url: urls.url,
         embedUrl: urls.embedUrl,
-        contentType: withheld ? null : (meta?.type ?? null),
+        contentType: withheld ? null : (meta?.contentType ?? null),
         size: withheld ? null : (meta?.size ?? null),
         uploaded: dates.uploaded ?? null,
         modified: dates.modified ?? null,
@@ -328,21 +341,28 @@ export async function hydrateGalleryItems(
 
   // Poster + real dimensions (issue #299 videos, #1009 PDF first page): the
   // sentinel rows live in D1, so the object heads above can't tell us. One
-  // batched D1 read; failures degrade to a bare player or file card.
-  const posterKeys = hydrated
-    .filter((item) => item.url !== null && isDerivedPosterContentType(item.contentType ?? ""))
+  // batched D1 read also supplies public item tags; failures omit those details.
+  const presentationKeys = hydrated
+    .filter(
+      (item) =>
+        item.url !== null &&
+        (opts.audience === "public" || isDerivedPosterContentType(item.contentType ?? "")),
+    )
     .map((item) => item.objectKey);
-  if (posterKeys.length > 0 && workspace.name) {
+  if (presentationKeys.length > 0 && workspace.name) {
     try {
-      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, posterKeys, {
-        metaKeys: [
-          "video.poster",
-          "video.width",
-          "video.height",
-          "pdf.poster",
-          "pdf.width",
-          "pdf.height",
-        ],
+      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, presentationKeys, {
+        metaKeys:
+          opts.audience === "public"
+            ? undefined
+            : [
+                "video.poster",
+                "video.width",
+                "video.height",
+                "pdf.poster",
+                "pdf.width",
+                "pdf.height",
+              ],
       });
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
@@ -351,6 +371,8 @@ export async function hydrateGalleryItems(
         // same lane by construction.
         const itemConfig = laneConfigByKey.get(item.objectKey);
         if (!metadata || !itemConfig) continue;
+        if (opts.audience === "public")
+          item.metadata = publicFileMetadata(metadata, { includeGithub: false });
         const { posterUrl, videoDimensions } = videoPresentation(
           env,
           itemConfig,
@@ -511,15 +533,19 @@ export async function hydratePublicGallery(
   record: GalleryRecord,
   items: GalleryItemRecord[],
 ): Promise<PublicGalleryDto> {
-  const hydrated = await hydrateGalleryItems(env, workspace, items, { audience: "public" });
+  const held = new Set<string>();
+  const hydrated = await hydrateGalleryItems(env, workspace, items, {
+    audience: "public",
+    heldOut: held,
+  });
   return {
     ...projectPublicGallery(record),
     items: hydrated.map((item) => ({
       id: item.id,
-      filename: galleryItemFilename(item.objectKey),
+      filename: held.has(item.objectKey) ? HELD_FILENAME : galleryItemFilename(item.objectKey),
       position: item.position,
-      caption: item.caption,
-      altText: item.altText,
+      caption: held.has(item.objectKey) ? null : item.caption,
+      altText: held.has(item.objectKey) ? null : item.altText,
       status: item.status,
       url: item.url,
       embedUrl: item.embedUrl,
@@ -527,6 +553,7 @@ export async function hydratePublicGallery(
       size: item.size,
       ...(item.uploaded ? { uploaded: item.uploaded } : {}),
       ...(item.modified ? { modified: item.modified } : {}),
+      ...(item.metadata ? { metadata: item.metadata } : {}),
       ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
       ...(item.videoDimensions ? { videoDimensions: item.videoDimensions } : {}),
     })),

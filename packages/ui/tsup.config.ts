@@ -35,6 +35,7 @@ export default defineConfig({
     "components/ui/tabs": "src/components/ui/tabs.tsx",
     "components/ui/textarea": "src/components/ui/textarea.tsx",
     "components/ui/tooltip": "src/components/ui/tooltip.tsx",
+    "components/pr-label": "src/components/pr-label.tsx",
     "hooks/use-mobile": "src/hooks/use-mobile.ts",
     "lib/utils": "src/lib/utils.ts",
   },

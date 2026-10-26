@@ -5,8 +5,9 @@
  * chrome — buttons, labels, metadata), Geist Pixel (display / brand moments, with
  * the custom ELSH "Element Shape" axis, 0–100; --pixel-shape defaults to 1 = Square).
  *
- * The palette is dark by construction (color-scheme: dark). Every component reads
- * these var(--*) tokens, so restyling a scope is a matter of overriding a token.
+ * The palette on :root is the dark brand. Light mode is the same tokens under
+ * `html[data-theme="light"]` — every component reads var(--*), so the swap is
+ * the whole restyle. The theme script in BaseHead sets that attribute.
  */
 
 @font-face {
@@ -53,6 +54,11 @@
   --accent: #c27eff; /* the uploads.sh violet — focus, primary, hover */
   --green: #8fae62; /* success / ready */
   --red: #d98a9c; /* error / destructive */
+
+  /* Recessed fill and hover wash. theme.css maps these onto shadcn's
+     muted / accent surfaces. */
+  --surface-muted: #17171a;
+  --surface-hover: #1a1a1e;
 
   /* Type families */
   --sans:
@@ -126,4 +132,31 @@
   --width-content: 720px; /* reading/marketing pages: landing, docs, guides, legal */
   --width-shell: 960px; /* signed-in shells: account, admin */
   --width-viewer: 1080px; /* media viewers: /f, /g */
+}
+
+/* Light appearance. :root stays dark so a page with no choice still renders
+   the brand default. This selector beats :root. Chromatic tokens are the
+   same hues, darkened until they hold as text on the paper background. */
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f4f2ec; /* warm paper, not stark white */
+  --panel: #fbfaf6;
+  --line: #e3e0d6;
+
+  --fg: #1c1c19;
+  --body: #3f3f39;
+  --muted: #65655d;
+
+  --accent: #7a3aad;
+  --green: #3f6b28;
+  --red: #a33d56;
+
+  --surface-muted: #ebe8df;
+  --surface-hover: #e3dfd4;
+
+  /* The dark palette adds leading and tracking to fight light-on-dark bloom. */
+  --leading-body: 1.55;
+  --tracking-body: 0;
+  --tracking-ui: 0;
 }

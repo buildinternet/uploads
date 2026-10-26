@@ -1,10 +1,10 @@
 ---
 /**
  * Shared Copy / Copy as / Download controls for public file and gallery-item
- * pages — one place for markup, styles, and the CSP-safe `define:vars` script.
+ * pages — one place for markup, styles, and the delegated copy handlers.
  *
- * Default slot: optional same-row links (e.g. "Open original"). Slotted `<a
- * class="original">` is styled via `:global` so parent-scoped markup still matches.
+ * Default slot: optional links beside Download (e.g. "Open original"). Slotted
+ * `<a class="original">` is styled via `:global` so parent-scoped markup still matches.
  */
 import type { EmbedFormatOption } from "../lib/embed-formats";
 
@@ -22,256 +22,119 @@ const show = Boolean(downloadUrl) || formats.length > 0;
 
 {
   show && (
-    <div class="actions">
-      <slot />
-      {downloadUrl && (
-        <a class="original download" href={downloadUrl} rel="noopener noreferrer">
-          Download
-        </a>
-      )}
+    <div class="actions" data-public-copy-controls>
+      <div class="links">
+        <slot />
+        {downloadUrl && (
+          <a class="original download" href={downloadUrl} rel="noopener noreferrer">
+            Download
+          </a>
+        )}
+      </div>
       {formats.length > 0 && (
-        <span class="linkfield">
-          <label for="copy-format">Copy as</label>
+        <div class="copy">
+          {/* Format picker + one explicit Copy button; the value below is a
+             quiet one-line preview, not a click target. */}
           <div class="copyrow">
             <select id="copy-format" class="ul-select" aria-label="Copy as format">
               {formats.map((format) => (
-                <option value={format.id}>{format.label}</option>
+                <option value={format.id} data-copy-value={format.value}>
+                  {format.label}
+                </option>
               ))}
             </select>
-            {/* The whole row is the copy control (Snippet pattern) — a real
-               button inside carries the click/keyboard affordance, so the
-               wrapper only needs a click-through convenience handler. */}
-            <div class="snippet" id="copy-snippet" data-copy-value={defaultCopyValue} tabindex="-1">
-              <code id="copy-snippet-value">{defaultCopyValue}</code>
-              <button
-                type="button"
-                id="copy-format-btn"
-                class="snippet-copy"
-                data-copy={defaultCopyValue}
-                data-copy-icon
-                aria-label={`Copy ${defaultCopyLabel}`}
-              >
-                <svg
-                  class="icon-copy"
-                  viewBox="0 0 16 16"
-                  width="15"
-                  height="15"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.3"
-                    d="M6 6h7v8H6zM3 2h7v2M3 2v8h3M3 2h0"
-                  />
-                </svg>
-                <svg
-                  class="icon-check is-hidden"
-                  viewBox="0 0 16 16"
-                  width="15"
-                  height="15"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.6"
-                    d="M3 8.5l3.2 3.2L13 4.5"
-                  />
-                </svg>
-              </button>
-            </div>
-            <span id="copy-status" class="sr-only" aria-live="polite" />
+            <button
+              type="button"
+              id="copy-format-btn"
+              class="copy-btn"
+              data-copy={defaultCopyValue}
+              title={`Copy ${defaultCopyLabel}`}
+            >
+              Copy
+            </button>
           </div>
-        </span>
+          <code id="copy-snippet-value" class="preview" title={defaultCopyValue}>
+            {defaultCopyValue}
+          </code>
+          <span id="copy-status" class="sr-only" aria-live="polite" />
+        </div>
       )}
     </div>
   )
 }
 
-<!--
-  Top-level script (not JSX-conditional): prettier-plugin-astro cannot parse
-  `define:vars` inside a JSX expression (issue #551). Early-return when there
-  are no formats so empty embeds stay inert.
--->
-<script define:vars={{ formats, hasFormats: formats.length > 0 }}>
-  // dataset.copyLabel keeps the label stable across a rapid double-click
-  // while the "copied ✓" timeout is still pending.
-  (function () {
-    if (!hasFormats) return;
-    const shell = document.querySelector(".shell");
-    if (!shell) return;
-
-    const status = document.getElementById("copy-status");
-
-    shell.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const button = target.closest("button[data-copy]");
-      if (!(button instanceof HTMLButtonElement)) return;
-      void navigator.clipboard
-        .writeText(button.dataset.copy || "")
-        .then(() => {
-          // Icon-only snippet button: swap SVGs + aria-live text instead
-          // of clobbering textContent (that path is reserved for the
-          // page-level text-labeled share button sharing this handler).
-          if (button.hasAttribute("data-copy-icon")) {
-            const copyIcon = button.querySelector(".icon-copy");
-            const checkIcon = button.querySelector(".icon-check");
-            if (copyIcon) copyIcon.classList.add("is-hidden");
-            if (checkIcon) checkIcon.classList.remove("is-hidden");
-            if (status) status.textContent = "Copied";
-            setTimeout(() => {
-              if (copyIcon) copyIcon.classList.remove("is-hidden");
-              if (checkIcon) checkIcon.classList.add("is-hidden");
-              if (status) status.textContent = "";
-            }, 1500);
-            return;
-          }
-
-          const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
-          button.dataset.copyLabel = original;
-          button.textContent = "copied ✓";
-          setTimeout(() => {
-            button.textContent = original;
-          }, 1500);
-        })
-        .catch(() => {
-          // Clipboard blocked — leave the label.
-        });
-    });
-
-    // Clicking anywhere on the snippet row (not just the icon button)
-    // copies — same target the button already handles, so just forward.
-    const snippet = document.getElementById("copy-snippet");
-    const copyButton = document.getElementById("copy-format-btn");
-    if (snippet instanceof HTMLElement && copyButton instanceof HTMLButtonElement) {
-      snippet.addEventListener("click", (event) => {
-        if (event.target === copyButton || copyButton.contains(event.target)) return;
-        copyButton.click();
-      });
-    }
-
-    const select = document.getElementById("copy-format");
-    const valueEl = document.getElementById("copy-snippet-value");
-    if (
-      select instanceof HTMLSelectElement &&
-      valueEl instanceof HTMLElement &&
-      copyButton instanceof HTMLButtonElement &&
-      snippet instanceof HTMLElement
-    ) {
-      select.addEventListener("change", () => {
-        const format = formats.find((f) => f.id === select.value) ?? formats[0];
-        if (!format) return;
-        valueEl.textContent = format.value;
-        snippet.dataset.copyValue = format.value;
-        copyButton.dataset.copy = format.value;
-        copyButton.setAttribute("aria-label", `Copy ${format.label}`);
-      });
-    }
-  })();
+<script>
+  import "../lib/public-copy-controls";
 </script>
 
 <style>
   .actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 10px;
-    align-items: center;
-    margin-top: 14px;
+  }
+  /* Open original + Download: equal-width pair, same box as the copy row. */
+  .links {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 8px;
   }
   /* :global so slotted Open original (parent scope) and Download match alike */
-  .actions :global(a.original) {
-    display: inline-block;
-    padding: 9px 15px;
+  .actions :global(a.original),
+  .copy-btn {
+    display: block;
+    padding: 8px 12px;
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
     background: var(--panel);
     color: var(--fg);
-    font: var(--text-micro) var(--sans);
+    font: var(--text-meta) / var(--leading-ui) var(--sans);
+    text-align: center;
     text-decoration: none;
-    margin-top: 0;
+    white-space: nowrap;
+    margin: 0;
   }
   .actions :global(a.original:hover),
-  .actions :global(a.original:focus-visible) {
+  .actions :global(a.original:focus-visible),
+  .copy-btn:hover,
+  .copy-btn:focus-visible {
     border-color: var(--accent);
     color: var(--accent);
     outline: none;
   }
-  /* Always its own full-width row so the narrow file-page rail never overflows */
-  .linkfield {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .linkfield label {
-    display: block;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font: var(--text-micro) var(--sans);
-    margin-bottom: 5px;
-  }
-  /* Stacked: format chooser on top, snippet row beneath — keeps every
-     control legible in the ~300px rail instead of crushing them into one row. */
-  .copyrow {
+  .copy {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
   }
-  /* ai-sdk Elements "Snippet" pattern: one bordered row, truncated mono value,
-     icon-only copy affordance — the whole row is clickable. */
-  .snippet {
+  .copyrow {
     display: flex;
-    align-items: flex-start;
     gap: 8px;
     min-width: 0;
-    padding: 8px 8px 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    background: var(--panel);
-    cursor: pointer;
   }
-  .snippet:hover {
-    border-color: var(--accent);
-  }
-  /* Wrap the full value — the ~300px rail truncates a single line past
-     usefulness, and format values are bounded (a few lines at worst). */
-  .snippet code {
+  .copyrow .ul-select {
     flex: 1;
     min-width: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font: var(--text-micro)/1.5 var(--mono);
-    color: var(--body);
-    padding: 3px 0;
+    padding: 8px 30px 8px 12px;
+    background-color: var(--panel);
+    font: var(--text-meta) / var(--leading-ui) var(--sans);
+    background-position: right 10px center;
   }
-  .snippet-copy {
+  .copy-btn {
     flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--muted);
     cursor: pointer;
+    min-width: 72px;
   }
-  .snippet-copy:hover,
-  .snippet-copy:focus-visible {
-    color: var(--accent);
-    outline: none;
-  }
-  .snippet-copy:focus-visible {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .icon-check {
-    color: var(--accent);
-  }
-  .is-hidden {
-    display: none;
+  /* One muted line showing what Copy will put on the clipboard. */
+  .preview {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font: var(--text-micro) / 1.5 var(--mono);
   }
   .sr-only {
     position: absolute;

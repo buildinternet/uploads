@@ -4,8 +4,10 @@ import { createFeed, getFeed, listFeeds, softDeleteFeed } from "../feeds";
 import {
   decodeFeedCursor,
   encodeFeedCursor,
+  feedNotPublicError,
   feedSummary,
   hydrateOwnerFeed,
+  liveLinksServable,
   unwrapFeedMutation,
 } from "../feed-service";
 import { writeRateLimit } from "../guards";
@@ -13,6 +15,7 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
+import type { FeedListResponse } from "../scope-wire";
 
 async function ownerFeed(c: Context<WorkspaceVars>, id: string) {
   const record = await getFeed(dbFor(c.env), c.get("workspaceName"), id);
@@ -22,6 +25,8 @@ async function ownerFeed(c: Context<WorkspaceVars>, id: string) {
 
 export async function createFeedHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
+  // Checked before the insert, so a refused create leaves no row behind.
+  if (!liveLinksServable(c.get("workspace"))) throw feedNotPublicError();
   const result = unwrapFeedMutation(
     await createFeed(dbFor(c.env), {
       workspace: c.get("workspaceName"),
@@ -51,10 +56,11 @@ export async function listFeedsHandler(c: Context<WorkspaceVars>) {
       }),
     { name: "d1_feeds_list" },
   );
-  return c.json({
+  const body: FeedListResponse = {
     feeds: page.feeds.map((feed) => feedSummary(c.env, feed)),
     nextCursor: page.nextCursor ? encodeFeedCursor(page.nextCursor) : null,
-  });
+  };
+  return c.json(body);
 }
 
 export async function getFeedHandler(c: Context<WorkspaceVars>) {

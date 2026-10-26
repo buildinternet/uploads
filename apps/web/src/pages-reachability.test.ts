@@ -32,6 +32,7 @@ function ssrPageResponse(title: string): Response {
 
 describe.each([
   { path: "/login", title: "Sign in · uploads.sh" },
+  { path: "/auth/error", title: "Sign-in didn’t complete · uploads.sh" },
   { path: "/admin", title: "Admin · uploads.sh" },
   { path: "/admin/users", title: "Users · Admin · uploads.sh" },
   { path: "/admin/email", title: "Email · Admin · uploads.sh" },
@@ -41,8 +42,24 @@ describe.each([
   { path: "/account/workspaces/new", title: "New workspace · uploads.sh" },
   { path: "/account/workspaces/buildinternet", title: "buildinternet · uploads.sh" },
   {
-    path: "/account/workspaces/buildinternet/galleries",
-    title: "Galleries · buildinternet · uploads.sh",
+    path: "/account/workspaces/buildinternet/files",
+    title: "buildinternet · uploads.sh",
+  },
+  {
+    path: "/account/workspaces/buildinternet/files/acme/web",
+    title: "buildinternet · uploads.sh",
+  },
+  {
+    path: "/account/workspaces/buildinternet/files/acme/web/pull/7",
+    title: "buildinternet · uploads.sh",
+  },
+  {
+    path: "/account/workspaces/buildinternet/storage",
+    title: "buildinternet · uploads.sh",
+  },
+  {
+    path: "/account/workspaces/buildinternet/links",
+    title: "buildinternet · uploads.sh",
   },
   {
     path: "/account/workspaces/buildinternet/people",

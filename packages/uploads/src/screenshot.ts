@@ -12,6 +12,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { UploadsError } from "./errors.js";
+import { sanitizeFilename } from "./comment-render.generated.js";
 import { isMetaStateValue } from "./metadata-vocab.js";
 import { isPrivateOrLocalHost } from "./private-host.js";
 import { captureRemote, MAX_REMOTE_HTML_BYTES } from "./screenshot-remote.js";
@@ -263,15 +264,13 @@ export function clipHintText(maxHeightPx: number, flagName: string): string {
 function deriveFilename(target: ScreenshotTarget): string {
   if (target.kind === "html-file") {
     const stem = basename(target.path).replace(/\.html?$/i, "");
-    return `${stem || "screenshot"}.png`;
+    return sanitizeFilename(`${stem || "screenshot"}.png`);
   }
   const url = new URL(target.url);
-  const pathPart = url.pathname
-    .replace(/\/+$/, "")
-    .replace(/^\/+/, "")
-    .replace(/[^A-Za-z0-9._-]+/g, "-");
+  const pathPart = url.pathname.replace(/\/+$/, "").replace(/^\/+/, "");
   const stem = [url.hostname, pathPart].filter(Boolean).join("-");
-  return `${stem || "screenshot"}.png`;
+  // `127.0.0.1/admin` → `127-0-0-1-admin.png`: only the extension keeps a dot.
+  return sanitizeFilename(`${stem || "screenshot"}.png`);
 }
 
 /**

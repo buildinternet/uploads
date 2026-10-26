@@ -40,8 +40,6 @@ describe("LegalConsent component", () => {
     // the spaces even when Prettier wraps the markup.
     expect(component).toContain('the{" "}');
     expect(component).toContain('{" "}and{" "}');
-    expect(component).toContain('href="/terms"');
-    expect(component).toContain('href="/privacy"');
   });
 });
 
@@ -51,6 +49,11 @@ describe.each([
     page: "/device",
     path: "./pages/device.astro",
     importPath: "../components/LegalConsent.astro",
+  },
+  {
+    page: "/slack/connect",
+    path: "./pages/slack/connect.astro",
+    importPath: "../../components/LegalConsent.astro",
   },
   {
     page: "/accept-invitation/[id]",

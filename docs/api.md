@@ -123,6 +123,12 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 
 ## Canonical routes
 
+These routes, and `/.well-known/openapi.json`, are the public API: the
+contract an SDK is built from. Other routes the web app and CLI call
+(workspace settings, members, storage setup, service tokens, and the CLI's
+GitHub plumbing under `github/`) are internal and can change without notice.
+`apps/api/src/openapi-contract.test.ts` makes every new route pick a side.
+
 | Route                                                                           | Description                                                                                                                                                                                                                     |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/abuse`                                                                | Public content report (no auth). D1 row + email to `abuse@uploads.sh`. Rate-limited; `ABUSE_DISABLED` kill switch                                                                                                               |
@@ -137,6 +143,11 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET /v1/workspaces/:workspace/files/by-path?merged=`                           | Group recently uploaded `gh.*`-tagged files by project and path. Powers the web Screenshots page                                                                                                                                |
 | `GET /v1/workspaces/:workspace/files/file-url?key=`                             | Resolve a usable URL for a key: the workspace's public URL, else a short-lived signed URL, else an error                                                                                                                        |
 | `PATCH /v1/workspaces/:workspace/files/visibility?key=`                         | Set a file's `visibility` flag with `{ visibility: "public" \| "private" }`                                                                                                                                                     |
+| `POST /v1/workspaces/:workspace/files/approve?key=`                             | Release a file held for review (a likely secret or personal data). A key that is not held returns `approved: false`                                                                                                             |
+| `POST /v1/workspaces/:workspace/files/hold?key=`                                | Hold an approved file for review again, for an approval made by mistake. Any other key returns `held: false`                                                                                                                    |
+| `GET /v1/workspaces/:workspace/files/review?key=`                               | A file's review state for members: `hold` (`pending`, `approved` or null), `reason`, and who approved it and when                                                                                                               |
+| `GET /v1/workspaces/:workspace/files/held?prefix=`                              | List files held for review, with the reason and whether the bytes moved to the held bucket                                                                                                                                      |
+| `GET /v1/workspaces/:workspace/files/held/download?key=`                        | Download a held file's held copy, for review before approval                                                                                                                                                                    |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
 | `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
@@ -151,11 +162,18 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET/POST /v1/workspaces/:workspace/galleries/:id/external-references`          | List or link external coordinates; writes require `files:write`                                                                                                                                                                 |
 | `DELETE /v1/workspaces/:workspace/galleries/:id/external-references/:reference` | Unlink an external coordinate; requires `files:write`                                                                                                                                                                           |
 | `GET /public/galleries/:id`                                                     | Read one public gallery by its opaque ID (no auth)                                                                                                                                                                              |
+| `GET /public/galleries/:id/items/:item/download`                                | Download one public gallery item as an attachment (no auth). Missing, private or held items return `404`                                                                                                                        |
 | `POST /v1/workspaces/:workspace/feeds`                                          | Create or reuse a public change feed for a repo, optionally scoped to one PR/issue (`{ repo, path?, number?, kind? }` or `pr`/`issue` aliases); requires `files:write`                                                          |
 | `GET /v1/workspaces/:workspace/feeds?limit=&cursor=`                            | List feed summaries with opaque cursor pagination; requires `files:read`                                                                                                                                                        |
 | `GET /v1/workspaces/:workspace/feeds/:id`                                       | Read one owned feed and its current newest-first screenshots (each item includes `pageUrl` at `/c/<id>/<item>`); requires `files:read`                                                                                          |
 | `DELETE /v1/workspaces/:workspace/feeds/:id`                                    | Soft-delete a feed record; requires `files:write`                                                                                                                                                                               |
 | `GET /public/feeds/:id`                                                         | Read one public change feed by its opaque ID (no auth). Items are resolved at view time                                                                                                                                         |
+| `GET /public/feeds/:id/items/:item`                                             | Read one public feed item with its neighbours, for paging (no auth)                                                                                                                                                             |
+| `GET /public/files/:workspace/:key`                                             | Read one public file's details (no auth). Private and held files return `404`; `?download=1` streams the bytes                                                                                                                  |
+| `GET /v1/workspaces/:workspace/pulls?repo=&state=&since=&limit=&cursor=`        | List pull requests with media, newest first. Only the last 90 days unless `all=1` or `since`; requires `files:read`                                                                                                             |
+| `GET /v1/workspaces/:workspace/repos?since=&limit=&cursor=`                     | List repos with GitHub-tagged media; `thumbnails=0` returns names only; requires `files:read`                                                                                                                                   |
+| `GET /v1/workspaces/:workspace/scope/:owner/:repo/files?number=`                | List files for a repo, or one PR or issue with `number`, newest first; requires `files:read`                                                                                                                                    |
+| `POST /v1/workspaces/:workspace/github/comment`                                 | Create or update the managed uploads.sh comment on a PR or issue (`{ repo, num, kind }`). Integration problems return `posted: false` with a reason, never `5xx`; bearer token with `files:write`                               |
 
 ## Pagination
 
@@ -306,15 +324,57 @@ store, so it takes a separate read (`?metadata=1`).
 
 **Experimental AI labels.** When Flagship `llm-file-classifier` serves on for
 the workspace slug (`org` / `workspace` targeting context),
-a successful server-mediated put may later write server-owned `ai.tags`
-(up to five kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`,
-`ai.screen`, and `ai.classifier=v3`. Only raster images under 512 KiB get
-`ai.tags` and `ai.summary`; every file can get the closed enums, and a
-low-confidence enum is omitted. Clients cannot set or delete
-those keys (`ai.*` is reserved, same as `video.*` / `image.*`). The 201
-response does not wait for the model; read `GET …/files/:key?metadata=1` (or
-`uploads meta get <key>`) after the upload. Presigned uploads never get
-labels. See [docs/ops.md](ops.md#experimental-llm-file-classifier).
+a successful server-mediated put may later write server-owned `ai.kind`,
+`ai.surface`, `ai.screen`, and `ai.classifier` (`v5` for original bytes,
+`v6` when the image was resized for Jev, `skipped` when the model does not
+see an image). `ai.skip` is `small`, `unsupported`, `resize_failed`, or
+`resize_timeout`. A skip writes no kind, surface, screen, or safety value.
+A call that times out, errors, or returns no confident answer writes
+`ai.classifier=failed` and `ai.error` (`timeout`, `provider_error`, or
+`no_answer`), unless identical bytes already have an earlier result.
+The same call, when it does run, also writes internal `ai.rating`,
+`ai.content`, `ai.secret`, and `ai.pii`, each with an
+`ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up to 0.85), or
+`low` (0.50 up to 0.70). Those flags do not bump the classifier version.
+`v4`, `v5`, `v6`, and `skipped` still name the pixel path. A low-confidence
+enum is omitted, and so is its confidence key. A stored safety flag stays
+until a later classification writes that key, including a confident `none`.
+A miss leaves the previous value. A skip does not write one. Re-uploading
+identical bytes does not clear a flag. New bytes clear every `ai.*` row
+before classification runs, so labels from the old bytes never remain. The labeler does not write
+`ai.tags` or `ai.summary` (older rows may still have them). A Luna
+Decisions try writes `ai.classifier=v4` and the same enums. Luna does not
+receive the resized copy. A file Luna cannot see is `unsupported`. A
+trivially small image is skipped before either provider runs. Clients
+cannot set or delete those keys (`ai.*` is reserved,
+same as `video.*` / `image.*`). Public file, gallery, feed, embed, and
+pull-request responses omit every `ai.*` key. Workspace members can still
+read and search them. The 201 response does not wait for the model;
+read `GET …/files/:key?metadata=1` (or `uploads meta get <key>`) after the
+upload. Presigned uploads never get labels. See
+[docs/ops.md](ops.md#experimental-llm-file-classifier).
+
+A high-confidence `ai.secret` (not `none`), or a high-confidence `ai.pii` of
+`identity_document` or `financial`, holds the file: the server
+writes `ai.hold=pending`. Only an upload whose User-Agent is the uploads CLI
+(or its local MCP) at 0.59.0 or newer is held, since older clients cannot
+approve; other uploads log `upload_hold_skipped` and are left alone. The managed PR comment leaves a held file out and
+adds one line with the held count and `uploads approve --pr <n>`. Public
+feeds and galleries return it as `withheld`, and `GET /public/files/...`
+answers 401 `auth_required`. On hosted storage the bytes move to a private
+held bucket and the raw URL returns 404 until approval, which moves them
+back to the same key (a BYO bucket's domain keeps serving). A moved file is
+absent from `list`; `GET …/files/held` lists held keys and
+`GET …/files/held/download?key=` returns the held copy.
+`POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) writes
+`ai.hold=approved`, `ai.hold.at`, and `ai.hold.by` (the member's name or
+the service token's label), then re-syncs the comment.
+`POST …/files/hold?key=` puts an approved file back under review and clears
+`ai.hold.by` and `ai.hold.at`. `GET …/files/review?key=` returns the hold
+state for members; the file page uses it for its Reviewed note. `ai.hold` follows the same
+lifetime as the other `ai.*` rows, and promote and attach copy it onto the
+new key. A workspace record with `holdFlaggedUploads: false` writes no
+holds.
 
 ### Usage ledger and budgets
 

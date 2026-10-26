@@ -30,12 +30,17 @@ How to call it:
 - [Docs: attach artifacts to pull requests](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any accepted file (local path or `put --url`)
 - [Docs: capture & annotate](https://uploads.sh/docs/capture): capture a URL or local HTML file and host it in one step (`uploads screenshot`), then bake boxes, arrows, labels, freeform strokes, and solid redactions into a capture (`uploads screenshot --annotate` or `uploads annotate`)
 - [Docs: galleries](https://uploads.sh/docs/galleries): create an ordered set of media behind one public link at /g/<id>, add files with uploads put --gallery, and link the gallery to a PR or issue
+- [Docs: live links](https://uploads.sh/docs/feeds): a newest-first public page at /c/<id> of the files tagged with a repo or one PR/issue (`uploads feed create`, MCP `feed_create`; the CLI, API and MCP call it a feed); the managed PR comment links to its PR's live link
 - [Docs: GitHub App](https://uploads.sh/docs/github-app): recommended install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens
+- [Docs: Slack](https://uploads.sh/docs/slack): add the uploads.sh Slack app (Add to Slack at https://agents.uploads.sh/slack/install) for previews of public uploads.sh file, gallery, and live-link URLs; connect a Slack user to an uploads.sh account from the app's Home tab
 - [Docs: comment config](https://uploads.sh/docs/comment-config): commit `.uploads.yml` to a repo to control image width, inline-image caps, caption metadata, the file-page link, and an optional note on the attachments comment (bot, hosted MCP, REST, and CLI gh-fallback all honor it); repo config beats the workspace default, which beats automatic behavior
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skills and MCP server, or the all-in-one Claude Code plugin
+- [Docs: MCP server](https://uploads.sh/docs/mcp): connect to the hosted MCP at https://agents.uploads.sh/mcp, OAuth vs. workspace-token auth, scopes, branch staging then `promote`, hosted vs. local tool differences, and a parameter reference for every tool
+- [Docs: REST API](https://uploads.sh/docs/api): call https://api.uploads.sh directly — bearer `up_`/`ups_` tokens and `files:*` scopes, a first upload with curl, `cursor` pagination, the error envelope, rate limits and `Idempotency-Key`, and a reference for every endpoint in /openapi.json
 - [Claude directory listing](https://claude.ai/directory/uploads): add uploads on claude.ai and in Cowork
-- [Docs: experimental AI labels](https://uploads.sh/docs/agents#experimental-ai-tags): Flagship-gated `ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary` after a REST put — read with `uploads meta get` or `uploads find ai.screen=login` (MCP `get_metadata` / `find_files`). Clients cannot set `ai.*`. Human `path` / `state` stay primary.
+- [Docs: experimental AI labels](https://uploads.sh/docs/ai-labels): Flagship-gated `ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary` after a REST put — read with `uploads meta get` or `uploads find ai.screen=login` (MCP `get_metadata` / `find_files`). Clients cannot set `ai.*`. Human `path` / `state` stay primary. Internal flags `ai.rating` / `ai.content` / `ai.secret` / `ai.pii` (each with a `high` / `medium` / `low` `.confidence` key) are written on the same call and are not chips. They are omitted from the public file page, galleries, feeds, embeds, and pull request comments. Workspace members can still `uploads find ai.secret=api_key`. A stored flag stays until a later classification writes that key. Re-uploading identical bytes does not clear it. New bytes start fresh. The classifier version stays `v4` / `v5` / `v6` / `skipped`.
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
+- [Pricing](https://uploads.sh/pricing) (Markdown: https://uploads.sh/pricing.md): free plan, Pro for teams ($10/month intro), bring-your-own-bucket storage, fair use, and self-hosting as the fallback
 - [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
 - [Docs: bring your own bucket](https://uploads.sh/docs/byo-bucket): point a workspace at your own Cloudflare R2 bucket instead of the shared one — setup steps, the serving matrix, what's degraded, disconnecting (in preview)
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
@@ -81,6 +86,7 @@ Claude Code plugin (bundles the skills, the hosted MCP server, the /uploads:atta
 - Agents / MCP: https://agents.uploads.sh/mcp
 - Public storage: https://storage.uploads.sh
 - oEmbed (share pages `/f/…`, `/g/…`, `/c/…`): https://uploads.sh/oembed?url=<page-url>&format=json
+- Video player (public videos only): https://uploads.sh/player?url=<page-url>
 
 ## Machine-readable discovery
 

@@ -41,6 +41,7 @@ describe("POST /v1/github/webhook", () => {
   it("204s a valid delivery and invalidates the ref cache", async () => {
     const kv = new FakeKv();
     kv.store.set("ghref:owner/repo#7", { value: "{}" });
+    kv.store.set("ghref:pub:owner/repo#7", { value: "{}" });
     const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: kv } as unknown as Env;
     const body = JSON.stringify({
       action: "edited",
@@ -54,6 +55,7 @@ describe("POST /v1/github/webhook", () => {
     );
     expect(res.status).toBe(204);
     expect(kv.store.has("ghref:owner/repo#7")).toBe(false);
+    expect(kv.store.has("ghref:pub:owner/repo#7")).toBe(false);
   });
 
   it("204s a ping without touching the cache", async () => {

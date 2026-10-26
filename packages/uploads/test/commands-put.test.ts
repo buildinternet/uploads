@@ -2586,6 +2586,33 @@ describe("runPut path-meta tip (issue #469 lever 3)", () => {
     expect(stderr).not.toContain("tip:");
   });
 
+  it("does not print the tip when --screen is given", async () => {
+    const { client, puts } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r", "--app", "ios", "--screen", "Chat"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).not.toContain("tip:");
+    expect(JSON.stringify(puts)).toContain('"screen":"Chat"');
+  });
+
+  it("suggests --screen for a non-web app shot", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r", "--app", "ios"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).toContain("tip: add --screen <name> so this shot is findable by screen");
+  });
+
   // PR #509: the tip fired on every image because it read the API's put
   // echo (the R2 provenance bag) instead of the metadata actually sent.
   it("omits the JSON hint when --meta path= is given", async () => {

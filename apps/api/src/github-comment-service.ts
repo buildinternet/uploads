@@ -9,6 +9,7 @@
  */
 import { recordAdoptionSafe } from "./adoption";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
+import { syncUploadsCheck } from "./github-check-run";
 import { fetchPrActors, githubAppConfig, installationForRepo } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
 import { isEntitledToClaimRepo } from "./github-claim-authz";
@@ -170,7 +171,14 @@ export type PostCommentResult =
       required: string[];
     }
   | { posted: true; action: "skipped"; count: 0 }
-  | { posted: true; action: "created" | "updated"; count: number; commentUrl: string };
+  | {
+      posted: true;
+      action: "created" | "updated";
+      count: number;
+      commentUrl: string;
+      /** Files on this PR or issue held for review (`upload-hold.ts`), when any. */
+      held?: number;
+    };
 
 /**
  * Gather + upsert the managed comment for `target` on behalf of
@@ -221,11 +229,14 @@ export async function postManagedComment(
   );
   if (actorDecline) return actorDecline;
 
-  const gathered = await gatherCommentBody(env, ws, workspaceName, target);
+  const gathered = await gatherCommentBody(env, ws, workspaceName, target, {
+    detectUiChanges: true,
+  });
 
   // Patch-only when empty: never create a comment just to say "empty" (see
   // upsertBotComment's createIfMissing). `gathered.body` already renders the
-  // neutral empty state when count is 0.
+  // neutral empty state when count is 0, or the no-uploads how-to, which
+  // may create one.
   const result = await upsertBotComment(
     env,
     cfg,
@@ -235,7 +246,7 @@ export async function postManagedComment(
     workspaceName,
     fetch,
     {
-      createIfMissing: gathered.count > 0,
+      createIfMissing: gathered.count > 0 || gathered.noUploads,
       forceHunt: opts.resync === true,
     },
   );
@@ -248,6 +259,10 @@ export async function postManagedComment(
     if (result.degrade === "forbidden") return forbiddenDecline(target.repo, installId);
     return { posted: false, reason: result.degrade };
   }
+  await syncUploadsCheck(env, cfg, installId, target, gathered, {
+    commentUrl: "commentUrl" in result ? result.commentUrl : null,
+    workspaceName,
+  });
   // Empty + no existing comment: nothing posted, nothing to claim.
   if (result.action === "skipped") return { posted: true, action: "skipped", count: 0 };
 
@@ -267,5 +282,6 @@ export async function postManagedComment(
     action: result.action,
     count: gathered.count,
     commentUrl: result.commentUrl,
+    ...(gathered.heldCount > 0 ? { held: gathered.heldCount } : {}),
   };
 }

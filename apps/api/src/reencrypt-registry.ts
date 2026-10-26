@@ -5,7 +5,7 @@
  * script holding the KEK in the shell.
  */
 import { resealCredentialFields, secretsKeyRingFromEnv, type SecretsKeyRing } from "./secrets";
-import type { WorkspaceRecord } from "./workspace";
+import { listWorkspaceNames, type WorkspaceRecord } from "./workspace";
 import { mutateWorkspaceRecord } from "./workspace-mutate";
 
 /** True when any credential lives at the top level or inside a saved lane. */
@@ -85,82 +85,75 @@ export async function reencryptRegistryCredentials(
     throw new Error("WORKSPACE_SECRETS_KEY must be configured on the worker");
   }
 
-  let cursor: string | undefined;
   let scanned = 0;
   let updated = 0;
   let skipped = 0;
   const errors: ReencryptResult["errors"] = [];
   const workspaces: ReencryptResult["workspaces"] = [];
 
-  do {
-    const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-    for (const entry of page.keys) {
-      scanned += 1;
-      const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-      if (!name) continue;
+  for (const name of await listWorkspaceNames(env)) {
+    scanned += 1;
 
-      let record: WorkspaceRecord | null;
-      try {
-        record = await env.REGISTRY.get<WorkspaceRecord>(entry.name, "json");
-      } catch (err) {
-        errors.push({
-          workspace: name,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        continue;
-      }
-      if (!record) {
-        skipped += 1;
-        workspaces.push({ workspace: name, action: "skipped", reason: "missing" });
-        continue;
-      }
-      if (!hasAnyCredentials(record)) {
-        skipped += 1;
-        workspaces.push({ workspace: name, action: "skipped", reason: "no_credentials" });
-        continue;
-      }
+    let record: WorkspaceRecord | null;
+    try {
+      record = await env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, "json");
+    } catch (err) {
+      errors.push({
+        workspace: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+    if (!record) {
+      skipped += 1;
+      workspaces.push({ workspace: name, action: "skipped", reason: "missing" });
+      continue;
+    }
+    if (!hasAnyCredentials(record)) {
+      skipped += 1;
+      workspaces.push({ workspace: name, action: "skipped", reason: "no_credentials" });
+      continue;
+    }
 
-      try {
-        if (dryRun) {
-          const resealed = await resealWorkspaceCredentials(ring, record);
-          if (!resealed.changed) {
-            skipped += 1;
-            workspaces.push({ workspace: name, action: "skipped", reason: "already_current" });
-            continue;
-          }
-          updated += 1;
-          workspaces.push({ workspace: name, action: "would_update" });
-          continue;
-        }
-
-        // Reseal against the freshest record, inside the mutation (issue
-        // #387): this sweep walks every workspace, so an admin edit landing
-        // mid-sweep must not be reverted. The record read above only decides
-        // the cheap missing/no-credentials skips — resealing there too would
-        // pay for the crypto twice on every workspace the sweep rewrites.
-        let changed = false;
-        await mutateWorkspaceRecord(env, name, async (current) => {
-          const resealed = await resealWorkspaceCredentials(ring, current);
-          changed = resealed.changed;
-          if (!changed) return null;
-          return resealed.record;
-        });
-        if (!changed) {
+    try {
+      if (dryRun) {
+        const resealed = await resealWorkspaceCredentials(ring, record);
+        if (!resealed.changed) {
           skipped += 1;
           workspaces.push({ workspace: name, action: "skipped", reason: "already_current" });
           continue;
         }
         updated += 1;
-        workspaces.push({ workspace: name, action: "updated" });
-      } catch (err) {
-        errors.push({
-          workspace: name,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        workspaces.push({ workspace: name, action: "would_update" });
+        continue;
       }
+
+      // Reseal against the freshest record, inside the mutation (issue
+      // #387): this sweep walks every workspace, so an admin edit landing
+      // mid-sweep must not be reverted. The record read above only decides
+      // the cheap missing/no-credentials skips — resealing there too would
+      // pay for the crypto twice on every workspace the sweep rewrites.
+      let changed = false;
+      await mutateWorkspaceRecord(env, name, async (current) => {
+        const resealed = await resealWorkspaceCredentials(ring, current);
+        changed = resealed.changed;
+        if (!changed) return null;
+        return resealed.record;
+      });
+      if (!changed) {
+        skipped += 1;
+        workspaces.push({ workspace: name, action: "skipped", reason: "already_current" });
+        continue;
+      }
+      updated += 1;
+      workspaces.push({ workspace: name, action: "updated" });
+    } catch (err) {
+      errors.push({
+        workspace: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  }
 
   console.log(
     JSON.stringify({

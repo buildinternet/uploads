@@ -9,27 +9,33 @@
  * that governs `ws:` keys does not apply here.
  */
 
+import { ADMIN_METRIC_WINDOWS } from "./classifier-admin-wire";
 import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
 import { fillDaySeries } from "./day-series";
+import { listWorkspaceByobStatus } from "./workspace-byob";
 import {
-  activeWorkspacesSince,
+  countActiveWorkspaces,
+  deriveUploadSummary,
+  deriveWorkspaceActivity,
   featureTotals,
   multiIdentityWorkspaces,
   platformSeries,
   platformStorage,
+  rowsSince,
   windowStart,
-  workspaceActivity,
+  workspaceDaySeries,
   workspacesWithGithubApp,
   type DayPoint,
   type MultiIdentityWorkspace,
   type WorkspaceActivity,
+  type UploadDaySummary,
 } from "./adoption-queries";
 
 export const OVERVIEW_CACHE_TTL = 600;
 
 /** Windows the UI offers. Anything else is rejected, so the cache stays small. */
-export const ALLOWED_WINDOWS = [7, 30, 90] as const;
+export const ALLOWED_WINDOWS = ADMIN_METRIC_WINDOWS;
 
 export interface SignupPoint {
   day: string;
@@ -55,6 +61,11 @@ export interface MetricsOverview {
     bytes: number;
     /** Workspaces with at least one `github_repo_links` row that has the GitHub App installed. */
     workspacesWithGithubApp: number;
+    /**
+     * Registered workspaces storing objects in their own bucket (`isByoRecord`).
+     * `null` when the registry could not be read — unknown, not zero (#1094).
+     */
+    workspacesWithByob: number | null;
   };
   series: {
     uploads: DayPoint[];
@@ -62,9 +73,17 @@ export interface MetricsOverview {
     orgs: SignupPoint[];
     /** Per-day upload counts by media class, from Analytics Engine. Degrades when AE is unavailable. */
     uploadClasses: UploadClassSeriesResult;
+    /**
+     * Bounded per-day attribution (D1-exact): total plus the top 3
+     * contributors, for the bar tooltip. Full per-day and per-workspace
+     * detail is fetched on demand from `/admin-ui/metrics/uploads/*`.
+     */
+    uploadsByDay: UploadDaySummary[];
+    /** Workspaces for the chart filter: top 50 by window volume. */
+    uploadWorkspaces: { workspace: string; count: number }[];
   };
   features: Record<string, number>;
-  workspaces: WorkspaceActivity[];
+  workspaces: (WorkspaceActivity & { byob: boolean })[];
   /**
    * Workspaces with two or more distinct `minting_user_id` values in
    * `auth_tokens` — a read-only revisit trigger for the actor-on-PR gate
@@ -87,7 +106,24 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v3:${days}`;
+  return `metrics:overview:v6:${days}`;
+}
+
+/**
+ * Names of registered workspaces on their own bucket, read from the `ws:` key
+ * metadata on the paged registry list (one KV list, not a read per workspace).
+ * Records written before #1094 and not yet backfilled fall back to one read
+ * each. Returns `null` — "unknown", not "none" — when the registry can't be
+ * read, so a KV failure never renders as a confident 0.
+ */
+async function byobWorkspaces(env: Env): Promise<Set<string> | null> {
+  try {
+    const status = await listWorkspaceByobStatus(env);
+    return new Set([...status].filter(([, byob]) => byob).map(([name]) => name));
+  } catch (err) {
+    console.error("metrics overview: byob status unavailable", err);
+    return null;
+  }
 }
 
 /**
@@ -132,29 +168,31 @@ export async function buildOverview(
   const [
     uploads,
     features,
-    table,
-    active30,
+    workspaceRows,
     storage,
     auth,
     multiIdentity,
     githubApp,
     uploadClasses,
+    byob,
   ] = await Promise.all([
     platformSeries(dbFor(env), "upload", since),
     featureTotals(dbFor(env), since),
-    workspaceActivity(dbFor(env), since),
-    // Scans the 30-day window ONCE; the 7-day count is derived below by
-    // filtering these same rows rather than issuing a second query — the
-    // last 7 days of index entries are always a subset of the last 30, so a
-    // separate activeWorkspaceCount(since7) call would just re-read them
-    // (D1 bills rows read).
-    activeWorkspacesSince(dbFor(env), since30),
+    // The per-workspace rows are read ONCE, over the wider of the selected
+    // window and the 30-day active window. The activity table, the 7d/30d
+    // active counts and the per-workspace series are all derived from them in
+    // JS below (D1 bills rows read, and every narrower window is a subset).
+    workspaceDaySeries(dbFor(env), since < since30 ? since : since30),
     platformStorage(dbFor(env)),
     authMetrics(env, since),
     multiIdentityWorkspaces(dbFor(env)),
     workspacesWithGithubApp(dbFor(env)),
     fetchUploadClassSeries(env, days, fetch, now),
+    byobWorkspaces(env),
   ]);
+
+  const uploadSummary = deriveUploadSummary(rowsSince(workspaceRows, since));
+  const table = deriveWorkspaceActivity(workspaceRows, since, githubApp);
 
   // Sparse SQL rows → one point per calendar day so the charts' bar
   // spacing matches the selected window (quiet days plot as 0).
@@ -184,45 +222,64 @@ export async function buildOverview(
       orgs: auth.totals.orgs,
       workspaces: storage.workspaces,
       storedBytes: storage.storedBytes,
-      activeWorkspaces7d: active30.filter((w) => w.lastActive >= since7).length,
-      activeWorkspaces30d: active30.length,
+      activeWorkspaces7d: countActiveWorkspaces(workspaceRows, since7),
+      activeWorkspaces30d: countActiveWorkspaces(workspaceRows, since30),
       uploads: uploadsFilled.reduce((sum, point) => sum + point.count, 0),
       bytes: uploadsFilled.reduce((sum, point) => sum + point.bytes, 0),
       workspacesWithGithubApp: githubApp.size,
+      workspacesWithByob: byob ? byob.size : null,
     },
     series: {
       uploads: uploadsFilled,
       users: usersFilled,
       orgs: orgsFilled,
       uploadClasses: uploadClassesFilled,
+      uploadsByDay: uploadSummary.byDay,
+      uploadWorkspaces: uploadSummary.workspaces,
     },
     features,
-    workspaces: table,
+    workspaces: table.map((row) => ({ ...row, byob: byob?.has(row.workspace) ?? false })),
     multiIdentityWorkspaces: multiIdentity,
   };
 }
 
-/** Cached read. Cache failures fall through to a live build, never a 500. */
-export async function cachedOverview(
+/**
+ * KV read-through for operator rollups. Cache failures fall through to a
+ * live build, never a 500. `fresh` skips the read but still refreshes the
+ * entry.
+ */
+export async function cachedKvJson<T>(
+  env: Env,
+  key: string,
+  ttl: number,
+  fresh: boolean,
+  build: () => Promise<T>,
+): Promise<T> {
+  if (!fresh) {
+    try {
+      const hit = await env.REGISTRY.get(key);
+      if (hit) return JSON.parse(hit) as T;
+    } catch {
+      // fall through to a live build
+    }
+  }
+  const value = await build();
+  try {
+    await env.REGISTRY.put(key, JSON.stringify(value), { expirationTtl: ttl });
+  } catch {
+    // caching is an optimization, never a requirement
+  }
+  return value;
+}
+
+/** Cached read of the adoption overview. */
+export function cachedOverview(
   env: Env,
   days: number,
   fresh: boolean,
   now = new Date(),
 ): Promise<MetricsOverview> {
-  const key = overviewCacheKey(days);
-  if (!fresh) {
-    try {
-      const hit = await env.REGISTRY.get(key);
-      if (hit) return JSON.parse(hit) as MetricsOverview;
-    } catch {
-      // fall through to a live build
-    }
-  }
-  const overview = await buildOverview(env, days, now);
-  try {
-    await env.REGISTRY.put(key, JSON.stringify(overview), { expirationTtl: OVERVIEW_CACHE_TTL });
-  } catch {
-    // caching is an optimization, never a requirement
-  }
-  return overview;
+  return cachedKvJson(env, overviewCacheKey(days), OVERVIEW_CACHE_TTL, fresh, () =>
+    buildOverview(env, days, now),
+  );
 }

@@ -47,7 +47,7 @@ const MENU_ITEMS = [
   } from "../lib/account-shell";
   import { readCachedActiveWorkspace, workspaceHomePath } from "../lib/workspaces-nav";
 
-  /** Last-used workspace home (screenshots), else the workspaces list (same as home CTA). */
+  /** Last-used workspace home (Files), else the workspaces list (same as home CTA). */
   function filesHref(): string {
     const ws = readCachedActiveWorkspace();
     return ws ? workspaceHomePath(ws) : "/account/workspaces";

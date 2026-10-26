@@ -13,6 +13,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Files } from "@uploads/storage";
 import { FakeR2Bucket } from "./fake-r2";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 // `resolveObjectLane` delegates to the real implementation everywhere except
@@ -373,6 +374,136 @@ describe("PATCH /v1/workspaces/:workspace/files/visibility (dual auth)", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ key: "shots/a.png", visibility: "private" });
+  });
+});
+
+describe("POST /v1/workspaces/:workspace/files/approve (dual auth)", () => {
+  const approve = (env: Parameters<typeof app.request>[2], headers: Record<string, string>) =>
+    app.request(
+      "/v1/workspaces/acme/files/approve?key=shots/a.png",
+      { method: "POST", headers },
+      env,
+    );
+
+  it("releases a held file, then reports not_held on a retry", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    await setServerFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png", {
+      "ai.hold": "pending",
+    });
+
+    const first = await approve(env, { Authorization: `Bearer ${TOKEN}` });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ key: "shots/a.png", approved: true });
+    const stored = await getFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png");
+    expect(stored["ai.hold"]).toBe("approved");
+
+    const again = await approve(env, { cookie: "session=x" });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({
+      key: "shots/a.png",
+      approved: false,
+      reason: "not_held",
+    });
+  });
+
+  it("rejects an unauthenticated caller", async () => {
+    const { env, bucket } = await makeEnv({ session: false });
+    await seed(bucket);
+    const res = await approve(env, {});
+    expect(res.status).toBe(401);
+  });
+
+  it("records when the file was approved", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    await setServerFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png", {
+      "ai.hold": "pending",
+    });
+    await approve(env, { Authorization: `Bearer ${TOKEN}` });
+    const stored = await getFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png");
+    expect(Date.parse(stored["ai.hold.at"] ?? "")).not.toBeNaN();
+  });
+});
+
+describe("POST /v1/workspaces/:workspace/files/hold (dual auth)", () => {
+  const hold = (env: Parameters<typeof app.request>[2]) =>
+    app.request(
+      "/v1/workspaces/acme/files/hold?key=shots/a.png",
+      { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+
+  it("holds an approved file again and clears who approved it", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const db = (env as { DB: D1Database }).DB;
+    await setServerFileMetadata(db, "acme", "shots/a.png", {
+      "ai.hold": "approved",
+      "ai.hold.by": "Member",
+      "ai.hold.at": "2026-10-19T13:00:00.000Z",
+    });
+    const res = await hold(env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ key: "shots/a.png", held: true });
+    const stored = await getFileMetadata(db, "acme", "shots/a.png");
+    expect(stored["ai.hold"]).toBe("pending");
+    expect(stored["ai.hold.by"]).toBeUndefined();
+    expect(stored["ai.hold.at"]).toBeUndefined();
+  });
+
+  it("leaves a file that was never approved alone", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const res = await hold(env);
+    expect(await res.json()).toEqual({ key: "shots/a.png", held: false, reason: "not_approved" });
+    const stored = await getFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png");
+    expect(stored["ai.hold"]).toBeUndefined();
+  });
+});
+
+describe("GET /v1/workspaces/:workspace/files/review (dual auth)", () => {
+  const review = (env: Parameters<typeof app.request>[2], headers: Record<string, string>) =>
+    app.request("/v1/workspaces/acme/files/review?key=shots/a.png", { headers }, env);
+
+  it("reports an approval with who and when", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    await setServerFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png", {
+      "ai.hold": "approved",
+      "ai.secret": "api_key",
+      "ai.hold.by": "Member",
+      "ai.hold.at": "2026-10-19T13:00:00.000Z",
+    });
+    const res = await review(env, { cookie: "session=x" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      key: "shots/a.png",
+      hold: "approved",
+      reason: "secret: api_key",
+      by: "Member",
+      at: "2026-10-19T13:00:00.000Z",
+    });
+  });
+
+  it("reports nothing for a file that was never held", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const res = await review(env, { cookie: "session=x" });
+    expect(await res.json()).toEqual({
+      key: "shots/a.png",
+      hold: null,
+      reason: null,
+      by: null,
+      at: null,
+    });
+  });
+
+  it("rejects a signed-out caller", async () => {
+    const { env, bucket } = await makeEnv({ session: false });
+    await seed(bucket);
+    const res = await review(env, {});
+    expect(res.status).toBe(401);
   });
 });
 

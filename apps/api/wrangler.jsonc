@@ -15,8 +15,7 @@
   // Secrets that degrade gracefully when unset (GITHUB_APP_PRIVATE_KEY,
   // GITHUB_APP_WEBHOOK_SECRET, OPENAI_APPS_CHALLENGE) are deliberately absent:
   // this list is for secrets whose absence silently breaks core function.
-  // Like apps/auth's list, these are worker-level; Workers Builds branch
-  // previews run against production bindings and are unaffected.
+  // Like apps/auth's list, these are worker-level.
   "secrets": {
     "required": ["WORKSPACE_SECRETS_KEY"],
   },
@@ -44,8 +43,9 @@
     // so a deployed worker without this entry reads `undefined` and the
     // breakdown panel reports `not_configured` no matter how the secret is set.
     "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
-    // Experimental file classifier: Workers AI calls route through this
-    // AI Gateway. Create once per account (`uploads-classifier`) — see
+    // Weekly digest highlight: Workers AI calls route through this AI
+    // Gateway. The file classifier calls OpenRouter directly and does not
+    // use it. Create once per account (`uploads-classifier`) — see
     // docs/ops.md. Not a secret.
     "AI_GATEWAY_ID": "uploads-classifier",
   },
@@ -62,10 +62,20 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off.
+    "issues": {
+      "enabled": true,
+    },
   },
-  // Daily retention sweep (purgeExpired for workspaces with retentionDays).
+  // Original file and line numbers in Issues stacks. Wrangler generates the
+  // maps when it bundles this worker.
+  "upload_source_maps": true,
+  // 06:00 UTC daily maintenance. 14:00 UTC Monday weekly digest.
+  // The scheduled handler dispatches on the cron string so the two do not
+  // run each other's work.
   "triggers": {
-    "crons": ["0 6 * * *"],
+    "crons": ["0 6 * * *", "0 14 * * 1"],
   },
   // Workspace registry: `ws:<name>` → WorkspaceRecord (see src/workspace.ts).
   // Create with `wrangler kv namespace create <title>` and paste the id here.
@@ -79,6 +89,12 @@
     {
       "binding": "GITHUB_CACHE",
       "id": "8076084dae50495ab883ec79c1c5968f",
+    },
+    // Public live link item lookup (src/live-link-index.ts): each live link's
+    // hashed scope list, 60 s TTL. Holds object keys, so not shared with preview.
+    {
+      "binding": "LIVE_LINK_INDEX",
+      "id": "72021c9af60b4d2e846c30264bd38eb6",
     },
   ],
   // GitHub webhook ingestion queue + DLQ (issue #287), matching the
@@ -128,12 +144,20 @@
     "binding": "MEDIA",
     "remote": true,
   },
-  // Workers AI (experimental file classifier). Two models run per upload:
-  // `@cf/meta/llama-3.2-11b-vision-instruct` describes a raster image, and
-  // `typesafe/jev` picks the closed enums. Requests go through AI Gateway
-  // (`AI_GATEWAY_ID` var, default `uploads-classifier`). An absent binding
-  // is a hard off switch (`classificationAllowed`). Self-hosters can delete
-  // this block; classification simply stays off.
+  // Cloudflare Images — classifier-sized copies for Jev (issue #1131).
+  // Transforms bytes the worker already holds, so it covers private files
+  // and hosts the `/cdn-cgi/image/` thumbnail helper does not. Local
+  // `wrangler dev` uses the offline subset (resize and format). An absent
+  // binding leaves the classifier on the text-facts path; see
+  // apps/api/src/classifier.ts.
+  "images": {
+    "binding": "IMAGES",
+  },
+  // Workers AI for the weekly digest highlight (`typesafe/jev` through
+  // AI Gateway). The file classifier does not use this binding: it calls
+  // OpenRouter Decisions directly (`OPENROUTER_API_KEY`). An absent binding
+  // leaves digest curation on the newest screenshot. Self-hosters can
+  // delete this block.
   "ai": {
     "binding": "AI",
   },
@@ -181,6 +205,13 @@
       "binding": "SLOW_OPS",
       "dataset": "uploads_slow_ops",
     },
+    // Classifier spend: one point per OpenRouter Decisions call with its
+    // usage block (src/classifier-call-analytics.ts), read per day by the
+    // /admin/classifier cost tile and chart. Absent binding is a no-op.
+    {
+      "binding": "CLASSIFIER_CALLS",
+      "dataset": "uploads_classifier_calls",
+    },
   ],
   // Service binding to apps/auth (Phase 2, plan D1): forwards Cookie/
   // Authorization to GET /api/auth/get-session over the binding — no public
@@ -189,6 +220,13 @@
     {
       "binding": "AUTH",
       "service": "uploads-auth",
+    },
+    // uploads-slack: re-render a user's Slack Home tab after they connect
+    // or unlink (src/routes/me-slack.ts). Best effort; production only, so
+    // previews never touch real Slack workspaces.
+    {
+      "binding": "SLACK",
+      "service": "uploads-slack",
     },
   ],
   // Rate limits use separate namespaces so public invite traffic cannot consume
@@ -303,13 +341,20 @@
       "binding": "UPLOADS_DEFAULT",
       "bucket_name": "uploads-default",
     },
+    // Held uploads (src/held-storage.ts): a likely secret or sensitive
+    // personal data waits here until a member approves it. No custom
+    // domain and no r2.dev URL, ever — that is the whole point.
+    {
+      "binding": "UPLOADS_HELD",
+      "bucket_name": "uploads-held",
+    },
   ],
   // Workers Previews (`npx wrangler preview` from a branch). Bindings do NOT
   // inherit from the production config — a preview gets only what this block
   // lists — so everything is spelled out: stateful bindings re-pointed at
   // preview-tier resources (without that, a preview of an API branch would
   // write to production KV/D1/R2), and the stateless/shared-safe ones
-  // repeated verbatim: BROWSER/MEDIA (metered, stateless), FLAGS (read-only),
+  // repeated verbatim: BROWSER/MEDIA/IMAGES (metered, stateless), FLAGS (read-only),
   // EMAIL, the rate limiters, and the AUTH service binding — service bindings
   // always call the bound Worker's *production* deployment, so a preview
   // verifies sessions against real auth. Cron triggers and queue consumers
@@ -351,6 +396,11 @@
         "binding": "GITHUB_CACHE",
         "id": "8076084dae50495ab883ec79c1c5968f",
       },
+      // Isolated: holds object keys from the preview D1.
+      {
+        "binding": "LIVE_LINK_INDEX",
+        "id": "500f169b84ae49258654ff9af86ffe9e",
+      },
     ],
     "d1_databases": [
       {
@@ -371,6 +421,10 @@
       {
         "binding": "UPLOADS_DEFAULT",
         "bucket_name": "uploads-preview-default",
+      },
+      {
+        "binding": "UPLOADS_HELD",
+        "bucket_name": "uploads-preview-held",
       },
     ],
     // Producer only — Previews cannot run queue consumers, so preview-enqueued
@@ -395,6 +449,10 @@
         "binding": "SLOW_OPS",
         "dataset": "uploads_slow_ops_preview",
       },
+      {
+        "binding": "CLASSIFIER_CALLS",
+        "dataset": "uploads_classifier_calls_preview",
+      },
     ],
     // Everything below repeats the production bindings verbatim — stateless,
     // account-level, or per-colo, so sharing is safe. See the notes on the
@@ -406,6 +464,9 @@
     "media": {
       "binding": "MEDIA",
       "remote": true,
+    },
+    "images": {
+      "binding": "IMAGES",
     },
     "flagship": [
       {

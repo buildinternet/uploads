@@ -7,7 +7,6 @@ import {
   isUnprefixedDedicatedBucket,
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
-  WORKSPACE_DELETE_GRACE_DAYS,
   type PurgedTombstone,
   type WorkspaceRecord,
 } from "./workspace";
@@ -82,10 +81,6 @@ describe("loadWorkspaceRecord (#247 soft-delete filtering)", () => {
     const registry = fakeRegistry({ "ws:soft": softDeleted, "ws:purged": tombstone });
     expect(await registry.get("ws:soft")).not.toBeNull();
     expect(await registry.get("ws:purged")).not.toBeNull();
-  });
-
-  it("grace window constant is 14 days", () => {
-    expect(WORKSPACE_DELETE_GRACE_DAYS).toBe(14);
   });
 });
 

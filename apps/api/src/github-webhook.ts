@@ -1,61 +1,35 @@
 /**
- * GitHub App webhook verification + cache invalidation (spec
- * .context/284-github-webhooks-design.md), plus phase 3 webhook-driven
- * auto-promotion. Every delivery is HMAC-verified, then dispatched to a set
- * of targeted KV deletes against GITHUB_CACHE — no key-prefix scans. All
- * handlers tolerate missing fields: a partial payload means "nothing to
- * invalidate here", never a throw. Entries self-heal via their phase-1 TTLs,
- * so a dropped delete only reverts to TTL latency.
+ * GitHub App webhooks. Every delivery is HMAC-verified, then turned into a
+ * compact `WebhookEvent` (`extractWebhookEvent`, pure) and processed
+ * (`processWebhookEvent`). With `GITHUB_WEBHOOK_QUEUE` bound the compact
+ * event is enqueued (raw payloads can exceed the 128 KB message cap) and
+ * processed with retries and a DLQ; otherwise, or if the send fails, it runs
+ * inline via `waitUntil`. Partial payloads mean "nothing to do", never a
+ * throw.
  *
- * Auto-promotion (`pull_request` `opened`/`reopened`/`synchronize`): if the
- * PR's repo is bound to a workspace (github-repo-links.ts), that workspace's
- * branch-staged attachments are promoted into the PR's attachment prefix
- * (reusing github-promote.ts) and the managed bot comment is upserted
- * (reusing github-comment.ts's gather+render+upsert) — with zero CLI
- * involvement. This runs off the request's fast path via `ctx.waitUntil` so
- * the webhook still responds 204 promptly; every failure inside is caught
- * and logged, never surfaced as a 5xx.
- *
- * Reconcile (`issue_comment` `edited`/`deleted`, issue #291): heals the
- * managed comment when it's deleted or mangled out from under the bot (the
- * cached `ghcomment:` id going stale). Gated by a cheap, I/O-free payload
- * check (`isReconcilableCommentEvent`) since this event fires on every
- * comment in every installed repo — only a bot-authored deletion or an edit
- * still carrying the attachments marker proceeds to the (binding-gated)
- * gather+upsert. Same `ctx.waitUntil`/degrade-safe doctrine as above; never
- * creates a repo binding, only consumes `findRepoLink`.
- *
- * Merge tagging (`pull_request` `closed` with `merged: true` — persisted
- * PR merge-state tagging, 2026-08-21): stamps every one of the merged PR's
- * already-tagged screenshots with `gh.merged=true` (found via metadata —
- * `gh.ref`/`gh.kind` — not by key prefix, so this also covers private-repo
- * `gh/private/<hex>/...` keys). A merge is a terminal, durable fact — unlike
- * open/closed, which stay transient and are already resolved live by the KV
- * title cache (github-titles.ts) — so `gh.merged` is deliberately the ONLY
- * PR lifecycle fact this codebase persists as metadata; there is no
- * `gh.pr-state` key, which would wrongly imply the full lifecycle is
- * tracked. `closed` with `merged: false` (closed without merging) is a
- * no-op. Same repo→workspace binding resolution, stale-link cleanup, and
- * fork guard as auto-promotion; per-shot tagging failures are logged and
- * swallowed (mirrors `promoteBranchAttachments`'s tagging doctrine), while a
- * D1 outage resolving the binding still throws so the queue consumer
- * retries.
- *
- * Queue ingestion (issue #287): payload parsing is split into a pure
- * `extractWebhookEvent` (delivery → compact `WebhookEvent` or null) and an
- * effectful `processWebhookEvent` (KV deletes + promote/reconcile). When the
- * `GITHUB_WEBHOOK_QUEUE` producer binding is present, `handleWebhook`
- * enqueues the compact event — never the raw payload, which can exceed the
- * 128 KB queue message cap — and the `queue()` consumer (index.ts →
- * github-webhook-queue.ts) processes it with retries + a DLQ. Without the
- * binding (tests, local dev without queues, or a send failure) it falls back
- * to the previous inline waitUntil path, so the endpoint keeps working
- * degraded rather than dropping deliveries.
+ * - Cache invalidation: targeted KV deletes against GITHUB_CACHE. A dropped
+ *   delete only reverts to TTL latency.
+ * - Auto-promotion (`pull_request` opened/reopened/synchronize): for a bound
+ *   repo, promote the branch's staged attachments into the PR and upsert
+ *   the managed comment.
+ * - Reconcile (`issue_comment` edited/deleted): heal the managed comment
+ *   when it's deleted or mangled. A cheap payload check gates it, since the
+ *   event fires on every comment.
+ * - Merge tagging (`pull_request` closed + merged): stamp the PR's
+ *   screenshots `gh.merged=true`, found by metadata so private keys are
+ *   covered. The only PR lifecycle fact persisted; open/closed stay live in
+ *   the title cache.
+ * - Visibility (`repository` privatized/publicized): write through to the
+ *   `ghpriv:` cache; `privatized` also bumps the public-title epoch so cached
+ *   public titles stop serving at once.
  */
 
-import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
+import { hasIngestableAttachmentUrl, hasRepoMediaUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
+import { checksDeniedKey, syncUploadsCheck } from "./github-check-run";
+import { bumpPublicTitleEpoch, titleCacheKeys } from "./github-titles";
+import { applyPrActivityWebhook, type PrState } from "./github-pr-activity";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import { findObjectsByMetadata, setFileMetadata } from "./file-metadata";
 import type { GhTarget } from "./github-comment-render";
@@ -66,10 +40,12 @@ import {
   type AdoptSourceRef,
 } from "./github-link-adopt";
 import { promoteBranchAttachments } from "./github-promote";
-// Strict lookup on purpose (#287): a D1 outage must THROW so the queue
-// consumer retries the event, not read as "repo not linked" and ack-drop it.
+// Strict lookup: a D1 outage must throw so the queue retries, not read as
+// "repo not linked".
 import { deleteRepoLink, findRepoLinkStrict, type RepoLink } from "./github-repo-links";
 import { loadWorkspaceRecord } from "./workspace";
+import { resolveRepoCommentOptions } from "./repo-comment-config";
+import { matchingSkipLabel } from "./github-check-requirements";
 import { dbFor } from "./db-session";
 
 const enc = new TextEncoder();
@@ -89,10 +65,8 @@ async function hmacSha256Hex(secret: string, body: string): Promise<string> {
   return hex;
 }
 
-// Constant-time compare is hand-rolled over the hex strings rather than via the
-// Workers-native `crypto.subtle.timingSafeEqual` (as admin.ts/workspace.ts do):
-// that API is a Workers-only extension absent from this repo's plain-Node vitest
-// runtime, so reusing it would make this security-sensitive path untestable.
+// Hand-rolled rather than `crypto.subtle.timingSafeEqual`, which is
+// Workers-only and would leave this path untestable under Node vitest.
 /** Constant-time compare of two hex strings (length check + XOR accumulate). */
 function timingSafeEqualHex(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -131,13 +105,22 @@ function repoFullNames(value: unknown): string[] {
 /** `pull_request` actions that trigger auto-promotion (a fresh/updated head to promote from). */
 const PROMOTE_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 
-/**
- * Privacy write-through (issue #631): `{ repo, isPrivate }` when `repo`
- * carries a boolean `private` field, else `undefined`. Takes the typed
- * `repository` field straight off `PullRequestPayload`/`IssueCommentPayload`
- * — no separate ad-hoc cast — so both payload interfaces' `private?: unknown`
- * member is what's actually read here.
- */
+/** `pull_request` actions whose payload title/state goes onto the PR rollup row. */
+const PR_ACTIVITY_ACTIONS = new Set(["opened", "edited", "closed", "reopened"]);
+
+/** Rollup state from a `pull_request` delivery, or null when the action is not one we record. */
+function pullRequestState(action: unknown, pr: PullRequestPayload["pull_request"]): PrState | null {
+  if (typeof action !== "string" || !PR_ACTIVITY_ACTIONS.has(action) || !pr) return null;
+  const merged =
+    pr.merged === true || (typeof pr.merged_at === "string" && pr.merged_at.length > 0);
+  if (action === "closed") return merged ? "merged" : "closed";
+  if (action === "opened" || action === "reopened") return "open";
+  if (pr.state === "closed") return merged ? "merged" : "closed";
+  if (pr.state === "open") return "open";
+  return null;
+}
+
+/** `{ repo, isPrivate }` when `repo` carries a boolean `private` field, else undefined. */
 function repoPrivacy(
   repo: PullRequestPayload["repository"] | IssueCommentPayload["repository"],
 ): WebhookEvent["privacy"] {
@@ -152,46 +135,46 @@ interface PullRequestPayload {
   repository?: { full_name?: unknown; private?: unknown };
   pull_request?: {
     number?: unknown;
+    title?: unknown;
+    state?: unknown;
+    merged_at?: unknown;
     /** Only meaningful on `action: "closed"` — true iff the PR was merged
      * (vs. closed without merging). */
     merged?: unknown;
-    head?: { ref?: unknown; repo?: { full_name?: unknown } };
+    head?: { ref?: unknown; sha?: unknown; repo?: { full_name?: unknown } };
   };
 }
 
 /**
- * Look up the repo's bound workspace, gather its own current attachments for
- * `target`, and upsert the managed comment from that render. Shared by both
- * auto-promotion (after a fresh promote) and reconcile (after an
- * invalidation) — read/delete-only against `github_repo_links` per the #326
- * gate: a missing/tombstoned linked workspace cleans up the stale link and
- * no-ops, never creates a new one. Caller is responsible for catching.
+ * Gather the bound workspace's attachments for `target` and upsert the
+ * managed comment. A missing or tombstoned workspace cleans up the stale link
+ * and no-ops; never creates a link. Caller catches.
  */
 async function gatherAndUpsert(
   env: Env,
   link: RepoLink,
   target: GhTarget,
-  opts: { headBranch?: string } = {},
+  opts: { headBranch?: string; headSha?: string } = {},
 ): Promise<void> {
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) {
-    // The bound workspace is gone or tombstoned — the link is stale;
-    // clean it up so a future claim (e.g. from another workspace) isn't
-    // blocked by first-claim-wins forever.
+    // Stale link: delete it so first-claim-wins doesn't block a future claim.
     await deleteRepoLink(dbFor(env), target.repo);
     return;
   }
 
-  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, opts);
+  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, {
+    headBranch: opts.headBranch,
+    detectUiChanges: true,
+  });
 
   const cfg = githubAppConfig(env);
   if (!cfg) return;
   const installId = link.installationId ?? (await installationForRepo(env, cfg, target.repo));
   if (installId === null) return;
 
-  // Patch-only when empty: a fully-cleared PR keeps/updates an existing
-  // comment to the empty state, but we never create one just to say "empty"
-  // (this path fires on every pull_request event for a bound repo).
+  // Never create a comment just to say "empty" (this fires on every PR event
+  // for a bound repo), except the no-uploads how-to a repo opts into.
   const result = await upsertBotComment(
     env,
     cfg,
@@ -200,7 +183,7 @@ async function gatherAndUpsert(
     gathered.body,
     link.workspaceName,
     fetch,
-    { createIfMissing: gathered.count > 0 },
+    { createIfMissing: gathered.count > 0 || gathered.noUploads },
   );
   if ("degrade" in result) {
     console.error(
@@ -212,15 +195,16 @@ async function gatherAndUpsert(
       }),
     );
   }
+  await syncUploadsCheck(env, cfg, installId, target, gathered, {
+    headSha: opts.headSha,
+    commentUrl: "commentUrl" in result ? result.commentUrl : null,
+    workspaceName: link.workspaceName,
+  });
 }
 
 /**
- * Resolve a repo's bound workspace, or null after cleaning up a stale link —
- * the shared front half of `autoPromoteAndComment` and
- * `stampMergedScreenshots` (#326 read/delete-only policy). No link → null; a
- * missing/tombstoned linked workspace → delete the stale link (so
- * first-claim-wins never blocks a future claim forever) and return null.
- * Never creates a link.
+ * The repo's bound workspace, or null (deleting the link if its workspace is
+ * gone, so first-claim-wins never blocks forever). Never creates a link.
  */
 async function resolveLinkedWorkspaceOrCleanup(
   env: Env,
@@ -241,19 +225,16 @@ async function resolveLinkedWorkspaceOrCleanup(
 }
 
 /**
- * Webhook-driven auto-promotion for one bound repo/PR. No-ops on: no repo
- * link or a missing/tombstoned linked workspace. Downstream promote/gather/
- * comment failures THROW — the caller decides whether that means a queue
- * retry (consumer) or a swallow-and-log (inline fallback). Reuses
- * `promoteBranchAttachments` and `gatherAndUpsert` (which itself reuses
- * `gatherCommentBody`/`upsertBotComment` verbatim) — no duplicated
- * copy/render/post logic.
+ * Webhook auto-promotion for one bound repo/PR. No-ops without a valid link.
+ * Downstream failures throw; the caller decides between queue retry and
+ * log-and-swallow.
  */
 async function autoPromoteAndComment(
   env: Env,
   repo: string,
   num: number,
   branch: string,
+  headSha?: string,
 ): Promise<void> {
   const resolved = await resolveLinkedWorkspaceOrCleanup(env, repo);
   if (!resolved) return;
@@ -261,26 +242,17 @@ async function autoPromoteAndComment(
 
   await promoteBranchAttachments(env, ws, link.workspaceName, { repo, num, branch });
 
-  // Gather AFTER promoting: the just-promoted copies are now real objects
-  // under the PR's attachment prefix, so this single gather call already
-  // reflects them — no separate "promoted > 0" branch needed.
+  // Gather after promoting, so the promoted copies are included.
   const target: GhTarget = { repo, kind: "pull", num };
-  // The head branch is what a metadata-less private attachment resolves
-  // under (#934) — pass it so the gather can list that prefix.
-  await gatherAndUpsert(env, link, target, { headBranch: branch });
+  // A metadata-less private attachment resolves under the head branch.
+  await gatherAndUpsert(env, link, target, { headBranch: branch, headSha });
 }
 
 /**
- * Webhook-driven merge tagging for one bound repo/PR (see the module doc
- * above for the `gh.merged`-only, no-`gh.pr-state` rationale). No-ops on: no
- * repo link or a missing/tombstoned linked workspace — shares
- * `resolveLinkedWorkspaceOrCleanup` with `autoPromoteAndComment`. Finds the
- * PR's screenshots by metadata (`gh.ref`/`gh.kind`), not by key prefix, so
- * this covers private-repo `gh/private/<hex>/...` keys too. Stamping is
- * best-effort per shot (log, never throw) — mirrors
- * `promoteBranchAttachments`'s tagging-failure doctrine — but a D1 outage
- * resolving the binding or listing matches still throws, same as
- * `autoPromoteAndComment`, so the queue consumer retries the event.
+ * Webhook merge tagging for one bound repo/PR. Finds screenshots by
+ * metadata (`gh.ref`/`gh.kind`), so private keys are covered. Per-shot
+ * stamping is best-effort; a D1 outage resolving or listing throws so the
+ * queue retries.
  */
 async function stampMergedScreenshots(env: Env, repo: string, num: number): Promise<void> {
   const resolved = await resolveLinkedWorkspaceOrCleanup(env, repo);
@@ -311,10 +283,7 @@ async function stampMergedScreenshots(env: Env, repo: string, num: number): Prom
   }
 }
 
-/** Substring shared by every managed-comment marker variant (legacy + the
- * per-workspace `ws=<slug>` namespaced form) — cheap to test for without
- * parsing which marker it is. Derived from `ATTACHMENTS_MARKER` so there is
- * one source of truth for the literal. */
+/** Substring shared by every marker variant (legacy and per-workspace). */
 const MARKER_SUBSTRING = ATTACHMENTS_MARKER.replace(/^<!--\s*|\s*-->$/g, "");
 
 interface IssueCommentPayload {
@@ -326,22 +295,13 @@ interface IssueCommentPayload {
 }
 
 /**
- * True iff this `issue_comment` delivery plausibly concerns the managed
- * attachments comment and is worth the (DB + GitHub API) cost of reconciling.
- * This event class fires on EVERY comment in every installed repo, so the
- * check here must stay a pure, allocation-free read of the payload already
- * in hand — no I/O.
+ * Whether an `issue_comment` delivery is worth reconciling. Fires on every
+ * comment, so this is a pure payload read with no I/O.
  *
- * - `created`: never relevant (a fresh human/bot comment is not the managed
- *   one going stale) — cheap reject on `action` alone.
- * - `deleted`: relevant only when the deleted comment was authored by a bot
- *   AND its (still-included, pre-deletion) body carries the marker —
- *   otherwise it's someone's unrelated comment.
- * - `edited`: relevant only when the current body still carries the marker.
- *   Loop guard lives here too: an edit whose `sender` is itself a bot is
- *   assumed to be our own `upsertBotComment` PATCH (GitHub attributes App-
- *   token writes to the App's bot user) and is skipped, so reconcile never
- *   re-triggers off its own write.
+ * - `created`: never.
+ * - `deleted`: only a bot-authored comment whose body has the marker.
+ * - `edited`: only when the body still has the marker and the sender isn't a
+ *   bot (our own PATCH would otherwise loop).
  */
 function isReconcilableCommentEvent(p: IssueCommentPayload): boolean {
   const body = p.comment?.body;
@@ -358,13 +318,9 @@ function isReconcilableCommentEvent(p: IssueCommentPayload): boolean {
 }
 
 /**
- * Reconcile for one gated `issue_comment` delivery: when the managed comment
- * was deleted or mangled out from under us, drop the (now stale) cached
- * comment id and re-run gather+upsert so it's recreated/repaired from the
- * bound workspace's own data. No-ops on a missing repo binding; downstream
- * failures THROW (see `autoPromoteAndComment` for the caller contract).
- * Never creates a repo binding (read/delete-only via
- * `findRepoLink`/`deleteRepoLink`).
+ * Reconcile one gated `issue_comment`: drop the stale cached comment id and
+ * re-run gather+upsert. No-ops without a binding; failures throw. Never
+ * creates a binding.
  */
 async function reconcileBotComment(
   env: Env,
@@ -376,48 +332,78 @@ async function reconcileBotComment(
   if (!link) return;
 
   const target: GhTarget = { repo, kind, num };
-  // Force a fresh marker hunt + write rather than trusting a cached id that
-  // may point at the very comment that was just deleted/mangled.
+  // Force a fresh marker search; the cached id may be the deleted comment.
   await env.GITHUB_CACHE.delete(commentCacheKey(link.workspaceName, target));
 
   await gatherAndUpsert(env, link, target);
 }
 
 /**
- * Compact, queue-safe description of the work one webhook delivery implies.
- * Field-extracted at ingestion (never the raw GitHub payload — those can
- * exceed the 128 KB queue message cap) and consumed by
- * `processWebhookEvent` on either side of the queue boundary.
+ * A skip label was added or removed: re-sync the comment and check, so the
+ * check passes right away. Other labels, and repos that don't require
+ * uploads, skip the work. Throws like reconcile.
+ */
+async function recheckForLabels(env: Env, repo: string, num: number, label: string): Promise<void> {
+  const link = await findRepoLinkStrict(dbFor(env), repo);
+  if (!link) return;
+  const ws = await loadWorkspaceRecord(env, link.workspaceName);
+  if (!ws) return;
+  const { options } = await resolveRepoCommentOptions(env, ws, repo);
+  if (options.checkRequire.length === 0) return;
+  if (!matchingSkipLabel([label], options.checkSkipLabels)) return;
+  await gatherAndUpsert(env, link, { repo, kind: "pull", num });
+}
+
+/**
+ * A PR's description or a comment changed in a way that wakes ingest: re-sync
+ * the comment and check, so screenshots dragged in on GitHub count right
+ * away, imported or not. Throws like reconcile.
+ */
+async function recheckForGithubAttachments(env: Env, repo: string, num: number): Promise<void> {
+  const link = await findRepoLinkStrict(dbFor(env), repo);
+  if (!link) return;
+  await gatherAndUpsert(env, link, { repo, kind: "pull", num });
+}
+
+/**
+ * Compact, queue-safe work for one delivery (never the raw payload, which
+ * can exceed the 128 KB cap).
  */
 export interface WebhookEvent {
   /** GITHUB_CACHE keys to delete (targeted; possibly empty). */
   keys: string[];
-  /** Same-repo PR opened/reopened/synchronize → promote + comment. */
-  promote?: { repo: string; num: number; branch: string };
+  /** Same-repo PR opened/reopened/synchronize → promote + comment + check
+   * run on the head commit (`sha`, absent on older queued events). */
+  promote?: { repo: string; num: number; branch: string; sha?: string };
   /** Gated issue_comment edited/deleted → heal the managed comment. */
   reconcile?: { repo: string; num: number; kind: GhTarget["kind"] };
-  /** Same-repo PR closed with `merged: true` → stamp its screenshots
-   * `gh.merged=true` (persisted PR merge-state tagging). */
+  /** Same-repo PR closed with `merged: true` → stamp `gh.merged=true`. */
   merge?: { repo: string; num: number };
-  /** Opt-in GitHub-native attachment ingest (spec 2026-08-11). Source ref only —
-   * the consumer re-fetches current text, so this stays queue-compact. */
+  /** Opt-in GitHub attachment ingest. Source ref only; the consumer
+   * re-fetches current text. */
   ingest?: IngestSourceRef;
-  /** Opt-in uploads.sh link adoption (issue #701). Same "source ref only,
-   * consumer re-fetches current text" shape as `ingest` above, so this stays
-   * queue-compact. */
+  /** Opt-in uploads.sh link adoption. Source ref only, like `ingest`. */
   adopt?: AdoptSourceRef;
-  /** Write-through for `repoIsPrivate`'s KV cache (issue #631) — present
-   * whenever the delivery's `repository.private` field is a boolean, so a
-   * webhook primes the private-prefix decision flow without an extra GitHub
-   * API round trip. */
+  /** Write-through for `repoIsPrivate`'s cache, saving a GitHub API call. */
   privacy?: { repo: string; isPrivate: boolean };
+  /** `repository` privatized: lowercased `owner/name` whose public-title
+   * epoch to bump. */
+  privatized?: string;
+  /** PR opened/edited/closed/reopened → title and state onto the rollup row
+   * (update only, linked repos only). */
+  prActivity?: { repo: string; number: number; title: string; state: PrState };
+  /** `pull_request` labeled/unlabeled → re-sync the check, since a skip
+   * label can excuse required uploads (`check.skipLabels`). */
+  labels?: { repo: string; num: number; label: string };
+  /** PR comment created/deleted with repo-hosted media and no ingestable
+   * url → re-sync the check, which counts those links too. Edits already
+   * re-sync through `ingest`. */
+  recheck?: { repo: string; num: number };
 }
 
 /**
- * Pure payload → `WebhookEvent` extraction for one delivery. Returns null
- * when the delivery implies no work (`ping`, unknown events, partial
- * payloads, ungated `issue_comment`s). Never throws on malformed payloads —
- * missing fields mean "nothing to do here".
+ * Delivery → `WebhookEvent`, or null when there's no work. Never throws on
+ * malformed payloads.
  */
 export function extractWebhookEvent(eventType: string, payload: unknown): WebhookEvent | null {
   const p = (payload ?? {}) as Record<string, unknown>;
@@ -425,7 +411,9 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
 
   if (eventType === "installation") {
     const id = (p.installation as { id?: unknown } | undefined)?.id;
-    if (typeof id === "number") ev.keys.push(`ghtok:${id}`);
+    // The denied-checks marker too: accepting a new permission (e.g.
+    // Checks: write) arrives as an `installation` event.
+    if (typeof id === "number") ev.keys.push(`ghtok:${id}`, checksDeniedKey(id));
     for (const repo of repoFullNames(p.repositories)) ev.keys.push(`ghinst:${repo}`);
   } else if (eventType === "installation_repositories") {
     for (const repo of repoFullNames(p.repositories_added)) ev.keys.push(`ghinst:${repo}`);
@@ -436,16 +424,12 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       | { number?: unknown; body?: unknown }
       | undefined;
     if (typeof fullName === "string" && typeof item?.number === "number") {
-      ev.keys.push(`ghref:${fullName.toLowerCase()}#${item.number}`);
+      ev.keys.push(...titleCacheKeys(`${fullName.toLowerCase()}#${item.number}`));
 
-      // Ingest gating (spec 2026-08-11, Cursor art-* in #1004): opened →
-      // substring-gated on GitHub user-attachments or public
-      // cursor.com/artifacts/c/art-* URLs. Viewer and agent-page links do
-      // not wake ingest. edited → gated only on the presence of a body
-      // *change* (covers both add and remove — removal leaves no url in
-      // the new body, but the consumer re-fetches and reconciles against
-      // the empty case too). Casing intentionally NOT lowercased here,
-      // matching `promote` — the ledger normalizes internally.
+      // Ingest: opened is gated on GitHub user-attachments or public Cursor
+      // art-* URLs (viewer and agent-page links don't count); edited on any
+      // body change, since a removal leaves no URL behind. Not lowercased;
+      // the ledger normalizes.
       const action = p.action;
       const kind: GhTarget["kind"] = eventType === "pull_request" ? "pull" : "issues";
       if (
@@ -461,10 +445,8 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
         }
       }
 
-      // Adopt gating (issue #701): same opened/edited shape as ingest above,
-      // just gated on ANY http(s) link rather than specifically a
-      // github.com/user-attachments one — the consumer re-fetches current
-      // text and does the real (workspace-scoped) URL resolution.
+      // Adopt: same shape as ingest, gated on any http(s) link; the consumer
+      // does the real resolution.
       if (action === "opened" && typeof item.body === "string" && hasLinkCandidate(item.body)) {
         ev.adopt = { repo: fullName, kind, num: item.number, source: "body" };
       } else if (action === "edited") {
@@ -482,6 +464,24 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     const action = pp.action;
     const repo = pp.repository?.full_name;
     const pr = pp.pull_request;
+    const prState = pullRequestState(action, pr);
+    if (
+      prState &&
+      typeof repo === "string" &&
+      typeof pr?.number === "number" &&
+      typeof pr.title === "string"
+    ) {
+      ev.prActivity = { repo, number: pr.number, title: pr.title, state: prState };
+    }
+    const label = (pp as { label?: { name?: unknown } }).label?.name;
+    if (
+      (action === "labeled" || action === "unlabeled") &&
+      typeof repo === "string" &&
+      typeof pr?.number === "number" &&
+      typeof label === "string"
+    ) {
+      ev.labels = { repo, num: pr.number, label };
+    }
     if (
       typeof action === "string" &&
       PROMOTE_ACTIONS.has(action) &&
@@ -489,31 +489,38 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       typeof pr?.number === "number" &&
       typeof pr.head?.ref === "string" &&
       typeof pr.head.repo?.full_name === "string" &&
-      // Fork PRs stage attachments under the fork's own workspace context (if
-      // any) — never promote a base repo's binding against a head branch that
-      // lives in a different repo.
+      // Never promote against a head branch in a fork.
       pr.head.repo.full_name.toLowerCase() === repo.toLowerCase()
     ) {
-      ev.promote = { repo, num: pr.number, branch: pr.head.ref };
+      ev.promote = {
+        repo,
+        num: pr.number,
+        branch: pr.head.ref,
+        ...(typeof pr.head.sha === "string" ? { sha: pr.head.sha } : {}),
+      };
     } else if (
-      // Merge tagging (persisted PR merge-state, 2026-08-21): closed WITHOUT
-      // `merged: true` (i.e. closed without merging) is deliberately a no-op
-      // — only a real merge is a terminal, durable fact worth persisting.
+      // Closed without merging is a no-op.
       action === "closed" &&
       pr?.merged === true &&
       typeof repo === "string" &&
       typeof pr.number === "number" &&
       typeof pr.head?.repo?.full_name === "string" &&
-      // Same fork guard as promote above: a fork PR's screenshots (if any)
-      // live under the fork's own workspace context, not this repo's binding.
+      // Same fork guard as promote.
       pr.head.repo.full_name.toLowerCase() === repo.toLowerCase()
     ) {
       ev.merge = { repo, num: pr.number };
     }
+  } else if (eventType === "repository") {
+    // Keyed by the lowercased name, as the title caches are. The action is
+    // authoritative, not `repository.private`.
+    const fullName = (p.repository as { full_name?: unknown } | undefined)?.full_name;
+    if (typeof fullName === "string" && (p.action === "privatized" || p.action === "publicized")) {
+      const repo = fullName.toLowerCase();
+      ev.privacy = { repo, isPrivate: p.action === "privatized" };
+      if (p.action === "privatized") ev.privatized = repo;
+    }
   } else if (eventType === "issue_comment") {
-    // isReconcilableCommentEvent's cheap payload-only check runs here, before
-    // any I/O or enqueue, so the common case (an ordinary human comment on
-    // any installed repo — this event fires on every one) costs nothing.
+    // The cheap payload gate runs before any I/O or enqueue.
     const ip = p as IssueCommentPayload;
     ev.privacy = repoPrivacy(ip.repository);
     const repo = ip.repository?.full_name;
@@ -522,14 +529,10 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       ev.reconcile = { repo, num, kind: ip.issue?.pull_request ? "pull" : "issues" };
     }
 
-    // Ingest gating (spec 2026-08-11, Cursor art-* in #1004): created/deleted
-    // are substring-gated on user-attachments or public
-    // cursor.com/artifacts/c/art-* URLs (a deleted comment's payload carries
-    // its pre-deletion body — the consumer's GET then 404s, detaching
-    // everything under that source). Viewer and agent-page links do not
-    // wake ingest. edited always fires unless the sender is a Bot (our own
-    // comment write or another bot's churn) — a removal is invisible in the
-    // new body, so the only reliable signal is "something changed".
+    // Ingest: created/deleted are gated on user-attachments or public Cursor
+    // art-* URLs (a deleted comment's payload has its old body; the
+    // consumer's GET then 404s and detaches). edited always fires unless the
+    // sender is a bot, since a removal is invisible in the new body.
     const commentId = ip.comment?.id;
     if (typeof repo === "string" && typeof num === "number" && typeof commentId === "number") {
       const kind: GhTarget["kind"] = ip.issue?.pull_request ? "pull" : "issues";
@@ -542,12 +545,16 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
         (ip.action === "deleted" && hasUrl);
       if (gated) {
         ev.ingest = { repo, kind, num, source };
+      } else if (
+        kind === "pull" &&
+        (ip.action === "created" || ip.action === "deleted") &&
+        typeof body === "string" &&
+        hasRepoMediaUrl(body)
+      ) {
+        ev.recheck = { repo, num };
       }
 
-      // Adopt gating (issue #701): mirrors the ingest gate above, but a
-      // "deleted" comment has nothing left to (re-)scan for uploads.sh links
-      // — adoption has no ledger to detach from, so unlike ingest there's no
-      // work to do on delete.
+      // Adopt: like ingest, but a deleted comment leaves nothing to adopt.
       const hasLinkUrl = typeof body === "string" && hasLinkCandidate(body);
       const adoptGated =
         (ip.action === "created" && hasLinkUrl) ||
@@ -565,47 +572,75 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ev.ingest ||
     ev.adopt ||
     ev.merge ||
-    ev.privacy
+    ev.privacy ||
+    ev.privatized ||
+    ev.prActivity ||
+    ev.labels ||
+    ev.recheck
     ? ev
     : null;
 }
 
 /**
- * Run the work one `WebhookEvent` implies. KV deletes are allSettled — a
- * failed delete is harmless (the entry self-heals on its phase-1 TTL) and
- * must never fail the event. Promote/reconcile failures DO throw: in the
- * queue consumer that drives `msg.retry()` toward the DLQ; inline callers
- * (`handleWebhook`'s no-queue fallback) catch and log instead.
+ * Run one `WebhookEvent`. KV deletes are allSettled (a failed delete
+ * self-heals on TTL). Promote/reconcile failures throw: the queue retries
+ * toward the DLQ; the inline path catches and logs.
  */
 export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<void> {
   if (ev.privacy) {
-    // Best-effort priming, not a gate: a KV outage here must never block
-    // promote/reconcile/ingest below (those degrade to plain on their own
-    // when the cache is unreadable) — same doctrine as the KV-delete
-    // allSettled just below, applied to a single awaited put.
+    // Best-effort priming; a KV outage must not block the work below.
     try {
       await cacheRepoPrivacy(env, ev.privacy.repo, ev.privacy.isPrivate);
     } catch (err) {
-      console.error(
-        JSON.stringify({
-          message: "webhook privacy cache write-through failed",
-          repo: ev.privacy.repo,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      const error = err instanceof Error ? err.message : String(err);
+      const line = JSON.stringify({
+        message: "webhook privacy cache write-through failed",
+        repo: ev.privacy.repo,
+        error,
+      });
+      // A KV write-rate 429 only skips this priming; readers fall back to
+      // the GitHub API.
+      if (error.includes("429")) console.warn(line);
+      else console.error(line);
     }
+  }
+
+  if (ev.privatized) {
+    // This write is the point of the event, so let it throw for a retry.
+    await bumpPublicTitleEpoch(env, ev.privatized);
   }
 
   await Promise.allSettled(ev.keys.map((key) => env.GITHUB_CACHE.delete(key)));
 
+  // Before promote/reconcile, which can throw for a retry. Never throws.
+  if (ev.prActivity) {
+    await applyPrActivityWebhook(dbFor(env), ev.prActivity);
+  }
+
   if (ev.promote) {
-    await autoPromoteAndComment(env, ev.promote.repo, ev.promote.num, ev.promote.branch);
+    await autoPromoteAndComment(
+      env,
+      ev.promote.repo,
+      ev.promote.num,
+      ev.promote.branch,
+      ev.promote.sha,
+    );
   }
   if (ev.reconcile) {
     await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
   }
+  if (ev.labels) {
+    await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
+  }
+  // After ingest, so the comment and check include what it just imported.
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);
+  }
+  // The PR's own promote above already re-synced the check, but ran before
+  // this delivery's ingest.
+  const recheck = ev.ingest?.kind === "pull" ? ev.ingest : ev.recheck;
+  if (recheck && (!ev.promote || ev.ingest)) {
+    await recheckForGithubAttachments(env, recheck.repo, recheck.num);
   }
   if (ev.adopt) {
     await adoptLinkedFilesForWebhook(env, ev.adopt);
@@ -615,8 +650,7 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   }
 }
 
-/** `processWebhookEvent` with every failure caught and logged — the inline
- * (queueless) path's degrade-safe doctrine: a webhook must never 5xx. */
+/** `processWebhookEvent` with failures logged: the inline path never 5xxs. */
 async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
   try {
     await processWebhookEvent(env, ev);
@@ -629,6 +663,7 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
         ingest: ev.ingest ?? null,
         adopt: ev.adopt ?? null,
         merge: ev.merge ?? null,
+        privatized: ev.privatized ?? null,
         error: err instanceof Error ? err.message : String(err),
       }),
     );
@@ -636,11 +671,9 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
 }
 
 /**
- * Ingest one verified webhook delivery: extract the compact event, then
- * either enqueue it (GITHUB_WEBHOOK_QUEUE bound — the durable path, issue
- * #287) or run it inline via `ctx.waitUntil` (tests/local dev without
- * queues, or a failed send). Never throws on partial payloads; the inline
- * fallback swallows processing failures so the route still returns 204.
+ * Handle one verified delivery: enqueue the compact event, or run it inline
+ * via `waitUntil` without a queue or on a failed send. The inline path
+ * swallows failures so the route still returns 204.
  */
 export async function handleWebhook(
   env: Env,
@@ -651,11 +684,8 @@ export async function handleWebhook(
   const ev = extractWebhookEvent(eventType, payload);
   if (!ev) return;
 
-  // Local cast rather than an env.d.ts augmentation: the generated
-  // worker-configuration.d.ts declares the binding non-optional once it's in
-  // wrangler.jsonc, and an optional re-declaration would conflict — while
-  // environments regenerating types without the queue (tests, older local
-  // checkouts) must still typecheck.
+  // A local cast: an optional env.d.ts declaration would conflict with the
+  // generated one, and builds without the queue must still typecheck.
   const queue = (env as { GITHUB_WEBHOOK_QUEUE?: Queue<WebhookEvent> }).GITHUB_WEBHOOK_QUEUE;
   if (queue) {
     try {

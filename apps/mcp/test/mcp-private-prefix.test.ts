@@ -147,6 +147,18 @@ function makeDb(
             const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
             map.set(key, value);
             metadata.set(scopeKey(ws, objectKey), map);
+          } else if (
+            normalized.startsWith("DELETE FROM file_metadata") &&
+            normalized.includes("meta_key NOT IN (")
+          ) {
+            const [ws, objectKey, ...keep] = values as string[];
+            const map = metadata.get(scopeKey(ws, objectKey));
+            if (map) {
+              const sticky = new Set(keep);
+              for (const key of map.keys()) {
+                if (!sticky.has(key)) map.delete(key);
+              }
+            }
           } else if (normalized.startsWith("DELETE FROM file_metadata")) {
             const [ws, objectKey] = values as [string, string];
             metadata.delete(scopeKey(ws, objectKey));

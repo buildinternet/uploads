@@ -8,12 +8,13 @@ import GitHubMark from "../components/GitHubMark.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import WorkflowDemo from "../components/WorkflowDemo.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
+import { AGENT_MARKS } from "../lib/brand-icons";
 import { GITHUB_APP_URL } from "../lib/github-app";
+import { HOME_BEST_FOR, HOME_DESCRIPTION, HOME_FAQ, homeFaqJsonLd } from "../lib/home-seo";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 const pageTitle = "uploads.sh — the upload tool for coding agents";
-const pageDescription =
-  "Agents produce screenshots, recordings, test reports, and logs long before a pull request exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured. When the pull request opens, every artifact appears in one tidy comment that updates automatically on each revision.";
+const pageDescription = HOME_DESCRIPTION;
 
 const authOrigin = SAME_ORIGIN_AUTH_BASE;
 
@@ -81,6 +82,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
       })}
     />
+    <script type="application/ld+json" set:html={homeFaqJsonLd()} />
     <style>
       * {
         box-sizing: border-box;
@@ -93,6 +95,22 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         --panel: #1b1722;
         --line: #342c40;
         --accent: #c6a1f5;
+        /* Chrome that does not follow the tokens above. Light mode overrides
+           this same set; the terminal illustration pins its own. */
+        --link-line: #79638f;
+        --code: #d2b5ef;
+        --inset: #19151f;
+        --edge: #5b486e;
+        --cmd-hover: #76558d;
+        --chip-line: #534160;
+        --chip-hover: #30243d;
+        --ok: #a8d7ae;
+        --compat: #c6bfce;
+        --cta-bg: #241d2d;
+        --cta-line: #5b486e;
+        --cta-inset: #3b2f48;
+        --cta-shadow: #0b090f;
+        --cta-hover: #30263b;
         margin: 0;
         min-height: 100dvh;
         background: var(--bg);
@@ -109,7 +127,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       main a {
         color: var(--fg);
-        text-decoration-color: #79638f;
+        text-decoration-color: var(--link-line);
         text-underline-offset: 4px;
       }
       main a:hover {
@@ -153,6 +171,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         margin-top: 26px;
         line-height: 1.65;
       }
+      .best-for {
+        max-width: 520px;
+        margin-top: 14px;
+        font-size: 15px;
+        line-height: 1.55;
+        color: var(--fg);
+      }
       .hero-art {
         margin: 0 -20px 0 0;
       }
@@ -192,15 +217,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: #23182f;
       }
       main .cta-secondary {
-        background: #241d2d;
+        background: var(--cta-bg);
         color: var(--fg);
-        border-color: #5b486e;
+        border-color: var(--cta-line);
         box-shadow:
-          inset 0 2px 0 #3b2f48,
-          0 3px 0 #0b090f;
+          inset 0 2px 0 var(--cta-inset),
+          0 3px 0 var(--cta-shadow);
       }
       main .cta-secondary:hover {
-        background: #30263b;
+        background: var(--cta-hover);
         color: var(--fg);
       }
       main :is(.cta-solid, .cta-secondary):active {
@@ -231,13 +256,73 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         gap: 18px 32px;
         padding: 22px 0;
         border-block: 1px solid var(--line);
-        color: #c6bfce;
+        color: var(--compat);
         font-size: 14px;
       }
       .compatibility .label {
         color: var(--muted);
         font: 12px var(--mono);
-        margin-right: auto;
+        white-space: nowrap;
+      }
+      /* Logo reel: the list renders twice and slides half its width for a
+         seamless loop. Reduced motion shows the first copy, wrapped. */
+      .agent-reel {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+      }
+      .agent-track {
+        display: flex;
+        gap: 44px;
+        width: max-content;
+        margin: 0;
+        padding: 0 44px 0 0;
+        list-style: none;
+        animation: agent-reel 32s linear infinite;
+      }
+      .agent-reel:hover .agent-track,
+      .agent-reel:focus-within .agent-track {
+        animation-play-state: paused;
+      }
+      .agent-track a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+        color: inherit;
+        text-decoration: none;
+        transition: color 0.15s;
+      }
+      .agent-track a:hover,
+      .agent-track a:focus-visible {
+        color: var(--fg);
+      }
+      .agent-track svg {
+        width: 18px;
+        height: 18px;
+        flex: none;
+      }
+      @keyframes agent-reel {
+        to {
+          transform: translateX(-50%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .agent-reel {
+          mask-image: none;
+        }
+        .agent-track {
+          animation: none;
+          width: auto;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 12px 28px;
+          padding: 0;
+        }
+        .agent-track li[aria-hidden] {
+          display: none;
+        }
       }
       .workflow {
         padding: 76px 0 64px;
@@ -253,11 +338,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         max-width: 640px;
         margin-bottom: 28px;
       }
+      /* Terminal illustration — stays on the homepage's dark palette in both
+         appearances, so its text tokens don't inherit the page. */
       .example-screen {
         background: #19151f;
-        border: 1px solid var(--line);
+        border: 1px solid #342c40;
         border-radius: 7px;
         overflow: hidden;
+        color: #f3eee7;
+        --fg: #f3eee7;
+        --body: #b7b2bd;
+        --muted: #9a92a6;
+        --accent: #c6a1f5;
+        --line: #342c40;
       }
       .line {
         white-space: pre-wrap;
@@ -283,9 +376,123 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .gap {
         height: 1.25em;
       }
+      .ci,
       .features {
         padding: 52px 0 60px;
         border-top: 1px solid var(--line);
+      }
+      .ci-block {
+        display: grid;
+        grid-template-columns: 0.9fr 1.1fr;
+        gap: 60px;
+        align-items: center;
+      }
+      .ci .sect-lede {
+        margin-bottom: 18px;
+      }
+      .ci-note {
+        color: var(--muted);
+        font-size: 14px;
+        max-width: 520px;
+      }
+      /* GitHub checks illustration — pinned to the same dark palette as the
+         terminal illustration in both appearances. */
+      .checks-screen {
+        background: #19151f;
+        border: 1px solid #342c40;
+        border-radius: 7px;
+        overflow: hidden;
+        color: #f3eee7;
+        font-size: 13px;
+        min-width: 0;
+      }
+      .checks-top,
+      .check-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 11px 16px;
+        border-bottom: 1px solid #342c40;
+      }
+      .checks-top {
+        padding: 14px 16px;
+      }
+      .checks-top strong {
+        display: block;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .checks-top span,
+      .check-name {
+        color: #9a92a6;
+      }
+      .check-name {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .check-name b {
+        color: #f3eee7;
+        font-weight: 600;
+        margin-right: 0.5ch;
+      }
+      .checks-screen .mark {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 10px;
+        font-weight: 700;
+        color: #19151f;
+      }
+      .checks-screen .mark.ok {
+        background: #a8d7ae;
+      }
+      .checks-screen .mark.bad {
+        background: #e9a0b0;
+      }
+      .required {
+        flex: none;
+        font-size: 11px;
+        color: #9a92a6;
+        border: 1px solid #342c40;
+        border-radius: 999px;
+        padding: 1px 8px;
+      }
+      .check-list {
+        list-style: none;
+        margin: 0;
+        padding: 12px 16px 14px 42px;
+        display: grid;
+        gap: 5px;
+        color: #b7b2bd;
+      }
+      .check-list li {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .check-list li::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        border: 1px solid #5a4f6a;
+        border-radius: 3px;
+        flex: none;
+      }
+      .check-list li.done::before {
+        content: "✓";
+        background: #a8d7ae;
+        border-color: #a8d7ae;
+        color: #19151f;
+        font-size: 9px;
+        font-weight: 700;
+        display: grid;
+        place-items: center;
       }
       .find-block {
         display: grid;
@@ -319,7 +526,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .feature code,
       .sect-lede code {
         font: 0.85em var(--mono);
-        color: #d2b5ef;
+        color: var(--code);
         white-space: nowrap;
         font-variant-ligatures: none;
         font-feature-settings:
@@ -330,6 +537,70 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border-top: 1px solid var(--line);
         padding: 56px 0 0;
         scroll-margin-top: 28px;
+      }
+      .faq {
+        border-top: 1px solid var(--line);
+        padding: 56px 0 8px;
+        scroll-margin-top: 28px;
+      }
+      .faq-list {
+        display: grid;
+        gap: 10px;
+        max-width: 760px;
+      }
+      .faq-list details {
+        background: var(--inset);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+      }
+      .faq-list details[open] {
+        border-color: var(--edge);
+      }
+      .faq-list summary {
+        cursor: pointer;
+        list-style: none;
+        font: 600 16px / 1.4 var(--sans);
+        padding: 16px 48px 16px 18px;
+        position: relative;
+      }
+      .faq-list summary::-webkit-details-marker {
+        display: none;
+      }
+      .faq-list summary::marker {
+        content: "";
+      }
+      .faq-list summary::after {
+        content: "+";
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-52%);
+        color: var(--accent);
+        font: 500 22px / 1 var(--sans);
+      }
+      .faq-list details[open] summary::after {
+        content: "−";
+      }
+      .faq-list summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        border-radius: 6px;
+      }
+      .faq-a {
+        padding: 0 18px 16px;
+        color: var(--body);
+        font-size: 15px;
+      }
+      .faq-a p + p {
+        margin-top: 10px;
+      }
+      .faq-a code {
+        font: 0.85em var(--mono);
+        color: var(--code);
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
       }
       .install-layout {
         display: grid;
@@ -346,7 +617,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         grid-template-columns: 1fr auto;
         align-items: center;
         gap: 10px;
-        background: #1b1722;
+        background: var(--panel);
         border: 1px solid var(--line);
         padding: 12px 14px;
         border-radius: 4px;
@@ -356,7 +627,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         cursor: pointer;
       }
       .cmdrow:has(button[data-copy]):hover {
-        border-color: #76558d;
+        border-color: var(--cmd-hover);
       }
       .cmdrow .tag {
         color: var(--muted);
@@ -381,7 +652,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .agent-byline button {
         color: var(--accent);
         background: transparent;
-        border: 1px solid #534160;
+        border: 1px solid var(--chip-line);
         border-radius: 3px;
         padding: 6px 9px;
         font: 11px / 1.4 var(--mono);
@@ -389,12 +660,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .cmdrow button:hover,
       .agent-byline button:hover {
-        background: #30243d;
+        background: var(--chip-hover);
       }
       .cmdrow button.done,
       .agent-byline button.done {
-        color: #a8d7ae;
-        border-color: #a8d7ae;
+        color: var(--ok);
+        border-color: var(--ok);
       }
       .prompt-note {
         font-size: 12px;
@@ -421,6 +692,31 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           "calt" 0,
           "liga" 0;
       }
+      /* Same chrome tokens as `body`, on the light paper. The terminal
+         illustration above pins its own colors and does not inherit these. */
+      html[data-theme="light"] body {
+        --bg: #f7f4ef;
+        --fg: #1c1722;
+        --body: #4a4454;
+        --muted: #6c6576;
+        --panel: #fffdfb;
+        --line: #e4dce8;
+        --accent: #6e349f;
+        --link-line: #b89ad0;
+        --code: #6e349f;
+        --inset: var(--panel);
+        --edge: #c9b6dc;
+        --cmd-hover: #b89ad0;
+        --chip-line: #d5c6e4;
+        --chip-hover: #f3eef8;
+        --ok: #2a6e34;
+        --compat: var(--body);
+        --cta-bg: var(--panel);
+        --cta-line: #d9cce4;
+        --cta-inset: #fff;
+        --cta-shadow: #c9bdd6;
+        --cta-hover: #f3eef8;
+      }
       @media (max-width: 900px) {
         main {
           padding-inline: 28px;
@@ -437,6 +733,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           margin-right: -15px;
         }
         .find-block,
+        .ci-block,
         .install-layout {
           gap: 28px;
         }
@@ -478,6 +775,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           padding: 46px 0;
         }
         .find-block,
+        .ci-block,
         .install-layout {
           grid-template-columns: 1fr;
           gap: 28px;
@@ -485,6 +783,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         .sect-head {
           font-size: 29px;
         }
+        .ci,
         .features {
           padding: 35px 0 42px;
         }
@@ -499,6 +798,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         }
         .install {
           padding-top: 35px;
+        }
+        .faq {
+          padding: 35px 0 4px;
+        }
+        .faq-list summary {
+          font-size: 15px;
+        }
+        .best-for {
+          font-size: 14px;
         }
         .install-layout .cta-row {
           margin-bottom: 8px;
@@ -527,6 +835,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             Give Claude Code, Codex, and other coding agents a place to upload screenshots,
             recordings, and reports.
           </p>
+          <p class="best-for">{HOME_BEST_FOR}</p>
           <div class="hero-actions">
             <a class="cta-solid" href="#get-started"
               >Get started <span aria-hidden="true">↗</span></a
@@ -560,10 +869,33 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           />
         </figure>
       </section>
-      <div class="compatibility" aria-label="Agent interfaces">
-        <span class="label">Fits your workflow</span><span>Claude Code</span><span>Codex</span><span
-          >Cursor</span
-        ><span>CLI + MCP</span>
+      <div class="compatibility">
+        <span class="label">Fits your workflow</span>
+        <div class="agent-reel">
+          <ul class="agent-track" aria-label="Works with">
+            {
+              [0, 1].map((copy) =>
+                AGENT_MARKS.map(({ name, href, paths }) => (
+                  <li aria-hidden={copy === 1 ? "true" : undefined}>
+                    <a href={href} tabindex={copy === 1 ? -1 : undefined}>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill-rule="evenodd"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        {paths.map((d) => (
+                          <path fill="currentColor" d={d} />
+                        ))}
+                      </svg>
+                      {name}
+                    </a>
+                  </li>
+                )),
+              )
+            }
+          </ul>
+        </div>
       </div>
       <section class="workflow" aria-labelledby="workflow-heading">
         <p class="eyebrow">From local file to pull request</p>
@@ -575,6 +907,56 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           right where the review happens.
         </p>
         <WorkflowDemo />
+      </section>
+      <section class="ci" aria-labelledby="ci-heading">
+        <div class="ci-block">
+          <div>
+            <p class="eyebrow">Screenshots in CI</p>
+            <h2 class="sect-head" id="ci-heading">Make screenshots part of your checks.</h2>
+            <p class="sect-lede">
+              The uploads.sh GitHub App adds a screenshot check to your pull requests, next to your
+              tests and builds. Make proof required, and a UI change can't merge until it shows what
+              changed.
+            </p>
+            <p class="ci-note">
+              Works with your coding agent, the uploads CLI, or images dragged in on GitHub. Turn it
+              on in Settings or with one line of config.{" "}
+              <a href="/docs/require-screenshots">Require screenshots on pull requests</a>
+            </p>
+          </div>
+          <div
+            class="checks-screen"
+            role="img"
+            aria-label="A pull request's checks: build and test pass, and the required Check for visuals check fails because a mobile capture is missing"
+          >
+            <div class="checks-top">
+              <span class="mark bad" aria-hidden="true">✕</span>
+              <div>
+                <strong>Some checks were not successful</strong>
+                <span>1 failing, 2 successful checks</span>
+              </div>
+            </div>
+            <div class="check-row">
+              <span class="mark ok" aria-hidden="true">✓</span>
+              <span class="check-name"><b>build</b> Successful in 2m</span>
+            </div>
+            <div class="check-row">
+              <span class="mark ok" aria-hidden="true">✓</span>
+              <span class="check-name"><b>test</b> Successful in 4m</span>
+            </div>
+            <div class="check-row">
+              <span class="mark bad" aria-hidden="true">✕</span>
+              <span class="check-name"><b>Check for visuals</b> Missing: mobile</span>
+              <span class="required">Required</span>
+            </div>
+            <ul class="check-list">
+              <li class="done">Uploads attached</li>
+              <li class="done">Before and after</li>
+              <li class="done">Desktop capture</li>
+              <li>Mobile capture</li>
+            </ul>
+          </div>
+        </div>
       </section>
       <section class="features" aria-label="Features">
         <div class="find-block">
@@ -655,6 +1037,21 @@ Source (and where to look if something breaks): https://github.com/buildinternet
               storage — hosted storage works out of the box, your bucket is there when you want it.
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="faq" id="faq" aria-labelledby="faq-heading">
+        <p class="eyebrow">Before you install</p>
+        <h2 class="sect-head" id="faq-heading">FAQ</h2>
+        <div class="faq-list">
+          {
+            HOME_FAQ.map((item) => (
+              <details name="home-faq">
+                <summary>{item.q}</summary>
+                <div class="faq-a" set:html={item.a} />
+              </details>
+            ))
+          }
         </div>
       </section>
 

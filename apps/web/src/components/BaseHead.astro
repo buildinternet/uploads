@@ -37,5 +37,62 @@ const { preloadSans = false, manifest = false } = Astro.props;
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 {manifest && <link rel="manifest" href="/site.webmanifest" />}
 <meta name="theme-color" content="#121214" />
+<!--
+  Apply the stored appearance before first paint. Default is the system
+  preference; an explicit light/dark choice in localStorage wins. View
+  transitions replace <head>, so this re-runs and also patches the incoming
+  document on astro:before-swap.
+-->
+<script is:inline data-astro-rerun>
+  (function () {
+    var KEY = "uploads-theme";
+    var COLORS = { light: "#f4f2ec", dark: "#121214" };
+    function choice() {
+      try {
+        var stored = localStorage.getItem(KEY);
+        if (stored === "light" || stored === "dark" || stored === "system") return stored;
+      } catch (e) {
+        /* private mode and blocked storage keep the system choice */
+      }
+      return "system";
+    }
+    function resolved(mode) {
+      if (mode === "light" || mode === "dark") return mode;
+      return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    }
+    function apply(doc, mode) {
+      var root = (doc || document).documentElement;
+      var pick = mode || choice();
+      var theme = resolved(pick);
+      root.setAttribute("data-theme", theme);
+      root.setAttribute("data-theme-choice", pick);
+      var meta = (doc || document).querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", COLORS[theme]);
+    }
+    window.__uploadsSetTheme = function (next) {
+      try {
+        localStorage.setItem(KEY, next);
+      } catch (e) {
+        /* the attribute still updates for this view */
+      }
+      apply(document, next);
+      document.dispatchEvent(new CustomEvent("uploads:theme"));
+    };
+    apply(document);
+    if (!window.__uploadsThemeBound) {
+      window.__uploadsThemeBound = true;
+      document.addEventListener("astro:before-swap", function (event) {
+        apply(event.newDocument);
+      });
+      window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", function () {
+        if (choice() !== "system") return;
+        apply(document, "system");
+        document.dispatchEvent(new CustomEvent("uploads:theme"));
+      });
+    }
+  })();
+</script>
+<!-- Lets Slack suggest the uploads.sh app when someone posts an uploads.sh link (Marketplace). -->
+<meta name="slack-app-id" content="A0CA0AWAJCD" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href={geistMonoUrl} />
 {preloadSans && <link rel="preload" as="font" type="font/woff2" crossorigin href={geistSansUrl} />}

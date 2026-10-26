@@ -4,7 +4,7 @@
  *
  * Fit: compact, viewport-capped (photos / wide UI).
  * Full width: stage grows with the image; page scroll (tall screenshots).
- * Tall images auto-open full width. Mode resolution: `lib/image-preview-mode.ts`.
+ * Images default to Fit; explicit size choices are saved. Mode resolution: `lib/image-preview-mode.ts`.
  *
  * When `compare` is supplied the stage gains a second, independent axis: the
  * view switch between this image alone and a draggable before/after slider
@@ -148,6 +148,7 @@ const counterpartUrl = compare?.src ?? null;
 
 <script>
   import { resolvePreviewMode, type ImagePreviewMode } from "../lib/image-preview-mode";
+  import { readViewerPreference, saveViewerPreference } from "../lib/viewer-preferences";
   import { bindMediaLoadError } from "../lib/media-load";
 
   type CompareView = "single" | "compare";
@@ -183,6 +184,7 @@ const counterpartUrl = compare?.src ?? null;
     if (slider) {
       try {
         await import("img-comparison-slider");
+        if (!root.isConnected) return;
       } catch {
         // A failed dynamic import must not leave a live toggle over a dead
         // element — drop straight back to single and bail before wiring
@@ -331,6 +333,15 @@ const counterpartUrl = compare?.src ?? null;
       closeBtn?.focus();
     };
 
+    document.addEventListener(
+      "astro:before-swap",
+      () => {
+        close();
+        box.remove();
+      },
+      { once: true },
+    );
+
     closeBtn?.addEventListener("click", close);
     // A click anywhere that isn't the image (backdrop, letterbox margin) closes.
     box.addEventListener("click", (e) => {
@@ -397,26 +408,13 @@ const counterpartUrl = compare?.src ?? null;
     bindMediaLoadError(root, img, () => applyView(root, "single"));
     if (root.dataset.failed === "1") return;
 
-    // Page-view only — no storage, so the next tall shot still auto-picks full.
-    let override: ImagePreviewMode | null = null;
-
-    const sync = () => {
-      if (root.dataset.failed === "1") return;
-      applyMode(
-        root,
-        resolvePreviewMode({
-          override,
-          naturalWidth: img.naturalWidth,
-          naturalHeight: img.naturalHeight,
-        }),
-      );
-    };
+    applyMode(root, resolvePreviewMode(readViewerPreference("size")));
 
     for (const btn of root.querySelectorAll<HTMLButtonElement>("button[data-size]")) {
       btn.addEventListener("click", () => {
         const size = btn.dataset.size;
         if (size !== "fit" && size !== "full") return;
-        override = size;
+        saveViewerPreference("size", size);
         applyMode(root, size);
       });
     }
@@ -434,9 +432,6 @@ const counterpartUrl = compare?.src ?? null;
     root
       .querySelector<HTMLButtonElement>("button[data-expand]")
       ?.addEventListener("click", openLightbox);
-
-    if (img.complete && img.naturalWidth > 0) sync();
-    else img.addEventListener("load", sync, { once: true });
   }
 
   function boot(): void {

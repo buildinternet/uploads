@@ -6,6 +6,8 @@
  * link (Agent Skills Discovery RFC). Digest is sha256 of the bytes fetched from
  * that URL at request time.
  */
+import { reportHandledError } from "@uploads/observability";
+
 const GITHUB_REPO = "buildinternet/uploads";
 /** Branch or tag that always means "latest published skill sources". */
 const SKILLS_REF = "main";
@@ -144,8 +146,7 @@ export async function handleAgentSkillsIndex(request: Request): Promise<Response
     }
     return new Response(body, { status: 200, headers: INDEX_HEADERS });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(JSON.stringify({ event: "agent_skills_index_failed", message }));
+    reportHandledError(err);
     return new Response(
       `${JSON.stringify({ error: "agent_skills_index_unavailable" }, null, 2)}\n`,
       {

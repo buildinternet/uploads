@@ -1,11 +1,12 @@
 /**
  * Body of the workspace side drawer: the same detail the imperative page put
- * behind a row-expand (people, plan, limits, storage, API tokens, GitHub links), now
+ * behind a row-expand (people, plan, limits, storage, API tokens, clients, GitHub links), now
  * composed as React sections inside the shadcn `Sheet`. Each section owns its
  * own fetch and error state, so they fill in independently as their requests
  * land — matching the per-section lazy loads the expand-row used.
  */
 import type { AdminApi } from "../../lib/admin-api";
+import { ClientsSection } from "./ClientsSection";
 import { GithubLinksSection } from "./GithubLinksSection";
 import { LimitsEditor } from "./LimitsEditor";
 import { PeopleSection } from "./PeopleSection";
@@ -38,6 +39,9 @@ export function WorkspaceDetail({
       </div>
       <div className="border-t border-border pt-4">
         <TokensSection api={api} workspace={workspace} hasOrg={hasOrg} />
+      </div>
+      <div className="border-t border-border pt-4">
+        <ClientsSection api={api} workspace={workspace} />
       </div>
       <GithubLinksSection api={api} workspace={workspace} />
     </div>

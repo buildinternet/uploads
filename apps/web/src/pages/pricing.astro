@@ -1,0 +1,42 @@
+---
+// /pricing — rendered from the same Markdown as /pricing.md (src/lib/pricing.ts).
+// Linked from the footer; agents can fetch /pricing.md or send
+// `Accept: text/markdown` here.
+import { marked } from "marked";
+import LegalLayout from "../layouts/LegalLayout.astro";
+import { PRICING_DESCRIPTION, PRICING_MARKDOWN, PRICING_TITLE } from "../lib/pricing";
+
+const html = await marked.parse(PRICING_MARKDOWN);
+---
+
+<LegalLayout title={PRICING_TITLE} description={PRICING_DESCRIPTION} path="/pricing">
+  <link slot="head" rel="alternate" type="text/markdown" href="/pricing.md" />
+  <div class="pricing" set:html={html} />
+</LegalLayout>
+
+<style>
+  .pricing :global(blockquote) {
+    margin: 0 0 8px;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-lead, inherit);
+  }
+  .pricing :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: var(--text-meta);
+  }
+  .pricing :global(th),
+  .pricing :global(td) {
+    text-align: left;
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--line);
+    color: var(--body);
+    vertical-align: top;
+  }
+  .pricing :global(thead th) {
+    color: var(--fg);
+    font-weight: var(--weight-semibold);
+  }
+</style>

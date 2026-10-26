@@ -3,7 +3,10 @@ import {
   loadProfilePageData,
   renderSessionsHtml,
   renderSignInMethodsHtml,
+  renderSlackLinksHtml,
+  renderWeeklyDigestHtml,
 } from "./account-profile-ui";
+import type { DigestWorkspacePreference } from "./auth-client";
 import type { AuthSession, LinkedAccount, ProviderAccountInfo } from "./auth-client";
 
 afterEach(() => {
@@ -95,6 +98,7 @@ describe("loadProfilePageData", () => {
       accounts: null,
       githubInfo: null,
       sessions: null,
+      digestWorkspaces: null,
     });
     await expect(loadProfilePageData("https://auth.uploads.sh", "   ")).resolves.toEqual({
       user: null,
@@ -102,6 +106,7 @@ describe("loadProfilePageData", () => {
       accounts: null,
       githubInfo: null,
       sessions: null,
+      digestWorkspaces: null,
     });
   });
 
@@ -123,6 +128,9 @@ describe("loadProfilePageData", () => {
       if (url.includes("account-info")) {
         return Response.json({ user: { email: "z@example.com" }, data: { login: "zachdunn" } });
       }
+      if (url.includes("digest-preferences")) {
+        return Response.json({ workspaces: [] });
+      }
       throw new Error(`unexpected fetch ${url}`);
     });
     vi.stubGlobal("fetch", fetcher);
@@ -141,6 +149,7 @@ describe("loadProfilePageData", () => {
       user: { email: "z@example.com" },
       data: { login: "zachdunn" },
     });
+    expect(data.digestWorkspaces).toEqual([]);
 
     // Every request forwarded the cookie header (server-side fetch, no cookie jar).
     for (const call of fetcher.mock.calls) {
@@ -156,6 +165,7 @@ describe("loadProfilePageData", () => {
       if (url.includes("get-session")) return Response.json({ user, session: {} });
       if (url.includes("list-accounts")) return Response.json([]);
       if (url.includes("list-sessions")) return Response.json([]);
+      if (url.includes("digest-preferences")) return Response.json({ workspaces: [] });
       throw new Error(`unexpected fetch ${url}`);
     });
     const globalFetch = vi.fn();
@@ -168,7 +178,8 @@ describe("loadProfilePageData", () => {
     );
 
     expect(data.user).toEqual(user);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(data.digestWorkspaces).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(globalFetch).not.toHaveBeenCalled();
   });
 
@@ -178,6 +189,7 @@ describe("loadProfilePageData", () => {
       if (url.includes("get-session")) return Response.json(null);
       if (url.includes("list-accounts")) return Response.json([]);
       if (url.includes("list-sessions")) return Response.json([]);
+      if (url.includes("digest-preferences")) return Response.json({ workspaces: [] });
       throw new Error(`unexpected fetch ${url}`);
     });
     vi.stubGlobal("fetch", fetcher);
@@ -200,6 +212,92 @@ describe("loadProfilePageData", () => {
       accounts: null,
       githubInfo: null,
       sessions: null,
+      digestWorkspaces: null,
     });
+  });
+});
+
+describe("renderWeeklyDigestHtml", () => {
+  const acme: DigestWorkspacePreference = {
+    organizationId: "org-acme",
+    slug: "acme",
+    name: "Acme",
+    role: "owner",
+    admin: true,
+    notifyWeeklyDigest: true,
+    notifyWeeklyWorkspaceDigest: false,
+  };
+  const beta: DigestWorkspacePreference = {
+    organizationId: "org-beta",
+    slug: "beta",
+    name: "Beta",
+    role: "member",
+    admin: false,
+    notifyWeeklyDigest: false,
+    notifyWeeklyWorkspaceDigest: false,
+  };
+
+  it("shows the admin pulse only for an admin or owner", () => {
+    const html = renderWeeklyDigestHtml([acme, beta]);
+    expect(html).toContain("Acme");
+    expect(html).toContain("Beta");
+    expect(html).toContain('data-org-id="org-acme"');
+    expect(html).toContain('data-digest="admin"');
+    expect(html.match(/data-digest="admin"/g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Weekly summary for Acme"');
+    expect(html).toContain('aria-label="Admin pulse for Acme"');
+    const betaBlock = html.slice(html.indexOf("Beta"));
+    expect(betaBlock).not.toContain('data-digest="admin"');
+    expect(betaBlock).toContain("digest-table__na");
+  });
+
+  it("renders one table row per workspace with the saved state", () => {
+    const html = renderWeeklyDigestHtml([acme, beta]);
+    expect(html).toContain('<table class="digest-table">');
+    expect(html.match(/<tr>/g)).toHaveLength(3);
+    expect(html).toContain(
+      'data-digest="member" data-org-id="org-acme" aria-label="Weekly summary for Acme" checked',
+    );
+    expect(html).toContain(
+      'data-digest="admin" data-org-id="org-acme" aria-label="Admin pulse for Acme" />',
+    );
+  });
+
+  it("escapes a workspace name", () => {
+    const html = renderWeeklyDigestHtml([{ ...acme, name: `Acme <script>` }]);
+    expect(html).toContain("Acme &lt;script&gt;");
+    expect(html).not.toContain("<script>");
+  });
+
+  it("says when the person has no workspace", () => {
+    expect(renderWeeklyDigestHtml([])).toContain("Join a workspace");
+  });
+});
+
+describe("renderSlackLinksHtml", () => {
+  const link = {
+    teamId: "T1",
+    teamName: "Acme <Eng>",
+    slackUserId: "U1",
+    linkedAt: "2026-10-18T12:00:00.000Z",
+    missingScopes: [] as string[],
+  };
+
+  it("offers Add to Slack with no links, and a retry line when the load failed", () => {
+    expect(renderSlackLinksHtml([])).toContain("https://agents.uploads.sh/slack/install");
+    expect(renderSlackLinksHtml(null)).toContain("Couldn’t load");
+  });
+
+  it("lists links with Disconnect, escaping the workspace name", () => {
+    const html = renderSlackLinksHtml([link]);
+    expect(html).toContain("Acme &lt;Eng&gt;");
+    expect(html).toContain('data-team-id="T1"');
+    expect(html).not.toContain("Update permissions");
+  });
+
+  it("asks a workspace with missing scopes to update its permissions", () => {
+    const html = renderSlackLinksHtml([{ ...link, missingScopes: ["chat:write"] }]);
+    expect(html).toContain("Update permissions");
+    expect(html).toContain("Needs updated Slack permissions");
   });
 });

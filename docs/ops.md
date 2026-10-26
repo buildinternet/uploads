@@ -29,6 +29,21 @@ you run `workspace:limits`.
 
 KV cache ~60s. Agents: `uploads usage`.
 
+## Domains
+
+`uploads.sh` is the only canonical domain. Two backup domains live in the same
+Cloudflare account. Neither one serves app content.
+
+| Zone               | Use                                                                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uploadrouter.com` | Alias. Apex and `www` are proxied placeholder `AAAA 100::` records. A zone Single Redirect sends every request to `https://uploads.sh` + path, query kept. |
+| `uploadrouter.dev` | Local dev only. `local` and `*.local` are DNS-only `A 127.0.0.1` records for the portless stack ([local-dev.md](local-dev.md#named-local-urls-portless)).  |
+
+The `uploadrouter.com` redirect is a **302**, on purpose. It is a backup
+domain, so keep it temporary until there is a decision to make it permanent.
+Do not proxy the `uploadrouter.dev` records. The apex stays unassigned until
+there is a staging environment to point it at.
+
 ## Dual public hosts (stable vs embed / GitHub Camo)
 
 Shared-bucket objects are available on two custom domains of `uploads-default`
@@ -65,6 +80,60 @@ attachments comment prefer `embedUrl` for `<img src>`.
 | CLI / client | `UPLOADS_EMBED_PUBLIC_BASE_URL` | Same semantics client-side (also used if an older API omits `embedUrl`)                                    |
 
 No Worker proxies image bytes — dual host is DNS + zone rules only.
+
+## Public file page performance
+
+The `/f/<workspace>/<key>` page and its `/public/files/...` metadata response
+use `Cache-Control: no-store`. Every request checks the current storage object,
+its visibility, and its hold status. Do not cache these responses by URL alone:
+a replacement, deletion, or private flip must take effect on the next request.
+
+The API returns a `previewUrl` with the object's ETag in its `v` query parameter.
+The page uses it for primary media and paired images. An overwrite with different
+bytes changes that cache key. The `url` and `embedUrl` fields keep their stable
+identities. Storage providers without an ETag fall back to the stable URL.
+Derived video/PDF poster URLs still follow their existing cache policy.
+
+GitHub titles use the attach-time stamp or the existing public-title cache.
+A cache hit must match the repository's public-title epoch. The page waits at
+most 75 ms for this optional read, alongside counterpart verification. Misses
+refresh through `waitUntil`; GitHub requests do not block the response. A later
+request can use the refreshed title. Member-only title caches never enter this path.
+
+Inspect the document's `Server-Timing` header in browser DevTools. The web worker
+forwards the API phases, so a single navigation shows both layers:
+
+| Metric              | Work measured                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| `file_workspace`    | Workspace registry lookup                                                              |
+| `file_storage`      | Storage-lane selection and fresh object HEAD                                           |
+| `file_metadata`     | Current metadata and hold-state read                                                   |
+| `file_pair`         | Counterpart lookup and visibility verification                                         |
+| `file_title_cache`  | Bounded public-title cache read                                                        |
+| `file_api`          | Entire public-file API handler                                                         |
+| `file_api_headers`  | Web worker wait until API response headers; description identifies `binding` or `http` |
+| `file_api_body`     | API response-body read and JSON decode after headers arrive                            |
+| `file_ssr_fetch`    | Web worker's metadata subrequest, including JSON validation                            |
+| `file_text_preview` | Optional text-body fetch                                                               |
+| `file_ssr_prepare`  | Web page preparation before template rendering                                         |
+
+These durations overlap; do not add them together. Failure responses include
+the phases reached before rejection. `SERVER_TIMING_DISABLED=1` suppresses
+headers on the worker where it is set. Slow API phases use the existing
+structured slow-operation logger with a fixed route label, without asset keys.
+
+To investigate a slow metadata subrequest, compare `file_api_headers` with
+`file_api`. A large difference is outside the timed API route. A large
+`file_api_body` instead points to response delivery after the headers arrive.
+Check the transport description before diagnosing a network hop: production
+uses the `API` service binding; local development can use HTTP.
+
+Workers' wall clocks advance at I/O boundaries. These headers measure I/O
+waits, not precise CPU time for parsing or validation. Correlate outliers with
+Workers invocation logs by trace ID and compare CPU and wall time for both
+workers. Invocation wall time can also include background work. Neither route
+nor fetch-entry timers capture module initialization before the handler starts.
+Avoid changing placement or adding response caches based on one outlier.
 
 ## SVG and XML on the hosted hosts (issue #929)
 
@@ -235,6 +304,34 @@ shipped in #314 and was retired in #421; see `docs/deletion.md`). The
 scheduled handler also runs `runObservabilityRetention` (telemetry/enrollment
 row purge, not object storage) alongside the sweep.
 
+A second cron, Monday 14:00 UTC (`0 14 * * 1`), sends the optional weekly
+digest. It does not delete anything. The handler dispatches on the cron
+string, so the Monday run does not repeat the daily sweeps. Mail goes out
+through the auth worker's existing `EMAIL` binding (`noreply@uploads.sh`).
+Unsubscribe links are HMAC-signed with `BETTER_AUTH_SECRET`. There is no
+new secret.
+
+Both kinds of mail default off, per workspace. A person turns them on from
+Account, under Email notifications. Each workspace has its own switches. The
+admin pulse switch appears only when that person is an admin or an owner of
+the workspace. The API is `GET` and `POST /api/auth/digest-preferences`.
+
+Each opted-in workspace gets its own email. The subject names that workspace
+and the seven-day range, for example `Your week in Acme (Oct 5–11)` or
+`Acme admin pulse (Oct 5–11)`. The range starts on the previous Monday and
+ends on Sunday. An unsubscribe link turns off that workspace and that kind
+only. A quiet workspace is left out. The other workspaces still send.
+
+Jev may pick the one highlight screenshot from its caption. If the `AI`
+binding is missing, or Jev declines, the highlight is the newest screenshot.
+Jev does not write the email.
+
+Migration `20261012150000_auth_member_weekly_digest.sql` copies an existing
+account-wide opt-in onto current memberships. The member digest copies onto
+every membership. The admin pulse copies onto admin and owner memberships
+only. The old `user` columns stay in the database so a worker from that
+release can still read them. New mail does not read them.
+
 The same sweep also finalizes soft-deleted workspaces (see below): once a
 workspace's grace window elapses, the sweep runs the full hard teardown and
 replaces its `ws:<name>` KV record with a permanent purged tombstone. That
@@ -346,6 +443,50 @@ node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs
 (same names as `.env.example`); `--workspace <name>` overrides the workspace
 for one run. Test against a local `wrangler dev` stack first — never point
 this at production while testing.
+
+## Backfill mixed-case `gh.repo`
+
+Run **by hand, once, after the Files/live-link API slice deploys.** Before that
+slice, a generic write (`uploads put --meta gh.repo=Acme/Web`, an
+`X-Uploads-Meta-gh.repo` header, `set_metadata`) stored `gh.repo` as typed. The
+API now stores it lowercased, and the scope views and live links match the
+lowercase spelling exactly, so older mixed-case rows stay hidden until this runs.
+It is not a migration (migrations auto-apply on merge and never rewrite data).
+
+```bash
+# dry run: prints { dryRun: true, affected, updated: 0, batches: 0, remaining }
+# ("remaining" equals "affected") and writes nothing
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://api.uploads.sh/admin/file-metadata/backfill-gh-repo-case?dryRun=1'
+# live: repeat until "remaining" is 0
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://api.uploads.sh/admin/file-metadata/backfill-gh-repo-case
+```
+
+Idempotent. Each call rewrites at most 20,000 rows (`updated_at` is not
+touched). `github_pr_activity` and `feeds` already store the repo lowercased and
+need no backfill.
+
+## Workspace key metadata backfill (#1094)
+
+Every `ws:<name>` KV key carries `{ byob }` metadata so the admin metrics
+overview and workspace list read BYO status off the paged key list instead of
+one record read per workspace. New and rewritten records get it automatically.
+Records last written before that change have none; readers fall back to one
+record read for those keys, so the backfill is an optimisation, not a
+prerequisite. Run it once after deploy.
+
+```bash
+# dry run: counts what would change, writes nothing
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://api.uploads.sh/admin/workspaces/backfill-key-metadata?dryRun=1'
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://api.uploads.sh/admin/workspaces/backfill-key-metadata
+```
+
+Idempotent. It re-puts each unchanged record blob with metadata (`version` is
+not bumped). Any script that rewrites a `ws:` record with `wrangler kv key put`
+must pass `--metadata`, or the put erases it.
 
 ## Account linking (issue #233)
 
@@ -792,13 +933,8 @@ they're never mismatched.
 
 **Previews.** This validates the same underlying `uploads-auth` Worker
 script's secrets that production uses, not a separate `previews`-scoped set.
-The automatic per-branch "Branch Preview URL" that Workers Builds deploys for
-every PR runs against production bindings (see
-[previews.md](previews.md#the-two-layers) — it is not the
-`npx wrangler preview` / `previews` block flow), so it already sees the same
-eight secrets and needed no changes here. A manual `wrangler preview`
-inherits the same worker-level secrets too, unless a branch explicitly
-overrides one with `wrangler preview secret put`.
+A manual `wrangler preview` inherits the same worker-level secrets too,
+unless a branch explicitly overrides one with `wrangler preview secret put`.
 
 ## Minimal-binding profile (self-hosting, uploads#754 item 3)
 
@@ -835,17 +971,20 @@ recommend removing.
 | `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                                                                            |
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
+| `IMAGES`                                                                       | api       | The file classifier cannot resize images into Jev's pixel window. Oversized PNG/JPEG and WebP/GIF/AVIF are skipped (`ai.skip=resize_failed`). A PNG or JPEG that already fits is still sent.                                                                                                                                                                                                            |
 | `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, the attachment index shadow, and the experimental LLM file classifier — same effect as never enabling them.                                                                                                                                                                                    |
-| `AI`                                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata.                                                                                                                                                                                                                                                                                                             |
+| `AI`                                                                           | api       | Weekly digest still sends. Without AI, the highlight is the newest screenshot instead of the one Jev picks from captions. The file classifier does not use this binding.                                                                                                                                                                                                                                |
+| `OPENROUTER_API_KEY`                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
+| `API`                                                                          | mcp       | Hosted MCP `put` and `sign_upload_url` uploads are not classified, so they are never held. Uploads still succeed.                                                                                                                                                                                                                                                                                       |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
 | `RENDER_LIMITER`                                                               | api       | No burst limit on `POST /v1/render` independent of the monthly upload budget.                                                                                                                                                                                                                                                                                                                           |
 | `WS_CREATE_LIMITER`                                                            | api       | No burst limit on self-serve workspace creation (the 3-per-user cap itself still applies).                                                                                                                                                                                                                                                                                                              |
 | `INVITE_LIMITER`                                                               | api       | No per-recipient/IP rate limit on invite emails, invite lookup/exchange, or CLI report/abuse endpoints.                                                                                                                                                                                                                                                                                                 |
 | `POSTER_LIMITER`                                                               | api       | **Fails closed, not open** — unlike every other limiter above, an absent `POSTER_LIMITER` disables poster generation entirely rather than removing its burst cap, since posters are a metered, billable operation.                                                                                                                                                                                      |
 | `EMAIL`                                                                        | api       | Welcome emails, abuse-report notifications, and invite-code emails are skipped (logged instead); the underlying record/report/enrollment is still created.                                                                                                                                                                                                                                              |
-| `EMAIL`                                                                        | auth      | Magic-link, invitation, member-joined, and welcome emails are skipped (logged instead, with the link itself logged for invitations). GitHub OAuth sign-in is unaffected — it has no dependency on `EMAIL`. A deployment with neither `EMAIL` nor GitHub OAuth configured has no working sign-in method; that's a configuration gap, not a crash.                                                        |
+| `EMAIL`                                                                        | auth      | Magic-link, invitation, member-joined, welcome, and weekly-digest emails are skipped (logged instead, with the link itself logged for invitations). GitHub OAuth sign-in is unaffected — it has no dependency on `EMAIL`. A deployment with neither `EMAIL` nor GitHub OAuth configured has no working sign-in method; that's a configuration gap, not a crash.                                         |
 | `ADMIN_TOKEN`                                                                  | api       | The static break-glass admin token is disabled; scoped operator tokens (minted through the normal admin flow) still work.                                                                                                                                                                                                                                                                               |
 | `BILLING_INTERNAL_KEY`                                                         | api, auth | Fails closed by design: `/internal/billing/plan` always 401s and the auth→api plan-sync bridge no-ops (queues a retry) instead of sending an unauthenticated request.                                                                                                                                                                                                                                   |
 | `GITHUB_APP_WEBHOOK_SECRET`                                                    | api       | The GitHub webhook endpoint 503s.                                                                                                                                                                                                                                                                                                                                                                       |
@@ -1071,49 +1210,223 @@ while the flag is on, the same way the video backfill re-PUTs.
 ## Experimental LLM file classifier
 
 **Experimental.** Off by default. After a successful server-mediated put
-(`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
-a Flagship-allowlisted workspace can get server-owned `ai.tags` (up to five
-kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`, `ai.screen`, and
-`ai.classifier=v3` rows. Agents read them with
+(`putObject` — REST `PUT /v1/:ws/files/:key`, the hosted MCP `put` tool, and
+`sign_upload_url`'s `PUT /u/<ticket>` up to 25 MiB; not a presigned
+`POST /sign`, a streamed `/u/` body over 25 MiB, or GitHub ingest),
+a Flagship-allowlisted workspace can get server-owned `ai.kind`,
+`ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
+original bytes, `v6` when it sees a resized copy, `skipped` when the model
+does not see an image). The same call also writes internal safety flags
+(`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`). Enums and confidence
+buckets are listed below. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
-errors never fail the upload.
+errors never fail the upload. The labeler does not write `ai.tags` or
+`ai.summary`. Older rows may still have those keys. The safety flags are
+not chips, and public file, gallery, feed, embed, and pull-request
+responses omit every `ai.*` key. They do not change who can view a file.
 
-### Two stages
+uploads-mcp does not classify in-process. It posts the stored bytes to
+uploads-api's `POST /internal/classify` (`routes/internal-classify.ts`) over
+its `API` service binding, so the OpenRouter key and the classifier's
+Flagship, Images, email, and Slack bindings live only on uploads-api.
 
-1. **describe** — `@cf/meta/llama-3.2-11b-vision-instruct` looks at a raster
-   image under the 512 KiB cap and returns a short description, tags, and a
-   summary. Every other file skips this stage, so a PDF, a zip, an SVG, an
-   oversized image, or a text file gets no `ai.tags` and no `ai.summary`.
-2. **decide** — `typesafe/jev` picks `kind`, `surface`, and `screen` from the
-   closed enums. It sees a text-only state: the filename, the content type,
-   the byte size, the pixel dimensions and aspect ratio, a text excerpt for
-   text files, and stage 1's description when there is one. This stage always
-   runs.
+### One Decisions call
 
-Stage 1 is advisory. When it fails, stage 2 still decides the enums from the
-file facts. When stage 2 fails, the classifier writes nothing.
+The worker `POST`s `https://openrouter.ai/api/alpha/decisions` with
+`OPENROUTER_API_KEY`. The default model is the alias `~typesafe/jev-latest`.
+It picks `kind`, `surface`, `screen`, `rating`, `content`, `secret`, and
+`pii` from the closed enums. That is one request. There is no second call.
+
+Do not send this call through the Cloudflare AI Gateway. That gateway's
+`openrouter` provider is based at `https://openrouter.ai/api/v1`, so a
+request for `alpha/decisions` hits `/api/v1/alpha/decisions` and returns 404.
+OpenRouter's Decisions route is `/api/alpha/decisions`.
+
+The request `state` is an array. The first item is a short fact list:
+filename, content type, byte size, and pixel dimensions and aspect ratio
+when the header parses. A second item carries the image. The model is not
+called without that image.
+
+```json
+{ "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }
+```
+
+Jev accepts PNG and JPEG only, and only inside its pixel window: each side
+from 280 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A PNG or
+JPEG that already sits in that window, and is under 512 KiB, is sent as its
+original bytes (`ai.classifier=v5`).
+
+The `IMAGES` binding (Cloudflare Images) makes a classifier-sized copy of a
+PNG, JPEG, WebP, GIF, or AVIF that does not fit. The transform fits the
+longest side inside 1,568 pixels with `fit=scale-down`, so a small image is
+not enlarged. A PNG tries a PNG encode first, so UI text stays lossless when
+that copy is under 512 KiB. Otherwise the copy is a JPEG. GIF and AVIF
+become a still frame. Those rows are `ai.classifier=v6`. The fact list keeps
+the original pixel size.
+
+A file with no image the provider can see is skipped. The worker writes
+`ai.classifier=skipped` and `ai.skip`, and no kind, surface, screen, or
+safety value. A previous kind, surface, or screen is removed. The reasons
+are:
+
+- `small`. A trivially small image, on Jev or on Luna. Either known side
+  under 64 px, or an image file under 2 KiB. Unknown dimensions use only
+  the byte floor.
+- `unsupported`. The file cannot be sent as an image this provider accepts,
+  and a resize is not the way there. That includes a text file, an SVG, a
+  Jev image below the 280 px window (it is not upscaled), an extreme aspect
+  ratio, and a Luna file that is a GIF, AVIF, SVG, or over 512 KiB.
+- `resize_failed`. Jev needed a resize and did not get an image. A missing
+  `IMAGES` binding, an input over the binding's 20 MB ceiling, a transform
+  error, or an output that still cannot fit.
+- `resize_timeout`. The resize budget ran out.
+
+A 64 px image of exactly 2 KiB is not `small`. Jev skips it as
+`unsupported`. Luna still sees it, because Luna is not held to Jev's window.
+
+Decisions models only answer closed questions, so there is no describe step
+and no Llama vision call.
+
+### Luna Decisions try
+
+`openai/gpt-6-luna-decisions` is a separate, opt-in provider on the same
+endpoint. It writes `ai.classifier=v4` and the same closed enums, at the
+same 0.5 confidence threshold. It accepts PNG, JPEG, and WebP, and it is
+not held to Jev's pixel window, so a screenshot under 512 KiB can still be
+seen. It does not use the Images resize. Sending Luna a downscaled JPEG
+would hide the difference the try is there to measure. A Luna file over
+512 KiB, or a GIF, AVIF, or SVG, is `ai.skip=unsupported`. A trivially
+small image is skipped before either provider runs, so Luna does not see a
+1×1 pixel either. It does not write `ai.tags` or `ai.summary`.
+
+Select it only on a workspace that already has `llm-file-classifier` on.
+Two switches, and an explicit `jev` pin wins over the flag:
+
+1. **Env pin.** `CLASSIFIER_PROVIDER=luna` selects Luna for every allowlisted
+   workspace. `CLASSIFIER_PROVIDER=jev` forces Jev Latest. Unset defers
+   to the flag below. The value is not a secret. Set it in `.dev.vars` locally
+   or as a worker var when you want the try on a whole deploy.
+
+2. **Flagship flag.** `llm-file-classifier-luna` fails closed. Same
+   `{ org, workspace }` context as the main flag. Create it once (boolean,
+   served off), then allowlist an org:
+
+   ```bash
+   wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     llm-file-classifier-luna --description "try openai/gpt-6-luna-decisions"
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     llm-file-classifier-luna --default off
+   ```
+
+Both providers need the OpenRouter key. A missing key skips classification.
+
+```bash
+cd apps/api && pnpm exec wrangler secret put OPENROUTER_API_KEY
+```
+
+The key is billed on the OpenRouter account. Output tokens are free. Jev
+Latest costs about half of Luna Decisions on input tokens; the model pages
+have the current price. The worker log records the model and the confidences
+only. A missing key, a 4xx from an image Jev cannot take, or any other
+provider error fails open: the upload succeeds, and that file gets no `ai.*`
+rows. A thrown evaluation of `llm-file-classifier-luna` stays on Jev Latest.
 
 Jev reports a calibrated confidence per answer. An answer under **0.5**
 (`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
-drops while a confident `kind` still lands. The worker logs
-`classifier_decided` with the confidences and no file content.
+drops while a confident `kind` still lands. A stored safety answer also
+writes `ai.<flag>.confidence`: `high` at **0.85** or above, `medium` from
+**0.70** up to 0.85, and `low` from **0.50** up to 0.70. Kind, surface,
+and screen do not get a bucket. The worker logs `classifier_decided`
+with the confidences and no file content.
 
 Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
 `ai.surface` is `mobile|desktop|tablet|unknown`. `ai.screen` is
 `login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`.
 A value outside the enum omits that key.
 
-Cost: the vision call dominates. Jev bills input tokens only
-($0.042 per million) and its output is free, so the state stays small on
-purpose — no image bytes, and a 1500-character excerpt cap.
+Internal safety enums, on the same request:
 
-Workers AI calls go through AI Gateway (`env.AI.run(..., { gateway: { id } })`).
-Create the gateway once in the same account as `uploads-api`:
+- `ai.rating` is `safe|suggestive|explicit`. Sexual content only. Violence
+  without sexual content is `safe` here.
+- `ai.content` is `none|sexual|violence|gore|drugs|hate|self_harm|other`.
+- `ai.secret` is `none|api_key|password|private_key|token|connection_string|other`.
+  These are credentials that grant access. A username, a display name, or an
+  email is not a secret. A masked or empty secret field is `none`.
+- `ai.pii` is `none|contact|identity_document|financial|other`. `contact` is
+  an email, phone, or street address that is content of the screen. A
+  signed-in user's name or email that only appears in a header, nav, or
+  account menu is `none`. `identity_document` also covers a government ID
+  number written out on screen (Social Security, national ID, passport, or
+  tax number). `other` is other personal data, such as a medical record,
+  and never holds a file.
 
-```bash
-# Cloudflare dashboard → AI → AI Gateway → Create, id `uploads-classifier`
-# or the API equivalent. The worker var AI_GATEWAY_ID must match.
-```
+When the bytes are unchanged, a stored flag stays until a later
+classification writes that key. A confident `none` replaces the old
+value. A miss leaves the previous flag. A skip writes no safety value,
+so it does not replace one and it does not restore one. Re-uploading
+identical bytes does not clear a flag. New bytes start fresh, and a skip
+on those bytes leaves the flags clear. Jev Choice allows 2–255 options
+and does not cap the number of questions (the budget is tokens). This
+request asks seven questions. The largest enum is `screen`, at 16 options.
+
+Image bytes sent to the model are capped at 512 KiB after any resize.
+The resize times out at 8s (`CLASSIFIER_RESIZE_TIMEOUT_MS`). The
+Decisions call times out at 8s (`CLASSIFIER_TIMEOUT_MS`). The two budgets
+are separate, so a slow resize cannot spend the model's time. A resize
+timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
+
+### Held uploads
+
+A stored decision with a `high` `ai.secret` other than `none`, or a `high`
+`ai.pii` of `identity_document` or `financial`, writes
+`ai.hold=pending` (`applyUploadHold`, `upload-hold-service.ts`), but only
+for an upload from a client that can approve it: the uploads CLI or local
+MCP at `HOLD_MIN_CLI_VERSION` (0.59.0) or newer, read from the PUT's
+User-Agent (`clientCanApprove`), or the hosted MCP (`put` and
+`sign_upload_url`), whose `approve` tool every connected client sees.
+Anything else (an older CLI, which sends a
+bare `node` User-Agent, a script, the web) logs `upload_hold_skipped` with
+the reason and changes nothing, so normal use is not disrupted while old
+CLIs are still in use. Raise or drop the floor in `upload-hold.ts`. The worker
+logs `upload_held` with the reason, then re-syncs the managed PR comment
+when the key is a PR or issue attachment. A held file is left out of the
+comment (a count line replaces it), withheld from public feeds and
+galleries, and 401s on `/public/files`.
+
+Storage hosts are R2 custom domains with no Worker in the read path, so
+the bytes have to move (`held-storage.ts`). On a hosted (shared-lane) key
+the hold copies the object and its poster into `UPLOADS_HELD` (bucket
+`uploads-held`, preview `uploads-preview-held`) at `<workspace>/<key>`,
+deletes the public copy, and writes `ai.hold.moved=1`. Never give that
+bucket a custom domain or an r2.dev URL. The edge may serve its cached copy
+for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's Camo can keep its own
+copy longer. A BYO key is not moved: the customer's domain serves it.
+Approval copies the bytes back to the same key before it writes
+`approved`, so links work again. An identical re-upload of a held key is
+moved straight back out. New bytes drop the held copy. Delete removes the
+held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
+lists held keys (a moved one is absent from `list`), and
+`…/files/held/download?key=` streams the held copy to a member. Private
+prefix rotation does not move held copies.
+
+A new hold on the Jev path makes one more Decisions call: a Jev 1.14 box
+question for the one region around everything flagged
+(`locateHoldArea`, `classifier.ts`). It sends the
+`TypeSafe-Danger-Zone-Images: true` header, which box questions need, and
+has its own `CLASSIFIER_TIMEOUT_MS`. The box, padded by 3 % and clamped, is
+stored as `ai.hold.area` (`top,bottom,left,right` fractions) and returned
+as `area` by `…/files/held`. The `/f/` page outlines it on the held
+preview. It points a reviewer at the right place. It is not a redaction:
+boxes can be off or miss part of the content. A failed or empty box call
+logs `classifier_hold_area` or `classifier_hold_area_failed` and leaves
+the hold as it is.
+
+`POST /v1/workspaces/:workspace/files/approve?key=` writes
+`ai.hold=approved` and re-syncs the comment (`upload_approved`). `ai.hold`
+is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
+bytes start over. Promote and attach copy every classifier row onto the
+new key, since the copy is not classified again. `ai.rating`,
+`ai.content`, and `ai.pii=contact` never hold a file.
 
 ### Allowlist (Flagship is the control plane)
 
@@ -1138,7 +1451,8 @@ wrangler flagship flags evaluate 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
 ```
 
 `classificationAllowed` (`apps/api/src/classifier.ts`) fails closed:
-missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
+a missing `OPENROUTER_API_KEY`, missing `FLAGS`, a disabled flag, or a
+thrown evaluation are all off.
 
 ### Kill switches (in order of blast radius)
 
@@ -1157,30 +1471,78 @@ missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
    `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
    which does not enable classification by itself.
 
-3. **Remove the `AI` binding** — drop the `ai` block from
-   `apps/api/wrangler.jsonc` and redeploy. Slower than Flagship, survives a
-   Flagship outage.
+3. **Hold kill switch (preferred for holds)** — Flagship flag
+   `upload-holds`, same app and `{ org, workspace }` context as the
+   classifier. Serving off stops every new hold, platform-wide or for one
+   workspace via a targeting rule, with no deploy. Labels keep landing, and
+   each would-be hold logs `upload_hold_skipped` with `skip: "flag"`. Fails
+   closed: an unreachable Flagship also stops new holds. Files already held
+   stay held until approved.
 
-The classifier skips vision on images over 512 KiB, never sends SVG bytes,
-and times out at 8s across both stages. It does not log raw file bytes.
+   ```bash
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     upload-holds --default off
+   ```
 
-### Gateway guardrails
+   To release files already held, use **Held uploads** on
+   `/admin/classifier`: per-workspace counts, a per-workspace Release, and
+   "Release all holds" (`POST /admin-ui/classifier/holds/release`, batches
+   of 25 through the same path as a member approval, so bytes move back and
+   comments re-sync). A file whose held copy cannot be restored is counted
+   as failed and stays held.
 
-`typesafe/jev` is a third-party catalog model. It runs only through an AI
-Gateway and bills against the account's prepaid AI Gateway credits (Unified
-Billing). The `uploads-classifier` gateway is configured with:
+4. **Workspace switches (admins)** — the workspace settings page's **AI
+   labels** section (`GET/PATCH /v1/workspaces/:ws/classifier-settings`,
+   session admin/owner) writes `classifyUploads` and `holdFlaggedUploads`.
+   `classifyUploads === false` skips classification in `classificationAllowed`.
+   It is a separate field from the operator's `llmClassifierEnabled`, so an
+   admin cannot switch on what an operator turned off. The operator script
+   below writes the same `holdFlaggedUploads` field.
+
+   **Workspace hold off (operator)** — `holdFlaggedUploads === false` keeps the labels
+   but stops holding high-confidence secret and sensitive-PII uploads
+   (`upload-hold.ts`). It does not release files already held; approve
+   those with `uploads approve`.
+
+   ```bash
+   pnpm workspace:limits <name> --hold-flagged off
+   pnpm workspace:limits <name> --clear-hold-flagged
+   ```
+
+5. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
+   Slower than Flagship, survives a Flagship outage. The upload path skips
+   classification and does not call OpenRouter.
+
+The classifier does not log raw file bytes or the API key.
+
+### Weekly digest gateway
+
+File classification does not use AI Gateway. The weekly digest highlight
+still calls Workers AI `typesafe/jev` through the `AI` binding and the
+`uploads-classifier` gateway (`env.AI.run(..., { gateway: { id } })`).
+Create that gateway once in the same account as `uploads-api`:
+
+```bash
+# Cloudflare dashboard → AI → AI Gateway → Create, id `uploads-classifier`
+# or the API equivalent. The worker var AI_GATEWAY_ID must match.
+```
+
+`typesafe/jev` on that path is a third-party catalog model. It bills against
+the account's prepaid AI Gateway credits (Unified Billing). The
+`uploads-classifier` gateway is configured with:
 
 - **Authenticated gateway** on. Direct calls to the gateway URL need a
   Cloudflare API token; the worker uses the `AI` binding instead.
-- **Rate limit** 100 requests per minute, fixed window. A raster image costs
-  two requests (describe + decide); everything else costs one. Requests over
-  the limit fail open: the upload succeeds without `ai.*` rows.
+- **Rate limit** 100 requests per minute, fixed window. One digest curation
+  is one request. Requests over the limit fail open: the digest keeps the
+  newest screenshot.
 - **Spend limit** $10 per day, sliding window.
 - **Require provider credentials** must stay off. It blocks the Unified
-  Billing fallback and would reject every Jev call with a 400.
+  Billing fallback and would reject the catalog Jev call with a 400.
 
 Check the credit balance under AI Gateway → Credits Available. An empty
-balance also fails open.
+balance also fails open for the digest. It does not affect file
+classification, which bills the OpenRouter account instead.
 
 ## Attachment index shadow (issue #934)
 

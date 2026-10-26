@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { parseRepoFromRemoteUrl } from "./github.js";
+import { sanitizeFilename } from "./comment-render.generated.js";
 
 export function sanitizeKeySegment(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "-");
@@ -60,9 +61,10 @@ export async function buildScreenshotKey(opts: {
   ref?: string;
   deriveRepoFromGit?: boolean;
 }): Promise<string> {
-  const dot = opts.filename.lastIndexOf(".");
-  const ext = dot >= 0 ? opts.filename.slice(dot + 1) : "";
-  const stem = dot >= 0 ? opts.filename.slice(0, dot) : opts.filename;
+  const filename = sanitizeFilename(opts.filename);
+  const dot = filename.lastIndexOf(".");
+  const ext = dot >= 0 ? filename.slice(dot + 1) : "";
+  const stem = dot >= 0 ? filename.slice(0, dot) : filename;
 
   let repo = opts.repo;
   if (!repo && opts.deriveRepoFromGit) repo = deriveRepoFromGit();
@@ -71,5 +73,5 @@ export async function buildScreenshotKey(opts: {
   const short = await sha256Short(opts.fileBytes);
 
   const prefix = sanitizeKeySegment(opts.prefix ?? "screenshots");
-  return `${prefix}/${repo}/${ref}/${sanitizeKeySegment(stem)}-${short}${ext ? `.${sanitizeKeySegment(ext)}` : ""}`;
+  return `${prefix}/${repo}/${ref}/${stem}-${short}${ext ? `.${ext}` : ""}`;
 }

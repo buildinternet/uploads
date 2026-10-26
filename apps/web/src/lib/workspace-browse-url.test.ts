@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyBrowseLocation,
   isBrowseWorkspace,
-  isFilesBrowseSearch,
   normalizeBrowsePath,
   readBrowseLocation,
   resolveActiveWorkspace,
   workspaceFromPathname,
+  workspaceStorageBucketHref,
+  workspaceStoragePath,
 } from "./workspace-browse-url";
 
 describe("normalizeBrowsePath", () => {
@@ -95,7 +96,7 @@ describe("applyBrowseLocation", () => {
       workspace: "buildinternet",
       path: "screenshots/",
     });
-    expect(withPath.pathname).toBe("/account/workspaces/buildinternet/files");
+    expect(withPath.pathname).toBe("/account/workspaces/buildinternet/storage");
     expect(withPath.searchParams.get("ws")).toBeNull();
     expect(withPath.searchParams.get("path")).toBe("screenshots/");
     expect(withPath.searchParams.get("tab")).toBe("1");
@@ -115,19 +116,8 @@ describe("applyBrowseLocation", () => {
       workspace: "buildinternet",
       path: "screenshots/",
     });
-    expect(next.pathname).toBe("/account/workspaces/buildinternet/files");
+    expect(next.pathname).toBe("/account/workspaces/buildinternet/storage");
     expect(next.searchParams.get("path")).toBe("screenshots/");
-  });
-});
-
-describe("isFilesBrowseSearch", () => {
-  it("detects files-tab query keys", () => {
-    expect(isFilesBrowseSearch("?path=screenshots/")).toBe(true);
-    expect(isFilesBrowseSearch("?name=hero")).toBe(true);
-    expect(isFilesBrowseSearch("?view=grid")).toBe(true);
-    expect(isFilesBrowseSearch("?meta.app=web")).toBe(true);
-    expect(isFilesBrowseSearch("?project=acme")).toBe(false);
-    expect(isFilesBrowseSearch("")).toBe(false);
   });
 });
 
@@ -138,5 +128,37 @@ describe("isBrowseWorkspace", () => {
     expect(isBrowseWorkspace("a")).toBe(false);
     expect(isBrowseWorkspace("BuildInternet")).toBe(false);
     expect(isBrowseWorkspace("new")).toBe(false);
+  });
+});
+
+describe("Storage paths", () => {
+  it("builds the Storage tab path and its bucket anchor", () => {
+    expect(workspaceStoragePath("acme")).toBe("/account/workspaces/acme/storage");
+    expect(workspaceStoragePath("a b")).toBe("/account/workspaces/a%20b/storage");
+    expect(workspaceStorageBucketHref("acme")).toBe("/account/workspaces/acme/storage#bucket");
+  });
+});
+
+describe("prefix alias", () => {
+  it("reads `prefix` as `path` for old bucket-browser links", () => {
+    expect(readBrowseLocation("?prefix=a/b/", "/account/workspaces/acme/storage")).toEqual({
+      workspace: "acme",
+      path: "a/b/",
+    });
+  });
+
+  it("prefers `path` when both are present", () => {
+    expect(readBrowseLocation("?path=x/&prefix=a/", "/account/workspaces/acme/storage").path).toBe(
+      "x/",
+    );
+  });
+
+  it("drops `prefix` once the browser writes a location", () => {
+    const next = applyBrowseLocation(
+      new URL("https://uploads.sh/account/workspaces/acme/storage?prefix=a/"),
+      { workspace: "acme", path: "a/b/" },
+    );
+    expect(next.searchParams.get("prefix")).toBeNull();
+    expect(next.searchParams.get("path")).toBe("a/b/");
   });
 });

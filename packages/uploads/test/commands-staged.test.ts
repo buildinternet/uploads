@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type {
+  FindFilesItem,
   GithubRepoLinkResult,
   ListItem,
   ResolveGhPrefixOptions,
@@ -46,8 +47,14 @@ function fakeClient(opts?: {
   resolveGhPrefix?:
     | ResolveGhPrefixResult
     | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
+  /**
+   * `client.findFilesAll` for the pull-copy check. Omitted → method absent
+   * (older client double). An Error fails the lookup open.
+   */
+  findFilesAll?: { items: FindFilesItem[] } | Error;
 }) {
   const listCalls: { prefix?: string; metadata?: boolean }[] = [];
+  const findCalls: Record<string, string>[] = [];
   const client = {
     list: async (listOpts: { prefix?: string; metadata?: boolean }) => {
       listCalls.push(listOpts);
@@ -76,8 +83,17 @@ function fakeClient(opts?: {
               : opts.resolveGhPrefix!,
         }
       : {}),
+    ...(opts?.findFilesAll !== undefined
+      ? {
+          findFilesAll: async (filters: Record<string, string>) => {
+            findCalls.push(filters);
+            if (opts.findFilesAll instanceof Error) throw opts.findFilesAll;
+            return { ...opts.findFilesAll!, cursor: null };
+          },
+        }
+      : {}),
   } as unknown as UploadsClient;
-  return { client, listCalls };
+  return { client, listCalls, findCalls };
 }
 
 const branchRunner =
@@ -330,6 +346,35 @@ describe("runStaged: file listing", () => {
     expect(plain).not.toHaveProperty("path");
   });
 
+  it("marks a file held for review, and only a pending hold", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/env.png",
+          url: null,
+          metadata: { "ai.hold": "pending" },
+        },
+        {
+          key: "gh/o/r/branch/feature-thing/ok.png",
+          url: null,
+          metadata: { "ai.hold": "approved" },
+        },
+      ],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    const [held, approved] = JSON.parse(stdout).files;
+    expect(held).toMatchObject({ filename: "env.png", held: true });
+    expect(approved).not.toHaveProperty("held");
+  });
+
   it("human mode prints one compact line per file plus binding + promote affordance", async () => {
     const { client } = fakeClient({
       items: [
@@ -434,13 +479,14 @@ describe("runStaged private-prefix mode (issue #631)", () => {
     expect(listCalls).toEqual([{ prefix: PLAIN_PREFIX, metadata: true }]);
   });
 
-  it("lists every active private prefix, not just the currently-resolved one (mirrors the comment gather)", async () => {
+  it("does not list another branch's private prefix when activePrefixIds is repo-wide (#1122)", async () => {
     const OTHER_PREFIX_ID = "fedcba9876543210fedcba9876543210".slice(0, 32);
     const OTHER_PRIVATE_PREFIX = `gh/private/${OTHER_PREFIX_ID}/branch/`;
     const { client, listCalls } = fakeClient({
       resolveGhPrefix: {
         mode: "private",
         prefixId: PREFIX_ID,
+        // An older worker: every active id in the repo, including another branch.
         activePrefixIds: [PREFIX_ID, OTHER_PREFIX_ID],
       },
       itemsByPrefix: {
@@ -449,7 +495,44 @@ describe("runStaged private-prefix mode (issue #631)", () => {
           { key: `${PRIVATE_PREFIX}current.png`, url: "https://x.test/current.png" },
         ],
         [OTHER_PRIVATE_PREFIX]: [
-          { key: `${OTHER_PRIVATE_PREFIX}rotated.png`, url: "https://x.test/rotated.png" },
+          { key: `${OTHER_PRIVATE_PREFIX}leak.png`, url: "https://x.test/leak.png" },
+        ],
+      },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(listCalls.map((c) => c.prefix).sort()).toEqual([PLAIN_PREFIX, PRIVATE_PREFIX].sort());
+    const parsed = JSON.parse(stdout);
+    expect(parsed.files.map((f: { filename: string }) => f.filename)).toEqual(["current.png"]);
+  });
+
+  it("lists a retired id the server scoped to this branch, and not another branch's id", async () => {
+    const OTHER_PREFIX_ID = "fedcba9876543210fedcba9876543210";
+    const RETIRED_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const RETIRED_PREFIX = `gh/private/${RETIRED_ID}/branch/`;
+    const { client, listCalls } = fakeClient({
+      resolveGhPrefix: {
+        mode: "private",
+        prefixId: PREFIX_ID,
+        activePrefixIds: [PREFIX_ID, OTHER_PREFIX_ID],
+        branchPrefixIds: [PREFIX_ID, RETIRED_ID],
+      },
+      itemsByPrefix: {
+        [RETIRED_PREFIX]: [
+          {
+            key: `${RETIRED_PREFIX}old.png`,
+            url: "https://x.test/old.png",
+            metadata: { "gh.branch": "feature/thing", "gh.status": "staged" },
+          },
+        ],
+        [`gh/private/${OTHER_PREFIX_ID}/branch/`]: [
+          { key: `gh/private/${OTHER_PREFIX_ID}/branch/leak.png`, url: "https://x.test/leak.png" },
         ],
       },
     });
@@ -462,12 +545,188 @@ describe("runStaged private-prefix mode (issue #631)", () => {
       );
     });
     expect(listCalls.map((c) => c.prefix).sort()).toEqual(
-      [PLAIN_PREFIX, PRIVATE_PREFIX, OTHER_PRIVATE_PREFIX].sort(),
+      [PLAIN_PREFIX, PRIVATE_PREFIX, RETIRED_PREFIX].sort(),
     );
-    const parsed = JSON.parse(stdout);
-    expect(parsed.files.map((f: { filename: string }) => f.filename).sort()).toEqual(
-      ["current.png", "rotated.png"].sort(),
-    );
+    expect(JSON.parse(stdout).files.map((f: { filename: string }) => f.filename)).toEqual([
+      "old.png",
+    ]);
+  });
+});
+
+function stagedItem(prefix: string, name: string, metadata: Record<string, string>): ListItem {
+  return { key: `${prefix}${name}`, url: `https://x.test/${name}`, metadata };
+}
+
+describe("runStaged keeps one branch's still-staged files (#1122)", () => {
+  const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+  const PRIVATE_PREFIX = `gh/private/${PREFIX_ID}/branch/`;
+
+  it("on a private repo, drops another branch, a promoted file, and a pull twin", async () => {
+    const { client, findCalls } = fakeClient({
+      resolveGhPrefix: {
+        mode: "private",
+        prefixId: PREFIX_ID,
+        branchPrefixIds: [PREFIX_ID],
+      },
+      itemsByPrefix: {
+        [PRIVATE_PREFIX]: [
+          stagedItem(PRIVATE_PREFIX, "keep.png", {
+            "gh.branch": "feature/thing",
+            "gh.status": "staged",
+            "gh.staged-at": "2026-10-02T00:00:00.000Z",
+          }),
+          stagedItem(PRIVATE_PREFIX, "other.png", {
+            "gh.branch": "refactor/room-stage-top-bar",
+            "gh.status": "staged",
+          }),
+          stagedItem(PRIVATE_PREFIX, "done.png", {
+            "gh.branch": "feature/thing",
+            "gh.status": "promoted",
+          }),
+          stagedItem(PRIVATE_PREFIX, "marked.png", {
+            "gh.branch": "feature/thing",
+            "gh.status": "staged",
+            "gh.promoted-to": "o/r#9",
+          }),
+          stagedItem(PRIVATE_PREFIX, "twin.png", {
+            "gh.branch": "feature/thing",
+            "gh.status": "staged",
+            "gh.staged-at": "2026-10-01T00:00:00.000Z",
+          }),
+        ],
+      },
+      findFilesAll: {
+        items: [
+          {
+            key: "gh/private/pull-id/pull/9/twin.png",
+            url: "https://x.test/twin.png",
+            metadata: {
+              "gh.kind": "pull",
+              "gh.branch": "feature/thing",
+              "gh.promoted-at": "2026-10-01T12:00:00.000Z",
+            },
+          },
+        ],
+      },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "O/R"],
+        false,
+        noRun,
+      );
+    });
+    expect(findCalls).toEqual([
+      { "gh.repo": "o/r", "gh.branch": "feature/thing", "gh.kind": "pull" },
+    ]);
+    const files = JSON.parse(stdout).files;
+    expect(files.map((f: { filename: string }) => f.filename)).toEqual(["keep.png"]);
+    expect(files[0].branch).toBe("feature/thing");
+  });
+
+  it("keeps a re-stage whose staged-at is newer than the pull copy", async () => {
+    const plain = "gh/o/r/branch/feature-thing/";
+    const { client } = fakeClient({
+      items: [
+        stagedItem(plain, "shot.png", {
+          "gh.branch": "feature/thing",
+          "gh.status": "staged",
+          "gh.staged-at": "2026-10-03T00:00:00.000Z",
+        }),
+      ],
+      findFilesAll: {
+        items: [
+          {
+            key: "gh/o/r/pull/4/shot.png",
+            url: null,
+            metadata: { "gh.attached-at": "2026-10-01T00:00:00.000Z" },
+          },
+        ],
+      },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(JSON.parse(stdout).files.map((f: { filename: string }) => f.filename)).toEqual([
+      "shot.png",
+    ]);
+  });
+
+  it("does not hide a file when the pull copy has no timestamp, or when the lookup throws", async () => {
+    const plain = "gh/o/r/branch/feature-thing/";
+    const untimed = fakeClient({
+      items: [
+        stagedItem(plain, "shot.png", {
+          "gh.branch": "feature/thing",
+          "gh.status": "staged",
+          "gh.staged-at": "2026-10-01T00:00:00.000Z",
+        }),
+      ],
+      findFilesAll: {
+        items: [{ key: "gh/o/r/pull/4/shot.png", url: null, metadata: {} }],
+      },
+    });
+    const failed = fakeClient({
+      items: [
+        stagedItem(plain, "shot.png", {
+          "gh.branch": "feature/thing",
+          "gh.status": "staged",
+        }),
+      ],
+      findFilesAll: new Error("search down"),
+    });
+    for (const { client } of [untimed, failed]) {
+      const { stdout } = await withCapturedOutput(async () => {
+        await runStaged(
+          ctxWith(client, { json: true }),
+          ["--branch", "feature/thing", "--repo", "o/r"],
+          false,
+          noRun,
+        );
+      });
+      expect(JSON.parse(stdout).files.map((f: { filename: string }) => f.filename)).toEqual([
+        "shot.png",
+      ]);
+    }
+  });
+
+  it("on a public repo, drops a mismatched gh.branch and keeps a file with none", async () => {
+    const plain = "gh/o/r/branch/feature-thing/";
+    const { client, listCalls } = fakeClient({
+      itemsByPrefix: {
+        [plain]: [
+          stagedItem(plain, "keep.png", { "gh.branch": "Feature/Thing", "gh.status": "staged" }),
+          stagedItem(plain, "other.png", {
+            "gh.branch": "no-such-branch-xyz",
+            "gh.status": "staged",
+          }),
+          stagedItem(plain, "legacy.png", { "gh.staged-at": "2026-07-01T00:00:00Z" }),
+          stagedItem(plain, "copied.png", {
+            "gh.branch": "feature/thing",
+            "gh.promoted-at": "2026-10-01T00:00:00.000Z",
+          }),
+        ],
+      },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(listCalls.map((c) => c.prefix)).toEqual([plain]);
+    const files = JSON.parse(stdout).files;
+    expect(files.map((f: { filename: string }) => f.filename)).toEqual(["keep.png", "legacy.png"]);
+    expect(files[0].branch).toBe("Feature/Thing");
+    expect(files[1].branch).toBeUndefined();
   });
 });
 

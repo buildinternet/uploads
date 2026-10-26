@@ -84,6 +84,8 @@ export class UsageFakeD1 {
   get attachmentIndexUpserts() {
     return this.attachmentIndexTable.upserts;
   }
+  /** `${workspace} ${objectKey}` → stored-body hash. Backs `file_content_hash`. */
+  private contentHashes = new Map<string, { hash: string; updatedAt: string }>();
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -109,6 +111,15 @@ export class UsageFakeD1 {
         if (adoptFirstResult !== undefined) return adoptFirstResult;
         const attachmentFirstResult = this.attachmentIndexTable.tryFirst(normalized, values);
         if (attachmentFirstResult !== undefined) return attachmentFirstResult;
+        if (
+          normalized.startsWith(
+            "SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?",
+          )
+        ) {
+          const [workspace, objectKey] = values as [string, string];
+          const row = this.contentHashes.get(`${workspace} ${objectKey}`);
+          return row === undefined ? null : { content_sha256: row.hash };
+        }
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -133,6 +144,25 @@ export class UsageFakeD1 {
         if (normalized.includes("FROM galleries") || normalized.includes("gallery_")) {
           return { success: true as const, results: [] as T[], meta: {} };
         }
+        if (normalized.includes("FROM file_content_hash h")) {
+          const [workspace, hash, selfKey] = values as [string, string, string];
+          const prefix = `${workspace} `;
+          const hits: { key: string; updatedAt: string }[] = [];
+          for (const [scoped, row] of this.contentHashes) {
+            if (!scoped.startsWith(prefix) || row.hash !== hash) continue;
+            const objectKey = scoped.slice(prefix.length);
+            if (objectKey === selfKey) continue;
+            const marker = this.fileMetadata.get(scoped)?.get("ai.classifier");
+            if (!marker || marker === "failed" || marker === "skipped") continue;
+            hits.push({ key: objectKey, updatedAt: row.updatedAt });
+          }
+          hits.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.key.localeCompare(b.key));
+          return {
+            success: true as const,
+            results: hits.slice(0, 8).map((hit) => ({ object_key: hit.key })) as T[],
+            meta: {},
+          };
+        }
         throw new Error(`unsupported all: ${normalized}`);
       },
       run: async () => {
@@ -154,6 +184,19 @@ export class UsageFakeD1 {
         if (claimResult) return claimResult;
         const attachmentRunResult = this.attachmentIndexTable.tryRun(normalized, values);
         if (attachmentRunResult) return attachmentRunResult;
+        if (normalized.startsWith("INSERT INTO file_content_hash")) {
+          const [workspace, objectKey, hash, updatedAt] = values as [
+            string,
+            string,
+            string,
+            string,
+          ];
+          this.contentHashes.set(`${workspace} ${objectKey}`, {
+            hash,
+            updatedAt: typeof updatedAt === "string" ? updatedAt : "",
+          });
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

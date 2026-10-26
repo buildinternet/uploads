@@ -4,8 +4,18 @@
  * applied in src/index.ts before this router is even reached).
  */
 import { isStripeBackingStatus } from "@uploads/billing";
-import { drizzle } from "drizzle-orm/d1";
+import type {
+  UsageAlertCap,
+  UsageAlertEvent,
+  UsageAlertThreshold,
+  WeeklyDigestMessage,
+  WeeklyDigestNote,
+  WeeklyDigestPulse,
+  WeeklyDigestTopPull,
+  WeeklyDigestUser,
+} from "@uploads/email";
 import { and, count, countDistinct, eq, gt, gte, isNull, max, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
@@ -17,6 +27,9 @@ import {
 } from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
+import { sendCliUpgradeEmails, type CliUpgradeMessage } from "./notify-product-updates";
+import { sendWeeklyDigests, type DigestSendEnv } from "./notify-weekly-digest";
+import { signingSecret } from "./digest-token";
 import * as schema from "./schema";
 import {
   isOfficial,
@@ -25,7 +38,6 @@ import {
   type OauthClientRow,
   type OauthClientStats,
 } from "./oauth-client-serialize";
-import type { UsageAlertCap, UsageAlertEvent, UsageAlertThreshold } from "@uploads/email";
 
 const USAGE_ALERT_CAPS = new Set<UsageAlertCap>(["storage", "uploads"]);
 const USAGE_ALERT_THRESHOLDS = new Set<UsageAlertThreshold>([50, 90, 100]);
@@ -44,6 +56,174 @@ function parseUsageAlertEvent(raw: unknown): UsageAlertEvent | null {
   if (typeof used !== "number" || !Number.isFinite(used)) return null;
   if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) return null;
   return { cap: cap as UsageAlertCap, threshold: threshold as UsageAlertThreshold, used, limit };
+}
+
+function asCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+}
+
+function asText(value: unknown, limit: number): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return trimmed.length > limit ? trimmed.slice(0, limit) : trimmed;
+}
+
+function asSigned(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function asHref(value: unknown): string | undefined {
+  const text = asText(value, 2000);
+  if (text.startsWith("https://") || text.startsWith("/account/")) return text;
+  return undefined;
+}
+
+function parseHighlight(raw: unknown): WeeklyDigestUser["highlight"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const shot = raw as Record<string, unknown>;
+  const url = asText(shot.url, 2000);
+  const caption = asText(shot.caption, 200);
+  if (!url.startsWith("https://") || !caption) return undefined;
+  const embed = asText(shot.embedUrl, 2000);
+  return {
+    url,
+    embedUrl: embed.startsWith("https://") ? embed : null,
+    caption,
+    href: asHref(shot.href),
+    hrefLabel: asText(shot.hrefLabel, 200) || undefined,
+  };
+}
+
+function parseTopPull(raw: unknown): WeeklyDigestTopPull | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const pull = raw as Record<string, unknown>;
+  const title = asText(pull.title, 200);
+  const repo = asText(pull.repo, 200);
+  const number = asCount(pull.number);
+  if (!title || !repo || number <= 0) return undefined;
+  const state =
+    pull.state === "open" || pull.state === "closed" || pull.state === "merged"
+      ? pull.state
+      : undefined;
+  const thumb = asText(pull.thumbnailUrl, 2000);
+  const embed = asText(pull.thumbnailEmbedUrl, 2000);
+  return {
+    title,
+    repo,
+    number,
+    href: asHref(pull.href),
+    state,
+    thumbnailUrl: thumb.startsWith("https://") ? thumb : undefined,
+    thumbnailEmbedUrl: embed.startsWith("https://") ? embed : null,
+  };
+}
+
+function parseNotes(raw: unknown): WeeklyDigestNote[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const note = item as { text?: unknown; href?: unknown };
+    const text = asText(note.text, 240);
+    if (!text) return [];
+    return [{ text }];
+  });
+}
+
+function parseStorageNote(raw: unknown): WeeklyDigestNote | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const note = raw as { text?: unknown; href?: unknown };
+  const text = asText(note.text, 240);
+  if (!text) return undefined;
+  return { text, href: asHref(note.href) };
+}
+
+function parseUser(raw: unknown): WeeklyDigestUser | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const uploads = asCount(row.uploads);
+  const repos = asCount(row.repos);
+  const highlight = parseHighlight(row.highlight);
+  const topPull = parseTopPull(row.topPull);
+  if (!highlight && !topPull && uploads <= 0 && repos <= 0) return undefined;
+  const slug = asText(row.workspaceSlug, 80);
+  const name = asText(row.workspaceName, 120);
+  return {
+    workspaceSlug: slug || undefined,
+    workspaceName: name || undefined,
+    highlight,
+    topPull,
+    uploads,
+    repos,
+  };
+}
+
+function parsePulse(raw: unknown): WeeklyDigestPulse | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  return {
+    uploads: asCount(row.uploads),
+    uploadsDelta: asSigned(row.uploadsDelta),
+    activeMembers: asCount(row.activeMembers),
+    activeMembersNew: asCount(row.activeMembersNew),
+    storageBytes: asCount(row.storageBytes),
+    storageDeltaBytes: asSigned(row.storageDeltaBytes),
+    notes: parseNotes(row.notes).slice(0, 3),
+    storageNote: parseStorageNote(row.storageNote),
+  };
+}
+
+function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
+  if (!raw || typeof raw !== "object") return [];
+  const row = raw as Record<string, unknown>;
+  const userId = asText(row.userId, 80);
+  const to = asText(row.to, 320);
+  const weekLabel = asText(row.weekLabel, 40);
+  if (!userId || !to.includes("@") || !weekLabel) return [];
+  const user = parseUser(row.user);
+  const pulses = Array.isArray(row.pulses)
+    ? row.pulses.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const block = item as Record<string, unknown>;
+        const slug = asText(block.slug, 80);
+        const name = asText(block.name, 120);
+        const pulse = parsePulse(block.pulse);
+        if (!slug || !name || !pulse) return [];
+        return [{ slug, name, pulse }];
+      })
+    : [];
+  const matched = user?.workspaceSlug
+    ? pulses.filter((pulse) => pulse.slug === user.workspaceSlug).slice(0, 1)
+    : pulses.slice(0, 1);
+  if (!user && matched.length === 0) return [];
+  const unsubscribes = Array.isArray(row.unsubscribes)
+    ? row.unsubscribes.flatMap((kind) => {
+        if (kind === "digest" && user) return [kind];
+        if (kind === "workspace" && matched.length > 0) return [kind];
+        return [];
+      })
+    : [];
+  if (unsubscribes.length === 0) return [];
+  return [
+    {
+      userId,
+      to,
+      weekLabel,
+      user,
+      pulses: matched,
+      unsubscribes,
+    },
+  ];
+}
+
+function parseCliUpgradeMessage(raw: unknown): CliUpgradeMessage[] {
+  if (!raw || typeof raw !== "object") return [];
+  const row = raw as Record<string, unknown>;
+  const userId = asText(row.userId, 80);
+  const to = asText(row.to, 320);
+  const minimumVersion = asText(row.minimumVersion, 64);
+  const currentVersion = asText(row.currentVersion, 64) || null;
+  if (!userId || !to.includes("@") || !minimumVersion) return [];
+  return [{ userId, to, currentVersion, minimumVersion }];
 }
 
 function errorJson(code: string, message: string) {
@@ -408,6 +588,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
           id: schema.organization.id,
           slug: schema.organization.slug,
           name: schema.organization.name,
+          createdAt: schema.organization.createdAt,
         })
         .from(schema.organization),
       db
@@ -434,7 +615,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
 
     return c.json({
       organizations: orgs.map((org) => ({
-        organization: { id: org.id, slug: org.slug, name: org.name },
+        organization: {
+          id: org.id,
+          slug: org.slug,
+          name: org.name,
+          createdAt: org.createdAt.toISOString(),
+        },
         memberCount: membersByOrg.get(org.id) ?? 0,
         pendingInviteCount: invitesByOrg.get(org.id) ?? 0,
       })),
@@ -1072,6 +1258,43 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       plan,
     });
     return c.json({ ok: true }, 200);
+  })
+  // Weekly digest: the API worker assembles activity and posts the messages.
+  // This worker signs the unsubscribe links and sends, because the preference
+  // columns and the allowed sender both live here.
+  .post("/weekly-digest/send", async (c) => {
+    const body = await c.req
+      .json<{ messages?: unknown }>()
+      .catch(() => ({}) as { messages?: unknown });
+    const messages = Array.isArray(body.messages) ? body.messages.flatMap(parseDigestMessage) : [];
+    if (messages.length === 0) {
+      return c.json({ sent: [], failed: [] }, 200);
+    }
+    const secret = await signingSecret(c.env);
+    if (!secret) {
+      return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
+    }
+    const result = await sendWeeklyDigests(c.env as DigestSendEnv, secret, messages);
+    return c.json(result, 200);
+  })
+  // Product update campaign: the API worker picks who (opted in, on an old
+  // CLI, not yet emailed by this campaign) and records the sends we return.
+  .post("/product-updates/cli-upgrade/send", async (c) => {
+    const body = await c.req
+      .json<{ messages?: unknown }>()
+      .catch(() => ({}) as { messages?: unknown });
+    const messages = Array.isArray(body.messages)
+      ? body.messages.flatMap(parseCliUpgradeMessage)
+      : [];
+    if (messages.length === 0) {
+      return c.json({ sent: [], failed: [] }, 200);
+    }
+    const secret = await signingSecret(c.env);
+    if (!secret) {
+      return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
+    }
+    const result = await sendCliUpgradeEmails(c.env as DigestSendEnv, secret, messages);
+    return c.json(result, 200);
   })
   // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller
   // as owner member, non-idempotent — a taken slug is a 409 the API surfaces

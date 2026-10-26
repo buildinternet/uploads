@@ -100,6 +100,7 @@ async function mcp(method, params, expected = [200]) {
  */
 async function mcpModern(method, params, { omitMethodHeader = false, expected = [200] } = {}) {
   const requestHeaders = { ...headers(scopedToken) };
+  requestHeaders["MCP-Protocol-Version"] = "2026-07-28";
   if (!omitMethodHeader) requestHeaders["Mcp-Method"] = method;
   if (method === "tools/call" && params?.name) requestHeaders["Mcp-Name"] = params.name;
   return jsonRequest(

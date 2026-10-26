@@ -1,55 +1,18 @@
 /**
- * Canonical comment-settings, storage, billing/summary, and comment-preview
- * verticals (issue #613 phase 3, comment-preview added final phase):
- * `/:workspace/comment-settings`, `/:workspace/poster-settings`,
- * `/:workspace/comment-preview`, `/:workspace/storage`,
- * `/:workspace/storage/verify`, `/:workspace/summary`, `/:workspace/billing`,
- * mounted at `/v1/workspaces` in `index.ts` so its
- * public paths are `/v1/workspaces/:workspace/...`. Same self-contained-
- * router shape as `workspace-members.ts`/`workspace-github.ts`: own auth,
- * own `.onError()`, `.fetch()`-able directly by an alias with no
- * parent-mount dependency for its `:workspace` param.
+ * Workspace settings routes under `/v1/workspaces/:workspace`: comment,
+ * poster and classifier settings, comment preview, storage, summary, and
+ * billing. A self-contained router with its own auth and `.onError()`.
  *
- * Posture (`.context/613-api-consolidation-plan.md`, "comment-settings",
- * "storage", "billing/summary"; comment-preview follows the comment-settings
- * tier exactly):
- *
- *  - `GET/PATCH /comment-settings`, `GET/PATCH /poster-settings`,
- *    `GET /comment-preview`, `GET/POST-verify/PUT/DELETE /storage` —
- *    **session-only, admin/owner tier**. A bearer `Authorization` header
- *    403s `settings_requires_session`
- *    on every route in this tier — none of these verticals has a bearer
- *    analog today (comment-settings/comment-preview: no
- *    `/v1/:workspace/github/comment-settings` exists; storage is
- *    credential-adjacent and a token was never in scope for it), and this PR
- *    mints no new bearer capability for any of them. Flat 5-key
- *    comment-settings envelope (`imageWidth`/`maxInlineImages`/
- *    `showMetadata`/`linkToFilePage`/`note`) preserved EXACTLY — the
- *    admin-ui operator surface's prefixed 6-key naming
- *    (`/admin-ui/workspaces/:name/settings`) is a different privilege tier
- *    entirely and stays untouched. Storage's masked `storageStatusResponse`
- *    projection (never credential values) is likewise preserved exactly —
- *    see `workspace-storage.ts`. `comment-preview`'s response body (moved
- *    verbatim from `routes/me.ts`) is unchanged — see
- *    `commentPreviewHandler`'s docblock.
- *  - `GET /summary`, `GET /billing` — **session-only, member tier**. A
- *    bearer header 403s `billing_requires_session` — same "no bearer analog,
- *    none minted" posture, distinct code from the admin tier above so the
- *    two privilege levels in this router don't share one coded error.
- *    `billing`'s `stripeCustomerId` redaction (admin-ui-only field) is
- *    preserved exactly — see the handler's docblock.
- *
- * Session auth here is session-only-with-tier, the same small local-guard
- * shape `workspace-members.ts` uses (NOT `dualWorkspaceAuth`/
- * `requireSessionAdmin`, which grant a session caller file-plane
- * `FILE_SCOPES`, meaningless for this vertical; NOT `dualGovernanceAuth`,
- * which accepts a bearer governance token, and none of these routes should).
- * Reuses `resolveSessionUserId` from `dual-workspace-auth.ts` for the same
- * "one get-session call per forwarded request" property every other
- * vertical gets from the `presetResolvedSessionUser` WeakMap handoff.
+ * All routes are session-only; a bearer header 403s. Settings, preview and
+ * storage need admin/owner (`settings_requires_session`); summary and
+ * billing need membership (`billing_requires_session`). None has a bearer
+ * analog, so this uses local gates rather than `dualWorkspaceAuth` (which
+ * grants file scopes) or `dualGovernanceAuth` (which accepts tokens).
  */
 import {
   NOTE_MAX_CHARS,
+  UI_PATH_MAX_CHARS,
+  UI_PATHS_MAX,
   resolveCommentOptions,
   type OptionSource,
   type ResolvedCommentOptions,
@@ -62,14 +25,15 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { createStorage, hostOf, type R2Jurisdiction } from "@uploads/storage";
+import { classificationAllowed } from "../classifier";
 import { dbFor } from "../db-session";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
 import { previewFixtureItems } from "../comment-preview-fixtures";
 import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { getMetadataForKeys } from "../file-metadata";
 import { listObjects } from "../files-core";
+import { addCommentMetadata, dropHiddenAttachments } from "../github-comment";
 import { findRepoLink } from "../github-repo-links";
 import {
   attachmentsCommentBody,
@@ -115,6 +79,7 @@ import {
   upsertStandbyLane,
 } from "../workspace-lanes";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
+import { webOrigin } from "../web-url";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import type { ListBucketsResult } from "../r2-list-buckets";
 import {
@@ -143,12 +108,8 @@ export type SettingsVars = {
 };
 
 /**
- * Best-effort usage reconcile off the response path. Activation/detach used
- * to await this before responding, which pushed real switches past the
- * browser's request timeout — the client reported "couldn't switch" for a
- * switch that had already committed (#788). `waitUntil` keeps the rebuild
- * running after the response; runtimes without an execution context (unit
- * tests) fall back to awaiting so assertions still see the reconciled state.
+ * Usage reconcile after the response, so a lane switch isn't pushed past
+ * the browser's timeout. Awaited when there's no execution context (tests).
  */
 async function reconcileOffPath(
   c: Context<SettingsVars>,
@@ -167,19 +128,13 @@ async function reconcileOffPath(
 }
 
 /**
- * Session-only member gate for the billing/summary tier: a bearer
- * `Authorization` header 403s outright (no bearer capability exists for
- * either route and none is minted here), otherwise resolves the session +
- * membership with a uniform 404 for non-members (never a 403 — no existence
- * probe, same posture as `dualWorkspaceAuth`/`dualGovernanceAuth`/
- * `workspace-members.ts`'s `sessionMemberGate`).
+ * Session-only member gate: a bearer header 403s, non-members get a uniform
+ * 404.
  */
 function sessionMemberGate(): MiddlewareHandler<SettingsVars> {
   return async (c, next) => {
-    // Preset check first: a forwarded `/me` request keeps its original
-    // headers, so a caller who authenticated there with a Better Auth bearer
-    // session must not be re-rejected here (same ordering as every other
-    // session gate — the #617 review's lesson).
+    // Preset first: a forwarded `/me` request keeps its original headers, so
+    // a bearer-session caller must not be re-rejected here.
     if (!hasPreresolvedSession(c.req.raw) && c.req.header("Authorization")?.startsWith("Bearer ")) {
       throw new ForbiddenError("requires a session", { code: "billing_requires_session" });
     }
@@ -194,13 +149,8 @@ function sessionMemberGate(): MiddlewareHandler<SettingsVars> {
 }
 
 /**
- * Session-only admin/owner gate for the comment-settings/storage tier: same
- * bearer-403 posture as `sessionMemberGate` above, but with its own coded
- * error (`settings_requires_session`, not `billing_requires_session`) since
- * these are a materially different privilege tier within this one router.
- * `adminWorkspaceOr403` itself produces the 404-then-403 ordering
- * (non-member -> `workspace_not_found`, member-not-admin ->
- * `workspace_admin_required`).
+ * Session-only admin/owner gate, with its own error code. Non-members 404,
+ * non-admin members 403.
  */
 function sessionAdminGate(): MiddlewareHandler<SettingsVars> {
   return async (c, next) => {
@@ -218,14 +168,14 @@ function sessionAdminGate(): MiddlewareHandler<SettingsVars> {
   };
 }
 
-/** `imageWidth` bounds (issue #307): "full" or an integer clamp width in px. */
+/** `imageWidth` bounds: "full" or an integer clamp width in px. */
 const COMMENT_IMAGE_WIDTH_MIN = 160;
 const COMMENT_IMAGE_WIDTH_MAX = 1000;
-/** `maxInlineImages` bounds (issue #307). */
+/** `maxInlineImages` bounds. */
 const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
 const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
 
-/** The six workspace-level comment-defaults fields (issue #307; ingestGithubAttachments added issue-spec 2026-08-11). */
+/** The workspace-level comment-defaults fields. */
 const COMMENT_SETTINGS_KEYS = [
   "imageWidth",
   "maxInlineImages",
@@ -233,6 +183,9 @@ const COMMENT_SETTINGS_KEYS = [
   "linkToFilePage",
   "note",
   "ingestGithubAttachments",
+  "noUploadsComment",
+  "uiPaths",
+  "requireUploads",
 ] as const;
 type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
 
@@ -244,22 +197,19 @@ const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceR
   linkToFilePage: "githubCommentLinkToFilePage",
   note: "githubCommentNote",
   ingestGithubAttachments: "githubIngestAttachments",
+  noUploadsComment: "githubNoUploadsComment",
+  uiPaths: "githubUiPaths",
+  requireUploads: "githubRequireUploads",
 };
 
-type CommentSettingsValue = string | number | boolean;
+type CommentSettingsValue = string | number | boolean | string[];
 type CommentSettingsPatch = Partial<Record<CommentSettingsKey, CommentSettingsValue | null>>;
 
 /**
- * Validates a PATCH body for the workspace-level managed-comment defaults
- * (issue #307). Single enforcement point for the bounds the resolver itself
- * does not clamp: imageWidth "full" or an integer 160–1000, maxInlineImages
- * an integer 1–48, and note trimmed, non-empty, and at most `NOTE_MAX_CHARS`.
- * Reject-all-or-apply-all — the whole body is checked before any record
- * mutation, so an invalid field never partially applies. An omitted key
- * means "leave unchanged"; an explicit `null` clears the field. Unknown keys
- * are ignored, mirroring `validateGithubCommentSettingsPatch` (admin-ui.ts)
- * and `validateLimitsPatch` (workspace-limits.ts). Moved verbatim from
- * `routes/me.ts` (issue #613 phase 3) — see git history for the original.
+ * Validates a comment-defaults PATCH: imageWidth "full" or 160–1000,
+ * maxInlineImages 1–48, note trimmed and non-empty up to `NOTE_MAX_CHARS`.
+ * All-or-nothing; omitted keys are unchanged, `null` clears, unknown keys
+ * are ignored.
  */
 function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -341,6 +291,49 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
     patch.ingestGithubAttachments = value;
   }
 
+  if ("noUploadsComment" in record) {
+    const value = record.noUploadsComment;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("noUploadsComment must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "noUploadsComment" },
+      });
+    }
+    patch.noUploadsComment = value;
+  }
+
+  if ("requireUploads" in record) {
+    const value = record.requireUploads;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("requireUploads must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "requireUploads" },
+      });
+    }
+    patch.requireUploads = value;
+  }
+
+  // uiPaths: a list of globs, trimmed; blank entries dropped. An empty list
+  // clears the field, like `null`.
+  if ("uiPaths" in record) {
+    const value = record.uiPaths;
+    const fail = () => {
+      throw new ValidationError(
+        `uiPaths must be a list of up to ${UI_PATHS_MAX} paths of at most ${UI_PATH_MAX_CHARS} characters, or null`,
+        { code: "invalid_settings", details: { field: "uiPaths" } },
+      );
+    };
+    if (value === null) {
+      patch.uiPaths = null;
+    } else if (Array.isArray(value) && value.every((p) => typeof p === "string")) {
+      const paths = (value as string[]).map((p) => p.trim()).filter((p) => p.length > 0);
+      if (paths.length > UI_PATHS_MAX || paths.some((p) => p.length > UI_PATH_MAX_CHARS)) fail();
+      patch.uiPaths = paths.length > 0 ? paths : null;
+    } else {
+      fail();
+    }
+  }
+
   if ("note" in record) {
     const value = record.note;
     if (value === null) {
@@ -365,12 +358,7 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
   return patch;
 }
 
-/**
- * Wire type for `GET`/`PATCH /:workspace/comment-settings` (issue #896
- * pattern), inferred from the serializer below so apps/web imports the shape
- * it receives (via `@uploads/api/workspace-settings`) instead of re-declaring
- * it. Type-only — never imported at runtime across workers.
- */
+/** Wire type for `/:workspace/comment-settings`, imported by apps/web. Type-only. */
 export type CommentSettingsResponse = ReturnType<typeof commentSettingsResponse>;
 
 /** Response body shared by GET and PATCH: the workspace-level comment defaults. */
@@ -382,6 +370,9 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     linkToFilePage: record.githubCommentLinkToFilePage ?? null,
     note: record.githubCommentNote ?? null,
     ingestGithubAttachments: record.githubIngestAttachments ?? null,
+    noUploadsComment: record.githubNoUploadsComment ?? null,
+    uiPaths: record.githubUiPaths ?? null,
+    requireUploads: record.githubRequireUploads ?? null,
   };
 }
 
@@ -393,12 +384,7 @@ export async function commentSettingsGetHandler(c: Context<SettingsVars>) {
   return c.json(commentSettingsResponse(record));
 }
 
-/**
- * `PATCH /:workspace/comment-settings` — admin/owner only. Validated in full
- * before any write (reject-all-or-apply-all — see
- * `validateCommentSettingsPatch`); an omitted key leaves the field
- * unchanged, an explicit `null` clears it.
- */
+/** `PATCH /:workspace/comment-settings` — admin/owner only. See `validateCommentSettingsPatch`. */
 export async function commentSettingsPatchHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
   if (!(await allowWrite(c.env, name))) {
@@ -430,107 +416,119 @@ export async function commentSettingsPatchHandler(c: Context<SettingsVars>) {
   return c.json(commentSettingsResponse(record));
 }
 
-/** The two poster opt-outs a workspace admin can flip. Absent on the record means on. */
-const POSTER_SETTINGS_KEYS = ["pdfPosterEnabled", "videoPosterEnabled"] as const;
-type PosterSettingsKey = (typeof POSTER_SETTINGS_KEYS)[number];
-type PosterSettingsPatch = Partial<Record<PosterSettingsKey, boolean>>;
-
 /**
- * Wire type for `GET`/`PATCH /:workspace/poster-settings`. Inferred from the
- * serializer so apps/web imports the shape (`@uploads/api/workspace-settings`)
- * instead of re-declaring it. Type-only — never imported at runtime across
- * workers.
+ * A settings vertical of on/off workspace switches. Absent means on; only an
+ * explicit `false` is off, matching the gates that read them. A PATCH is
+ * partial and stores booleans as given. Saving never consults Flagship, so a
+ * switch can be saved while its platform flag is off.
  */
-export type PosterSettingsResponse = ReturnType<typeof posterSettingsResponse>;
+function switchSettings<K extends SwitchKey>(
+  keys: readonly K[],
+  extra?: (env: Env, record: WorkspaceRecord, name: string) => Promise<Record<string, unknown>>,
+) {
+  const response = (record: WorkspaceRecord) =>
+    Object.fromEntries(keys.map((key) => [key, record[key] !== false])) as Record<K, boolean>;
 
-/**
- * Display values for the settings switches. `undefined` and `true` both read
- * as on; only an explicit `false` is off. Matches the generation gates, which
- * treat anything other than `false` as allowed (Flagship still has to be on).
- */
-function posterSettingsResponse(record: WorkspaceRecord) {
+  function validate(body: unknown): Partial<Record<K, boolean>> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new ValidationError("request body must be a JSON object", {
+        code: "invalid_settings",
+      });
+    }
+    const input = body as Record<string, unknown>;
+    const patch: Partial<Record<K, boolean>> = {};
+    for (const key of keys) {
+      if (!(key in input)) continue;
+      const value = input[key];
+      if (typeof value !== "boolean") {
+        throw new ValidationError(`${key} must be a boolean`, {
+          code: "invalid_settings",
+          details: { field: key },
+        });
+      }
+      patch[key] = value;
+    }
+    return patch;
+  }
+
+  const respond = async (c: Context<SettingsVars>, record: WorkspaceRecord, name: string) =>
+    c.json({ ...response(record), ...(extra ? await extra(c.env, record, name) : {}) });
+
   return {
-    pdfPosterEnabled: record.pdfPosterEnabled !== false,
-    videoPosterEnabled: record.videoPosterEnabled !== false,
+    response,
+    async get(c: Context<SettingsVars>) {
+      const name = c.req.param("workspace") ?? "";
+      const record = await loadWorkspaceRecord(c.env, name);
+      if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+      return respond(c, record, name);
+    },
+    async patch(c: Context<SettingsVars>) {
+      const name = c.req.param("workspace") ?? "";
+      if (!(await allowWrite(c.env, name))) {
+        throw new RateLimitedError("rate limit exceeded");
+      }
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
+      }
+      const patch = validate(body);
+      const record = await mutateWorkspaceRecord(
+        c.env,
+        name,
+        (current) => {
+          const next = { ...current };
+          for (const key of keys) {
+            const value = patch[key];
+            if (value !== undefined) next[key] = value;
+          }
+          return next;
+        },
+        { requireServing: true },
+      );
+      return respond(c, record, name);
+    },
   };
 }
 
+type SwitchKey =
+  | "pdfPosterEnabled"
+  | "videoPosterEnabled"
+  | "classifyUploads"
+  | "holdFlaggedUploads";
+
+/** `GET`/`PATCH /:workspace/poster-settings` — admin/owner only. */
+const posterSettings = switchSettings(["pdfPosterEnabled", "videoPosterEnabled"] as const);
+export const posterSettingsGetHandler = posterSettings.get;
+export const posterSettingsPatchHandler = posterSettings.patch;
+
+/** Wire type for `/:workspace/poster-settings`. Type-only. */
+export type PosterSettingsResponse = ReturnType<typeof posterSettings.response>;
+
 /**
- * Partial PATCH for the poster switches. An omitted key leaves that field
- * unchanged. A present key must be a boolean and is stored as given — `true`
- * and `false` both persist, so a later read does not depend on field absence.
- * Unknown keys are ignored, same as comment-settings.
+ * `GET`/`PATCH /:workspace/classifier-settings` — admin/owner only.
+ * `classifyUploads` and `holdFlaggedUploads` (`upload-hold.ts`); `available`
+ * says whether the classifier runs for this workspace at all.
  */
-function validatePosterSettingsPatch(body: unknown): PosterSettingsPatch {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new ValidationError("request body must be a JSON object", { code: "invalid_settings" });
-  }
-  const record = body as Record<string, unknown>;
-  const patch: PosterSettingsPatch = {};
-  for (const key of POSTER_SETTINGS_KEYS) {
-    if (!(key in record)) continue;
-    const value = record[key];
-    if (typeof value !== "boolean") {
-      throw new ValidationError(`${key} must be a boolean`, {
-        code: "invalid_settings",
-        details: { field: key },
-      });
-    }
-    patch[key] = value;
-  }
-  return patch;
-}
+const classifierSettings = switchSettings(
+  ["classifyUploads", "holdFlaggedUploads"] as const,
+  async (env, record, name) => ({
+    available: await classificationAllowed(env, { ...record, classifyUploads: true }, name),
+  }),
+);
+export const classifierSettingsGetHandler = classifierSettings.get;
+export const classifierSettingsPatchHandler = classifierSettings.patch;
 
-/** `GET /:workspace/poster-settings` — admin/owner only. */
-export async function posterSettingsGetHandler(c: Context<SettingsVars>) {
-  const name = c.req.param("workspace") ?? "";
-  const record = await loadWorkspaceRecord(c.env, name);
-  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  return c.json(posterSettingsResponse(record));
-}
+/** Wire type for `/:workspace/classifier-settings`. Type-only. */
+export type ClassifierSettingsResponse = ReturnType<typeof classifierSettings.response> & {
+  available: boolean;
+};
 
 /**
- * `PATCH /:workspace/poster-settings` — admin/owner only. Validated in full
- * before any write. Does not consult Flagship: the switches save while the
- * platform flag is off, and the generation gates keep ignoring them until
- * that flag is on.
- */
-export async function posterSettingsPatchHandler(c: Context<SettingsVars>) {
-  const name = c.req.param("workspace") ?? "";
-  if (!(await allowWrite(c.env, name))) {
-    throw new RateLimitedError("rate limit exceeded");
-  }
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
-  }
-  const patch = validatePosterSettingsPatch(body);
-  const record = await mutateWorkspaceRecord(
-    c.env,
-    name,
-    (current) => {
-      const next = { ...current };
-      for (const key of POSTER_SETTINGS_KEYS) {
-        const value = patch[key];
-        if (value === undefined) continue;
-        next[key] = value;
-      }
-      return next;
-    },
-    { requireServing: true },
-  );
-  return c.json(posterSettingsResponse(record));
-}
-
-/**
- * `GET /:workspace/storage` — self-serve BYO R2 bucket (issue #583 Task
- * 1.1), admin/owner only. Readable regardless of `byoBucketEnabled` (the
- * settings UI needs the flag value to decide whether to show the panel at
- * all). Never returns credential values — `storageStatusResponse`
- * (`workspace-storage.ts`) projects masked/presence fields only, same
- * posture as `GET /admin/workspaces/:name` (admin.ts).
+ * `GET /:workspace/storage` — admin/owner only, readable regardless of
+ * `byoBucketEnabled` so the UI can decide whether to show the panel. Never
+ * returns credential values.
  */
 export async function storageGetHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -541,23 +539,12 @@ export async function storageGetHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * Replaces the stamps the pure `storageStatusResponse` projection
- * (`workspace-storage.ts`) can echo with what SVG/XML acceptance actually
- * turns on right now (issue #929).
- *
- * The active lane's row comes straight from `activeContentStatus` — the gate
- * itself — so the page can never say "Verified" about a lane the gate has
- * already closed, whatever closed it: the workspace opt-out, the Flagship
- * flag, an unhealthy lane, a stale hosted-host record, the embed twin's
- * record, or a BYO stamp past `LANE_STAMP_MAX_AGE_MS`. The raw stamp on the
- * record is not that answer; the projection has no KV or flag access to find
- * it out for itself, which is exactly why this lives at the handler.
- *
- * The other lanes aren't the gate's subject — none of them is serving
- * anything — so each is judged on its own evidence: a shared lane by its
- * host's daily-probed record, a BYO lane by its own stamp's freshness. Host
- * records are read once per distinct host, in parallel, since several
- * fallback lanes commonly share one.
+ * Replaces the projection's stamps with what SVG/XML acceptance actually
+ * allows now. The active lane's row comes from `activeContentStatus`, the
+ * gate itself, so the page can't say "Verified" about a lane the gate has
+ * closed. Other lanes are judged on their own evidence: a shared lane by its
+ * host's daily-probed record, a BYO lane by its stamp's freshness. Host
+ * records are read once per distinct host.
  */
 async function withActiveContentStatus(
   env: Env,
@@ -597,13 +584,9 @@ async function withActiveContentStatus(
 }
 
 /**
- * `POST /:workspace/storage/verify` — runs the verify pipeline
- * (`storage-verify.ts`) against the request body, never saved state, so an
- * admin can iterate on credentials before anything is persisted. 403s
- * `byo_bucket_disabled` when the workspace flag is off. Rate-limited via
- * `allowWrite` like every other mutating-adjacent route here: each call does
- * real remote I/O (auth probe + a write/read/delete round-trip against the
- * candidate bucket).
+ * `POST /:workspace/storage/verify` — runs the verify pipeline against the
+ * request body without saving. 403s `byo_bucket_disabled` when the flag is
+ * off. Write rate-limited: each call does real remote I/O.
  */
 export async function storageVerifyHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -624,7 +607,7 @@ export async function storageVerifyHandler(c: Context<SettingsVars>) {
   return c.json(result);
 }
 
-/** Body shape for `POST /:workspace/storage/buckets`. Never persisted — same in-flight-only posture as verify's candidate body. */
+/** Body for `POST /:workspace/storage/buckets`. Never persisted. */
 interface ListBucketsBody {
   accountId: string;
   accessKeyId: string;
@@ -644,18 +627,9 @@ function listBucketsCredentialsFromBody(body: unknown): ListBucketsBody {
 }
 
 /**
- * `POST /:workspace/storage/buckets` — the wizard's bucket picker (issue
- * #783 Part A item 2). Same auth/rate-limit tier as `storage/verify` (never
- * persists anything; every call does real remote I/O), but calls S3
- * `ListBuckets` directly (`../r2-list-buckets.ts`) rather than the verify
- * pipeline — `ListBuckets` is account-level, not bucket-scoped, so it's a
- * different request entirely from the round-trip probe.
- *
- * Always 200s with a `ListBucketsResult` body — including the
- * `access_denied` shape a bucket-scoped token produces, which is the
- * *expected*, common case (R2 only permits `ListBuckets` for account-scoped
- * tokens) and the wizard's signal to fall back to a plain bucket-name field,
- * not an error to surface.
+ * `POST /:workspace/storage/buckets` — the wizard's bucket picker, via S3
+ * `ListBuckets`. Always 200s; `access_denied` (bucket-scoped tokens) is the
+ * common case and tells the wizard to fall back to a bucket-name field.
  */
 export async function storageBucketsHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -671,11 +645,7 @@ export async function storageBucketsHandler(c: Context<SettingsVars>) {
   }
 
   const body = await c.req.json().catch(() => null);
-  // The picker is R2-only: `ListBuckets` is a Cloudflare-account-level call
-  // with no S3-compatible equivalent this route can drive generically, so an
-  // s3 candidate goes straight to a typed 400 rather than an
-  // always-`access_denied` round trip. The web form's s3 mode never calls
-  // this route (Task 5) — this guards direct API use too.
+  // R2 only: `ListBuckets` is account-level with no generic S3 equivalent.
   if ((body as { provider?: unknown } | null)?.provider === "s3") {
     throw new ValidationError('the bucket picker only supports provider "r2"', {
       code: "unsupported_provider",
@@ -688,34 +658,18 @@ export async function storageBucketsHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * `PUT /:workspace/storage` — verifies a candidate BYO config and saves it
- * as a **standby lane** (spec: "Configure, then switch"). Never trusts a
- * client-side "verified" claim — re-runs the same pipeline server-side
- * against the request body, and only writes on a pass. On a fail, responds
- * with the verify result (422) so the UI can render the same checklist the
- * standalone verify route would have.
+ * `PUT /:workspace/storage` — re-verifies a BYO config server-side and saves
+ * it as a standby lane; a failure returns the verify result (422). Saving
+ * never changes routing, so there's no not-empty guard; switching is
+ * `POST .../storage/activate`. Saving the same bucket+accountId replaces
+ * that lane in place.
  *
- * Saving a config never changes routing — the top-level (active-lane) fields
- * are untouched for any *other* bucket, so there is no
- * `workspace_storage_not_empty` guard on this path: attaching a config to a
- * populated workspace is always safe because nothing about where uploads
- * land has changed yet. Switching lanes is `POST .../storage/activate`'s
- * job. Saving again for the same bucket+accountId replaces that lane in
- * place (`upsertStandbyLane`) rather than appending a duplicate.
+ * Exception: matching the active BYO lane is a credential rotation, so the
+ * active fields update in place. A standby would leave the stale credentials
+ * live.
  *
- * The one exception: a candidate matching the bucket+accountId of the
- * *currently active* BYO lane is a credential rotation of that lane, not a
- * new saved config — it updates the top-level fields in place instead of
- * writing a standby. Writing a standby here instead would leave the active
- * lane's stale credentials live (nothing ever re-points them at the new
- * standby without an explicit activate) and a later activate's demote step
- * could silently discard the rotated creds entirely (CodeRabbit review).
- *
- * `mutateWorkspaceRecord` (with `requireServing`) both re-checks the
- * workspace hasn't been soft-deleted since the request started and gives us
- * the read-immediately-before-write window issue #387 exists for; sealing
- * happens *inside* that callback (precedent: `reencrypt-registry.ts`), never
- * on data read earlier in the request.
+ * Sealing happens inside the `mutateWorkspaceRecord` callback, never on
+ * data read earlier in the request.
  */
 export async function storagePutHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -739,14 +693,9 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
   }
 
   const nowIso = new Date().toISOString();
-  // ok when the recommended `active-content-headers` check passed; absent
-  // (no publicBaseUrl, or the check failed/never ran) counts as not-verified
-  // — SVG/XML stay off for this lane until a check actually succeeds. That
-  // includes inconclusive: unlike the dedicated verify route
-  // (`storageVerifyActiveContentHandler`), which leaves a prior stamp
-  // untouched on an inconclusive recheck, a save always makes a fresh
-  // determination from this result — inconclusive-on-save clears the stamp,
-  // fail-closed, by design.
+  // Absent unless the active-content check passed. A save always decides
+  // fresh, so inconclusive clears the stamp (unlike the on-demand verify
+  // route, which leaves it).
   const activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   const updated = await mutateWorkspaceRecord(
     c.env,
@@ -756,18 +705,11 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         accessKeyId: candidate.accessKeyId,
         secretAccessKey: candidate.secretAccessKey,
       });
-      // Prefer whatever the caller supplied explicitly (parsed client-side
-      // from a pasted endpoint URL) — cast is safe since `storageVerify`
-      // above already ran the shape check (storage-verify.ts) that 422s on
-      // anything outside R2_JURISDICTIONS. When the caller omitted it (the
-      // common case now that the wizard has no jurisdiction field),
-      // fall back to whichever jurisdiction the verify pipeline's auto-probe
-      // actually found live — never save a jurisdiction the bucket wasn't
-      // proven to answer at.
+      // Prefer an explicit jurisdiction (already shape-checked by verify),
+      // else the one the verify probe found live.
       const jurisdiction =
         (candidate.jurisdiction as R2Jurisdiction | undefined) ?? result.jurisdiction;
-      // Display fragment for the settings UI, captured from the plaintext
-      // before sealing — every sealed field below is ciphertext from here on.
+      // From the plaintext, before sealing.
       const accessKeyIdLast4 = candidate.accessKeyId.slice(-4);
 
       const isS3 = candidate.provider === "s3";
@@ -796,10 +738,7 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         next.storageConfiguredAt = nowIso;
         next.storageConfiguredBy = userId;
         next.storageAccessKeyIdLast4 = accessKeyIdLast4;
-        // The rotation just passed the full verify pipeline against these
-        // exact credentials, so whatever flagged this lane unhealthy (issue
-        // #826) is demonstrably fixed — clear the badge and the banner now
-        // rather than waiting for the next upload to prove it again.
+        // The rotation just passed verify, so clear any unhealthy flag now.
         clearStorageHealthFields(next);
         return next;
       }
@@ -816,8 +755,7 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         storageConfiguredAt: nowIso,
         storageConfiguredBy: userId,
         storageAccessKeyIdLast4: accessKeyIdLast4,
-        // s3 candidates carry no accountId/jurisdiction; r2 candidates carry
-        // no endpoint/region/forcePathStyle — never both on one lane.
+        // r2 and s3 credential fields are never both on one lane.
         ...providerCredentialFields(isS3, {
           accountId: candidate.accountId,
           jurisdiction,
@@ -842,26 +780,14 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * `POST /:workspace/storage/activate` — switches the active (write) lane to
- * a saved config, body `{ laneId }` (spec: "Configure, then switch",
- * decoupled activation). The target lane must already be saved in
- * `storageLanes` — either a standby config from `PUT` or a former active
- * lane being reactivated. `byoBucketAllowed` is required unless the target
- * is binding-mode: switching back to shared storage must survive flag
- * revocation, the same #619 posture `storageDeleteHandler`'s legacy detach
- * already carries — an HTTP-mode target still requires the flag.
+ * `POST /:workspace/storage/activate` — make a saved lane (`{ laneId }`) the
+ * write lane. Requires `byoBucketAllowed` unless the target is the shared
+ * lane, so switching back survives flag revocation.
  *
- * An HTTP-credential-mode target whose `verifiedAt` is stale (or absent) is
- * re-verified against its *opened* (decrypted) credentials before the swap —
- * a switch never lands on a config that has silently rotted — and 422s with
- * the verify result, mutating nothing, on failure. Binding-mode targets
- * (switching back to shared) skip verification entirely: there's nothing to
- * decrypt or reach over HTTP.
- *
- * The swap itself is one `mutateWorkspaceRecord` callback: the current
- * active fields are demoted into a lane (`demoteActiveLane`) and the target
- * is promoted onto the top level (`promoteLane`) — read paths built in PR C
- * mean the demoted lane keeps serving pre-switch files immediately.
+ * A BYO target whose `verifiedAt` is stale is re-verified with its decrypted
+ * credentials first and 422s on failure. The swap is one
+ * `mutateWorkspaceRecord`: demote the active fields to a lane, promote the
+ * target. The demoted lane keeps serving pre-switch files.
  */
 export async function storageActivateHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -890,23 +816,17 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 
   const nowIso = new Date().toISOString();
   let verifiedAt = target.verifiedAt;
-  // Carried forward unless a re-verify below runs and settles it fresh —
-  // same "carry, or refresh from the fresh result" posture as `verifiedAt`.
+  // Carried forward unless the re-verify below settles it fresh.
   let activeContentVerifiedAt = target.activeContentVerifiedAt;
-  // A lane carrying a health flag (issue #826) is re-verified however fresh
-  // its `verifiedAt` looks: the flag is later evidence than the stamp, and
-  // `promoteLane` clears the flag unconditionally — so without this a broken
-  // lane could be switched back to and silently read as healthy again.
+  // A health-flagged lane is re-verified however fresh its stamp:
+  // `promoteLane` clears the flag, so a broken lane would read healthy again.
   if (!isSharedLane(target) && (isLaneVerifyStale(target.verifiedAt) || target.unhealthyAt)) {
     const result = await verifyLaneForActivate(c.env, target);
     if (!result.ok) {
       return c.json(result, 422);
     }
     verifiedAt = nowIso;
-    // Same fail-closed posture as `storagePutHandler`: this re-verify is a
-    // fresh determination, so inconclusive-on-save clears the stamp rather
-    // than carrying the pre-re-verify value forward, unlike the dedicated
-    // verify route's leave-it-alone handling of an inconclusive recheck.
+    // A fresh determination, so inconclusive clears the stamp (as on save).
     activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   }
 
@@ -941,11 +861,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
     }),
   );
 
-  // The promoted lane may already hold objects (a reactivated fallback, or a
-  // standby saved via `adoptExistingContents`) that the ledger has never
-  // walked — rebuild totals/shared-subset so `maxStorageBytes` enforcement
-  // and the settings UI are honest. Best-effort, same rationale as the
-  // legacy attach/detach reconcile calls.
+  // The promoted lane may hold objects the ledger never walked; rebuild.
   await reconcileOffPath(c, updated, name, "workspace storage activate");
 
   return c.json(
@@ -958,40 +874,26 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * `DELETE /:workspace/storage` — removes a saved lane, or (legacy shape, no
- * `laneId`) detaches the active BYO lane and restores shared-bucket
- * defaults. Never touches the customer's bucket or its objects — only the
- * platform's own KV record.
+ * `DELETE /:workspace/storage` — remove a saved lane, or with no `laneId`
+ * detach the active BYO lane. Never touches the customer's bucket.
  *
- * With `laneId`: removes exactly that lane from `storageLanes`. A standby
- * lane (never active — no `lastActiveAt`) is always removable, no emptiness
- * check: it's pure saved configuration. A fallback lane (`lastActiveAt`
- * set — it may hold objects) is checked for emptiness first (a cheap
- * `list({ limit: 1 })` against that lane's own store) and 409s
- * `workspace_storage_not_empty` unless `force` — the "my bucket is gone"
- * escape hatch, which knowingly orphans that lane's objects.
+ * With `laneId`: a standby lane is always removable. A former active lane may
+ * hold objects, so it 409s `workspace_storage_not_empty` unless `force`,
+ * which knowingly orphans them.
  *
- * Without `laneId` (legacy call shape): unchanged from before — blocked
- * unless the ledger reports zero objects or `force` is passed (mirrors the
- * `laneId` emptiness guard, against the D1 ledger instead of a live list —
- * cheaper, and this is the path that already has ledger totals). The #619
- * gate (detach must survive `byoBucketEnabled` revocation) is preserved
- * exactly. Unlike before two-lane storage, a non-empty active BYO config is
- * no longer discarded outright: it's kept as a fallback lane (`lastActiveAt`
- * stamped) so files uploaded during the BYO era keep resolving — unless
- * `force` is set, which drops it entirely as before. Shared-bucket fields
- * (bucket/binding/prefix/publicBaseUrl) come from `selfServeWorkspaceRecord`
- * so this can't drift from what a brand-new self-serve workspace actually
- * gets; everything else on the record (limits, github links, comment
- * settings, plan, other flags) is preserved untouched.
+ * Without `laneId`: blocked unless the ledger shows zero objects or `force`.
+ * Detach works even after `byoBucketEnabled` is revoked. A non-empty BYO
+ * config is kept as a fallback lane so its files keep resolving. Shared
+ * fields come from `selfServeWorkspaceRecord`; the rest of the record is
+ * untouched.
  */
 export async function storageDeleteHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
   const userId = c.get("settingsUserId");
   const record = await loadWorkspaceRecord(c.env, name);
   if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  // Detach must stay available after the flag is revoked, otherwise the
-  // workspace is stranded on the customer bucket (#619).
+  // Detach must survive flag revocation, or the workspace is stranded on the
+  // customer bucket.
   if (!byoBucketAllowed(record) && !record.storageConfiguredAt) {
     throw new ForbiddenError("BYO storage is not enabled for this workspace", {
       code: "byo_bucket_disabled",
@@ -1014,13 +916,9 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
       throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
     }
     if (target.lastActiveAt && !force) {
-      // Resolves only the target lane's own config — never the active
-      // lane's (unlike `storageConfigs`, which would also decrypt/validate
-      // the active lane and turn an unrelated active-lane problem into a
-      // 503 on this lane's removal). A lane that fails to resolve at all
-      // (bad binding, undecryptable creds) is treated as empty: it's
-      // already unreachable, so removal can't be blocked on data nobody can
-      // read anyway — that data is exactly what `force` exists to release.
+      // Resolve only the target lane, so an active-lane problem can't block
+      // this removal. A lane that can't resolve is unreachable anyway, so it
+      // counts as empty.
       const nonEmpty = await laneConfig(c.env, target as unknown as WorkspaceRecord)
         .then((config) => createStorage(config).list({ limit: 1 }))
         .then((page) => page.items.length > 0)
@@ -1071,22 +969,16 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
         userId: current.createdByUserId ?? userId,
         now: new Date(),
       });
-      // The ledger has objects (only reachable via `force`, since the guard
-      // above already blocked a non-empty non-force detach): the outgoing
-      // BYO config may hold objects that must keep resolving, so it's kept
-      // as a fallback lane rather than discarded (spec: "Detach
-      // symmetrically" / "Lane hygiene").
+      // Objects in the ledger (only reachable via `force`): keep the outgoing
+      // BYO config as a fallback lane so they keep resolving.
       const keepAsFallback = usage.objects > 0 && isByoRecord(current);
       const storageLanes = keepAsFallback
         ? upsertDemotedLane(current.storageLanes, demoteActiveLane(current, nowIso))
         : current.storageLanes;
 
       const next: WorkspaceRecord = { ...current, storageLanes };
-      // The shared lane's fields come from `selfServeWorkspaceRecord` (never
-      // hand-rolled, so this can't drift from what a brand-new self-serve
-      // workspace actually gets) and go through the same `promoteLane` field
-      // list every other lane promotion uses. No `id` — the restored shared
-      // lane has none until a future activate demotes it again.
+      // Shared fields from `selfServeWorkspaceRecord` so they can't drift.
+      // No `id` until a future activate demotes it.
       promoteLane(
         next,
         {
@@ -1096,9 +988,7 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
           prefix: shared.prefix,
           publicBaseUrl: shared.publicBaseUrl,
         },
-        // A restored shared lane carries neither stamp: it was never verified
-        // as a customer lane, and its host's active-content state comes from
-        // the hosted-host records, not a per-workspace stamp.
+        // A shared lane's active-content state comes from host records.
         {},
       );
       return next;
@@ -1108,12 +998,9 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
 
   console.log(JSON.stringify({ event: "workspace_storage_detached", workspace: name, userId }));
 
-  // `force` bypassed the emptiness guard, so the ledger still describes the
-  // detached BYO bucket — but `maxStorageBytes` enforcement resumes on the
-  // shared bucket the moment this record is restored, and stale counts
-  // could leave the workspace permanently over-budget with nothing to
-  // delete. Rebuild from the restored shared-bucket prefix (best-effort,
-  // same rationale as the attach path above).
+  // `force` skipped the emptiness guard, so the ledger still describes the
+  // BYO bucket. Rebuild from the shared prefix or the workspace could stay
+  // over budget with nothing to delete.
   if (force) {
     await reconcileOffPath(c, updated, name, "workspace storage detach");
   }
@@ -1127,25 +1014,14 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
   );
 }
 
-/**
- * True when `laneIdParam` names the record's *active* lane — either the
- * literal `"active"`, or the active lane's own id (`record.storageLaneId`,
- * absent on a record that predates lanes, in which case only the literal
- * matches).
- */
+/** True when `laneIdParam` is `"active"` or the active lane's own id. */
 function isActiveLaneParam(record: WorkspaceRecord, laneIdParam: string): boolean {
   return (
     laneIdParam === "active" || (!!record.storageLaneId && laneIdParam === record.storageLaneId)
   );
 }
 
-/**
- * Resolves `laneIdParam` to a `StorageLane`-shaped view of the target lane —
- * the active lane's top-level fields (via `demoteActiveLane`, the same
- * field mapping `storageDeleteHandler`'s detach path uses to turn the active
- * fields into a lane shape) when it names the active lane, else a saved
- * entry in `storageLanes`. `null` when nothing matches.
- */
+/** The target lane as a `StorageLane`: the active fields or a saved entry. `null` when nothing matches. */
 function resolveActiveContentLaneTarget(
   record: WorkspaceRecord,
   laneIdParam: string,
@@ -1157,28 +1033,18 @@ function resolveActiveContentLaneTarget(
 }
 
 /**
- * Minimum gap between two on-demand active-content checks of the same lane
- * (issue #929 adversarial review L-3). A "Check now" button that a person
- * actually presses never comes close; a script driving Worker-origin fetches
- * at an arbitrary host does.
+ * Minimum gap between on-demand active-content checks of one lane. A person
+ * pressing "Check now" never hits it; a script driving Worker fetches at an
+ * arbitrary host does.
  */
 export const ACTIVE_CONTENT_CHECK_COOLDOWN_MS = 60_000;
 
-/**
- * The `storageActiveContentCheckedAt` key for the lane `laneIdParam` names.
- * The active lane is keyed by its own id when it has one, so naming it
- * `active` and naming it by id share a cooldown rather than each getting
- * their own.
- */
+/** Cooldown key for a lane. `active` and the active lane's id share one. */
 function activeContentCooldownKey(record: WorkspaceRecord, laneIdParam: string): string {
   return isActiveLaneParam(record, laneIdParam) ? (record.storageLaneId ?? "active") : laneIdParam;
 }
 
-/**
- * The cooldown map with `key` stamped at `nowIso`, pruned to lanes that
- * still exist (plus `active`) so a deleted lane's entry doesn't linger in the
- * record forever.
- */
+/** The cooldown map with `key` stamped, pruned to lanes that still exist. */
 function nextActiveContentCheckedAt(
   record: WorkspaceRecord,
   key: string,
@@ -1194,40 +1060,18 @@ function nextActiveContentCheckedAt(
 }
 
 /**
- * `POST /:workspace/storage/lanes/:laneId/verify-active-content` (issue
- * #929) — runs only the SVG/XML sandboxing-CSP probe against one lane
- * (`laneActiveContentCheck`: upload the inert SVG probe through the lane's
- * own storage client, ask `checkActiveContentHeaders`, delete the probe),
- * then stamps the result. This is a rule for *this on-demand route only* —
- * `storagePutHandler`/`storageActivateHandler` run the same probe as part of
- * a save and handle inconclusive differently (see the comment at each):
+ * `POST /:workspace/storage/lanes/:laneId/verify-active-content` — runs only
+ * the SVG/XML sandboxing-CSP probe against one lane, then stamps the result.
+ * Pass sets the stamp; fail clears it immediately; inconclusive (the fetch
+ * threw) leaves it as it was, so a network blip doesn't revoke a working
+ * lane. Saves and activations handle inconclusive differently.
  *
- *  - probe passed → `activeContentVerifiedAt`/`storageActiveContentVerifiedAt` set to now.
- *  - probe failed (not inconclusive) → the stamp is cleared, even if it was
- *    previously fresh — a lane that used to pass and now doesn't must stop
- *    admitting SVG/XML immediately, not wait out `LANE_STAMP_MAX_AGE_MS`.
- *  - probe inconclusive (the fetch itself threw — same "unknown, not
- *    broken" semantics as the public-url check) → *this route* leaves the
- *    stamp exactly as it was; `mutateWorkspaceRecord` isn't even called. An
- *    on-demand recheck of an already-configured lane shouldn't punish a
- *    transient network blip by revoking something that was working.
+ * `laneId` is a saved lane's id, `active`, or the active lane's id. A shared
+ * lane (state comes from host records) or one with no `publicBaseUrl` 422s.
  *
- * `laneId` is either a saved lane's id (`storageLanes[].id`) or the active
- * lane, named either by the literal `active` or by its own id
- * (`record.storageLaneId`). A shared (platform-owned, binding-mode) lane
- * 422s outright — its state comes from the hosted host's daily-probed KV
- * record (`./active-content-hosts.ts`), never a per-workspace stamp — and so
- * does a lane with no `publicBaseUrl` to probe at all.
- *
- * Per-lane cooldown (issue #929 adversarial review L-3): every call makes
- * this Worker fetch a URL the workspace's own admin chose, and the general
- * write budget (60/60s per workspace) is far too generous for a button. A
- * second check on the same lane inside {@link ACTIVE_CONTENT_CHECK_COOLDOWN_MS}
- * is a 429 (`active_content_check_cooldown`) raised *before* any probe — and
- * before the write limiter, so a rejected recheck doesn't spend the
- * workspace's write budget either. The clock (`storageActiveContentCheckedAt`)
- * records attempts, not passes, so a failing or inconclusive probe rate-limits
- * the next one exactly as a passing one does.
+ * Each call makes the Worker fetch an admin-chosen URL, so a second check
+ * of the same lane within the cooldown 429s before any probe or write-limit
+ * spend. The clock records attempts, not passes.
  */
 export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -1279,10 +1123,8 @@ export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>
   const check = await laneActiveContentCheck(c.env, target);
   const nowIso = new Date().toISOString();
 
-  // One write, always — the cooldown clock has to advance even for an
-  // inconclusive probe (an unreachable host is exactly the case that could
-  // otherwise be retried in a tight loop). The verification *stamp* is a
-  // separate question: inconclusive leaves it exactly as it was.
+  // Always write: the cooldown clock advances even when inconclusive. The
+  // stamp itself is left alone in that case.
   const updated = await mutateWorkspaceRecord(
     c.env,
     name,
@@ -1364,26 +1206,11 @@ export async function summaryHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * `GET /:workspace/billing` — member-gated: plan metadata, resolved
- * effective limits, usage, and subscription state for the account billing
- * tab. `plan`/`available`/`planApplied`/`limits` reuse `workspace-plan.ts`'s
- * `planResponse` — the same attribution contract the admin plan surface
- * uses: a record with no `plan` field must never display free-plan default
- * caps it isn't actually enforcing, so `planApplied` is `false` and
- * `limits` mirrors enforcement (explicit-or-unlimited) rather than the plan
- * defaults.
- *
- * `planSource`/`subscription` are sourced from the auth D1 `subscription`
- * table over the AUTH service binding (`org-workspaces.ts`'s
- * `subscriptionForOrg`), the same internal-bridge pattern as every other org
- * lookup here. `subscriptionForOrg` never throws — an AUTH outage degrades
- * to `subscription: null` + `planSource: "none"`-or-"admin" (whichever
- * `planSourceFor` derives with a null subscription) rather than a 500.
- * `stripeCustomerId` is deliberately dropped here — it's an admin-ui-only
- * field (see `routes/admin-ui.ts`'s plan surface), never exposed to the
- * member-facing settings API. Preserving this redaction is a hard
- * requirement carried over unchanged from `routes/me.ts` (issue #613 phase
- * 3 brief).
+ * `GET /:workspace/billing` — member-gated plan, effective limits, usage and
+ * subscription. `planResponse` keeps the attribution contract: a record with
+ * no `plan` never shows free-plan caps it doesn't enforce. The subscription
+ * comes from the auth D1 over AUTH and degrades to null on an outage.
+ * `stripeCustomerId` is admin-only and must never be returned here.
  */
 export async function billingHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -1426,25 +1253,14 @@ export async function billingHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * `GET /:workspace/comment-preview` — preview the production managed-comment
- * body against resolved comment settings (issue #307), moved verbatim from
- * `routes/me.ts` (issue #613 final phase). Admin/owner-gated like the
- * comment-settings/storage tier above: the response includes per-key source
- * attribution ("repo" | "workspace" | "auto"), which a plain member has no
- * reason to see. With no `repo` query param, resolution runs against
- * workspace defaults only (`repoConfig: null`) via the same
- * `resolveCommentOptions(null, ...)` entrypoint `resolveRepoCommentOptions`
- * wraps. With `repo`, it must already be linked to THIS workspace
- * (github-repo-links.ts) — otherwise 404, so a preview can't be used to
- * probe another workspace's repo binding or `.uploads.yml` contents.
+ * `GET /:workspace/comment-preview` — the managed-comment body rendered with
+ * resolved settings. Admin/owner-gated because it exposes per-key source
+ * attribution. With `repo`, the repo must be linked to this workspace (else
+ * 404), so a preview can't probe another workspace's binding or config.
  *
- * Renders from a page of the workspace's own `gh/`-prefixed attachments
- * (first page only, mirrors gatherAttachments's url/pageUrl mapping and its
- * `path`/`state` D1 metadata read, so captions and before/after pairing
- * preview the way the production comment renders). `listObjects` pages in
- * lexicographic key order, not upload recency, so this is a representative
- * sample rather than the "most recent" uploads. An empty workspace falls
- * back to `previewFixtureItems` so the preview is never blank.
+ * Renders the first page of the workspace's own `gh/` attachments with the
+ * same filters and metadata reads as the real comment. Key order isn't
+ * recency, so it's a sample. An empty workspace uses `previewFixtureItems`.
  */
 export async function commentPreviewHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -1488,36 +1304,30 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
     size: o.size,
     contentType: o.contentType,
   }));
+  items = await dropHiddenAttachments(c.env, name, items);
   let sample: "workspace" | "fixtures" = "workspace";
   if (items.length === 0) {
     items = previewFixtureItems(c.env);
     sample = "fixtures";
   } else if (resolved.metaPath || resolved.metaState) {
-    // Same narrow key set and skip condition as gatherAttachments — the
-    // preview must caption and pair exactly like the production comment.
-    const metaByKey = await getMetadataForKeys(
-      dbFor(c.env),
-      name,
-      items.map((item) => item.key),
-      { metaKeys: ["path", "state"] },
-    );
-    for (const item of items) {
-      const meta = metaByKey.get(item.key);
-      if (!meta) continue;
-      const { path, state } = meta;
-      if (path || state) {
-        item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
-      }
-    }
+    await addCommentMetadata(c.env, record, name, items);
   }
 
-  const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
-    imageWidth: resolved.imageWidth,
-    maxInlineImages: resolved.maxInlineImages,
-    metaPath: resolved.metaPath,
-    metaState: resolved.metaState,
-    note: resolved.note,
-  });
+  const body = attachmentsCommentBody(
+    items,
+    [],
+    attachmentsMarker(name),
+    {
+      imageWidth: resolved.imageWidth,
+      maxInlineImages: resolved.maxInlineImages,
+      metaPath: resolved.metaPath,
+      metaState: resolved.metaState,
+      note: resolved.note,
+    },
+    undefined,
+    // No PR here, so the sample line links to the live-link docs.
+    { liveLinkUrl: linkToFilePage ? `${webOrigin(c.env)}/docs/feeds` : null },
+  );
 
   return c.json({ resolved, source, repoConfig, body, sample });
 }
@@ -1529,6 +1339,8 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .patch("/:workspace/comment-settings", sessionAdminGate(), commentSettingsPatchHandler)
   .get("/:workspace/poster-settings", sessionAdminGate(), posterSettingsGetHandler)
   .patch("/:workspace/poster-settings", sessionAdminGate(), posterSettingsPatchHandler)
+  .get("/:workspace/classifier-settings", sessionAdminGate(), classifierSettingsGetHandler)
+  .patch("/:workspace/classifier-settings", sessionAdminGate(), classifierSettingsPatchHandler)
   .get("/:workspace/comment-preview", sessionAdminGate(), commentPreviewHandler)
   .get("/:workspace/storage", sessionAdminGate(), storageGetHandler)
   .post("/:workspace/storage/verify", sessionAdminGate(), storageVerifyHandler)

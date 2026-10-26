@@ -1,0 +1,104 @@
+/**
+ * The Files `type` filter as SQL (spec "Files views"): a key-extension
+ * class, matched with `lower(substr(col, -N))` because D1 caps LIKE/GLOB
+ * patterns at 50 bytes. Suffix sets come from `@uploads/comment-render/scope`,
+ * so the SQL and `fileTypeClassFromKey` agree (test/file-type-sql.test.ts
+ * pins the parity). One implementation for the scope query (pr-scope.ts),
+ * the Files endpoints (routes/workspace-scope.ts), and `GET /files/by-path`.
+ */
+import { ValidationError } from "@uploads/errors";
+import {
+  FILE_SURFACES,
+  FILE_TYPE_CLASSES,
+  IMAGE_EXTENSIONS,
+  VIDEO_EXTENSIONS,
+  type FileSurface,
+  type FileTypeClass,
+} from "@uploads/comment-render/scope";
+
+export { fileTypeClassFromKey } from "@uploads/comment-render/scope";
+
+const COLUMN_RE = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i;
+
+/** `(lower(substr(col, -4)) IN ('.png', …) OR lower(substr(col, -5)) IN (…))`. */
+function suffixMatchSql(column: string, extensions: readonly string[]): string {
+  const byLength = new Map<number, string[]>();
+  for (const ext of extensions) {
+    const suffix = `.${ext}`;
+    byLength.set(suffix.length, [...(byLength.get(suffix.length) ?? []), `'${suffix}'`]);
+  }
+  const terms = [...byLength.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(
+      ([length, suffixes]) => `lower(substr(${column}, -${length})) IN (${suffixes.join(", ")})`,
+    );
+  return `(${terms.join(" OR ")})`;
+}
+
+/** SQL predicate on `column` (a trusted identifier such as `r.object_key`, never user input). */
+export function fileTypeSql(column: string, type: FileTypeClass): string {
+  if (!COLUMN_RE.test(column)) throw new Error(`fileTypeSql: bad column ${column}`);
+  const image = suffixMatchSql(column, IMAGE_EXTENSIONS);
+  const video = suffixMatchSql(column, VIDEO_EXTENSIONS);
+  if (type === "screenshot") return image;
+  if (type === "video") return video;
+  return `(NOT ${image} AND NOT ${video})`;
+}
+
+/** `?type=`: undefined when absent or empty; 400 `invalid_type` for anything else. */
+export function parseFileTypeQuery(raw: string | undefined): FileTypeClass | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const match = FILE_TYPE_CLASSES.find((type) => type === raw);
+  if (match) return match;
+  throw new ValidationError("type must be screenshot, video, or other.", {
+    code: "invalid_type",
+  });
+}
+
+/**
+ * The Files `surface` filter: an EXISTS on the classifier's `ai.surface` row
+ * for the object in `alias` (a trusted table alias with `workspace` and
+ * `object_key`). The value is a closed enum checked by `parseSurfaceQuery`,
+ * so it is inlined; the PK (workspace, object_key, meta_key) serves the seek.
+ */
+export function fileSurfaceSql(alias: string, surface: FileSurface): string {
+  if (!COLUMN_RE.test(alias)) throw new Error(`fileSurfaceSql: bad alias ${alias}`);
+  if (!FILE_SURFACES.includes(surface)) throw new Error(`fileSurfaceSql: bad surface ${surface}`);
+  return `EXISTS (
+    SELECT 1 FROM file_metadata sf
+    WHERE sf.workspace = ${alias}.workspace AND sf.object_key = ${alias}.object_key
+      AND sf.meta_key = 'ai.surface' AND sf.meta_value = '${surface}'
+  )`;
+}
+
+const SINCE_MAX_DAYS = 365;
+
+/**
+ * `?since=Nd` (1 to 365 days back from `now`) as the ISO lower bound for
+ * `updated_at`; undefined when absent or empty; 400 `invalid_since` otherwise.
+ * Relative on purpose, so a shared link keeps meaning "the last N days".
+ */
+export function parseSinceQuery(
+  raw: string | undefined,
+  now: number = Date.now(),
+): string | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const match = /^([1-9]\d{0,2})d$/.exec(raw);
+  const days = match ? Number(match[1]) : 0;
+  if (days >= 1 && days <= SINCE_MAX_DAYS) {
+    return new Date(now - days * 86_400_000).toISOString();
+  }
+  throw new ValidationError(`since must be a day count like 7d (1d to ${SINCE_MAX_DAYS}d).`, {
+    code: "invalid_since",
+  });
+}
+
+/** `?surface=`: undefined when absent or empty; 400 `invalid_surface` for anything else. */
+export function parseSurfaceQuery(raw: string | undefined): FileSurface | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const match = FILE_SURFACES.find((surface) => surface === raw);
+  if (match) return match;
+  throw new ValidationError("surface must be mobile, desktop, or tablet.", {
+    code: "invalid_surface",
+  });
+}

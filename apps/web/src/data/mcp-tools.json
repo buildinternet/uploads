@@ -1,0 +1,1369 @@
+[
+  {
+    "name": "gallery_create",
+    "title": "Create gallery",
+    "description": "Create a public ordered media gallery in this workspace. The returned canonical URL is suitable for an agent response, but anyone who knows it can view the gallery and its media.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "title",
+        "type": "string",
+        "required": true,
+        "description": "Gallery title (1–120 characters)."
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "required": false,
+        "description": "Optional public gallery description."
+      }
+    ],
+    "returns": [
+      "id",
+      "url",
+      "workspace",
+      "title",
+      "description",
+      "visibility",
+      "coverItemId",
+      "version",
+      "createdAt",
+      "updatedAt",
+      "items",
+      "itemCount",
+      "references"
+    ]
+  },
+  {
+    "name": "gallery_get",
+    "title": "Get gallery",
+    "description": "Get a workspace-owned gallery, including its ordered media and canonical public URL. Gallery media is public to anyone with the URL.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "galleryId",
+        "type": "string",
+        "required": true,
+        "description": "Opaque gallery ID."
+      }
+    ],
+    "returns": [
+      "id",
+      "url",
+      "workspace",
+      "title",
+      "description",
+      "visibility",
+      "coverItemId",
+      "version",
+      "createdAt",
+      "updatedAt",
+      "items",
+      "itemCount",
+      "references"
+    ]
+  },
+  {
+    "name": "gallery_add",
+    "title": "Add gallery item",
+    "description": "Add one existing, publicly served workspace object to a gallery. The tool reads the current version before writing and does not upload or delete the object.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "galleryId",
+        "type": "string",
+        "required": true,
+        "description": "Opaque gallery ID."
+      },
+      {
+        "name": "objectKey",
+        "type": "string",
+        "required": true,
+        "description": "Existing public object key to add."
+      },
+      {
+        "name": "caption",
+        "type": "string",
+        "required": false,
+        "description": "Optional public caption."
+      },
+      {
+        "name": "altText",
+        "type": "string",
+        "required": false,
+        "description": "Optional public alt text."
+      }
+    ],
+    "returns": [
+      "id",
+      "objectKey",
+      "filename",
+      "position",
+      "caption",
+      "altText",
+      "createdAt",
+      "status",
+      "url",
+      "embedUrl",
+      "pageUrl",
+      "contentType",
+      "size",
+      "uploaded",
+      "modified",
+      "posterUrl",
+      "videoDimensions"
+    ]
+  },
+  {
+    "name": "gallery_link",
+    "title": "Link gallery",
+    "description": "Link a gallery to an external reference. Uses provider-neutral fields; github currently accepts owner/repo#number or a strict GitHub issue/PR URL. No GitHub credentials or API calls are used.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "galleryId",
+        "type": "string",
+        "required": true,
+        "description": "Opaque gallery ID."
+      },
+      {
+        "name": "provider",
+        "type": "string",
+        "required": true,
+        "description": "External provider (currently github)."
+      },
+      {
+        "name": "coordinate",
+        "type": "string",
+        "required": true,
+        "description": "Provider-native external reference coordinate."
+      }
+    ],
+    "returns": [
+      "id",
+      "provider",
+      "resourceType",
+      "coordinate",
+      "canonicalUrl",
+      "createdAt",
+      "title",
+      "kind"
+    ]
+  },
+  {
+    "name": "gallery_find_by_reference",
+    "title": "Find galleries",
+    "description": "Find galleries in this workspace linked to an external reference. Returns canonical public gallery URLs without contacting the provider.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "provider",
+        "type": "string",
+        "required": true,
+        "description": "External provider (currently github)."
+      },
+      {
+        "name": "coordinate",
+        "type": "string",
+        "required": true,
+        "description": "Provider-native external reference coordinate."
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "Page size (default 50, max 100)."
+      }
+    ],
+    "returns": [
+      "galleries",
+      "nextCursor"
+    ]
+  },
+  {
+    "name": "feed_create",
+    "title": "Create change feed",
+    "description": "Create a public newest-first screenshot feed (same product as CLI `uploads feed create`). Pass `repo` alone for the whole GitHub repo. Pass `pr` plus `repo` — or `github` as owner/repo#123 / a GitHub PR URL — to scope that same feed to one pull request. `issue` does the same for an issue. Optional `path` filters by page-path metadata. Creating the same scope again returns the existing URL. This is a live query, not a curated gallery. Anyone who knows the URL can view it. See https://uploads.sh/docs/feeds.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub owner/repo, for example acme/app. Required unless github is set."
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": false,
+        "description": "Scope the feed to this pull request. Same product as a repo feed — one extra filter. Mutually exclusive with issue and github."
+      },
+      {
+        "name": "issue",
+        "type": "integer",
+        "required": false,
+        "description": "Scope the feed to this issue. Mutually exclusive with pr and github."
+      },
+      {
+        "name": "github",
+        "type": "string",
+        "required": false,
+        "description": "Scope via owner/repo#number or a GitHub issue/PR URL. Supplies repo when omitted. Mutually exclusive with pr and issue."
+      },
+      {
+        "name": "path",
+        "type": "string",
+        "required": false,
+        "description": "Optional exact page-path metadata filter, for example /settings."
+      }
+    ],
+    "returns": [
+      "id",
+      "url",
+      "workspace",
+      "repo",
+      "path",
+      "number",
+      "kind",
+      "title",
+      "createdAt",
+      "updatedAt",
+      "items"
+    ]
+  },
+  {
+    "name": "feed_get",
+    "title": "Get change feed",
+    "description": "Get a workspace-owned change feed by ID, including its current newest-first screenshots and the canonical public /c/<id> URL. Each item includes pageUrl (`/c/<id>/<item>`) for the pager. The feed may be repo-wide or scoped to one pull request / issue (see `number` and `kind` on the result). Anyone with the URL can view the media.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "feedId",
+        "type": "string",
+        "required": true,
+        "description": "Opaque feed ID."
+      }
+    ],
+    "returns": [
+      "id",
+      "url",
+      "workspace",
+      "repo",
+      "path",
+      "number",
+      "kind",
+      "title",
+      "createdAt",
+      "updatedAt",
+      "items"
+    ]
+  },
+  {
+    "name": "put",
+    "title": "Upload file",
+    "description": "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). A result with `holdCheck: \"pending\"` may still be held for review if it shows a secret; `comment.held` counts files on the PR or issue held for review; see `list_held`. Pass `branch`+`repo` to stage for a PR that does not exist yet; if that branch already has one open PR (repo linked to this workspace), the file attaches to it instead. This server has no git, so in a checkout read `repo` and `branch` from git and always pass them. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
+    "access": "destructive",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "contentBase64",
+        "type": "string",
+        "required": false,
+        "description": "Base64-encoded file content to upload (must be non-empty). Exactly one of contentBase64, contentUrl, or files is required."
+      },
+      {
+        "name": "contentUrl",
+        "type": "string",
+        "required": false,
+        "description": "Public HTTPS URL of an already-hosted file to fetch and re-host. Filename is optional when the URL path has a leaf. No auth headers are forwarded; private/internal hosts are rejected. Exactly one of contentBase64, contentUrl, or files is required."
+      },
+      {
+        "name": "filename",
+        "type": "string",
+        "required": false,
+        "description": "Filename for the content (drives the key and content type). Required with contentBase64; optional with contentUrl when the URL path has a leaf."
+      },
+      {
+        "name": "files",
+        "type": "object[]",
+        "required": false,
+        "description": "Multiple files in one call (max 20). Each item needs contentBase64 or contentUrl. Filename is optional with contentUrl when the URL path has a leaf. Cannot combine with contentBase64, contentUrl, filename, or key."
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "required": false,
+        "description": "Override the object key. Cannot combine with `pr`/`issue`/`branch`."
+      },
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Key prefix for the default key layout (default: screenshots)."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc). This server has no git: in a checkout, read it with `git remote get-url origin`."
+      },
+      {
+        "name": "ref",
+        "type": "string",
+        "required": false,
+        "description": "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Attach to this pull request (stable `gh/` key). Mutually exclusive with `issue`. Requires `repo`. With `branch`, also promotes that branch's staged files."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Attach to this issue (stable `gh/` key). Mutually exclusive with `pr` and `branch`. Requires `repo`."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Git branch (`git branch --show-current`). Stages under it, or attaches to its open PR when the repo is linked to this workspace and exactly one is open. With `pr`, also promote this branch's staged files into the PR. Requires `repo`."
+      },
+      {
+        "name": "comment",
+        "type": "boolean",
+        "required": false,
+        "description": "With `pr` or `issue`: create or update the managed attachments comment after upload. Default true. Pass false to skip. A comment failure never fails the upload."
+      },
+      {
+        "name": "alt",
+        "type": "string",
+        "required": false,
+        "description": "Alt text for the markdown (default: filename)."
+      },
+      {
+        "name": "width",
+        "type": "number",
+        "required": false,
+        "description": "Emit <img width=…> markdown instead of a plain image embed."
+      },
+      {
+        "name": "metadata",
+        "type": "object",
+        "required": false,
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+      },
+      {
+        "name": "state",
+        "type": "\"before\" | \"after\" | \"empty\" | \"error\" | \"loading\"",
+        "required": false,
+        "description": "The UI state this image shows. Set it whenever the image is one side of a comparison — before/after is the most useful pair in a PR, and is what makes `find_files` with state=after work later."
+      },
+      {
+        "name": "app",
+        "type": "string",
+        "required": false,
+        "description": "Which surface is shown: web, ios, android, cli. Worth setting only when the same route exists on more than one surface."
+      },
+      {
+        "name": "screen",
+        "type": "string",
+        "required": false,
+        "description": "The app screen shown, for views with no route (a mobile or desktop screen), e.g. \"Chat\". Shown under the image in the PR comment. Use `path` in metadata for web routes."
+      },
+      {
+        "name": "replace",
+        "type": "boolean",
+        "required": false,
+        "description": "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite."
+      }
+    ],
+    "returns": [
+      "workspace",
+      "key",
+      "url",
+      "embedUrl",
+      "size",
+      "contentType",
+      "replaced",
+      "markdown",
+      "provenance",
+      "metadata",
+      "visibility",
+      "holdCheck",
+      "file",
+      "uploads",
+      "failures",
+      "comment",
+      "commentError",
+      "promotion",
+      "promoteError",
+      "optimize",
+      "frame",
+      "dryRun",
+      "hint"
+    ]
+  },
+  {
+    "name": "sign_upload_url",
+    "title": "Sign upload URLs",
+    "description": "Get short-lived upload URLs so a shell can send files straight from disk, without base64 in the tool call. Use this instead of `put` when the files are on a local or sandbox disk and you can run curl. Takes `put`'s arguments without the bytes, plus `files: [{ filename, alt? }]` (max 20). This server has no git: in a checkout, pass `repo` and `branch` read from git. Run each returned `curl` line from the folder holding the file (or swap in its path); the response is the same JSON `put` returns, including `markdown`. URLs expire after 15 minutes; each takes a file up to its `maxBytes` (the workspace's upload limit, at most 100 MB). With `pr`/`issue`, call `comment` once after every upload succeeds. If curl gets a 403 from a proxy, the sandbox blocks agents.uploads.sh: ask the person to allow it, or fall back to `put` with contentBase64. All uploads are public.",
+    "access": "destructive",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "files",
+        "type": "object[]",
+        "required": true,
+        "description": "Files to upload, one URL each (max 20)."
+      },
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Key prefix for the default key layout (default: screenshots)."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc). This server has no git: in a checkout, read it with `git remote get-url origin`."
+      },
+      {
+        "name": "ref",
+        "type": "string",
+        "required": false,
+        "description": "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Attach to this pull request (stable `gh/` key). Mutually exclusive with `issue` and `branch`. Requires `repo`."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Attach to this issue (stable `gh/` key). Mutually exclusive with `pr` and `branch`. Requires `repo`."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Git branch (`git branch --show-current`). Stages under it, or targets its open PR when the repo is linked to this workspace and exactly one is open (the result's `next` says which). Requires `repo`. Call `promote` once a PR opens for staged files."
+      },
+      {
+        "name": "alt",
+        "type": "string",
+        "required": false,
+        "description": "Alt text for the markdown (default: filename)."
+      },
+      {
+        "name": "width",
+        "type": "number",
+        "required": false,
+        "description": "Emit <img width=…> markdown instead of a plain image embed."
+      },
+      {
+        "name": "metadata",
+        "type": "object",
+        "required": false,
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+      },
+      {
+        "name": "state",
+        "type": "\"before\" | \"after\" | \"empty\" | \"error\" | \"loading\"",
+        "required": false,
+        "description": "The UI state this image shows. Set it whenever the image is one side of a comparison — before/after is the most useful pair in a PR, and is what makes `find_files` with state=after work later."
+      },
+      {
+        "name": "app",
+        "type": "string",
+        "required": false,
+        "description": "Which surface is shown: web, ios, android, cli. Worth setting only when the same route exists on more than one surface."
+      },
+      {
+        "name": "screen",
+        "type": "string",
+        "required": false,
+        "description": "The app screen shown, for views with no route (a mobile or desktop screen), e.g. \"Chat\". Shown under the image in the PR comment. Use `path` in metadata for web routes."
+      },
+      {
+        "name": "replace",
+        "type": "boolean",
+        "required": false,
+        "description": "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite."
+      }
+    ],
+    "returns": [
+      "workspace",
+      "expiresAt",
+      "uploads",
+      "next",
+      "hint"
+    ]
+  },
+  {
+    "name": "list",
+    "title": "List files",
+    "description": "List uploaded objects in the workspace, optionally filtered by key prefix. Paginate with cursor; each item includes its public URL when the workspace has one.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Key prefix filter."
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "Page size (default 100, max 1000)."
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": "Pagination cursor from a previous call."
+      }
+    ],
+    "returns": [
+      "items",
+      "cursor",
+      "prefixes"
+    ]
+  },
+  {
+    "name": "list_activity",
+    "title": "List recent activity",
+    "description": "Recent GitHub-tagged activity in this workspace, grouped by pull request (default) or by repo. Pull rows are pull requests that received media tagged gh.kind=pull, newest last_media_at first. The default window is 90 days. Set all to true to lift it. Optional repo and state (open, closed, or merged) narrow those rows. A title is included only when the repo is linked to this workspace. Repo rows are distinct gh.repo values, newest metadata updated_at first. These times are not the object's uploaded-at. Untagged uploads are absent. This does not publish a feed. Pass cursor back unchanged with the same arguments for the next page. Use list_repo_files to open one repo's files, and find_files for tag or filename search in key order.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "by",
+        "type": "\"pull\" | \"repo\"",
+        "required": false,
+        "description": "Group the page by pull request (\"pull\", the default) or by repository (\"repo\")."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "When by is pull, keep rows for this owner/repo only. Ignored values are rejected when by is repo."
+      },
+      {
+        "name": "state",
+        "type": "\"open\" | \"closed\" | \"merged\"",
+        "required": false,
+        "description": "When by is pull, keep rows in this state. Rows with no stored state drop out. Rejected when by is repo."
+      },
+      {
+        "name": "all",
+        "type": "boolean",
+        "required": false,
+        "description": "When by is pull, include pull requests whose last media is older than 90 days. Default false. Rejected when by is repo."
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "Page size. Pulls default to 20 (max 100). Repos default to 20 (max 50)."
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": "Opaque cursor from the previous page. Send it back with the same by, repo, state, and all."
+      }
+    ],
+    "returns": [
+      "by",
+      "repos",
+      "pulls",
+      "cursor"
+    ]
+  },
+  {
+    "name": "list_repo_files",
+    "title": "List files in a repo",
+    "description": "Files tagged with gh.repo for one repository, newest metadata updated_at first. That time is not the object's uploaded-at. repo is owner/name. Optional pr matches gh.number. Optional path matches the path tag exactly. type is a filename suffix class: screenshot, video, or other. PDFs are other. Promoted copies (gh.status=promoted) are omitted. This does not publish a feed. Pass cursor back unchanged with the same arguments for the next page.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": "GitHub repository as owner/name. Matching is case-insensitive."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "When set, keep files tagged with this pull-request number (gh.number)."
+      },
+      {
+        "name": "path",
+        "type": "string",
+        "required": false,
+        "description": "When set, keep files whose path tag equals this string."
+      },
+      {
+        "name": "type",
+        "type": "\"screenshot\" | \"video\" | \"other\"",
+        "required": false,
+        "description": "Filename suffix class. screenshot is png/jpg/jpeg/webp/gif/avif, video is mp4/webm/mov, and other is everything else (including PDF)."
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "Page size (default 50, max 100)."
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": "Opaque cursor from the previous page. Send it back with the same repo, pr, path, and type."
+      }
+    ],
+    "returns": [
+      "items",
+      "cursor"
+    ]
+  },
+  {
+    "name": "list_staged_media",
+    "title": "Staged media",
+    "description": "Read staged media for one explicit repository and branch in the connected workspace. Read the current checkout's Git remote and branch before calling; the hosted server cannot infer them. Repository and branch match stored lowercase metadata. Excludes promoted and unstaged files. Private, held, missing, and unsupported previews are placeholders. Pass cursor unchanged with the same scope to load more; a non-null cursor means more pages even if this page is empty. Results use object-key order, not newest-first.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": "Explicit GitHub repository owner/name."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": true,
+        "description": "Explicit Git branch, for example feature/settings."
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": ""
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "repo",
+      "branch",
+      "cursor",
+      "items"
+    ]
+  },
+  {
+    "name": "resolve_media_context",
+    "title": "Resolve media context",
+    "description": "Resolve the pull request for one explicit repository and branch. Pass the current PR number when known. Otherwise look up one open same-repository PR only when the repository is linked to this workspace. An unavailable resolution requires an explicit PR number; it does not mean that the PR has no attached files.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "repo",
+      "branch",
+      "pr",
+      "prResolution"
+    ]
+  },
+  {
+    "name": "list_attached_media",
+    "title": "Attached media",
+    "description": "Read media attached to one explicit repository and PR in the connected workspace. Pass the displayed branch as context. PR membership uses repository and PR number, including direct attachments without branch tags. Private and held files remain placeholders. Continue with the returned cursor and the same repository and PR; never combine PRs.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": ""
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "repo",
+      "branch",
+      "cursor",
+      "items",
+      "pr"
+    ]
+  },
+  {
+    "name": "list_staged_scopes",
+    "title": "List staged branches",
+    "description": "List distinct repository/branch pairs with staged files in the connected workspace. Use an explicit pair with list_staged_media; never combine different branches. Results use repository/branch order. Pass cursor unchanged for the next page.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": ""
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "cursor",
+      "scopes"
+    ]
+  },
+  {
+    "name": "unstage",
+    "title": "Unstage files",
+    "description": "Clear staged files for a branch, or specific keys, without deleting them. Sets gh.status=unstaged so they drop out of auto-promotion. Pass repo and branch, or keys. Needs files:write.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Branch whose staged files to clear. Requires repo. Do not combine with keys."
+      },
+      {
+        "name": "keys",
+        "type": "string[]",
+        "required": false,
+        "description": "Object keys to unstage. Do not combine with branch."
+      },
+      {
+        "name": "dryRun",
+        "type": "boolean",
+        "required": false,
+        "description": "Report what would change without writing."
+      }
+    ],
+    "returns": [
+      "dryRun",
+      "repo",
+      "branch",
+      "files",
+      "truncated"
+    ]
+  },
+  {
+    "name": "delete",
+    "title": "Delete file",
+    "description": "Permanently delete one uploaded file by key, along with its metadata. A files:write token can delete a gh/ object the server stamped as its upload. Older files and any other object need files:delete. Deleting a PR or issue attachment refreshes the managed comment.",
+    "access": "destructive",
+    "scopes": [
+      "files:delete"
+    ],
+    "params": [
+      {
+        "name": "key",
+        "type": "string",
+        "required": true,
+        "description": "Object key to delete."
+      }
+    ],
+    "returns": [
+      "key",
+      "deleted",
+      "dryRun",
+      "commentRefreshed",
+      "commentHint"
+    ]
+  },
+  {
+    "name": "comment",
+    "title": "Sync attachments comment",
+    "description": "Refresh the managed attachments comment on a GitHub PR or issue without re-uploading. Use after deleting media. Requires `repo` and exactly one of `pr`/`issue`. `held` counts files there held for review; see `list_held`.",
+    "access": "destructive",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Pull request number. Mutually exclusive with issue."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Issue number. Mutually exclusive with pr."
+      }
+    ],
+    "returns": [
+      "posted",
+      "reason",
+      "message",
+      "fixUrl",
+      "required",
+      "action",
+      "count",
+      "commentUrl",
+      "held"
+    ]
+  },
+  {
+    "name": "promote",
+    "title": "Promote staged attachments",
+    "description": "Copy staged or existing files into a PR's stable `gh/…/pull/…` prefix, then refresh the managed comment. Pass `branch` and/or `keys`. Requires `repo` and `pr`.",
+    "access": "destructive",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": true,
+        "description": "Pull request number to promote/attach into. Never applies to issues."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Staged branch to copy into the PR."
+      },
+      {
+        "name": "keys",
+        "type": "string[]",
+        "required": false,
+        "description": "Already-uploaded object keys or uploads.sh URLs to copy into the PR. One bad source does not abort the rest."
+      },
+      {
+        "name": "move",
+        "type": "boolean",
+        "required": false,
+        "description": "For `keys` only: delete each source after a successful copy. Default false. Ignored for the branch sweep."
+      },
+      {
+        "name": "comment",
+        "type": "boolean",
+        "required": false,
+        "description": "Refresh the managed attachments comment after a successful copy. Default true. A comment failure never fails the copy."
+      }
+    ],
+    "returns": [
+      "promotion",
+      "attached",
+      "attachFailures",
+      "comment",
+      "commentError"
+    ]
+  },
+  {
+    "name": "get_metadata",
+    "title": "Get metadata",
+    "description": "Read the queryable tags on one file. Returns `{ metadata }` (empty when none).",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "key",
+        "type": "string",
+        "required": true,
+        "description": "Object key to inspect."
+      }
+    ],
+    "returns": [
+      "metadata"
+    ]
+  },
+  {
+    "name": "list_held",
+    "title": "List held files",
+    "description": "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`) and `area`, an approximate box around the flagged content as fractions of the image (null when unknown).",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Held files on this pull request."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Held files on this issue."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Only keys under this prefix."
+      }
+    ],
+    "returns": [
+      "items"
+    ]
+  },
+  {
+    "name": "approve",
+    "title": "Approve held files",
+    "description": "Release uploads held for review (see `list_held`): pass `keys`, or `pr`/`issue` + `repo` to approve every held file there. The file returns at the same URL and the managed PR comment re-syncs. Check the file first: if it shows a real credential, rotate it and delete the file instead of approving. Same as `uploads approve`.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "keys",
+        "type": "string[]",
+        "required": false,
+        "description": "Held keys to approve."
+      },
+      {
+        "name": "pr",
+        "type": "number",
+        "required": false,
+        "description": "Approve every held file on this pull request."
+      },
+      {
+        "name": "issue",
+        "type": "number",
+        "required": false,
+        "description": "Approve every held file on this issue."
+      },
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      }
+    ],
+    "returns": [
+      "files"
+    ]
+  },
+  {
+    "name": "set_metadata",
+    "title": "Set metadata",
+    "description": "Set or delete queryable tags on an existing file. `set` wins over `delete` for the same key. Tags appear on the public file page — do not store secrets. Requires `set` and/or `delete`.",
+    "access": "destructive",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "key",
+        "type": "string",
+        "required": true,
+        "description": "Object key to update."
+      },
+      {
+        "name": "set",
+        "type": "object",
+        "required": false,
+        "description": "Keys to set or overwrite. Use `path` for the route (e.g. /settings), not route/page."
+      },
+      {
+        "name": "delete",
+        "type": "string[]",
+        "required": false,
+        "description": "Keys to remove."
+      }
+    ],
+    "returns": [
+      "metadata"
+    ]
+  },
+  {
+    "name": "find_files",
+    "title": "Find files",
+    "description": "Search files by metadata (`filters`) and/or filename substring (`name`). At least one is required.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "filters",
+        "type": "object",
+        "required": false,
+        "description": "Equality filters; all must match. Use `path` for the route (e.g. /settings), not route/page. Optional when `name` is set."
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Case-insensitive substring match on object keys (1–128 chars). Optional when `filters` is non-empty."
+      },
+      {
+        "name": "prefix",
+        "type": "string",
+        "required": false,
+        "description": "Key prefix filter, combinable with filters/name."
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "Page size (default 50, max 500)."
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": "Opaque continuation from a previous call's `cursor`. Pass it back unchanged with the same filters/name to get the next page; a null `cursor` means there are no more pages."
+      }
+    ],
+    "returns": [
+      "items",
+      "cursor",
+      "truncated"
+    ]
+  },
+  {
+    "name": "list_metadata_keys",
+    "title": "List metadata keys",
+    "description": "List metadata keys in the workspace (with counts). Pass `key` to list that key's values instead. Use before `find_files`.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "key",
+        "type": "string",
+        "required": false,
+        "description": "When set, return distinct values for this metadata key (with counts) instead of the key list."
+      }
+    ],
+    "returns": [
+      "keys",
+      "truncated",
+      "key",
+      "values"
+    ]
+  },
+  {
+    "name": "repo_link_status",
+    "title": "Check repo binding",
+    "description": "Whether files staged for a repo will auto-attach into that repo's PRs from this workspace. Returns a tri-state `binding`: \"self\" (this repo is bound to this workspace — staged files will auto-attach), \"other\" (bound to a different workspace — they will not; the owning workspace is deliberately never disclosed), or \"none\" (unbound).",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": "GitHub repo as owner/name."
+      }
+    ],
+    "returns": [
+      "binding"
+    ]
+  },
+  {
+    "name": "usage",
+    "title": "Show usage",
+    "description": "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured).",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [],
+    "returns": [
+      "workspace",
+      "bytes",
+      "objects",
+      "sharedBytes",
+      "sharedObjects",
+      "uploadsInPeriod",
+      "periodStart",
+      "updatedAt",
+      "storageBudgetBasis",
+      "maxStorageBytes",
+      "storageRemainingBytes",
+      "maxUploadsPerPeriod",
+      "uploadsRemaining",
+      "scopes",
+      "plan",
+      "storage"
+    ]
+  },
+  {
+    "name": "reconcile",
+    "title": "Reconcile usage",
+    "description": "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [],
+    "returns": [
+      "workspace",
+      "bytes",
+      "objects",
+      "previous",
+      "changed",
+      "usage",
+      "unprefixedBucket"
+    ]
+  },
+  {
+    "name": "purge_expired",
+    "title": "Purge expired files",
+    "description": "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete.",
+    "access": "destructive",
+    "scopes": [
+      "files:delete"
+    ],
+    "params": [],
+    "returns": [
+      "skipped",
+      "reason",
+      "workspace",
+      "retentionDays",
+      "cutoff",
+      "deleted",
+      "freedBytes",
+      "keys",
+      "keysTruncated",
+      "reconcile"
+    ]
+  },
+  {
+    "name": "search_docs",
+    "title": "Search uploads.sh docs",
+    "description": "Search the public uploads.sh documentation. Use this to answer questions about uploads.sh product workflows, including: attaching screenshots and video to GitHub PRs and issues; staging files before a PR exists; galleries; the GitHub App; comment config (.uploads.yml); hosted MCP and agent setup; screenshot capture and annotate; plans and limits; bring-your-own bucket. Same as `uploads docs`. Returns titles, URLs, and snippets. Pass `page` to fetch the full markdown of one page (slug, path, or URL). Omit `query` to list the catalog.",
+    "access": "read",
+    "scopes": [],
+    "params": [
+      {
+        "name": "query",
+        "type": "string",
+        "required": false,
+        "description": "Search query (e.g. 'stage before a PR'). A single slug like 'attach' fetches that page."
+      },
+      {
+        "name": "page",
+        "type": "string",
+        "required": false,
+        "description": "Fetch one page as markdown. Accepts a slug (`attach`), path (`/docs/agents`), or https://uploads.sh URL."
+      },
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "How many search hits to return (default 5, max 50). Ignored when fetching one page."
+      }
+    ],
+    "returns": [
+      "url",
+      "query",
+      "results",
+      "total"
+    ]
+  },
+  {
+    "name": "changelog",
+    "title": "Product changelog",
+    "description": "Read recent uploads.sh product updates (platform and CLI). Returns the latest entries with titles, dates, summaries, and a link to the full changelog at https://uploads.sh/changelog. Same as `uploads changelog`.",
+    "access": "read",
+    "scopes": [],
+    "params": [
+      {
+        "name": "limit",
+        "type": "number",
+        "required": false,
+        "description": "How many entries to return (default 5, max 50)."
+      }
+    ],
+    "returns": [
+      "url",
+      "feed",
+      "entries"
+    ]
+  },
+  {
+    "name": "whoami",
+    "title": "Who am I",
+    "description": "Show the current uploads.sh identity: the workspace this token acts in and its scopes. A successful result also means the server is up.",
+    "access": "read",
+    "scopes": [],
+    "params": [],
+    "returns": [
+      "ok",
+      "workspace",
+      "scopes",
+      "userId",
+      "serviceToken",
+      "signedIn",
+      "apiUrl"
+    ]
+  },
+  {
+    "name": "open_staged_media",
+    "title": "Uploads",
+    "description": "Open Uploads beside the conversation to review staged files and files attached to the current PR. Read the checkout's Git remote and branch and pass repo (owner/name), branch, and the current pr number when known. Without repo and branch, show a scope picker; never assume a checkout. Refresh keeps the displayed scope until it is changed.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "Explicit repository as owner/name."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Explicit Git branch for this tray."
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": false,
+        "description": "Current pull-request number, when known."
+      }
+    ],
+    "returns": []
+  }
+]

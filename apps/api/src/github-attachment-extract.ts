@@ -121,6 +121,41 @@ export function hasIngestableAttachmentUrl(text: string): boolean {
   return hasUserAttachmentUrl(text) || hasCursorContentUrl(text);
 }
 
+/** Image and video extensions a repo-hosted link must end in to count as media. */
+const REPO_MEDIA_EXT = "(?:png|jpe?g|gif|webp|avif|svg|mp4|mov|webm)";
+const REPO_MEDIA_RE = new RegExp(
+  "https://(?:github\\.com/([\\w.-]+/[\\w.-]+)/(?:blob|raw)/" +
+    "|raw\\.githubusercontent\\.com/([\\w.-]+/[\\w.-]+)/)" +
+    `[^\\s)"'<>\\]?#]+\\.${REPO_MEDIA_EXT}(?=[.,;:]?(?:[?#\\s)"'<>\\]]|$))`,
+  "gi",
+);
+
+/**
+ * Images and videos committed to `repo` itself and linked from the text
+ * (`github.com/o/r/blob/<ref>/x.png?raw=true`, `/raw/`, or
+ * `raw.githubusercontent.com`). Counted toward the check only, never
+ * ingested: the bytes already live in the repo. Links into other repos
+ * don't count. One per distinct path.
+ */
+export function extractRepoMediaLinks(text: string, repo: string): string[] {
+  if (!text.includes("github")) return [];
+  const want = repo.toLowerCase();
+  const seen = new Set<string>();
+  for (const m of text.matchAll(REPO_MEDIA_RE)) {
+    if ((m[1] ?? m[2]).toLowerCase() !== want) continue;
+    seen.add(m[0].toLowerCase());
+  }
+  return [...seen];
+}
+
+/** Cheap wake gate: the text may link media committed to some repo. */
+export function hasRepoMediaUrl(text: string): boolean {
+  return (
+    text.includes("raw.githubusercontent.com/") ||
+    (text.includes("github.com/") && (text.includes("/blob/") || text.includes("/raw/")))
+  );
+}
+
 export function isCursorAssetId(id: string): boolean {
   return id.startsWith("cursor/");
 }

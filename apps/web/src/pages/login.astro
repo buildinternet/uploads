@@ -3,9 +3,11 @@ import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
 import { applyAuthSecurityHeaders, authPageCsp } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
 import LegalConsent from "../components/LegalConsent.astro";
+import ProductUpdatesConsent from "../components/ProductUpdatesConsent.astro";
 
 export const prerender = false;
 
@@ -148,6 +150,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     </style>
   </head>
   <body>
+    <ThemeToggle floating />
     <main>
       <div class="brandbar"><Brand /></div>
       <h1>Sign in</h1>
@@ -180,6 +183,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         </form>
         <div class="ul-callout status" id="error" data-state="error" role="alert" hidden></div>
         <LegalConsent />
+        <ProductUpdatesConsent />
       </div>
 
       <Footer compact />

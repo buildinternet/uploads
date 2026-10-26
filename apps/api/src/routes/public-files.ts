@@ -1,17 +1,25 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
-import type { Files, StorageConfig } from "@uploads/storage";
+import {
+  ServerTiming,
+  serverTimingDisabled,
+  slowOpThresholdMs,
+  timeOp,
+} from "@uploads/observability";
+import type { FileInfo, Files, StorageConfig } from "@uploads/storage";
 import {
   findCounterpartCandidate,
   isPairableImageContentType,
   type BeforeAfterState,
 } from "../before-after";
-import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
-import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
+import { badKey, downloadResponse, publicObjectDateFields } from "../files-read";
+import { displayTitle, getFileMetadata, publicFileMetadata } from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
-import { resolveTitles, withPublicTitleBudget } from "../github-titles";
-import { videoPresentation } from "../poster";
-import { objectPublicUrls, resolveObjectLane } from "../storage";
+import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
+import { videoPresentation } from "../poster-presentation";
+import { objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
+import { isHeld } from "../upload-hold";
+import { isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
@@ -24,7 +32,7 @@ interface GithubContext {
   kind: GithubKind;
   number: number;
   url: string;
-  /** Attach-time stamp and/or live resolveTitles overlay; omitted when unknown. */
+  /** Attach-time stamp and/or verified-public cache overlay; omitted when unknown. */
   title?: string;
   /** API proxy for the repo owner avatar; omitted when owner is invalid. */
   avatarUrl?: string;
@@ -77,9 +85,20 @@ function githubRefKey(metadata: Record<string, string>, github: GithubContext): 
   return `${github.repo.toLowerCase()}#${github.number}`;
 }
 
+/** Cache previews by bytes, while copied/download URLs keep their stable identity. */
+function previewUrl(url: string, etag: string | undefined): string {
+  if (!etag) return url;
+  const versioned = new URL(url);
+  versioned.searchParams.set("v", etag);
+  return versioned.href;
+}
+
+type Measure = <T>(name: string, work: () => Promise<T>) => Promise<T>;
+
 interface ResolvedPublicObject {
+  metadata: Record<string, string>;
   store: Files;
-  meta: { size?: number; type?: string; lastModified?: number; metadata?: Record<string, string> };
+  meta: FileInfo;
   urls: { url: string | null; embedUrl: string | null };
   env: Env;
   cfg: StorageConfig;
@@ -98,23 +117,31 @@ interface ResolvedPublicObject {
  * lane actually holds the key — a file uploaded before a storage switch keeps
  * resolving from its original lane — and the public URL is derived from that
  * lane's config, not the workspace's current active lane. Single-lane records
- * (no `storageLanes`) take the exact path this always has: one `exists` call
- * against the active lane.
+ * (no `storageLanes`) need one HEAD call against the active lane. The HEAD
+ * result is reused for the visibility gate.
  */
 async function resolvePublicObject(
   env: Env,
   workspace: string,
   key: string,
+  measure: Measure,
 ): Promise<ResolvedPublicObject> {
   if (badKey(key)) throw new NotFoundError();
 
   // Validates the workspace name (WS_NAME_RE) before the KV lookup, matching the
   // authenticated paths rather than trusting the raw path param.
-  const record = await loadWorkspaceRecord(env, workspace);
+  const record = await measure("file_workspace", () => loadWorkspaceRecord(env, workspace));
   if (!record) throw new NotFoundError();
 
-  const lane = await resolveObjectLane(env, record, key);
-  if (!lane) throw new NotFoundError();
+  const lane = await measure("file_storage", () => resolveObjectLaneWithHead(env, record, key));
+  if (!lane) {
+    // A moved hold has no public object. Answer like a private file so a
+    // signed-in member's file page can show the hold and Approve.
+    if (await isKeyHeld(env, workspace, key)) {
+      throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+    }
+    throw new NotFoundError();
+  }
 
   // Phase 1 is public-workspace-only: resolving the public URL doubles as the
   // visibility gate. A lane without a public base URL cannot be wrapped here
@@ -124,13 +151,22 @@ async function resolvePublicObject(
   const urls = objectPublicUrls(env, lane.config, key);
   if (!urls.url) throw new NotFoundError();
 
-  const meta = await lane.store.head(key);
+  const meta = lane.head;
 
   if (objectVisibility(meta.metadata ?? undefined)) {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
+  // One fresh D1 read supplies both the hold gate and the response metadata.
+  // Keep it after the private-object gate; nothing from either check is cached.
+  const metadata = await measure("file_metadata", () =>
+    getFileMetadata(dbFor(env), workspace, key),
+  );
+  // A held upload (`upload-hold.ts`) gets the same answer as a private one.
+  if (isHeld(metadata)) {
+    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+  }
 
-  return { store: lane.store, meta, urls, env, cfg: lane.config, record };
+  return { store: lane.store, meta, metadata, urls, env, cfg: lane.config, record };
 }
 
 /**
@@ -165,99 +201,145 @@ async function resolvePublicObject(
  * resolved object.
  */
 export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}", async (c) => {
-  const workspace = c.req.param("workspace");
-  const key = c.req.param("key");
-  const { store, meta, urls, env, cfg, record } = await resolvePublicObject(c.env, workspace, key);
+  const timing = new ServerTiming();
+  const started = Date.now();
+  const measure: Measure = (name, work) =>
+    timeOp(work, {
+      name,
+      timing,
+      route: "/public/files/:workspace/:key",
+      thresholdMs: slowOpThresholdMs(c.env),
+    });
+  // Replaced objects, private flips, and holds must be checked on every open.
+  c.header("Cache-Control", "no-store");
+  try {
+    const workspace = c.req.param("workspace");
+    const key = c.req.param("key");
+    const { store, meta, metadata, urls, env, cfg, record } = await resolvePublicObject(
+      c.env,
+      workspace,
+      key,
+      measure,
+    );
 
-  const downloadParam = c.req.query("download");
-  if (downloadParam === "1" || downloadParam === "true") {
-    const filename = key.split("/").filter(Boolean).pop() ?? key;
-    return downloadResponse(store, key, filename);
-  }
+    const downloadParam = c.req.query("download");
+    if (downloadParam === "1" || downloadParam === "true") {
+      c.res = await downloadResponse(store, key);
+      return c.res;
+    }
 
-  // After the visibility gate — private objects 401 before this D1 read.
-  const metadata = await getFileMetadata(dbFor(c.env), workspace, key);
-  let github = deriveGithubContext(metadata);
+    let github = deriveGithubContext(metadata);
+    // Overlap the bounded display-cache read with counterpart verification.
+    const cachedTitle = github
+      ? measure("file_title_cache", () =>
+          withPublicTitleBudget(readCachedPublicTitle(c.env, githubRefKey(metadata, github!)), 75),
+        ).catch(() => null)
+      : Promise.resolve(null);
 
-  // `video.*` rows are server-owned (issue #299) and never meant to reach
-  // clients as generic metadata — only via the derived posterUrl/videoDimensions
-  // fields below. Filter them out of the raw metadata pass-through the same way
-  // provenance/visibility are already excluded from D1 reads entirely.
-  const publicMetadata = Object.fromEntries(
-    Object.entries(metadata).filter(([metaKey]) => !isServerMetaKey(metaKey)),
-  );
+    const publicMetadata = publicFileMetadata(metadata);
 
-  // Before/after counterpart (issue #420). findCounterpartCandidate only
-  // proposes a key from D1 metadata / filename convention — it has no
-  // storage binding, so this route must independently verify the candidate
-  // exists, is public, AND is an image before ever mentioning it in the
-  // response. Skipping any of those would either leak the existence of a
-  // private counterpart object, or hand the web page's static side-by-side
-  // layout (issue #420 v1 renders both sides as an image element) a video
-  // or other non-image file it can't render that way. Two-lane storage
-  // (CodeRabbit review, PR #771): the counterpart is resolved via its OWN
-  // lane, not the primary object's `store`/`cfg` — a before/after pair can
-  // straddle a storage switch just like any other pair of keys.
-  let counterpart: { key: string; url: string; state: BeforeAfterState } | undefined;
-  const ownContentType = meta.type ?? "application/octet-stream";
-  const candidate = isPairableImageContentType(ownContentType)
-    ? await findCounterpartCandidate(dbFor(c.env), workspace, key, metadata)
-    : null;
-  if (candidate && candidate.key !== key) {
-    const counterpartLane = await resolveObjectLane(env, record, candidate.key);
-    if (counterpartLane) {
-      const counterpartMeta = await counterpartLane.store.head(candidate.key);
-      const counterpartType = counterpartMeta.type ?? "application/octet-stream";
-      if (
-        isPairableImageContentType(counterpartType) &&
-        !objectVisibility(counterpartMeta.metadata ?? undefined)
-      ) {
-        const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);
-        if (counterpartUrls.url) {
-          counterpart = { key: candidate.key, url: counterpartUrls.url, state: candidate.state };
+    // Before/after counterpart (issue #420). findCounterpartCandidate only
+    // proposes a key from D1 metadata / filename convention — it has no
+    // storage binding, so this route must independently verify the candidate
+    // exists, is public, AND is an image before ever mentioning it in the
+    // response. Skipping any of those would either leak the existence of a
+    // private counterpart object, or hand the web page's static side-by-side
+    // layout (issue #420 v1 renders both sides as an image element) a video
+    // or other non-image file it can't render that way. Two-lane storage
+    // (CodeRabbit review, PR #771): the counterpart is resolved via its OWN
+    // lane, not the primary object's `store`/`cfg` — a before/after pair can
+    // straddle a storage switch just like any other pair of keys.
+    const ownContentType = meta.contentType ?? "application/octet-stream";
+    const counterpart = await measure("file_pair", async () => {
+      let result:
+        | { key: string; url: string; previewUrl: string; state: BeforeAfterState }
+        | undefined;
+      const candidate = isPairableImageContentType(ownContentType)
+        ? await findCounterpartCandidate(dbFor(c.env), workspace, key, metadata)
+        : null;
+      if (candidate && candidate.key !== key) {
+        const counterpartLane = await resolveObjectLaneWithHead(env, record, candidate.key);
+        if (counterpartLane) {
+          const counterpartMeta = counterpartLane.head;
+          const counterpartType = counterpartMeta.contentType ?? "application/octet-stream";
+          if (
+            isPairableImageContentType(counterpartType) &&
+            !objectVisibility(counterpartMeta.metadata ?? undefined) &&
+            !(await isKeyHeld(env, workspace, candidate.key))
+          ) {
+            const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);
+            if (counterpartUrls.url) {
+              result = {
+                key: candidate.key,
+                url: counterpartUrls.url,
+                previewUrl: previewUrl(counterpartUrls.url, counterpartMeta.etag),
+                state: candidate.state,
+              };
+            }
+          }
         }
       }
+
+      return result;
+    });
+
+    const { posterUrl, videoDimensions } = videoPresentation(
+      env,
+      cfg,
+      key,
+      metadata,
+      ownContentType,
+    );
+
+    // Serve only an epoch-checked public cache hit or the attach-time stamp.
+    // Optional display enrichment cannot hold the page hostage to GitHub.
+    if (github) {
+      const ref = githubRefKey(metadata, github);
+      const cached = await cachedTitle;
+      const title = displayTitle(cached?.value?.title) ?? github.title;
+      if (!cached) {
+        // Hono's executionCtx getter throws in non-Workers callers. Without a
+        // lifetime owner, skip optional refresh rather than leave floating I/O.
+        let ctx: Pick<ExecutionContext, "waitUntil"> | undefined;
+        try {
+          ctx = c.executionCtx;
+        } catch {
+          /* no background lifetime */
+        }
+        if (ctx) ctx.waitUntil(resolveTitles(c.env, [ref], { audience: "public" }).catch(() => {}));
+      }
+      const owner = ownerFromRepo(github.repo);
+      github = {
+        repo: github.repo,
+        kind: github.kind,
+        number: github.number,
+        url: github.url,
+        ...(title ? { title } : {}),
+        ...(owner ? { avatarUrl: githubAvatarProxyUrl(requestOrigin(c.req.url), owner) } : {}),
+      };
+    }
+
+    c.res = c.json({
+      workspace,
+      key,
+      url: urls.url,
+      previewUrl: previewUrl(urls.url!, meta.etag),
+      embedUrl: urls.embedUrl,
+      size: meta.size ?? 0,
+      contentType: meta.contentType ?? "application/octet-stream",
+      ...publicObjectDateFields(meta),
+      ...(publicMetadata ? { metadata: publicMetadata } : {}),
+      ...(github ? { github } : {}),
+      ...(posterUrl ? { posterUrl } : {}),
+      ...(videoDimensions ? { videoDimensions } : {}),
+      ...(counterpart ? { counterpart } : {}),
+    });
+    return c.res;
+  } finally {
+    timing.record({ name: "file_api", wallMs: Date.now() - started });
+    if (!serverTimingDisabled(c.env)) {
+      const header = timing.header();
+      if (header) c.header("Server-Timing", header, { append: true });
     }
   }
-
-  const { posterUrl, videoDimensions } = videoPresentation(env, cfg, key, metadata, ownContentType);
-
-  // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
-  // budget timeouts never 500 — keep the stamp or omit title entirely.
-  // avatarUrl is pure derivation from gh.repo — no extra network here.
-  if (github) {
-    const ref = githubRefKey(metadata, github);
-    let title = github.title;
-    try {
-      const titles = await withPublicTitleBudget(resolveTitles(c.env, [ref]));
-      const live = titles ? displayTitle(titles[ref]?.title) : undefined;
-      if (live) title = live;
-    } catch {
-      // Missing GITHUB_CACHE / App misconfig / transient — keep stamp if any.
-    }
-    const owner = ownerFromRepo(github.repo);
-    github = {
-      repo: github.repo,
-      kind: github.kind,
-      number: github.number,
-      url: github.url,
-      ...(title ? { title } : {}),
-      ...(owner ? { avatarUrl: githubAvatarProxyUrl(requestOrigin(c.req.url), owner) } : {}),
-    };
-  }
-
-  return c.json({
-    workspace,
-    key,
-    url: urls.url,
-    embedUrl: urls.embedUrl,
-    size: meta.size ?? 0,
-    contentType: meta.type ?? "application/octet-stream",
-    ...publicObjectDateFields(meta),
-    ...(Object.keys(publicMetadata).length > 0 ? { metadata: publicMetadata } : {}),
-    ...(github ? { github } : {}),
-    ...(posterUrl ? { posterUrl } : {}),
-    ...(videoDimensions ? { videoDimensions } : {}),
-    ...(counterpart ? { counterpart } : {}),
-  });
 });

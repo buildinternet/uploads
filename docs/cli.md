@@ -81,30 +81,33 @@ command to run by hand, rather than overwriting your build.
 
 ## Command overview
 
-| Command                    | What it does                                                                                                             |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `attach <file\|key\|url…>` | Attach media (local files, or already-uploaded keys/URLs via server-side copy) to the current PR (stable URLs + comment) |
-| `put <file\|--url…>`       | Upload a local file or a fetched URL → public URL + GitHub markdown                                                      |
-| `screenshot <url\|html>`   | Capture a page (or local HTML) and host it in one step                                                                   |
-| `annotate <image>`         | Bake boxes, arrows, labels, strokes, and redactions onto an image                                                        |
-| `comment`                  | Create/update a PR/issue attachments comment (via `gh`)                                                                  |
-| `ingest`                   | Mirror `github.com/user-attachments` and public Cursor `/artifacts/c/art-*` URLs from a PR/issue into the workspace      |
-| `list` / `find k=v`        | List objects, optionally filtered by queryable metadata                                                                  |
-| `meta get` / `meta set`    | Read or merge-set an object's queryable metadata                                                                         |
-| `gallery …`                | Create and organize public media galleries                                                                               |
-| `delete <key>`             | Delete an object                                                                                                         |
-| `usage`                    | Workspace storage / upload counters                                                                                      |
-| `install`                  | Skills + remote MCP (Claude/Codex/Grok; skips missing CLIs) + hooks (Grok/Cursor)                                        |
-| `hook`                     | Agent harness handlers (e.g. pre-PR screenshot reminder)                                                                 |
-| `update`                   | Update the CLI, then refresh skills / MCP / hooks                                                                        |
-| `changelog`                | Recent product updates, then a link to https://uploads.sh/changelog                                                      |
-| `docs [query]`             | Search public docs (or fetch one page as markdown)                                                                       |
-| `login` / `logout`         | Sign in (browser or enrollment code) / clear saved token                                                                 |
-| `whoami` (`status`)        | Show the active workspace and token                                                                                      |
-| `invite`                   | Invite a teammate to a workspace (workspace admin)                                                                       |
-| `doctor` / `health`        | Health + auth + workspace checks / API liveness                                                                          |
-| `setup` / `config`         | Inspect and configure CLI settings                                                                                       |
-| `mcp`                      | Serve MCP over stdio, both spec eras (tools mirror the CLI)                                                              |
+| Command                    | What it does                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `attach <file\|key\|url…>` | Attach media (local files, or already-uploaded keys/URLs via server-side copy) to the current PR (stable URLs + comment)                          |
+| `put <file\|--url…>`       | Upload a local file or a fetched URL → public URL + GitHub markdown                                                                               |
+| `screenshot <url\|html>`   | Capture a page (or local HTML) and host it in one step                                                                                            |
+| `annotate <image>`         | Bake boxes, arrows, labels, strokes, and redactions onto an image                                                                                 |
+| `comment`                  | Create/update a PR/issue attachments comment (via `gh`)                                                                                           |
+| `ingest`                   | Mirror `github.com/user-attachments` and public Cursor `/artifacts/c/art-*` URLs from a PR/issue into the workspace                               |
+| `list` / `find k=v`        | List objects, optionally filtered by queryable metadata                                                                                           |
+| `meta get` / `meta set`    | Read or merge-set an object's queryable metadata                                                                                                  |
+| `gallery …`                | Create and organize public media galleries                                                                                                        |
+| `staged`                   | Show what's staged for a branch, and whether it will auto-attach                                                                                  |
+| `unstage`                  | Mark a branch's staged files (or specific keys) `gh.status=unstaged` without deleting them                                                        |
+| `approve`                  | List files held for review on a PR/issue, or approve them (`--all`, or keys). Held files are likely secrets or personal data                      |
+| `delete <key>`             | Delete an object. A `files:write` token can delete a `gh/` object the server stamped as theirs; older files and other deletes need `files:delete` |
+| `usage`                    | Workspace storage / upload counters                                                                                                               |
+| `install`                  | Skills + remote MCP (Claude/Codex/Grok; skips missing CLIs) + hooks (Grok/Cursor)                                                                 |
+| `hook`                     | Agent harness handlers (e.g. pre-PR screenshot reminder)                                                                                          |
+| `update`                   | Update the CLI, then refresh skills / MCP / hooks                                                                                                 |
+| `changelog`                | Recent product updates, then a link to https://uploads.sh/changelog                                                                               |
+| `docs [query]`             | Search public docs (or fetch one page as markdown)                                                                                                |
+| `login` / `logout`         | Sign in (browser or enrollment code) / clear saved token                                                                                          |
+| `whoami` (`status`)        | Show the active workspace and token                                                                                                               |
+| `invite`                   | Invite a teammate to a workspace (workspace admin)                                                                                                |
+| `doctor` / `health`        | Health + auth + workspace checks / API liveness                                                                                                   |
+| `setup` / `config`         | Inspect and configure CLI settings                                                                                                                |
+| `mcp`                      | Serve MCP over stdio, both spec eras (tools mirror the CLI)                                                                                       |
 
 Run `uploads <command> --help` for a command's flags.
 
@@ -231,7 +234,7 @@ direction: images someone dropped straight into a PR/issue via
 authenticated hosting, and public Cursor cloud-agent rewrite URLs
 (`cursor.com/artifacts/c/art-*`). `uploads ingest --pr <n>` (or `--issue <n>`)
 scans the description and comments, mirrors any new ones into the workspace
-(indexed, not added to the managed comment), and detaches ones no longer
+(indexed and included in the managed comment), and detaches ones no longer
 referenced. Viewer (`/artifacts/v/`) and login-walled agent-page links are
 skipped — enable **Allow posting artifacts to GitHub** so the PR gets a public
 `/c/` URL.
@@ -283,12 +286,13 @@ is separate from optimize/frame provenance.
 
 Suggested pairs for screenshots:
 
-| Key     | Example                             | Meaning                                                                                         |
-| ------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`   | `https://app.example/settings`      | Page URL the shot was taken from                                                                |
-| `path`  | `/settings` or `Settings > Profile` | In-app route or nav path                                                                        |
-| `app`   | `web`, `ios`, `android`             | Surface / product shown                                                                         |
-| `state` | `before`, `after`                   | UI state shown (`before`, `after`, `empty`, `error`, `loading`); `--state <s>` is the shorthand |
+| Key      | Example                             | Meaning                                                                                         |
+| -------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`    | `https://app.example/settings`      | Page URL the shot was taken from                                                                |
+| `path`   | `/settings` or `Settings > Profile` | In-app route or nav path                                                                        |
+| `screen` | `Chat`                              | App screen with no route (mobile, desktop); `--screen <name>` is the shorthand                  |
+| `app`    | `web`, `ios`, `android`             | Surface / product shown                                                                         |
+| `state`  | `before`, `after`                   | UI state shown (`before`, `after`, `empty`, `error`, `loading`); `--state <s>` is the shorthand |
 
 ```bash
 uploads put ./settings.png \
@@ -321,7 +325,9 @@ resolve the PR/issue title. Title resolution is best-effort and never blocks the
 upload.
 
 Branch staging (`attach --branch`) stamps `gh.status=staged`, which promotion
-flips to `promoted`. Query in-flight files with `uploads find gh.status=staged`.
+flips to `promoted`. `uploads unstage --branch <name>` sets `gh.status=unstaged`
+instead: the object and URL stay, and promotion skips the file. Query in-flight
+files with `uploads find gh.status=staged`.
 Promotion only accepts a staged file while it's fresh: 30 days after
 `gh.staged-at` (`FRESHNESS_WINDOW_MS`, `apps/api/src/github-promote.ts`) the file
 stops being promotable, but it **keeps serving** — nothing deletes it. There is
@@ -346,9 +352,9 @@ The command also accepts local files or existing object keys. It promotes the
 old branch prefix before it runs the normal attach and managed-comment flow.
 
 On a `gh.*`-tagged upload, the server also stamps `gh.uploader` (GitHub login)
-and `gh.uploader-id` from the user who minted the bearer token. These are
-attribution only, not access control, and the server overrides any
-client-supplied value for them.
+and `gh.uploader-id` from the user who minted the bearer token, and a proof
+that own-delete checks. The server drops any client-supplied value for those
+keys. A file uploaded before the proof was stamped still needs `files:delete`.
 
 Non-`gh.*` metadata may appear on the public `/f/…` file page, so don't store
 secrets or private notes.
@@ -423,7 +429,10 @@ fail-open (silent when unconfigured or on any error). Two mutually exclusive
 advisories:
 
 - staged-but-unattached files already exist for the branch (`gh.status=staged`;
-  files already promoted to a PR are ignored) → a binding-aware message
+  files already promoted to a PR are ignored). When every one of them is older
+  than 30 days, the hook suggests `uploads unstage --branch <name>` instead of
+  promoting. When nothing is staged for this branch but another branch still
+  has staged files, it suggests unstage for that branch. Otherwise → a binding-aware message
   (issue #700). When the repo is linked to this workspace, it says the files
   attach automatically when the PR opens. When the link is missing or unknown,
   it keeps the promote suggestion: `uploads attach --promote --pr <num>` once

@@ -38,6 +38,28 @@
    transition, so an `auto` grid track animates with it on collapse (the base
    `.layout` rule above sets that track). */
 
+/* The nav runs to the bottom of the viewport so the usage footer docks
+   there. It is sticky at 28px, but at the top of the page it starts below
+   the 61px site header, so it grows by that much as the header scrolls away
+   (scroll-driven; without support it keeps the shorter height). Nav rows
+   scroll inside SidebarContent when the viewport is short. */
+.account-shell nav.shell-side {
+  --shell-side-head: 61px;
+  height: calc(100svh - var(--shell-side-head) - 56px);
+}
+@supports (animation-timeline: scroll()) {
+  .account-shell nav.shell-side {
+    animation: shell-side-grow linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 var(--shell-side-head);
+  }
+}
+@keyframes shell-side-grow {
+  to {
+    height: calc(100svh - 56px);
+  }
+}
+
 /* Widened rail for the comment-settings 3-column layout (nav · content ·
    preview). Only above --bp-rail (1080px, see signed-in-shell.css) — the
    mid-width and stack breakpoints below already collapse `.layout` back to

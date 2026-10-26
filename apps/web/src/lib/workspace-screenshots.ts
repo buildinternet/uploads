@@ -4,18 +4,30 @@
  * list), so media kind is inferred from the key's extension — same trade-off
  * the search results accept.
  */
+import {
+  fileTypeClassFromKey,
+  type FileSurface,
+  type FileTypeClass,
+} from "@uploads/comment-render/scope";
+import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
+import type { GithubTitleMap } from "./api-client";
+import {
+  FILE_SURFACE_LABELS,
+  filesBasePath,
+  parseFileTypeParam,
+  parseSinceParam,
+  parseSurfaceParam,
+  readFilesView,
+  type SinceFilter,
+} from "./files-view-state";
+import type { MediaTileInput } from "./media-tile";
 
 export type ShotKind = "image" | "video" | "other";
 
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif", "avif"]);
-const VIDEO_EXT = new Set(["mp4", "webm", "mov"]);
-
+/** Media kind from the key's extension, through the rule the API's type filter shares. */
 export function shotKindFromKey(key: string): ShotKind {
-  const match = /\.([a-z0-9]{1,8})$/i.exec(key);
-  const ext = match?.[1]?.toLowerCase() ?? "";
-  if (IMAGE_EXT.has(ext)) return "image";
-  if (VIDEO_EXT.has(ext)) return "video";
-  return "other";
+  const cls = fileTypeClassFromKey(key);
+  return cls === "screenshot" ? "image" : cls;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -106,20 +118,36 @@ export function leafName(key: string): string {
   return (slash === -1 ? trimmed : trimmed.slice(slash + 1)) || key;
 }
 
+/** Hover-card details for a tile. */
+export interface ShotPreviewCaption {
+  name: string;
+  pr?: string;
+  ref?: string;
+  uploadedAt?: string;
+  /** `path`, else `screen`. */
+  page?: string;
+  /** "Before" / "After". */
+  state?: string;
+  /** From the classifier's `ai.surface`: "Mobile" / "Desktop" / "Tablet". */
+  device?: string;
+}
+
 /**
- * Hover-preview caption: filename, plus a compact PR/issue line when the
- * file carries GitHub attachment metadata. Mirrors the file page's
- * filename + byline split without the native `title` tooltip.
+ * Hover-card caption: filename, a compact PR/issue line when the file carries
+ * GitHub attachment metadata, and the page, state and device when known.
+ * Mirrors the file page's filename + byline split without the native `title`
+ * tooltip.
  */
 export function shotPreviewCaption(item: {
   key: string;
+  state?: string;
   ghKind?: string;
   ghNumber?: string;
   ghRef?: string;
   updatedAt?: string;
   uploadedAt?: string;
   metadata?: Record<string, string>;
-}): { name: string; pr?: string; ref?: string; uploadedAt?: string } {
+}): ShotPreviewCaption {
   const kind = item.ghKind ?? item.metadata?.["gh.kind"];
   const number = item.ghNumber ?? item.metadata?.["gh.number"];
   const repo = item.metadata?.["gh.repo"];
@@ -133,38 +161,88 @@ export function shotPreviewCaption(item: {
     if (kind === "pull") pr = `PR #${number}`;
     else if (kind === "issue" || kind === "issues") pr = `Issue #${number}`;
   }
-  const caption: { name: string; pr?: string; ref?: string; uploadedAt?: string } = {
-    name: leafName(item.key),
-  };
+  const caption: ShotPreviewCaption = { name: leafName(item.key) };
   if (pr) caption.pr = pr;
   if (pr && ref) caption.ref = ref;
   if (uploadedAt) caption.uploadedAt = uploadedAt;
+  const page = item.metadata?.path || item.metadata?.screen;
+  if (page) caption.page = page;
+  const state = (item.state ?? item.metadata?.state)?.toLowerCase();
+  if (state === "before" || state === "after") {
+    caption.state = state === "before" ? "Before" : "After";
+  }
+  const surface = parseSurfaceParam(item.metadata?.["ai.surface"]);
+  if (surface) caption.device = FILE_SURFACE_LABELS[surface];
   return caption;
 }
 
-export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
-  const paired = new Set<string>();
+/**
+ * PrLabel props for a shot's PR/issue tile badge or hover-card line. The ref
+ * follows `shotPreviewCaption`'s fallback chain and ends at a bare `#n` when
+ * only the number is known. Title and live state come from the page's
+ * resolved `titles` map. Until a ref resolves, the label shows its fallback
+ * text and a neutral dot. Null when the shot has no GitHub number or ref.
+ */
+export function shotPrLabelInput(
+  item: {
+    ghKind?: string;
+    ghNumber?: string;
+    ghRef?: string;
+    metadata?: Record<string, string>;
+  },
+  titles: GithubTitleMap,
+): PrLabelInput | null {
+  const kindValue = item.ghKind ?? item.metadata?.["gh.kind"];
+  const number = item.ghNumber ?? item.metadata?.["gh.number"];
+  const repo = item.metadata?.["gh.repo"];
+  const ghRef =
+    item.ghRef ??
+    item.metadata?.["gh.ref"] ??
+    (repo && number ? `${repo}#${number}` : number ? `#${number}` : undefined);
+  if (!ghRef) return null;
+  const info = titles[ghRef];
+  return {
+    ghRef,
+    kind: kindValue === "issue" || kindValue === "issues" ? "issue" : "pull",
+    title: info?.title || null,
+    state: asPrState(info?.state),
+  };
+}
+
+/**
+ * Before/after counterpart for each paired key, in both directions. Same
+ * rules as before-after.ts on the API: swap the filename token and look for
+ * that exact sibling; otherwise pair a LONE before with a LONE after when
+ * neither carries a token. Anything ambiguous stays unpaired.
+ */
+export function pairPartners(items: Array<{ key: string; state?: string }>): Map<string, string> {
+  const partners = new Map<string, string>();
   const stated = items.filter((i) => i.state === "before" || i.state === "after");
   const byKey = new Set(stated.map((i) => i.key));
 
   for (const item of stated) {
     const counterpartKey = swapPairToken(item.key);
-    if (counterpartKey && byKey.has(counterpartKey)) paired.add(item.key);
+    if (counterpartKey && byKey.has(counterpartKey)) partners.set(item.key, counterpartKey);
   }
 
   // Token-less fallback: exactly one before and one after (neither already
   // token-paired) is an unambiguous pair.
-  const loneBefore = stated.filter((i) => i.state === "before" && !paired.has(i.key));
-  const loneAfter = stated.filter((i) => i.state === "after" && !paired.has(i.key));
+  const loneBefore = stated.filter((i) => i.state === "before" && !partners.has(i.key));
+  const loneAfter = stated.filter((i) => i.state === "after" && !partners.has(i.key));
   if (loneBefore.length === 1 && loneAfter.length === 1) {
     // Only when neither carries a token that failed to match — a token that
     // points at a missing sibling is a declared non-pair, not an ambiguity.
     if (swapPairToken(loneBefore[0]!.key) === null && swapPairToken(loneAfter[0]!.key) === null) {
-      paired.add(loneBefore[0]!.key);
-      paired.add(loneAfter[0]!.key);
+      partners.set(loneBefore[0]!.key, loneAfter[0]!.key);
+      partners.set(loneAfter[0]!.key, loneBefore[0]!.key);
     }
   }
-  return paired;
+  return partners;
+}
+
+/** Which tiles have a real before/after counterpart in the same collection. */
+export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
+  return new Set(pairPartners(items).keys());
 }
 
 /**
@@ -182,85 +260,144 @@ export function formatShotCount(count: number, opts?: { truncated?: boolean }): 
   return count === 1 ? "1 file" : `${count} files`;
 }
 
-/** Overview layout: grouped by project/path, or one flat newest-first feed. */
-export type ScreenshotsFeed = "grouped" | "recent";
+/** By page layout: grouped by project/path, or one flat newest-first list (`sort=recent`). */
+export type RecentView = "grouped" | "recent";
+
+/** What a By page group (and drill-in) is keyed on: `path`, or `screen` for app views. */
+export type GroupBy = "path" | "screen";
 
 export interface ScreenshotsView {
   project: string;
+  /** Drill-in value: a `path`, or a `screen` name when `by` is "screen". */
   path: string;
+  by: GroupBy;
   q: string;
-  feed: ScreenshotsFeed;
+  sort: RecentView;
   /** "Merged only" toggle (persisted PR merge-state tagging) — filters both
    * the grouped overview (`?merged=1` on files/by-path) and the drill-in
    * (`meta.gh.merged=true`). */
   merged: boolean;
+  /** Files type filter: server-side on the overview, by key extension on drill-in. */
+  type: FileTypeClass | null;
+  /** Device filter (`ai.surface`): server-side on the overview and the drill-in. */
+  surface: FileSurface | null;
+  /** Upload-time window: server-side on the overview, by `updatedAt` on drill-in. */
+  since: SinceFilter | null;
 }
 
-/** `?project=` / `?path=` / `?q=` / `?view=` / `?merged=` state, ""/grouped/false when absent. */
+/**
+ * By page view state: `?project=` / `?path=` (or `?screen=`) / `?q=` /
+ * `?sort=recent` / `?merged=1` / `?type=` / `?surface=` / `?since=`. Legacy `?view=recent` (the retired Screenshots tab)
+ * still reads as the Recent list.
+ */
 export function readScreenshotsView(search: string): ScreenshotsView {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const recent = params.get("sort") === "recent" || params.get("view") === "recent";
+  const screen = !params.get("path") && Boolean(params.get("screen"));
   return {
     project: params.get("project") ?? "",
-    path: params.get("path") ?? "",
+    path: (screen ? params.get("screen") : params.get("path")) ?? "",
+    by: screen ? "screen" : "path",
     q: params.get("q") ?? "",
-    feed: params.get("view") === "recent" ? "recent" : "grouped",
+    sort: recent ? "recent" : "grouped",
     merged: params.get("merged") === "1",
+    type: parseFileTypeParam(params.get("type")),
+    surface: parseSurfaceParam(params.get("surface")),
+    since: parseSinceParam(params.get("since")),
   };
 }
 
-/** Search string for a view (all defaults clears back to the overview). */
+/**
+ * Search string for a By page view. Always carries `view=pages`: on `/files`
+ * a bare `?path=` is an old bucket-browser link and 301s to Storage
+ * (`filesRouteRedirect`), so the drill-in must say which view it is. Slice 3's
+ * order (view, sort, project, path, q, merged) with `type` appended, so the
+ * island never rewrites a URL the redirect produced.
+ */
 export function screenshotsSearch(
   project: string,
   path: string,
   q = "",
-  feed: ScreenshotsFeed = "grouped",
+  sort: RecentView = "grouped",
   merged = false,
+  type: FileTypeClass | null = null,
+  surface: FileSurface | null = null,
+  by: GroupBy = "path",
+  since: SinceFilter | null = null,
 ): string {
   const params = new URLSearchParams();
+  params.set("view", "pages");
+  if (sort === "recent") params.set("sort", "recent");
   if (project) params.set("project", project);
-  if (path) params.set("path", path);
+  if (path) params.set(by === "screen" ? "screen" : "path", path);
   if (q) params.set("q", q);
-  if (feed === "recent") params.set("view", "recent");
   if (merged) params.set("merged", "1");
-  const qs = params.toString();
-  return qs ? `?${qs}` : "";
+  if (type) params.set("type", type);
+  if (surface) params.set("surface", surface);
+  if (since) params.set("since", since);
+  return `?${params.toString()}`;
 }
 
 export function screenshotsSearchFromView(view: ScreenshotsView): string {
-  return screenshotsSearch(view.project, view.path, view.q, view.feed, view.merged);
+  return screenshotsSearch(
+    view.project,
+    view.path,
+    view.q,
+    view.sort,
+    view.merged,
+    view.type,
+    view.surface,
+    view.by,
+    view.since,
+  );
 }
 
 /**
- * Shareable URL for a screenshots view. Project labels and page paths both
+ * Shareable URL for a By page view. Project labels and page paths both
  * contain slashes (`acme/web`, `/settings/team`), so they stay on the query
- * string — a pathname rest segment would need the same encoding and a second
- * Astro route. History participation is `writeScreenshotsLocation`'s job.
+ * string. History participation is `writeScreenshotsLocation`'s job.
  */
 export function screenshotsViewHref(workspace: string, view: ScreenshotsView): string {
-  const path = `/account/workspaces/${encodeURIComponent(workspace)}/screenshots`;
-  return `${path}${screenshotsSearchFromView(view)}`;
+  return `${filesBasePath(workspace)}${screenshotsSearchFromView(view)}`;
 }
 
 export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): boolean {
   return (
     a.project === b.project &&
     a.path === b.path &&
+    a.by === b.by &&
     a.q === b.q &&
-    a.feed === b.feed &&
-    a.merged === b.merged
+    a.sort === b.sort &&
+    a.merged === b.merged &&
+    a.type === b.type &&
+    a.surface === b.surface &&
+    a.since === b.since
+  );
+}
+
+/**
+ * Whether a popstate destination is still the By page view, so the island
+ * may handle it in place. Any other Files view (or tab) is a page swap the
+ * ClientRouter owns.
+ */
+export function isPagesLocation(workspace: string, pathname: string, search: string): boolean {
+  return (
+    pathname.replace(/\/$/, "") === filesBasePath(workspace) && readFilesView(search) === "pages"
   );
 }
 
 /**
  * Folder navigation (`project` / `path`) gets its own history entry so Back
- * returns to the previous folder. Filter tweaks (`q`, feed, merged) rewrite
+ * returns to the previous folder. Filter tweaks (`q`, sort, merged, type) rewrite
  * the current entry in place so typing does not spam the stack.
  */
 export function screenshotsHistoryMode(
   prev: ScreenshotsView,
   next: ScreenshotsView,
 ): "push" | "replace" {
-  if (prev.project !== next.project || prev.path !== next.path) return "push";
+  if (prev.project !== next.project || prev.path !== next.path || prev.by !== next.by) {
+    return "push";
+  }
   return "replace";
 }
 
@@ -312,18 +449,20 @@ export function isRepoLabel(label: string): boolean {
  * segment ("/ca") still surfaces "/catalog/families" to complete into.
  */
 export function pathSuggestions(
-  catalog: Array<{ project: string; path: string; count: number }>,
+  catalog: Array<{ project: string; path: string; by?: "screen"; count: number }>,
   opts: { project: string; q: string },
   limit = 8,
-): Array<{ path: string; count: number }> {
+): Array<{ path: string; by: GroupBy; count: number }> {
   const needle = opts.q.trim().toLowerCase();
-  const byPath = new Map<string, { path: string; count: number }>();
+  const byPath = new Map<string, { path: string; by: GroupBy; count: number }>();
   for (const entry of catalog) {
     if (opts.project && entry.project !== opts.project) continue;
     if (needle && !entry.path.toLowerCase().includes(needle)) continue;
-    const existing = byPath.get(entry.path);
+    const by: GroupBy = entry.by ?? "path";
+    const key = `${by}\0${entry.path}`;
+    const existing = byPath.get(key);
     if (existing) existing.count += entry.count;
-    else byPath.set(entry.path, { path: entry.path, count: entry.count });
+    else byPath.set(key, { path: entry.path, by, count: entry.count });
   }
   return [...byPath.values()].slice(0, limit);
 }
@@ -357,6 +496,7 @@ export function filterCatalog<T extends { project: string; path: string }>(
 type PathCatalogFields = {
   project: string;
   path: string;
+  by?: "screen";
   count: number;
   lastUpdated: string;
 };
@@ -372,8 +512,9 @@ export function groupsFromCatalog<TRecent>(
   catalog: Array<PathCatalogFields & { recent: TRecent[] }>,
   groups: Array<PathCatalogFields & { recent: TRecent[] }>,
 ): Array<PathCatalogFields & { recent: TRecent[] }> {
-  const byKey = new Map(groups.map((group) => [`${group.project}\0${group.path}`, group]));
-  return catalog.map((entry) => byKey.get(`${entry.project}\0${entry.path}`) ?? entry);
+  const keyOf = (g: PathCatalogFields) => `${g.project}\0${g.by ?? "path"}\0${g.path}`;
+  const byKey = new Map(groups.map((group) => [keyOf(group), group]));
+  return catalog.map((entry) => byKey.get(keyOf(entry)) ?? entry);
 }
 
 /** Viewport box used to place the thumbnail hover preview. */
@@ -428,4 +569,54 @@ export function focusIsKeyboardDriven(el: { matches(selector: string): boolean }
     // rather than letting it break the tile's focus handling.
     return false;
   }
+}
+
+/**
+ * What the hover card shows on its PR line: a PrLabel when the caption has a
+ * resolvable ref, else the plain "PR #7" / "Issue #3" caption text (a shot
+ * with gh.number + gh.kind but no gh.ref or gh.repo), else nothing.
+ */
+export function previewPrDisplay(
+  caption: { pr?: string; ref?: string; kind?: string },
+  titles: GithubTitleMap,
+): { label: PrLabelInput } | { text: string } | null {
+  if (!caption.pr) return null;
+  if (!caption.ref) return { text: caption.pr };
+  const label = shotPrLabelInput({ ghRef: caption.ref, ghKind: caption.kind }, titles);
+  return label ? { label } : { text: caption.pr };
+}
+
+/**
+ * Text for a GitHub-strip tile whose shot has no number or ref to build a
+ * PrLabel from: "PR" / "Issue" from `gh.kind` (stored vocabulary is singular;
+ * "issues" tolerated), the raw kind otherwise, "GitHub" with none.
+ */
+export function ghKindFallbackLabel(kind: string | undefined): string {
+  if (kind === "pull") return "PR";
+  if (kind === "issue" || kind === "issues") return "Issue";
+  return kind || "GitHub";
+}
+
+/**
+ * `mediaTileView` / `MediaTile` input for a tile. The by-path payload has no
+ * `status`, so a null `url` (no public URL for this workspace) reads as
+ * withheld, which is the lock tile the strip already showed. A null
+ * `contentType` lets `mediaTileView` classify by key extension.
+ */
+export function shotTileInput(item: {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  status?: string;
+  contentType?: string | null;
+  posterUrl?: string | null;
+}): MediaTileInput {
+  return {
+    key: item.key,
+    status: item.status ?? (item.url === null ? "withheld" : "available"),
+    url: item.url,
+    embedUrl: item.embedUrl,
+    contentType: item.contentType ?? null,
+    posterUrl: item.posterUrl ?? null,
+  };
 }

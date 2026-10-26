@@ -9,8 +9,15 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
-import { publicObjectDateFields } from "./files-core";
-import { getMetadataForKeys } from "./file-metadata";
+import { publicObjectDateFields } from "./files-read";
+import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
+import {
+  encodePublicFeedCursor,
+  feedRecordScope,
+  prScopeQuery,
+  type ScopeItem,
+  type ScopeResume,
+} from "./pr-scope";
 import {
   FEED_ID_RE,
   FEED_ITEM_LIMIT,
@@ -18,56 +25,27 @@ import {
   type FeedCursor,
   type FeedMutationResult,
   type FeedRecord,
+  type FeedSource,
 } from "./feeds";
-import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
+import { isDerivedPosterContentType, videoPresentation } from "./poster-presentation";
+import type {
+  FeedItemDto,
+  FeedSummaryDto,
+  PublicFeedItemDto,
+  PublicFeedItemPage,
+} from "./scope-wire";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
-import type { StorageConfig } from "@uploads/storage";
+import type { FileInfo, StorageConfig } from "@uploads/storage";
+import { HELD_FILENAME } from "./upload-hold";
+import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
-import { sha256Hex, type WorkspaceRecord } from "./workspace";
+import { FEED_ITEM_ID_RE, feedItemIdFor } from "@uploads/comment-render/scope";
+import { type WorkspaceRecord } from "./workspace";
 import { dbFor, type D1Queryable } from "./db-session";
+import { findLiveLinkItem } from "./live-link-index";
 
-type FeedObjectHead = {
-  type?: string;
-  size?: number;
-  lastModified?: number;
-  metadata?: Record<string, string>;
-};
-
-export interface FeedItemDto {
-  id: string;
-  objectKey: string;
-  filename: string;
-  status: "available" | "missing" | "withheld";
-  url: string | null;
-  embedUrl: string | null;
-  /** Owner-only item page (`/c/<id>/<item>`). Absent on the public DTO. */
-  pageUrl?: string;
-  contentType: string | null;
-  size: number | null;
-  uploaded: string | null;
-  modified: string | null;
-  path: string | null;
-  state: string | null;
-  posterUrl?: string;
-  videoDimensions?: VideoDimensions;
-}
-
-export interface PublicFeedItemDto {
-  id: string;
-  filename: string;
-  status: "available" | "missing" | "withheld";
-  url: string | null;
-  embedUrl: string | null;
-  contentType: string | null;
-  size: number | null;
-  uploaded?: string;
-  modified?: string;
-  path: string | null;
-  state: string | null;
-  posterUrl?: string;
-  videoDimensions?: VideoDimensions;
-}
+export type { FeedItemDto, FeedSummaryDto, PublicFeedItemDto };
 
 export interface FeedDto {
   id: string;
@@ -78,22 +56,10 @@ export interface FeedDto {
   number: number | null;
   kind: "pull" | "issue" | null;
   title: string;
+  source: FeedSource | null;
   createdAt: string;
   updatedAt: string;
   items: FeedItemDto[];
-}
-
-export interface FeedSummaryDto {
-  id: string;
-  url: string;
-  workspace: string;
-  repo: string;
-  path: string | null;
-  number: number | null;
-  kind: "pull" | "issue" | null;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type PublicFeedDto = {
@@ -106,15 +72,12 @@ export type PublicFeedDto = {
   createdAt: string;
   updatedAt: string;
   items: PublicFeedItemDto[];
+  /** Opaque cursor for the next 50 items, or null on the last page. */
+  nextCursor: string | null;
 };
 
 export function feedUrl(env: Env, id: string): string {
   return webOrigin(env) + "/c/" + encodeURIComponent(id);
-}
-
-/** Stable public-item id: first 32 hex chars of SHA-256(object key). */
-export async function feedItemId(objectKey: string): Promise<string> {
-  return (await sha256Hex(objectKey)).slice(0, 32);
 }
 
 export function feedItemUrl(env: Env, feedId: string, itemId: string): string {
@@ -131,6 +94,7 @@ export function feedSummary(env: Env, record: FeedRecord): FeedSummaryDto {
     number: record.number > 0 ? record.number : null,
     kind: record.kind === "pull" || record.kind === "issue" ? record.kind : null,
     title: feedTitle(record.repo, record.path, record.number),
+    source: record.source,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
   };
@@ -195,57 +159,40 @@ export function feedItemFilename(objectKey: string): string {
 }
 
 /**
- * Newest-first objects tagged `gh.repo=<repo>`, optionally also `gh.number`
- * and `path`. Drops promoted branch shadows so a promoted shot is not listed
- * twice. Does not require `gh.merged` — merge signal is out of scope for v1.
- * Kind is display-only; GitHub numbers are unique per repo.
+ * The newest (at most `FEED_ITEM_LIMIT`) items in a feed's scope. Thin
+ * wrapper over the shared scope query (`pr-scope.ts`), kept for the
+ * owner-feed call site.
  */
 export async function findLatestRepoScreenshots(
   db: D1Queryable,
   workspace: string,
   opts: { repo: string; path?: string; number?: number; limit?: number },
-): Promise<Array<{ key: string; updatedAt: string; metadata: Record<string, string> }>> {
+): Promise<ScopeItem[]> {
   const limit = Math.max(1, Math.min(opts.limit ?? FEED_ITEM_LIMIT, FEED_ITEM_LIMIT));
-  const params: unknown[] = [workspace, opts.repo];
-  let sql = `SELECT r.object_key AS object_key, r.updated_at AS updated_at
-             FROM file_metadata r
-             WHERE r.workspace = ? AND r.meta_key = 'gh.repo' AND r.meta_value = ?
-               AND NOT EXISTS (
-                 SELECT 1 FROM file_metadata s
-                 WHERE s.workspace = r.workspace AND s.object_key = r.object_key
-                   AND s.meta_key = 'gh.status' AND s.meta_value = 'promoted'
-               )`;
-  if (opts.number) {
-    sql += ` AND EXISTS (
-               SELECT 1 FROM file_metadata n
-               WHERE n.workspace = r.workspace AND n.object_key = r.object_key
-                 AND n.meta_key = 'gh.number' AND n.meta_value = ?
-             )`;
-    params.push(String(opts.number));
-  }
-  if (opts.path) {
-    sql += ` AND EXISTS (
-               SELECT 1 FROM file_metadata p
-               WHERE p.workspace = r.workspace AND p.object_key = r.object_key
-                 AND p.meta_key = 'path' AND p.meta_value = ?
-             )`;
-    params.push(opts.path);
-  }
-  sql += ` ORDER BY r.updated_at DESC, r.object_key ASC LIMIT ?`;
-  params.push(limit);
+  const page = await prScopeQuery(db, {
+    workspace,
+    repo: opts.repo,
+    ...(opts.number ? { number: opts.number } : {}),
+    ...(opts.path ? { path: opts.path } : {}),
+    limit,
+  });
+  return page.items;
+}
 
-  const matched = await db
-    .prepare(sql)
-    .bind(...params)
-    .all<{ object_key: string; updated_at: string }>();
-  const keys = matched.results.map((row) => row.object_key);
-  if (keys.length === 0) return [];
-  const byKey = await getMetadataForKeys(db, workspace, keys);
-  return matched.results.map((row) => ({
-    key: row.object_key,
-    updatedAt: row.updated_at,
-    metadata: byKey.get(row.object_key) ?? {},
-  }));
+/**
+ * Whether a live link in this workspace can serve its files: the active
+ * storage lane (the record's own fields) has a public base URL, without which
+ * `publicUrl` in @uploads/storage is null. A live link is public, so creating
+ * one without it would leave a link whose page can only fail.
+ */
+export function liveLinksServable(workspace: WorkspaceRecord): boolean {
+  return Boolean(workspace.publicBaseUrl);
+}
+
+export function feedNotPublicError(): ServiceUnavailableError {
+  return new ServiceUnavailableError("Feed object is not publicly served.", {
+    code: "feed_object_not_public",
+  });
 }
 
 async function mapBounded<T, R>(
@@ -266,11 +213,25 @@ async function mapBounded<T, R>(
   return result;
 }
 
-async function hydrateFeedItems(
+/**
+ * HEAD each match (lane-aware) and build its DTO. `privateKeys`, when given,
+ * collects every key whose object is private, so a caller can reuse these
+ * HEADs (see `countPrivateScopeItems`).
+ *
+ * A live link only works when its objects have public URLs, so by default an
+ * available object without one is a 503 `feed_object_not_public`. The
+ * signed-in Files view passes `requirePublicUrls: false` and gets `url: null`
+ * instead; its tiles open through a signed URL.
+ */
+export async function hydrateFeedItems(
   env: Env,
   workspace: WorkspaceRecord,
   matches: Array<{ key: string; metadata: Record<string, string> }>,
-  opts: { audience: "owner" | "public" },
+  opts: {
+    audience: "owner" | "public";
+    privateKeys?: Set<string>;
+    requirePublicUrls?: boolean;
+  },
 ): Promise<FeedItemDto[]> {
   const resolver: LaneResolver = createLaneResolver(env, workspace);
   try {
@@ -282,15 +243,25 @@ async function hydrateFeedItems(
     });
   }
   const laneConfigByKey = new Map<string, StorageConfig>();
+  // Held uploads (`upload-hold.ts`) are withheld from a public feed the same
+  // way private ones are.
+  const heldKeys =
+    opts.audience === "public" && workspace.name
+      ? await heldKeysAmong(
+          env,
+          workspace.name,
+          matches.map((match) => match.key),
+        )
+      : new Set<string>();
   const hydrated = await mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
-    let meta: FeedObjectHead | null;
+    let meta: FileInfo | null;
     let itemConfig: StorageConfig | null = null;
     try {
       const lane = await resolver.resolve(match.key);
       if (lane) {
         itemConfig = lane.config;
         laneConfigByKey.set(match.key, lane.config);
-        meta = (await lane.store.head(match.key)) as FeedObjectHead;
+        meta = await lane.store.head(match.key);
       } else {
         meta = null;
       }
@@ -301,30 +272,32 @@ async function hydrateFeedItems(
       });
     }
     const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
-    const withheld = opts.audience === "public" && isPrivate;
+    if (isPrivate) opts.privateKeys?.add(match.key);
+    const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(match.key));
     const urls =
       meta && !withheld && itemConfig
         ? objectPublicUrls(env, itemConfig, match.key)
         : { url: null, embedUrl: null };
-    if (meta && !withheld && urls.url === null)
-      throw new ServiceUnavailableError("Feed object is not publicly served.", {
-        code: "feed_object_not_public",
-      });
+    if (opts.requirePublicUrls !== false && meta && !withheld && urls.url === null)
+      throw feedNotPublicError();
     const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
-    const id = await feedItemId(match.key);
+    const id = await feedItemIdFor(match.key);
     return {
       id,
       objectKey: match.key,
-      filename: feedItemFilename(match.key),
+      filename: heldKeys.has(match.key) ? HELD_FILENAME : feedItemFilename(match.key),
       status: withheld ? "withheld" : meta ? "available" : "missing",
       url: urls.url,
       embedUrl: urls.embedUrl,
-      contentType: withheld ? null : (meta?.type ?? null),
+      contentType: withheld ? null : (meta?.contentType ?? null),
       size: withheld ? null : (meta?.size ?? null),
       uploaded: dates.uploaded ?? null,
       modified: dates.modified ?? null,
-      path: match.metadata.path ?? null,
-      state: match.metadata.state ?? null,
+      ...(meta && !withheld && opts.audience === "public"
+        ? { metadata: publicFileMetadata(match.metadata, { includeGithub: false }) }
+        : {}),
+      path: withheld ? null : (match.metadata.path ?? null),
+      state: withheld ? null : (match.metadata.state ?? null),
     };
   });
 
@@ -364,6 +337,60 @@ async function hydrateFeedItems(
   return hydrated;
 }
 
+/**
+ * Most keys `countPrivateScopeItems` will probe beyond the ones the page
+ * already HEADed. Each probe costs at least 2 R2 operations, so 300 probes
+ * stay inside the Workers ceiling of 1,000 subrequests per request
+ * (github-promote.ts) next to the page's own hydration.
+ */
+export const PRIVATE_COUNT_PROBE_CAP = 300;
+
+/**
+ * How many of `keys` are private: objects whose R2 custom metadata says
+ * `visibility: private`. A live link renders the same objects as `withheld`.
+ * Visibility lives only in R2 custom metadata (`visibility.ts`; D1 rejects
+ * the key), so the count needs storage reads:
+ *
+ * - Keys the page already HEADed (`seen.checked`) are free. They count from
+ *   `seen.privateKeys`.
+ * - Every other key costs one `exists` per lane tried (active lane first,
+ *   then each fallback lane until a hit), then one HEAD on the lane that has
+ *   it. That is 2 R2 operations for a key in the active lane, and more for a
+ *   key in a fallback lane.
+ *
+ * When more than `PRIVATE_COUNT_PROBE_CAP` keys need a probe, this returns
+ * `null` without probing any of them: the count is unknown, and the share
+ * confirm is skipped. `keys` is itself capped at `SCOPE_SCAN_CAP` by the
+ * caller's scan.
+ */
+export async function countPrivateScopeItems(
+  env: Env,
+  workspace: WorkspaceRecord,
+  keys: string[],
+  seen: { checked: Set<string>; privateKeys: Set<string> },
+): Promise<number | null> {
+  const known = keys.filter((key) => seen.privateKeys.has(key)).length;
+  const unchecked = keys.filter((key) => !seen.checked.has(key));
+  if (unchecked.length === 0) return known;
+  if (unchecked.length > PRIVATE_COUNT_PROBE_CAP) return null;
+  const resolver = createLaneResolver(env, workspace);
+  let flags: boolean[];
+  try {
+    flags = await mapBounded(unchecked, 8, async (key) => {
+      const lane = await resolver.resolve(key);
+      if (!lane) return false;
+      const head = await lane.store.head(key);
+      return objectVisibility(head.metadata) === "private";
+    });
+  } catch (cause) {
+    throw new ServiceUnavailableError("Feed storage unavailable.", {
+      code: "feed_storage_unavailable",
+      cause,
+    });
+  }
+  return known + flags.filter(Boolean).length;
+}
+
 function toPublicItem(item: FeedItemDto): PublicFeedItemDto {
   return {
     id: item.id,
@@ -375,6 +402,7 @@ function toPublicItem(item: FeedItemDto): PublicFeedItemDto {
     size: item.size,
     ...(item.uploaded ? { uploaded: item.uploaded } : {}),
     ...(item.modified ? { modified: item.modified } : {}),
+    ...(item.metadata ? { metadata: item.metadata } : {}),
     path: item.path,
     state: item.state,
     ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
@@ -406,13 +434,14 @@ export async function hydratePublicFeed(
   env: Env,
   workspace: WorkspaceRecord,
   record: FeedRecord,
+  opts: { cursor?: ScopeResume | null } = {},
 ): Promise<PublicFeedDto> {
-  const matches = await findLatestRepoScreenshots(dbFor(env), record.workspace, {
-    repo: record.repo,
-    path: record.path || undefined,
-    number: record.number > 0 ? record.number : undefined,
+  const page = await prScopeQuery(dbFor(env), {
+    ...feedRecordScope(record),
+    cursor: opts.cursor ?? null,
+    limit: FEED_ITEM_LIMIT,
   });
-  const items = await hydrateFeedItems(env, workspace, matches, { audience: "public" });
+  const items = await hydrateFeedItems(env, workspace, page.items, { audience: "public" });
   const summary = feedSummary(env, record);
   return {
     id: record.id,
@@ -424,5 +453,51 @@ export async function hydratePublicFeed(
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     items: items.map(toPublicItem),
+    nextCursor: page.nextCursor ? await encodePublicFeedCursor(page.nextCursor) : null,
+  };
+}
+
+/**
+ * One public item plus its neighbours, for the `/c/<id>/<item>` pager. Item
+ * ids are `sha256(key)`, so there is no id-to-key table to keep in step with
+ * every upload. `findLiveLinkItem` resolves the id from a short-lived cached
+ * list of the scope's hashed keys (cap 2,000), or scans and hashes the scope
+ * when no cached list can answer. Null when the id is malformed or not in scope.
+ */
+export async function publicFeedItemPage(
+  env: Env,
+  workspace: WorkspaceRecord,
+  record: FeedRecord,
+  itemId: string,
+  /** The API Worker's `LIVE_LINK_INDEX` KV; other Workers pass nothing and scan. */
+  indexStore?: KVNamespace,
+): Promise<PublicFeedItemPage | null> {
+  if (!FEED_ITEM_ID_RE.test(itemId)) return null;
+  const db = dbFor(env);
+  const found = await findLiveLinkItem(db, indexStore, record, itemId);
+  if (!found) return null;
+  const { entries: scope, position: index } = found;
+
+  const match = scope[index];
+  const metadata =
+    (await getMetadataForKeys(db, record.workspace, [match.key])).get(match.key) ?? {};
+  const [item] = await hydrateFeedItems(env, workspace, [{ key: match.key, metadata }], {
+    audience: "public",
+  });
+  const summary = feedSummary(env, record);
+  return {
+    feed: {
+      id: record.id,
+      title: summary.title,
+      repo: record.repo,
+      number: summary.number,
+      // The summary's kind (null for a repo scope), same as GET /public/feeds/:id.
+      kind: summary.kind,
+    },
+    item: toPublicItem(item),
+    prev: index > 0 ? scope[index - 1].id : null,
+    next: index + 1 < scope.length ? scope[index + 1].id : null,
+    index,
+    total: scope.length,
   };
 }

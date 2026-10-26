@@ -65,3 +65,13 @@ export function dbFor(env: Env): D1Queryable {
 export function primaryDbFor(env: Env): D1Queryable {
   return typeof env.DB.withSession === "function" ? env.DB.withSession("first-primary") : env.DB;
 }
+
+/**
+ * True for the D1 error raised while `wrangler d1 export` runs (the nightly
+ * backup, .github/workflows/backup-db.yml). D1 rejects queries for the few
+ * minutes the export takes, so these are expected and retryable, not bugs.
+ */
+export function isD1ExportInProgress(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("Currently processing a long-running export");
+}

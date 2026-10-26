@@ -288,6 +288,7 @@ describe("planCardLimitRows / planCardPriceLine", () => {
       available: true,
       marketsMemberCap: true,
       byoBucket: true,
+      slackAnswersPerDay: 10,
       defaultLimits: { maxStorageBytes: 250_000_000, maxUploadBytes: 25_000_000, maxMembers: 3 },
     };
     const pro = {
@@ -297,6 +298,7 @@ describe("planCardLimitRows / planCardPriceLine", () => {
       available: true,
       marketsMemberCap: false,
       byoBucket: true,
+      slackAnswersPerDay: 60,
       defaultLimits: {
         maxStorageBytes: 10_000_000_000,
         maxUploadBytes: 100_000_000,

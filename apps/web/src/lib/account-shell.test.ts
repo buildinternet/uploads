@@ -134,7 +134,7 @@ describe("resolveSessionGate", () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal("location", {
       origin: "https://uploads.sh",
-      pathname: "/account/workspaces/acme/screenshots",
+      pathname: "/account/workspaces/acme/files",
       search: "?path=/settings",
       replace,
     });
@@ -149,7 +149,7 @@ describe("resolveSessionGate", () => {
 
     await expect(resolveSessionGate(options)).resolves.toBeNull();
     expect(replace).toHaveBeenCalledWith(
-      "/login?callbackURL=%2Faccount%2Fworkspaces%2Facme%2Fscreenshots%3Fpath%3D%2Fsettings",
+      "/login?callbackURL=%2Faccount%2Fworkspaces%2Facme%2Ffiles%3Fpath%3D%2Fsettings",
     );
     expect(options.denied.hidden).toBe(true);
     expect(options.app.hidden).toBe(true);

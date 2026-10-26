@@ -56,7 +56,15 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off.
+    "issues": {
+      "enabled": true,
+    },
   },
+  // Original file and line numbers in Issues stacks. Wrangler generates the
+  // maps when it bundles this worker.
+  "upload_source_maps": true,
   // Shared with uploads-api (apps/api/wrangler.jsonc): both workers serve the
   // same tenant registry — keep the id in sync.
   "kv_namespaces": [
@@ -91,6 +99,23 @@
       "binding": "AUTH",
       "service": "uploads-auth",
     },
+    // uploads-api classifies hosted `put` and `sign_upload_url` uploads
+    // (issue #1148, apps/api/src/routes/internal-classify.ts), where the
+    // OpenRouter key and the Flagship, Images, email, and Slack bindings
+    // already live, so none of them are copied here. Production only:
+    // a service binding calls production, and a preview's files live in
+    // the preview database, so previews leave uploads unclassified.
+    {
+      "binding": "API",
+      "service": "uploads-api",
+    },
+    // uploads-slack: the `approve` and `delete` tools end holds, and the
+    // shared code (apps/api/src/slack-hold-notify.ts) asks this worker to
+    // rewrite the Slack DMs about them. Production only, like API.
+    {
+      "binding": "SLACK",
+      "service": "uploads-slack",
+    },
   ],
   // Per-workspace write rate limit for the put/delete tools — this worker's
   // own budget (distinct namespace_id from uploads-api's), with the same
@@ -119,6 +144,11 @@
     {
       "binding": "UPLOADS_DEFAULT",
       "bucket_name": "uploads-default",
+    },
+    // The approve tool restores a held file's bytes from here, as uploads-api does.
+    {
+      "binding": "UPLOADS_HELD",
+      "bucket_name": "uploads-held",
     },
   ],
   // Workers Previews (`npx wrangler preview` from a branch). Mirrors
@@ -162,6 +192,10 @@
       {
         "binding": "UPLOADS_DEFAULT",
         "bucket_name": "uploads-preview-default",
+      },
+      {
+        "binding": "UPLOADS_HELD",
+        "bucket_name": "uploads-preview-held",
       },
     ],
     "services": [

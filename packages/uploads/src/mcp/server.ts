@@ -31,6 +31,7 @@ import { ToolBatchError } from "./batch-error.js";
 
 export {
   appProp,
+  screenProp,
   canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
   METADATA_PATH_CUE,
@@ -141,10 +142,15 @@ export class McpAuthError extends Error {
   }
 }
 
+/** Tool-error text for a missing file scope, including where to get it. */
+export function insufficientScopeMessage(scope: string): string {
+  return `This token needs the ${scope} scope. Ask a workspace admin, or mint a token with ${scope} at https://uploads.sh/account/developers.`;
+}
+
 /** Build an insufficient_scope challenge pointing at this resource's metadata. */
 export function insufficientScopeError(resourceMetadataUrl: string, scope: string): McpAuthError {
   return new McpAuthError(
-    `forbidden: requires ${scope} scope`,
+    insufficientScopeMessage(scope),
     `Bearer resource_metadata="${resourceMetadataUrl}", error="insufficient_scope", error_description="This tool requires the ${scope} scope"`,
   );
 }
@@ -157,6 +163,8 @@ export interface McpTool {
    * `annotations.title`: the Claude connector directory reads the annotation.
    */
   title: string;
+  /** Brand icon used by MCP App navigation entrypoints. */
+  icons?: Implementation["icons"];
   annotations: McpToolAnnotations;
   securitySchemes: McpSecurityScheme[];
   /** Hand-written JSON Schema for the tool's arguments. */
@@ -166,6 +174,8 @@ export interface McpTool {
    * whenever the handler returns structured data (OpenAI Scan Tools).
    */
   outputSchema?: Record<string, unknown>;
+  /** Optional MCP App linkage and host extensions. Auth metadata stays authoritative. */
+  _meta?: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -177,6 +187,14 @@ export interface McpTool {
  * another.
  */
 const TOOLS_LIST_CACHE_HINT: CacheHint = { ttlMs: 3_600_000, cacheScope: "private" };
+
+/**
+ * Bound on array elements plus object members in one `tools/call` arguments
+ * object. The SDK leaves this off, so one request inside the body cap can
+ * exhaust memory while the schema walks a nested payload. Real calls stay
+ * far under it (at most 20 files, 24 metadata keys).
+ */
+const MAX_TOOL_INPUT_ELEMENTS = 10_000;
 
 /** Tool failures become tool results (isError), never JSON-RPC errors. */
 function toolErrorText(err: unknown): string {
@@ -277,19 +295,21 @@ export function createMcpServer(opts: {
   const { serverInfo, tools, apiUrl, validator } = opts;
   const server = new McpServer(serverInfo, {
     cacheHints: { "tools/list": TOOLS_LIST_CACHE_HINT },
+    maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
   });
   for (const tool of tools) {
     server.registerTool(
       tool.name,
       {
         title: tool.title,
+        ...(tool.icons ? { icons: tool.icons } : {}),
         description: tool.description,
         inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
         ...(tool.outputSchema
           ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.outputSchema, validator) }
           : {}),
         annotations: { title: tool.title, ...tool.annotations },
-        _meta: { securitySchemes: tool.securitySchemes },
+        _meta: { ...tool._meta, securitySchemes: tool.securitySchemes },
       },
       wrapHandler(tool, apiUrl),
     );

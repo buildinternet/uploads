@@ -1,7 +1,7 @@
 ---
 /**
  * Workspaces index.
- * Legacy `?ws=` deep links redirect to the workspace home (screenshots).
+ * Legacy `?ws=` deep links redirect to the workspace home (Files).
  * Auto-opens a workspace (last-used, else first owned) so a signed-in user
  * lands somewhere; `?manage=1` asks for the list itself instead.
  */
@@ -171,7 +171,7 @@ if (!managing) {
           status.hidden = false;
           status.textContent = "Opening…";
           // `?to=<tab>` lands the auto-open on a workspace sub-tab.
-          // Default is screenshots (the workspace home). Allowlisted so a
+          // Default is Files (the workspace home). Allowlisted so a
           // crafted query can't steer the redirect anywhere else.
           const to = new URLSearchParams(location.search).get("to");
           location.replace(workspacePath(open, workspaceOpenTab(to)));

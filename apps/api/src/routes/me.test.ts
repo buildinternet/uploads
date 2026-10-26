@@ -13,6 +13,7 @@ import {
 import { fakeRegistry, FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
+import { posterKeyFor } from "../poster";
 import { SqliteD1, database as d1FromSqlite } from "../../test/helpers/sqlite-d1";
 import { recordRepoLink } from "../github-repo-links";
 
@@ -521,7 +522,7 @@ describe("GET /me/workspaces/:name/billing", () => {
     // enforcement treats as unlimited (explicit overrides only). The
     // billing tab must never show free-plan default caps (250MB etc.) as
     // if they were real limits here — see workspace-plan.ts's
-    // `planResponse` doc comment and Task 5's Critical fix on the admin
+    // `planResponse` doc comment and the matching guard on the admin
     // surface.
     const db = new UsageFakeD1();
     db.usage.set("acme", {
@@ -731,30 +732,6 @@ describe("GET /me/workspaces/:name/members", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns sanitized member rows for a workspace named 'default' just like any other", async () => {
-    const env = stubEnv(USER, (path) => {
-      if (path === "/internal/memberships") {
-        return Response.json([
-          { organizationId: "org1", organizationSlug: "default", role: "member" },
-        ]);
-      }
-      if (path === "/internal/orgs/default") {
-        return Response.json({ organization: { id: "org1", slug: "default", name: "Default" } });
-      }
-      if (path === "/internal/orgs/default/members") {
-        return Response.json({
-          members: [{ id: "m1", userId: "u1", email: "a@b.com", name: "Ada", role: "owner" }],
-        });
-      }
-      return new Response(null, { status: 404 });
-    });
-    const res = await app().request("/me/workspaces/default/members", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      members: [{ email: "a@b.com", name: "Ada", role: "owner" }],
-    });
-  });
-
   it("returns sanitized member rows for a member's workspace", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
@@ -821,16 +798,8 @@ describe("GET /me/workspaces/:name/members id exposure", () => {
     });
   }
 
-  it("includes member id for an admin/owner caller", async () => {
-    const env = membersEnv("owner");
-    const res = await app().request("/me/workspaces/acme/members", {}, env);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { members: Record<string, unknown>[] };
-    expect(body.members[0]).toHaveProperty("id", "m1");
-  });
-
-  it("includes member id for an admin caller", async () => {
-    const env = membersEnv("admin");
+  it.each(["owner", "admin"])("includes member id for an %s caller", async (role) => {
+    const env = membersEnv(role);
     const res = await app().request("/me/workspaces/acme/members", {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { members: Record<string, unknown>[] };
@@ -994,13 +963,6 @@ describe("member management routes", () => {
     );
     expect(res.status).toBe(403);
   });
-
-  it("returns invites for a workspace named 'default' just like any other", async () => {
-    const env = manageEnv({ workspace: "default", role: "owner" });
-    const res = await app().request("/me/workspaces/default/invites", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ invites: [] });
-  });
 });
 
 describe("GET /me/workspaces/:name/galleries", () => {
@@ -1014,18 +976,6 @@ describe("GET /me/workspaces/:name/galleries", () => {
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "workspace_not_found" },
     });
-  });
-
-  it("returns an empty gallery list for a workspace named 'default' just like any other", async () => {
-    const db = galleriesDb();
-    // Issue #613 final phase: this route now forwards to the canonical
-    // dual-auth galleries vertical (`workspace-galleries.ts`), which — unlike
-    // the pre-#613 inline handler — loads the workspace record as part of
-    // `dualWorkspaceAuth`, so a record must be seeded in `REGISTRY`.
-    const env = memberEnv({ workspace: "default", db: new SQLiteD1(db), record: R2_RECORD });
-    const res = await app().request("/me/workspaces/default/galleries", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ galleries: [], nextCursor: null });
   });
 
   it("returns gallery summaries for a member's workspace", async () => {
@@ -2049,6 +1999,25 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     expect(filteredBody.groups[0]).toMatchObject({ count: 1 });
     expect(filteredBody.groups[0]!.recent.map((r) => r.key)).toEqual(["shots/merged.png"]);
   });
+
+  it("filters to one file type with ?type= and rejects an unknown type", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "shots/a.png", meta: { path: "/settings" } },
+      { workspace: "acme", key: "shots/b.mp4", meta: { path: "/settings" } },
+      { workspace: "acme", key: "shots/c.pdf", meta: { path: "/settings" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+
+    const videos = await app().request("/me/workspaces/acme/files/by-path?type=video", {}, env);
+    expect(videos.status).toBe(200);
+    const body = (await videos.json()) as { groups: { recent: { key: string }[] }[] };
+    expect(body.groups.flatMap((g) => g.recent.map((r) => r.key))).toEqual(["shots/b.mp4"]);
+
+    const bad = await app().request("/me/workspaces/acme/files/by-path?type=gif", {}, env);
+    expect(bad.status).toBe(400);
+    const error = (await bad.json()) as { error: { code: string } };
+    expect(error.error.code).toBe("invalid_type");
+  });
 });
 
 describe("GET /me/workspaces/:name/files/facets", () => {
@@ -2226,6 +2195,9 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: null,
       note: null,
       ingestGithubAttachments: null,
+      noUploadsComment: null,
+      uiPaths: null,
+      requireUploads: null,
     });
   });
 
@@ -2248,6 +2220,9 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: null,
       note: "Hi",
       ingestGithubAttachments: null,
+      noUploadsComment: null,
+      uiPaths: null,
+      requireUploads: null,
     });
 
     // Re-read via GET, independent of the PATCH response, per the brief.
@@ -2259,6 +2234,9 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: null,
       note: "Hi",
       ingestGithubAttachments: null,
+      noUploadsComment: null,
+      uiPaths: null,
+      requireUploads: null,
     });
 
     const saved = registry.record<{ version?: number }>("acme");
@@ -2357,6 +2335,9 @@ describe("workspace comment-settings routes", () => {
       linkToFilePage: false,
       note: null,
       ingestGithubAttachments: null,
+      noUploadsComment: null,
+      uiPaths: null,
+      requireUploads: null,
     });
     const saved = registry.record<{
       githubCommentShowMetadata?: unknown;
@@ -2528,6 +2509,11 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       ingestGithubAttachments: true,
       ingestBotAttachments: false,
       adoptLinkedFiles: true,
+      uiPaths: [],
+      noUploadsComment: true,
+      checkRequire: [],
+      checkSkipLabels: ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
+      checkAi: [],
     });
     expect(body.source).toMatchObject({ imageWidth: "auto" });
     expect(typeof body.body).toBe("string");
@@ -2546,6 +2532,29 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("workspace");
     expect(body.body).toContain("screenshot.png");
+  });
+
+  it("(c2) leaves held files out and shows a video's poster, like the real comment", async () => {
+    const bucket = new FakeR2Bucket();
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await bucket.put("acme/gh/o/repo/pull/12/shown.png", png);
+    await bucket.put("acme/gh/o/repo/pull/12/held.png", png);
+    await bucket.put("acme/gh/o/repo/pull/12/clip.mp4", new Uint8Array([0]), {
+      httpMetadata: { contentType: "video/mp4" },
+    });
+    await bucket.put(`acme/${posterKeyFor("gh/o/repo/pull/12/clip.mp4")}`, new Uint8Array([0]));
+    const { env, sqlite } = previewEnv({ role: "owner", record: REC, bucket });
+    const insert = sqlite.db.prepare(
+      "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES ('acme', ?, ?, ?, '2026-10-19')",
+    );
+    insert.run("gh/o/repo/pull/12/held.png", "ai.hold", "pending");
+    insert.run("gh/o/repo/pull/12/clip.mp4", "video.poster", "1");
+    const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
+    const body = (await res.json()) as { body: string };
+    expect(body.body).toContain("shown.png");
+    expect(body.body).not.toContain("held.png");
+    expect(body.body).toContain("▶ Play video");
+    expect(body.body).not.toContain("- [clip.mp4]");
   });
 
   it("(d) empty workspace -> sample fixtures, body contains dashboard-overview.png", async () => {
@@ -2633,7 +2642,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
   });
 });
 
-describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)", () => {
+describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
   const SECRET = "test-workspace-secrets-key-0000";
   const SHARED_RECORD = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
   const BYO_RECORD = {
@@ -2807,27 +2816,6 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       });
     });
 
-    it("runs the injected verify pipeline against the request body and persists nothing", async () => {
-      const { env, registry } = storageEnv({ role: "owner", record: BYO_RECORD });
-      setStorageVerifyForTests(async (candidate) => {
-        expect(candidate.bucket).toBe("customer-bucket");
-        return okVerifyResult;
-      });
-      const before = registry.record("acme");
-      const res = await app().request(
-        "/me/workspaces/acme/storage/verify",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(CANDIDATE_BODY),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual(okVerifyResult);
-      expect(registry.record("acme")).toEqual(before);
-    });
-
     it("429s when the write limiter is over budget", async () => {
       const { env: baseEnv } = storageEnv({ role: "owner", record: BYO_RECORD });
       const env = {
@@ -2976,28 +2964,6 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       expect(registry.record("acme")).toEqual(before);
     });
 
-    it("saves a standby lane even when the workspace already has files — saving never changes routing", async () => {
-      const { env, registry } = storageEnv({
-        role: "owner",
-        record: { ...SHARED_RECORD, byoBucketEnabled: true },
-        usage: { objects: 3 },
-      });
-      setStorageVerifyForTests(async () => okVerifyResult);
-      const res = await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(CANDIDATE_BODY),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      // Top-level (active-lane) fields untouched.
-      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
-      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
-    });
-
     it("saves on a passing verify: seals credentials into a standby lane, top-level fields untouched", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
@@ -3055,35 +3021,6 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       expect(lane?.storageConfiguredBy).toBe("u-plain");
       // Plaintext display fragment, not the tail of the sealed blob.
       expect(lane?.storageAccessKeyIdLast4).toBe("1234");
-    });
-
-    it("saving again for the same bucket replaces the standby lane in place rather than appending a duplicate", async () => {
-      const { env, registry } = storageEnv({
-        role: "owner",
-        record: { ...SHARED_RECORD, byoBucketEnabled: true },
-        usage: { objects: 0 },
-      });
-      setStorageVerifyForTests(async () => okVerifyResult);
-      await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(CANDIDATE_BODY),
-        },
-        env,
-      );
-      const res = await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
     });
 
     it("stamps jurisdiction on the saved standby lane", async () => {

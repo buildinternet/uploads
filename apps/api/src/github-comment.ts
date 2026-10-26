@@ -7,8 +7,16 @@
  * D1 rows scoped by workspace name).
  */
 
+import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
+import {
+  evaluateRequirement,
+  githubAttachmentCount,
+  type Requirement,
+} from "./github-check-requirements";
+import { evaluateAiNotes } from "./github-check-ai-notes";
 import { dbFor } from "./db-session";
-import { feedItemId, feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
+import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
+import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
 import { createFeed } from "./feeds";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
@@ -18,6 +26,7 @@ import { parseExternalReference } from "./external-references";
 import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listPrefixIdsForTarget } from "./github-private-prefixes";
+import { ingestKeyPrefixes } from "./github-ingest";
 import {
   reportAttachmentIndexShadow,
   startAttachmentIndexShadow,
@@ -25,6 +34,8 @@ import {
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
+import { HOLD_META_KEY, isHeld } from "./upload-hold";
+import { listHeldKeys } from "./upload-hold-read";
 import type { ResolvedCommentOptions } from "@uploads/comment-config";
 import {
   attachmentsCommentBody,
@@ -33,6 +44,7 @@ import {
   ghPrivateKeyPrefix,
   inferContentType,
   ATTACHMENTS_MARKER,
+  type AiNote,
   type AttachmentItem,
   type CommentRenderOptions,
   type GalleryCommentItem,
@@ -60,21 +72,47 @@ export async function gatherCommentBody(
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
-  opts: { headBranch?: string; shadow?: boolean } = {},
-): Promise<{ body: string; count: number }> {
+  opts: { headBranch?: string; shadow?: boolean; detectUiChanges?: boolean } = {},
+): Promise<{
+  body: string;
+  count: number;
+  heldCount: number;
+  /**
+   * Changed files counting as UI changes; only looked up for an empty PR, or
+   * for any PR when the repo requires uploads.
+   */
+  uiFiles: string[];
+  /** The body is the no-uploads how-to, which may create the comment. */
+  noUploads: boolean;
+  /**
+   * The repo requires uploads (`check.require`), so the check may fail and
+   * must report on every PR.
+   */
+  required: boolean;
+  /** Where the PR stands on the requirements; null unless required and UI files changed. */
+  requirement: Requirement | null;
+  /** Images and videos attached on GitHub itself; only counted when nothing else is attached and UI files changed. */
+  githubAttachments: number;
+  /** The repo imports GitHub attachments into the workspace. */
+  importsAttachments: boolean;
+  /** The repo's AI notes (`check.ai`); empty when it has none on. */
+  aiNotes: AiNote[];
+}> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
   // to workspace-defaults/auto only (see resolveRepoCommentOptions).
-  const { options } = await resolveRepoCommentOptions(env, ws, target.repo);
+  const { options, source } = await resolveRepoCommentOptions(env, ws, target.repo);
 
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
-  const [items, galleries] = await Promise.all([
+  const [{ items, liveLinkUrl, heldCount }, galleries] = await Promise.all([
     gatherAttachments(env, ws, workspaceName, target, options, opts),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
 
-  const count = items.length + galleries.length;
+  // Held files count so a PR whose only attachment is held still gets a
+  // comment carrying the approve line.
+  const count = items.length + galleries.length + heldCount;
   const marker = attachmentsMarker(workspaceName);
   const renderOptions: CommentRenderOptions = {
     imageWidth: options.imageWidth,
@@ -83,9 +121,87 @@ export async function gatherCommentBody(
     metaState: options.metaState,
     note: options.note,
   };
+  // An empty PR that changes UI files gets a neutral "UI files changed" check,
+  // and the how-to instead of the empty state when paths are configured
+  // (github-no-uploads.ts). Only looked up for an empty PR, or when the repo
+  // requires uploads, so other PRs never pay for the changed-files read.
+  const configured = source.uiPaths !== "auto";
+  const required = options.checkRequire.length > 0 && target.kind === "pull";
+  const uiFiles =
+    (count === 0 || required) && opts.detectUiChanges
+      ? await changedUiFiles(env, target, configured ? options.uiPaths : DEFAULT_UI_PATHS)
+      : [];
+  // Screenshots dragged into the PR on GitHub stand in for uploads, so a
+  // contributor without uploads.sh isn't nudged or failed.
+  const githubAttachments =
+    count === 0 && uiFiles.length > 0 && target.kind === "pull"
+      ? await githubAttachmentCount(env, target)
+      : 0;
+  const keys = items.map((item) => item.key);
+  // AI notes read labels the classifier already stored, so a sync never
+  // calls a model for them.
+  const [requirement, aiNotes] = await Promise.all([
+    required && uiFiles.length > 0
+      ? evaluateRequirement(
+          env,
+          workspaceName,
+          target,
+          options,
+          keys,
+          galleries.length + heldCount + githubAttachments,
+        )
+      : null,
+    evaluateAiNotes(env, workspaceName, target, options.checkAi, keys),
+  ]);
+  // A skip label replaces the checklist and the how-to with one "skipped" line.
+  const skipLabel = requirement?.skipLabel ?? null;
+  const checklist = requirement?.checklist ?? [];
+  const satisfiedOnGithub = githubAttachments > 0 && checklist.every((c) => c.met);
+  if (
+    count === 0 &&
+    uiFiles.length > 0 &&
+    configured &&
+    options.noUploadsComment &&
+    !skipLabel &&
+    !satisfiedOnGithub
+  ) {
+    return {
+      body: noUploadsCommentBody(marker, target, uiFiles, {
+        importsAttachments: options.ingestGithubAttachments,
+        checklist,
+      }),
+      count,
+      heldCount,
+      uiFiles,
+      noUploads: true,
+      required,
+      requirement,
+      githubAttachments,
+      importsAttachments: options.ingestGithubAttachments,
+      aiNotes,
+    };
+  }
+
   // count may be 0 — attachmentsCommentBody renders a neutral empty state.
   // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
-  return { body: attachmentsCommentBody(items, galleries, marker, renderOptions, target), count };
+  return {
+    body: attachmentsCommentBody(items, galleries, marker, renderOptions, target, {
+      liveLinkUrl,
+      heldCount,
+      checklist,
+      skipLabel,
+      aiNotes,
+    }),
+    count,
+    heldCount,
+    uiFiles,
+    noUploads: false,
+    required,
+    requirement,
+    githubAttachments,
+    importsAttachments: options.ingestGithubAttachments,
+    aiNotes,
+  };
 }
 
 /**
@@ -95,6 +211,7 @@ export async function gatherCommentBody(
  * narrowness rationale still holds for a surface that posts publicly.
  */
 const COMMENT_META_KEYS = [
+  "screen",
   "path",
   "state",
   "video.poster",
@@ -119,6 +236,43 @@ const COMMENT_META_KEYS = [
  */
 const DETACH_META_KEY = "gh.detached";
 
+/**
+ * Feed-scope keys (spec "Item links beyond 50"). Read in the same
+ * unconditional query as `gh.detached` — never in `COMMENT_META_KEYS`,
+ * which is skipped when both caption settings are off — so live link item
+ * ids never depend on caption settings.
+ */
+const SCOPE_META_KEYS = ["gh.repo", "gh.number", "gh.status"];
+
+/**
+ * Read in the same unconditional query as `gh.detached`: a held file
+ * (`upload-hold.ts`) must never render, whatever the caption settings.
+ */
+const HOLD_META_KEYS = [HOLD_META_KEY];
+
+/**
+ * Detached copies and held files never render. The settings preview uses
+ * this directly; `gatherAttachments` applies the same two checks in steps
+ * because the attachment-index shadow sits between them.
+ */
+export async function dropHiddenAttachments(
+  env: Env,
+  workspaceName: string,
+  items: AttachmentItem[],
+): Promise<AttachmentItem[]> {
+  if (items.length === 0) return items;
+  const metaByKey = await getMetadataForKeys(
+    dbFor(env),
+    workspaceName,
+    items.map((item) => item.key),
+    { metaKeys: [DETACH_META_KEY, ...HOLD_META_KEYS] },
+  );
+  return items.filter((item) => {
+    const meta = metaByKey.get(item.key);
+    return meta?.[DETACH_META_KEY] !== "true" && !isHeld(meta);
+  });
+}
+
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
   env: Env,
@@ -127,7 +281,7 @@ async function gatherAttachments(
   target: GhTarget,
   options: ResolvedCommentOptions,
   gatherOpts: { headBranch?: string; shadow?: boolean },
-): Promise<AttachmentItem[]> {
+): Promise<{ items: AttachmentItem[]; liveLinkUrl: string | null; heldCount: number }> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to a share page — the PR/issue feed
   // item when that object is in the feed, otherwise `/f/`. `false` links to
@@ -160,10 +314,19 @@ async function gatherAttachments(
       ? Promise.resolve(null)
       : startAttachmentIndexShadow(env, workspaceName, target);
 
+  // GitHub attachments imported into this workspace (github-ingest.ts) sit
+  // in their own folders; the detach filter below drops removed ones.
+  const ingestPrefixes = ingestKeyPrefixes(target, activePrefixIds);
+
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
+    ...ingestPrefixes,
   ];
+
+  // Independent of the listing below, so it overlaps it. A moved hold
+  // (`held-storage.ts`) has no public object to list.
+  const heldKeysPromise = listHeldKeysSafe(env, workspaceName);
 
   // Paginated per-prefix, but the prefixes themselves are independent — run
   // them concurrently and concatenate in prefix order, so output ordering is
@@ -200,29 +363,68 @@ async function gatherAttachments(
   // path/state/video.* fetch below is skipped when the repo's meta display
   // settings are both off, but this one always runs since a detached copy
   // must never render regardless.
+  let scopeMetaByKey = new Map<string, Record<string, string>>();
   if (items.length > 0) {
-    const detachByKey = await getMetadataForKeys(
+    scopeMetaByKey = await getMetadataForKeys(
       dbFor(env),
       workspaceName,
       items.map((item) => item.key),
-      { metaKeys: [DETACH_META_KEY] },
+      { metaKeys: [DETACH_META_KEY, ...SCOPE_META_KEYS, ...HOLD_META_KEYS] },
     );
-    items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
+    items = items.filter((item) => scopeMetaByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
   }
 
+  // Before the hold filter: a held file is still an attachment of this
+  // target, so the index still has its row.
   reportAttachmentIndexShadow(
     await indexShadow,
     workspaceName,
     target,
-    items.map((item) => item.key),
+    // The index tracks managed attachments only, never imports.
+    items
+      .map((item) => item.key)
+      .filter((key) => !ingestPrefixes.some((prefix) => key.startsWith(prefix))),
   );
 
-  if (items.length > 0) {
-    await applyPrFeedPageUrls(env, workspaceName, target, items, linkToFilePage);
-  }
+  const shown = items.filter((item) => !isHeld(scopeMetaByKey.get(item.key)));
+  const listedKeys = new Set(items.map((item) => item.key));
+  const movedHeld = (await heldKeysPromise).filter(
+    (key) => !listedKeys.has(key) && prefixes.some((prefix) => key.startsWith(prefix)),
+  );
+  const heldCount = items.length - shown.length + movedHeld.length;
+  items = shown;
 
-  if (!showMetadata || items.length === 0) return items;
+  const liveLinkUrl =
+    items.length > 0
+      ? await applyPrFeedPageUrls(
+          env,
+          ws,
+          workspaceName,
+          target,
+          items,
+          scopeMetaByKey,
+          linkToFilePage,
+        )
+      : null;
 
+  if (!showMetadata || items.length === 0) return { items, liveLinkUrl, heldCount };
+
+  await addCommentMetadata(env, ws, workspaceName, items);
+  return { items, liveLinkUrl, heldCount };
+}
+
+/**
+ * Captions (screen/path/state), posters and image dimensions for the items the
+ * comment renders. Shared with the settings preview (`commentPreviewHandler`)
+ * so a video or PDF previews as the poster it will get on GitHub.
+ */
+export async function addCommentMetadata(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  items: AttachmentItem[],
+): Promise<void> {
+  if (items.length === 0) return;
   const metaByKey = await getMetadataForKeys(
     dbFor(env),
     workspaceName,
@@ -239,9 +441,13 @@ async function gatherAttachments(
   for (const item of items) {
     const meta = metaByKey.get(item.key);
     if (!meta) continue;
-    const { path, state } = meta;
-    if (path || state) {
-      item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
+    const { screen, path, state } = meta;
+    if (screen || path || state) {
+      item.meta = {
+        ...(screen ? { screen } : {}),
+        ...(path ? { path } : {}),
+        ...(state ? { state } : {}),
+      };
     }
     // Presence flags only. The URL is always recomputed from the object key
     // (never trusted from a stored row), and only rendered when the poster
@@ -288,7 +494,19 @@ async function gatherAttachments(
       };
     }
   }
-  return items;
+}
+
+/**
+ * Best-effort for the comment: a failed lookup renders without the moved
+ * holds' count line, the same as before holds existed.
+ */
+async function listHeldKeysSafe(env: Env, workspaceName: string): Promise<string[]> {
+  try {
+    return await listHeldKeys(env, workspaceName);
+  } catch (err) {
+    console.error({ event: "held_keys_lookup_failed", workspace: workspaceName, err });
+    return [];
+  }
 }
 
 async function resolvePosterUrl(
@@ -304,42 +522,55 @@ async function resolvePosterUrl(
 }
 
 /**
- * Ensure the PR/issue change feed exists (idempotent `createFeed`) and point
- * attachment click-throughs at `/c/<id>/<item>` when that object is in the
- * feed. Failures never fail the comment — `/f/` (or raw URL) stays.
+ * Ensure the PR/issue live link (a feed, `source: "comment"`) exists and
+ * point each attachment whose OWN metadata is in the feed's scope at
+ * `/c/<id>/<item>`. The comment gathers by key prefix and the feed by
+ * metadata, so membership is decided per item by `isInFeedScope` — the same
+ * predicate as the scope query — and the id is hashed directly, with no
+ * 50-row page to fall off. Returns the live link URL when `linkToFilePage`
+ * is on, else null. Failures never fail the comment: `/f/` (or the raw URL)
+ * stays and the line is omitted. A workspace with no public base URL gets no
+ * live link at all, since its page could not serve the files.
  */
 async function applyPrFeedPageUrls(
   env: Env,
+  ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
   items: AttachmentItem[],
+  scopeMetaByKey: ReadonlyMap<string, Record<string, string>>,
   linkToFilePage: boolean,
-): Promise<void> {
+): Promise<string | null> {
   try {
+    if (!liveLinksServable(ws)) return null;
+    // Comment-sync rows are uncapped and keep `comment` for life. GhTarget
+    // spells issues `issues`; createFeed takes `pr`/`issue`, and the slot
+    // lookup ignores kind, so a later web/CLI create for the same number
+    // reuses this row.
     const created = await createFeed(dbFor(env), {
       workspace: workspaceName,
       repo: target.repo,
+      source: "comment",
       ...(target.kind === "pull" ? { pr: target.num } : { issue: target.num }),
     });
-    if (created.status !== "ok") return;
-    if (!linkToFilePage) return;
+    if (created.status !== "ok") return null;
+    if (!linkToFilePage) return null;
     const feed = created.value;
-    const matches = await findLatestRepoScreenshots(dbFor(env), workspaceName, {
+    const scope: FeedScope = {
       repo: feed.repo,
-      number: feed.number > 0 ? feed.number : undefined,
-    });
-    const idByKey = new Map<string, string>();
+      ...(feed.number > 0 ? { number: feed.number } : {}),
+    };
     await Promise.all(
-      matches.map(async (match) => {
-        idByKey.set(match.key, await feedItemId(match.key));
+      items.map(async (item) => {
+        const meta = scopeMetaByKey.get(item.key);
+        if (!meta || !isInFeedScope(meta, scope)) return;
+        item.pageUrl = feedItemUrl(env, feed.id, await feedItemIdFor(item.key));
       }),
     );
-    for (const item of items) {
-      const itemId = idByKey.get(item.key);
-      if (itemId) item.pageUrl = feedItemUrl(env, feed.id, itemId);
-    }
+    return feedUrl(env, feed.id);
   } catch {
     // Comment sync must not fail if feeds are unavailable.
+    return null;
   }
 }
 

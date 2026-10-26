@@ -94,10 +94,11 @@ describe("GET /me/workspaces/:name/github-titles", () => {
 
   it("returns cached titles keyed by normalized ref, null for misses", async () => {
     const kv = new FakeKv();
-    kv.store.set("ghref:o/r#1", {
+    // o/r is not linked to acme, so the public-audience namespace answers.
+    kv.store.set("ghref:pub:o/r#1", {
       value: JSON.stringify({ v: { title: "Ship it", state: "open", kind: "pull" } }),
     });
-    kv.store.set("ghref:o/r#2", { value: JSON.stringify({ v: null }) });
+    kv.store.set("ghref:pub:o/r#2", { value: JSON.stringify({ v: null }) });
     const env = memberEnv({ member: true, kv });
     const res = await app().request(
       "/me/workspaces/acme/github-titles?refs=O/R%231,o/r%232",

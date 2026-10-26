@@ -4,29 +4,42 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "pnpm --filter @buildinternet/uploads run build",
+    "predev": "pnpm --filter @buildinternet/uploads run build && pnpm run build:ui",
     "dev": "wrangler dev",
-    "predeploy": "pnpm --filter @buildinternet/uploads run build",
+    "predeploy": "pnpm --filter @buildinternet/uploads run build && pnpm run build:ui",
     "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "bundle:check": "wrangler deploy --dry-run --outdir .wrangler/bundle-check",
     "types": "wrangler types",
-    "typecheck": "wrangler types && tsc --noEmit",
-    "pretest": "pnpm --filter @buildinternet/uploads run build",
-    "test": "vitest run"
+    "typecheck": "wrangler types && tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
+    "pretest": "pnpm --filter @buildinternet/uploads run build && pnpm run build:ui",
+    "test": "vitest run",
+    "build:ui": "pnpm --filter @uploads/ui build && node ui/build.mjs",
+    "pretypecheck": "pnpm run build:ui",
+    "prebundle:check": "pnpm run build:ui"
   },
   "dependencies": {
     "@buildinternet/uploads": "workspace:^",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@uploads/api": "workspace:^",
     "@uploads/errors": "workspace:^",
+    "@uploads/observability": "workspace:^",
     "@uploads/storage": "workspace:^",
-    "hono": "^4.13.3",
-    "jose": "^6.2.3"
+    "hono": "^4.13.13",
+    "jose": "^6.2.3",
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
+    "@uploads/ui": "workspace:*",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.134.0",
+    "vite": "^8.3.5",
+    "vite-plugin-singlefile": "^2.3.4",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3"
   }
 }

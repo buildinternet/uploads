@@ -1,157 +1,98 @@
 /**
- * Durable-Object-backed rate-limit storage for Better Auth (2026-08-23
- * incident follow-up; see the `rateLimit` block in src/auth.ts).
+ * Better Auth rate-limit storage backed by Cloudflare's Rate Limiting binding.
  *
- * This module is deliberately free of any `cloudflare:workers` import so the
- * plain-vitest suite can exercise every decision path in-process. The Durable
- * Object class itself lives in src/rate-limit-do.ts and imports `decideWindow`
- * from here.
+ * The binding counts locally in each colo, so a check never leaves the
+ * machine and cannot stall a request (the Durable Object backend this
+ * replaced timed out under load). Counts are per colo and approximate, which
+ * is fine for per-IP abuse shaping: one client IP almost always lands on one
+ * colo.
  *
- * Semantics are a byte-for-byte mirror of Better Auth 1.7.1's own
- * `decideConsume` (node_modules/better-auth/dist/api/rate-limiter/index.mjs
- * lines 25-63) and `getRetryAfter` (lines 71-75), so swapping the built-in
- * memory backend for this one cannot change who gets a 429:
- *
- *   - no state            → count = 1, allowed
- *   - now - lastRequest >= window*1000 → window elapsed: count resets to 1, allowed
- *   - count >= max        → denied, state untouched,
- *                           retryAfter = ceil((lastRequest + window*1000 - now) / 1000)
- *   - otherwise           → count + 1, lastRequest = now, allowed
- *
- * `window` is in SECONDS on the way in and `retryAfter` is in SECONDS on the
- * way out; `lastRequest` is epoch milliseconds. Note that `lastRequest` is
- * bumped on every ALLOWED request (upstream does the same), so the window
- * slides forward with traffic rather than being pinned to the first hit.
+ * A binding's limit and period are fixed in wrangler.jsonc, so Better Auth's
+ * rules are mapped onto a few tiers. Every rule here has a 10s or 60s window
+ * (the only periods the binding supports), and `tierFor` never picks a tier
+ * stricter than such a rule.
  */
+
+import { reportHandledError } from "@uploads/observability";
 
 /** A resolved Better Auth rate-limit rule: `window` in seconds, `max` hits. */
 export type RateLimitRule = { window: number; max: number };
 
-/** The single counter row a per-key Durable Object holds. */
-export type RateLimitState = { count: number; lastRequest: number };
-
 export type RateLimitOutcome = { allowed: boolean; retryAfter: number | null };
 
-export type RateLimitDecision = RateLimitOutcome & {
-  /** The state to persist. Only meaningful when `allowed` is true. */
-  next: RateLimitState;
+/** The slice of the Workers `RateLimit` binding this module uses. */
+export interface RateLimiterLike {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
+/** One `ratelimits` binding. `window`/`max` must match its wrangler.jsonc `simple` block. */
+export type RateLimitTier = { window: number; max: number; limiter: RateLimiterLike };
+
+export type RateLimitBindings = {
+  RL_SIGN_IN?: RateLimiterLike;
+  RL_EMAIL?: RateLimiterLike;
+  RL_OAUTH?: RateLimiterLike;
+  RL_DEFAULT?: RateLimiterLike;
 };
 
 /**
- * Pure fixed-window decision. Extracted so it is testable without the DO
- * runtime; the Durable Object is nothing but storage read → this → storage
- * write, which is atomic because a DO is single-threaded.
+ * The tiers, or null unless all four bindings are present. Ordered strictest
+ * first; the last one is the loosest and the fallback.
+ *
+ *   RL_SIGN_IN   3 / 10s   sign-in, change-password, change-email
+ *   RL_EMAIL     5 / 60s   magic link, password reset, verification email, register
+ *   RL_OAUTH    30 / 60s   oauth2 token, authorize, revoke
+ *   RL_DEFAULT 100 / 10s   everything else (introspect, userinfo, Better Auth's default)
  */
-export function decideWindow(
-  state: RateLimitState | undefined,
-  rule: RateLimitRule,
-  now: number,
-): RateLimitDecision {
-  const windowInMs = rule.window * 1000;
-  if (!state) {
-    return { next: { count: 1, lastRequest: now }, allowed: true, retryAfter: null };
-  }
-  if (now - state.lastRequest >= windowInMs) {
-    return { next: { count: 1, lastRequest: now }, allowed: true, retryAfter: null };
-  }
-  if (state.count >= rule.max) {
-    return {
-      next: state,
-      allowed: false,
-      // Mirrors better-auth's getRetryAfter (dist/api/rate-limiter/index.mjs:71).
-      retryAfter: Math.ceil((state.lastRequest + windowInMs - now) / 1000),
-    };
-  }
-  return {
-    next: { count: state.count + 1, lastRequest: now },
-    allowed: true,
-    retryAfter: null,
-  };
+export function rateLimitTiers(env: RateLimitBindings): RateLimitTier[] | null {
+  const { RL_SIGN_IN, RL_EMAIL, RL_OAUTH, RL_DEFAULT } = env;
+  if (!RL_SIGN_IN || !RL_EMAIL || !RL_OAUTH || !RL_DEFAULT) return null;
+  return [
+    { window: 10, max: 3, limiter: RL_SIGN_IN },
+    { window: 60, max: 5, limiter: RL_EMAIL },
+    { window: 60, max: 30, limiter: RL_OAUTH },
+    { window: 10, max: 100, limiter: RL_DEFAULT },
+  ];
 }
 
-/** The RPC surface src/rate-limit-do.ts exposes; kept structural for testing. */
-export interface RateLimitCounterStub {
-  consume(rule: RateLimitRule): Promise<RateLimitOutcome>;
+/** The strictest tier with the rule's window that allows at least `rule.max`, else the last. */
+export function tierFor(tiers: RateLimitTier[], rule: RateLimitRule): RateLimitTier {
+  return tiers.find((tier) => tier.window === rule.window && tier.max >= rule.max) ?? tiers.at(-1)!;
 }
 
-/**
- * The slice of `DurableObjectNamespace<RateLimitCounter>` this module uses.
- * Structural on purpose: unit tests pass a fake, and the real binding
- * satisfies it without a cast.
- */
-export interface RateLimitNamespaceLike<Id = unknown> {
-  idFromName(name: string): Id;
-  get(id: Id): RateLimitCounterStub;
-}
-
-/** Fail-open result, used for every error and for the timeout. */
+/** Fail-open result, used for no-IP keys and binding errors. */
 const FAIL_OPEN: RateLimitOutcome = { allowed: true, retryAfter: null };
 
 /**
- * Default deadline for the DO round trip. A rate limiter must never be able
- * to add unbounded latency to the hot path — that is exactly what the D1
- * incident was. DO RPC has no abort signal, so the losing promise is simply
- * abandoned (it settles harmlessly in the background; its write, if any,
- * still lands in the counter).
+ * Better Auth's key prefix when a request has no client IP
+ * (`no-trusted-ip|<path>`). Only service-binding calls lack `cf-connecting-ip`,
+ * and they would all share one counter per path, so they are not limited.
  */
-export const DEFAULT_RATE_LIMIT_TIMEOUT_MS = 1500;
+const NO_IP_KEY_PREFIX = "no-trusted-ip|";
 
-export type DurableRateLimitStorageOptions = {
-  timeoutMs?: number;
-  /** Injected in tests; defaults to `console.error`. */
+export type BindingRateLimitStorageOptions = {
+  /** Injected in tests; defaults to `reportHandledError`. */
   onError?: (error: unknown) => void;
 };
 
-/**
- * Build a Better Auth `rateLimit.customStorage` backed by one Durable Object
- * per rate-limit key.
- *
- * `idFromName(key)` is deterministic, so every isolate in the fleet lands on
- * the same object for a given key — the counter is exact and global, unlike
- * the per-isolate memory Map — and Cloudflare places that object near its
- * first caller, which keeps the round trip short for the IP-keyed buckets
- * Better Auth uses.
- */
-export function createDurableRateLimitStorage(
-  namespace: RateLimitNamespaceLike,
-  options: DurableRateLimitStorageOptions = {},
+/** Build a Better Auth `rateLimit.customStorage` over the tiers. */
+export function createBindingRateLimitStorage(
+  tiers: RateLimitTier[],
+  options: BindingRateLimitStorageOptions = {},
 ): { consume: (key: string, rule: RateLimitRule) => Promise<RateLimitOutcome> } {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_RATE_LIMIT_TIMEOUT_MS;
-  const onError =
-    options.onError ??
-    ((error: unknown) => {
-      console.error(
-        JSON.stringify({
-          message: "auth_rate_limit_storage_failed",
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    });
+  const onError = options.onError ?? reportHandledError;
 
   return {
     async consume(key, rule) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (key.startsWith(NO_IP_KEY_PREFIX)) return FAIL_OPEN;
+      const tier = tierFor(tiers, rule);
       try {
-        const stub = namespace.get(namespace.idFromName(key));
-        const call = Promise.resolve(stub.consume(rule));
-        // A rejection that lands after the timeout has already won the race
-        // would otherwise surface as an unhandled rejection — swallow it on
-        // this side branch; the race branch still observes it normally.
-        call.catch(() => {});
-        const timeout = new Promise<RateLimitOutcome | undefined>((resolve) => {
-          timer = setTimeout(() => resolve(undefined), timeoutMs);
-        });
-        const result = await Promise.race([call, timeout]);
-        if (!result) {
-          onError(new Error(`rate limit DO timed out after ${timeoutMs}ms`));
-          return FAIL_OPEN;
-        }
-        return result;
+        const { success } = await tier.limiter.limit({ key });
+        // The binding doesn't report time left, so a full window is the bound.
+        return success ? FAIL_OPEN : { allowed: false, retryAfter: tier.window };
       } catch (error) {
         onError(error);
         return FAIL_OPEN;
-      } finally {
-        if (timer !== undefined) clearTimeout(timer);
       }
     },
   };

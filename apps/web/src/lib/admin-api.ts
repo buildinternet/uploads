@@ -16,19 +16,33 @@
  * a compile error, never a silent shape mismatch.
  */
 import type {
+  AdminClientActivity,
   AdminGithubLink,
   AdminLimitsResponse,
   AdminPlanResponse,
+  AdminSlackAgentModel,
   AdminStorageResponse,
   AdminTokenRow,
   AdminWorkspaceSummary,
+  AgentModelOption,
   OpenEnrollment,
   OrgInvite,
   OrgMember,
 } from "@uploads/api/admin-ui";
 import { trimOrigin } from "./api-client";
+import type {
+  ClassifierAdminWindow,
+  ClassifierFlaggedPage,
+  ClassifierHoldsReleaseResult,
+  ClassifierHoldsSummary,
+  ClassifierOverview,
+  ClassifierSafetyField,
+} from "@uploads/api/classifier-admin-wire";
 
 export type {
+  AdminSlackAgentModel,
+  AgentModelOption,
+  AdminClientActivity,
   AdminGithubLink,
   AdminLimitsResponse,
   AdminPlanResponse,
@@ -39,6 +53,16 @@ export type {
   OrgInvite,
   OrgMember,
 };
+export type * from "@uploads/api/classifier-admin-wire";
+
+/** Filters for `/admin-ui/classifier/flagged`. Empty values are omitted. */
+export interface FlaggedFilters {
+  field: ClassifierSafetyField | "";
+  highOnly: boolean;
+  workspace: string;
+  cursor?: string;
+  limit?: number;
+}
 
 /** Pull `{ error: { message } }` out of a non-OK body, falling back to status. */
 async function failure(res: Response, fallback: string): Promise<Error> {
@@ -68,9 +92,20 @@ export interface AdminApi {
   saveStorage(workspace: string, byoBucketEnabled: boolean): Promise<AdminStorageResponse>;
   getGithubLinks(workspace: string): Promise<AdminGithubLink[]>;
   getTokens(workspace: string): Promise<AdminTokenRow[]>;
+  /** Client activity (CLI / MCP versions), newest first; `days: 0` = all time. */
+  listClients(opts?: { workspace?: string; days?: number }): Promise<AdminClientActivity[]>;
   getInviteLinks(workspace: string): Promise<OpenEnrollment[]>;
   createInviteLink(workspace: string, body: { label?: string; scopes: string[] }): Promise<string>;
   revokeInviteLink(workspace: string, id: string): Promise<void>;
+  getClassifierOverview(days: ClassifierAdminWindow, fresh?: boolean): Promise<ClassifierOverview>;
+  listClassifierFlagged(params: FlaggedFilters): Promise<ClassifierFlaggedPage>;
+  getClassifierHolds(): Promise<ClassifierHoldsSummary>;
+  /** One batch of the operator release; call again while `remaining` drops. */
+  releaseClassifierHolds(workspace?: string): Promise<ClassifierHoldsReleaseResult>;
+  getSlackAgentModel(): Promise<AdminSlackAgentModel>;
+  /** `null` goes back to the default. */
+  saveSlackAgentModel(model: string | null): Promise<AdminSlackAgentModel>;
+  listAgentModelOptions(fresh?: boolean): Promise<AgentModelOption[]>;
 }
 
 export function makeAdminApi(apiOrigin: string): AdminApi {
@@ -100,6 +135,58 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
   }
 
   return {
+    getClassifierOverview(days, fresh = false) {
+      return get<ClassifierOverview>(
+        `${base}/admin-ui/classifier/overview?days=${days}${fresh ? "&fresh=1" : ""}`,
+        "load classifier overview failed",
+      );
+    },
+    listClassifierFlagged({ field, highOnly, workspace, cursor, limit }) {
+      const params = new URLSearchParams();
+      if (field) params.set("field", field);
+      if (highOnly) params.set("confidence", "high");
+      if (workspace) params.set("workspace", workspace);
+      if (cursor) params.set("cursor", cursor);
+      if (limit) params.set("limit", String(limit));
+      return get<ClassifierFlaggedPage>(
+        `${base}/admin-ui/classifier/flagged?${params}`,
+        "load flagged uploads failed",
+      );
+    },
+    getClassifierHolds() {
+      return get<ClassifierHoldsSummary>(
+        `${base}/admin-ui/classifier/holds`,
+        "load held uploads failed",
+      );
+    },
+    releaseClassifierHolds(workspace) {
+      return send<ClassifierHoldsReleaseResult>(
+        `${base}/admin-ui/classifier/holds/release`,
+        "POST",
+        "release held uploads failed",
+        workspace ? { workspace } : {},
+      );
+    },
+    getSlackAgentModel() {
+      return get<AdminSlackAgentModel>(
+        `${base}/admin-ui/models/slack-agent`,
+        "load Slack model failed",
+      );
+    },
+    saveSlackAgentModel(model) {
+      return send<AdminSlackAgentModel>(
+        `${base}/admin-ui/models/slack-agent`,
+        "PATCH",
+        "save Slack model failed",
+        { model },
+      );
+    },
+    listAgentModelOptions(fresh = false) {
+      return get<AgentModelOption[]>(
+        `${base}/admin-ui/models/agent-options${fresh ? "?fresh=1" : ""}`,
+        "load models failed",
+      );
+    },
     async listWorkspaces() {
       const { workspaces } = await get<{ workspaces: AdminWorkspaceSummary[] }>(
         `${base}/admin-ui/workspaces`,
@@ -169,6 +256,17 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
         "load tokens failed",
       );
       return tokens;
+    },
+    async listClients(opts = {}) {
+      const params = new URLSearchParams();
+      if (opts.workspace) params.set("workspace", opts.workspace);
+      if (opts.days !== undefined) params.set("days", String(opts.days));
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const { clients } = await get<{ clients: AdminClientActivity[] }>(
+        `${base}/admin-ui/clients${query}`,
+        "load clients failed",
+      );
+      return clients;
     },
     async getInviteLinks(workspace) {
       const { links } = await get<{ links: OpenEnrollment[] }>(

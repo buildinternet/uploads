@@ -11,8 +11,11 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { createUploadsClient } from "../client.js";
 import { resolveConfig } from "../config.js";
+import { fileExpiredTokenStore } from "../expired-tokens.js";
 import { writeCommandHelp } from "../cli-style.js";
 import { resolveRepo } from "../github-gh.js";
 import { resolveStagedBinding, type StagedBinding } from "../commands.js";
@@ -41,11 +44,27 @@ Harness manifests no-op (exit 0, no output) when this binary is not on PATH.
 Disable with UPLOADS_HOOK_DISABLE=1.
 `;
 
+const STALE_STAGED_MS = 30 * 24 * 60 * 60 * 1000;
+
+export type StagedInspect = {
+  /** Still-staged files for this branch, or null when the lookup failed. */
+  count: number | null;
+  /** Every matching file is older than 30 days. */
+  allStale: boolean;
+  /** Other branches that still have staged files in the same lookup. */
+  foreignBranches: string[];
+};
+
 export type HookDeps = {
   stdin: string;
   testFiles?: string;
   cwd?: string;
+  /**
+   * Tests pass this and skip the richer inspect. Production uses
+   * `defaultInspectStaged` when both are omitted.
+   */
   countStaged?: (branch: string) => Promise<number | null>;
+  inspectStaged?: (branch: string) => Promise<StagedInspect | null>;
   isFork?: () => boolean | null;
   /** Repo binding for the cwd's repo; null/throw → unknown (keeps the promote advice). */
   binding?: () => Promise<StagedBinding | null>;
@@ -72,8 +91,40 @@ export function isCursorHookInput(raw: unknown): boolean {
   return "conversation_id" in o || "workspace_roots" in o || "cursor_version" in o;
 }
 
+/**
+ * Working directory the harness says the command runs in. Claude/Codex/Grok
+ * send a top-level `cwd`; Cursor sends `workspace_roots`. The hook process's
+ * own cwd can be a different checkout (Claude desktop worktree sessions run
+ * hooks from the main checkout), so this wins over `process.cwd()`.
+ */
+export function cwdFromHookInput(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.cwd === "string" && o.cwd) return o.cwd;
+  const roots = o.workspace_roots;
+  if (Array.isArray(roots) && typeof roots[0] === "string" && roots[0]) return roots[0];
+  return null;
+}
+
+/** Directory of a leading `cd <dir> &&` (or `;`) in the command, resolved against `base`. */
+export function leadingCdDir(command: string, base: string): string | null {
+  const m = command.match(/^\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)/);
+  if (!m) return null;
+  const dir = resolve(base, m[1].replace(/^["']|["']$/g, ""));
+  return existsSync(dir) ? dir : null;
+}
+
+/**
+ * True when the command actually invokes `gh pr create`: at the start of the
+ * command or after a shell separator (`;` `&&` `||` `|` `(` newline), allowing
+ * leading `VAR=value` assignments and extra whitespace. Pragmatic, not a shell
+ * parser: quoted substrings are blanked first, so `grep "gh pr create" f` and
+ * `echo 'gh pr create'` don't match, and a program argument such as
+ * `rg gh pr create` doesn't either because the match must sit in command position.
+ */
 export function looksLikeGhPrCreate(command: string): boolean {
-  return command.includes("gh pr create");
+  const unquoted = command.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
+  return /(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*gh\s+pr\s+create(?![\w-])/.test(unquoted);
 }
 
 export function isVisualPath(filePath: string): boolean {
@@ -127,26 +178,53 @@ function defaultGit(cwd: string): NonNullable<HookDeps["git"]> {
         runGit(["merge-base", `origin/${defaultBranch}`, "HEAD"], cwd) ||
         runGit(["merge-base", defaultBranch, "HEAD"], cwd);
       const diff = mergeBase
-        ? runGit(["diff", "--name-only", mergeBase, "HEAD"], cwd)
-        : runGit(["diff", "--name-only", "HEAD"], cwd);
+        ? runGit(["diff", "--name-only", "--diff-filter=d", mergeBase, "HEAD"], cwd)
+        : runGit(["diff", "--name-only", "--diff-filter=d", "HEAD"], cwd);
       return diff ? diff.split("\n").filter(Boolean) : [];
     },
   };
 }
 
-async function defaultCountStaged(branch: string): Promise<number | null> {
+async function defaultInspectStaged(branch: string): Promise<StagedInspect | null> {
   try {
     const config = resolveConfig({ requireToken: false });
     if (!config.token) return null;
-    const client = createUploadsClient(config);
+    const client = createUploadsClient(config, { expiredTokens: fileExpiredTokenStore() });
+    let repo: string | undefined;
+    try {
+      repo = resolveRepo(undefined);
+    } catch {
+      repo = undefined;
+    }
+    const filters: Record<string, string> = { "gh.status": "staged" };
+    if (repo) filters["gh.repo"] = repo.toLowerCase();
     const result = await Promise.race([
-      // Only still-staged files: promoted ones keep gh.branch but flip status.
-      client.findFiles({ "gh.branch": branch.toLowerCase(), "gh.status": "staged" }, { limit: 1 }),
+      client.findFiles(filters, { limit: 20 }),
       new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error("find timeout")), FIND_TIMEOUT_MS);
       }),
     ]);
-    return Array.isArray(result.items) ? result.items.length : 0;
+    const wanted = branch.toLowerCase();
+    const mine: { stagedAt?: string }[] = [];
+    const foreign: string[] = [];
+    for (const item of result.items ?? []) {
+      const fileBranch = item.metadata?.["gh.branch"];
+      if (fileBranch && fileBranch.toLowerCase() !== wanted) {
+        if (!foreign.some((name) => name.toLowerCase() === fileBranch.toLowerCase())) {
+          foreign.push(fileBranch);
+        }
+        continue;
+      }
+      mine.push({ stagedAt: item.metadata?.["gh.staged-at"] });
+    }
+    const now = Date.now();
+    const allStale =
+      mine.length > 0 &&
+      mine.every((file) => {
+        const at = file.stagedAt ? Date.parse(file.stagedAt) : Number.NaN;
+        return Number.isFinite(at) && now - at > STALE_STAGED_MS;
+      });
+    return { count: mine.length, allStale, foreignBranches: foreign };
   } catch {
     return null;
   }
@@ -156,7 +234,7 @@ async function defaultBinding(): Promise<StagedBinding | null> {
   try {
     const config = resolveConfig({ requireToken: false });
     if (!config.token) return null;
-    const client = createUploadsClient(config);
+    const client = createUploadsClient(config, { expiredTokens: fileExpiredTokenStore() });
     return await Promise.race([
       resolveStagedBinding(client, resolveRepo(undefined)),
       new Promise<never>((_, reject) => {
@@ -198,21 +276,48 @@ export async function runPrePrScreenshot(deps: HookDeps): Promise<string | null>
   const command = shellCommandFromHookInput(raw);
   if (!command || !looksLikeGhPrCreate(command)) return null;
 
-  const cwd = deps.cwd ?? process.cwd();
+  const baseCwd = cwdFromHookInput(raw) ?? deps.cwd ?? process.cwd();
+  const cwd = leadingCdDir(command, baseCwd) ?? baseCwd;
   const git = deps.git ?? defaultGit(cwd);
   if (!git.isRepo()) return null;
 
   const branch = git.branch();
   if (!branch) return null;
 
-  const staged = await (deps.countStaged ?? defaultCountStaged)(branch);
-  if (staged === null) return null; // error/unconfigured → fail open
+  const inspected = await (deps.inspectStaged
+    ? deps.inspectStaged(branch)
+    : deps.countStaged
+      ? deps
+          .countStaged(branch)
+          .then((count) =>
+            count === null ? null : { count, allStale: false, foreignBranches: [] as string[] },
+          )
+      : defaultInspectStaged(branch));
+  if (inspected === null || inspected.count === null) return null; // error/unconfigured → fail open
+  const staged = inspected.count;
+
+  if (staged === 0 && inspected.foreignBranches.length > 0) {
+    const cmds = inspected.foreignBranches
+      .map((name) => `uploads unstage --branch ${name}`)
+      .join("; ");
+    const message =
+      `Nothing is staged for branch '${branch}', but ${inspected.foreignBranches.join(", ")} still has staged files. ` +
+      `If those files are on the wrong branch, run \`${cmds}\`.`;
+    return formatAdvisory(message, isCursorHookInput(raw));
+  }
 
   // Promote suggestion (issue #700): staged-but-unattached files already
   // exist for this branch right as its PR is about to open. The PR doesn't
   // exist yet at this PreToolUse point, so its number isn't knowable here —
   // the wording still gives the exact command shape, and a bare
   // `attach --promote` (which infers the PR from the branch) works too.
+  // A set older than 30 days is more likely leftover than waiting (issue #1124).
+  if (staged > 0 && inspected.allStale) {
+    const noun = `${staged} file${staged === 1 ? "" : "s"} staged for branch '${branch}'`;
+    const message = `${noun} ${staged === 1 ? "is" : "are"} older than 30 days. If ${staged === 1 ? "it is" : "they are"} not for this pull request, run \`uploads unstage --branch ${branch}\` before opening it.`;
+    return formatAdvisory(message, isCursorHookInput(raw));
+  }
+
   if (staged > 0) {
     const fork = (deps.isFork ?? (() => defaultIsFork(cwd)))();
     const forkNote =

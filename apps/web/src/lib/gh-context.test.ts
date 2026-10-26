@@ -35,6 +35,14 @@ describe("gh-context", () => {
     expect(ghWorkItemFromMetadata(issue)!.url).toBe("https://github.com/o/uploads/issues/1740");
   });
 
+  it("carries gh.title as title and leaves state unset until titles resolve", () => {
+    expect(ghWorkItemFromMetadata({ ...pr, "gh.title": "Fix the login bug" })!.title).toBe(
+      "Fix the login bug",
+    );
+    expect(ghWorkItemFromMetadata(pr)!.title).toBeNull();
+    expect(ghWorkItemFromMetadata(pr)!.state).toBeUndefined();
+  });
+
   it("ownerFromRepo + avatar URL helpers", () => {
     expect(ownerFromRepo("buildinternet/uploads")).toBe("buildinternet");
     expect(ownerFromRepo("BuildInternet/Uploads")).toBe("buildinternet");
@@ -111,6 +119,20 @@ describe("applyGhTitles", () => {
     expect(out[0].label).toBe("Fresh title");
     expect(out[1].label).toBe("stamped title");
     expect(items[0].label).toBe("o/r#1"); // input untouched
+  });
+
+  it("records the fetched title and live state", () => {
+    const [out] = applyGhTitles([railItem()], {
+      "o/r#1": { title: "Fresh", state: "merged", kind: "pull" },
+    });
+    expect(out).toMatchObject({ label: "Fresh", title: "Fresh", state: "merged" });
+  });
+
+  it("records state even when the fetched title is empty", () => {
+    const [out] = applyGhTitles([railItem()], {
+      "o/r#1": { title: "", state: "closed", kind: "pull" },
+    });
+    expect(out).toMatchObject({ label: "o/r#1", state: "closed" });
   });
 
   it("ignores empty titles and unknown refs", () => {

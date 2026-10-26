@@ -212,6 +212,63 @@ describe("groupObjectsByPath", () => {
     expect(result.projects).toEqual([{ label: "Other", count: 3, lastUpdated: at(3) }]);
   });
 
+  it("groups screen-only files by screen name; a file with both groups by path", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        { workspace: "acme", key: "a.png", meta: { screen: "Settings" }, at: at(1) },
+        { workspace: "acme", key: "b.png", meta: { path: "/home", screen: "Home" }, at: at(2) },
+      ]),
+      "acme",
+    );
+    expect(result.groups.map((g) => [g.path, g.by ?? "path", g.recent])).toEqual([
+      ["/home", "path", ["b.png"]],
+      ["Settings", "screen", ["a.png"]],
+    ]);
+    expect(result.latest.map((item) => [item.key, item.by ?? "path"])).toEqual([
+      ["b.png", "path"],
+      ["a.png", "screen"],
+    ]);
+  });
+
+  it("keeps only the requested ai.surface when `surface` is set", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        {
+          workspace: "acme",
+          key: "a.png",
+          meta: { path: "/x", "ai.surface": "mobile" },
+          at: at(1),
+        },
+        {
+          workspace: "acme",
+          key: "b.png",
+          meta: { path: "/x", "ai.surface": "desktop" },
+          at: at(2),
+        },
+        { workspace: "acme", key: "c.png", meta: { path: "/x" }, at: at(3) },
+      ]),
+      "acme",
+      { surface: "mobile" },
+    );
+    expect(result.groups.map((g) => g.recent)).toEqual([["a.png"]]);
+  });
+
+  it("keeps only files uploaded at or after `since`", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        { workspace: "acme", key: "old.png", meta: { path: "/x" }, at: at(1) },
+        { workspace: "acme", key: "edge.png", meta: { path: "/x" }, at: at(2) },
+        { workspace: "acme", key: "new.png", meta: { screen: "Home" }, at: at(3) },
+      ]),
+      "acme",
+      { since: at(2) },
+    );
+    expect(result.catalog.map((entry) => [entry.path, entry.recent])).toEqual([
+      ["Home", ["new.png"]],
+      ["/x", ["edge.png"]],
+    ]);
+  });
+
   it("reads app metadata so local-origin shots group by app, not host (#692)", async () => {
     const result = await groupObjectsByPath(
       timedDb([
@@ -320,6 +377,22 @@ describe("groupObjectsByPath", () => {
     ]);
     // Thumbed groups keep their longer strip; the catalog twin is capped.
     expect(result.catalog.find((e) => e.path === "/web-0")!.recent).toEqual(["web-0.png"]);
+  });
+
+  it("narrows groups, catalog, projects, and latest to one file type", async () => {
+    const rows = [
+      { workspace: "acme", key: "a.png", meta: { path: "/settings" }, at: at(1) },
+      { workspace: "acme", key: "b.MP4", meta: { path: "/settings" }, at: at(2) },
+      { workspace: "acme", key: "c.pdf", meta: { path: "/home" }, at: at(3) },
+    ];
+    const videos = await groupObjectsByPath(timedDb(rows), "acme", { type: "video" });
+    expect(videos.groups.map((g) => [g.path, g.recent])).toEqual([["/settings", ["b.MP4"]]]);
+    expect(videos.catalog.map((c) => c.recent)).toEqual([["b.MP4"]]);
+    expect(videos.latest.map((l) => l.key)).toEqual(["b.MP4"]);
+    expect(videos.projects).toEqual([{ label: "Other", count: 1, lastUpdated: at(2) }]);
+
+    const other = await groupObjectsByPath(timedDb(rows), "acme", { type: "other" });
+    expect(other.groups.map((g) => [g.path, g.recent])).toEqual([["/home", ["c.pdf"]]]);
   });
 
   it("caps the catalog at BY_PATH_CATALOG_LIMIT", async () => {

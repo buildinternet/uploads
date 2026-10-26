@@ -1,5 +1,7 @@
 import { createUploadsClient } from "./client.js";
+import { fileExpiredTokenStore, tokenExpiryWarner } from "./expired-tokens.js";
 import { DEFAULT_API_URL, resolveApiUrl, resolveConfig } from "./config.js";
+import { scopeRemedy } from "./client.js";
 import { UploadsError } from "./errors.js";
 import {
   commandWorkspace,
@@ -17,6 +19,8 @@ import {
   runPut,
   runAttach,
   runStaged,
+  runUnstage,
+  runApprove,
   runList,
   runFind,
   runMeta,
@@ -98,7 +102,8 @@ function createContext(
   requireToken: boolean,
   commandArgs: string[],
 ): CliContext {
-  const cmdWorkspace = commandWorkspace(parseCommandArgs(commandArgs).flags);
+  const cmdFlags = parseCommandArgs(commandArgs).flags;
+  const cmdWorkspace = commandWorkspace(cmdFlags);
   const config = resolveConfig({
     apiUrl: globals.apiUrl,
     workspace: cmdWorkspace ?? globals.workspace,
@@ -106,10 +111,16 @@ function createContext(
     envFile: globals.envFile,
     requireToken,
   });
+  const json = globals.json ?? false;
+  // JSON callers are scripts and the Claude Code mod; the warning is for people and agents.
+  const machine = json || flagString(cmdFlags, "--format") === "json";
   return {
     config,
-    client: createUploadsClient(config),
-    json: globals.json ?? false,
+    client: createUploadsClient(config, {
+      expiredTokens: fileExpiredTokenStore(),
+      ...(machine || globals.quiet ? {} : { onTokenExpiry: tokenExpiryWarner() }),
+    }),
+    json,
     quiet: globals.quiet ?? false,
     envFile: globals.envFile,
   };
@@ -162,19 +173,31 @@ const ERROR_HINTS: Partial<Record<UploadsError["code"], string>> = {
   UPLOAD_BUDGET: QUOTA_HINT,
   KEY_POLICY:
     "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
-  UNAUTHORIZED:
-    "hint: token rejected — run `uploads login` to sign in again, or check UPLOADS_TOKEN / --token\n",
-  INSUFFICIENT_SCOPE:
-    "hint: re-run `uploads login` for a full-scope token (or mint one with --scopes)\n",
+  UNAUTHORIZED: "hint: run `uploads login` to sign in again, or check UPLOADS_TOKEN / --token\n",
   BROWSER_NOT_FOUND:
     "hint: no local browser found; try --via remote, or install Chrome / npx playwright install chromium\n",
   RATE_LIMITED: "hint: transient rate limit — wait ~60s and retry\n",
 };
 
+function insufficientScopeHint(err: UploadsError): string | undefined {
+  if (err.code !== "INSUFFICIENT_SCOPE") return undefined;
+  if (err.requiredScope) return scopeRemedy(err.requiredScope);
+  return "re-run `uploads login` for a full-scope token (or mint one with --scopes)";
+}
+
 function errorOut(err: unknown, format: OutputFormat): void {
+  const scopeHint = err instanceof UploadsError ? insufficientScopeHint(err) : undefined;
   const payload =
     err instanceof UploadsError
-      ? { error: err.message, code: err.code, status: err.status }
+      ? {
+          error: err.message,
+          code: err.code,
+          status: err.status,
+          ...(err.requiredScope ? { required_scope: err.requiredScope } : {}),
+          // Present even when the message already includes the sentence, so
+          // --json has the same fields a human reads as the hint line.
+          ...(scopeHint ? { hint: scopeHint } : {}),
+        }
       : err instanceof UsageError
         ? { error: err.message, code: "USAGE", ...(err.example ? { example: err.example } : {}) }
         : { error: err instanceof Error ? err.message : String(err) };
@@ -205,6 +228,9 @@ function errorOut(err: unknown, format: OutputFormat): void {
   }
 
   if (err instanceof UploadsError) {
+    if (scopeHint && !err.message.includes(scopeHint)) {
+      process.stderr.write(`hint: ${scopeHint}\n`);
+    }
     const hint = ERROR_HINTS[err.code];
     if (hint) process.stderr.write(hint);
     else if (err.status === 413 || err.message.toLowerCase().includes("too large")) {
@@ -383,6 +409,8 @@ export async function runCli(argv: string[]): Promise<number> {
       case "attach":
       case "put":
       case "staged":
+      case "unstage":
+      case "approve":
       case "screenshot":
       case "gallery":
       case "feed":
@@ -407,6 +435,12 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "staged":
             code = await runStaged(ctx, cmdArgs, showHelp);
+            break;
+          case "unstage":
+            code = await runUnstage(ctx, cmdArgs, showHelp);
+            break;
+          case "approve":
+            code = await runApprove(ctx, cmdArgs, showHelp);
             break;
           case "screenshot":
             code = await runScreenshot(ctx, cmdArgs, showHelp);

@@ -30,6 +30,10 @@ const copies = [
     dest: "packages/uploads/src/comment-render.generated.ts",
   },
   {
+    source: "packages/comment-render/src/scope.ts",
+    dest: "packages/uploads/src/comment-render-scope.generated.ts",
+  },
+  {
     source: "packages/comment-config/src/index.ts",
     dest: "packages/uploads/src/comment-config.generated.ts",
   },

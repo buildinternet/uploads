@@ -24,6 +24,8 @@ export interface PublicFile {
   workspace: string;
   key: string;
   url: string;
+  /** Content-versioned URL for previews; stable links continue to use url. */
+  previewUrl?: string;
   /** Embed-host URL when the dual-host policy applies (GitHub Camo); null otherwise. */
   embedUrl: string | null;
   size: number;
@@ -47,6 +49,7 @@ export interface PublicFile {
 export interface PublicFileCounterpart {
   key: string;
   url: string;
+  previewUrl?: string;
   state: "before" | "after";
 }
 
@@ -114,6 +117,8 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 /**
  * File-page CSP. Inline script for Copy-as / Report; `connect-src` includes
  * the API origin for `/v1/abuse` and the auth_required session probe.
+ * `img-src blob:` lets a member's held-file preview show the bytes the page
+ * fetched with their session (an object URL this page made itself).
  *
  * `apiOrigin` is either an absolute origin or the same-origin `"/api"` prefix
  * (#731 phase D, `resolveSignedInOrigins`'s `SAME_ORIGIN_API_BASE`) — the
@@ -124,7 +129,7 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 export function publicFileCsp(apiOrigin: string): string {
   return [
     "default-src 'none'",
-    "img-src https: data:",
+    "img-src https: data: blob:",
     "media-src https:",
     "font-src 'self'",
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
@@ -201,7 +206,7 @@ const META_MAX_KEYS = 24;
 const META_VALUE_MAX = 512;
 
 /** Bounded, non-empty `Record<string,string>` of metadata pairs — never sent empty by the API. */
-function isMetadataMap(value: unknown): value is Record<string, string> {
+export function isMetadataMap(value: unknown): value is Record<string, string> {
   if (typeof value !== "object" || value === null) return false;
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length === 0 || entries.length > META_MAX_KEYS) return false;
@@ -261,6 +266,7 @@ function isPublicFileCounterpart(value: unknown): value is PublicFileCounterpart
   return (
     text(counterpart.key, 1024) &&
     httpsUrl(counterpart.url) &&
+    (counterpart.previewUrl === undefined || httpsUrl(counterpart.previewUrl)) &&
     (counterpart.state === "before" || counterpart.state === "after")
   );
 }
@@ -279,6 +285,7 @@ export function isPublicFile(value: unknown): value is PublicFile {
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
     httpsUrl(file.url) &&
+    (file.previewUrl === undefined || httpsUrl(file.previewUrl)) &&
     nullableHttpsUrl(file.embedUrl) &&
     Number.isSafeInteger(file.size) &&
     (file.size as number) >= 0 &&
@@ -303,7 +310,15 @@ export function isPublicFile(value: unknown): value is PublicFile {
 export async function fetchPublicFile(
   workspace: string,
   key: string,
-  options: { origin: string; fetch?: typeof globalThis.fetch; timeoutMs?: number },
+  options: {
+    origin: string;
+    fetch?: typeof globalThis.fetch;
+    timeoutMs?: number;
+    /** Transport selected by the SSR caller; never inferred from the origin. */
+    transport?: "binding" | "http";
+    /** Forward API phase timings to the enclosing SSR response, including errors. */
+    onServerTiming?: (value: string) => void;
+  },
 ): Promise<FileFetchResult> {
   if (!WORKSPACE_PATTERN.test(workspace) || !isSafeKey(key)) return { status: "not_found" };
 
@@ -320,6 +335,22 @@ export async function fetchPublicFile(
   if (origin.protocol !== "https:" && !(origin.protocol === "http:" && loopback))
     return { status: "unavailable" };
 
+  // Worker wall clocks advance at I/O boundaries. These measure header/body
+  // waits, not the CPU cost of JSON parsing or validation (use Workers logs).
+  const timed = async <T>(
+    name: string,
+    work: () => Promise<T>,
+    transport?: "binding" | "http",
+  ): Promise<T> => {
+    const started = Date.now();
+    try {
+      return await work();
+    } finally {
+      options.onServerTiming?.(
+        `${name};dur=${Date.now() - started}${transport ? `;desc="${transport}"` : ""}`,
+      );
+    }
+  };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
   try {
@@ -327,25 +358,32 @@ export async function fetchPublicFile(
       `/public/files/${encodeURIComponent(workspace)}/${encodeKey(key)}`,
       origin,
     );
-    const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
-      signal: controller.signal,
-      headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
-      cache: "no-store",
-      credentials: "omit",
-      referrerPolicy: "no-referrer",
-    });
+    const response = await timed(
+      "file_api_headers",
+      () =>
+        (options.fetch ?? globalThis.fetch)(endpoint, {
+          signal: controller.signal,
+          headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
+          cache: "no-store",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        }),
+      options.transport,
+    );
+    const serverTiming = response.headers.get("Server-Timing");
+    if (serverTiming) options.onServerTiming?.(serverTiming);
     if (response.status === 404) return { status: "not_found" };
     if (response.status === 401) {
       let body: unknown;
       try {
-        body = await response.json();
+        body = await timed("file_api_body", () => response.json());
       } catch {
         return { status: "unavailable" };
       }
       return isAuthRequiredError(body) ? { status: "auth_required" } : { status: "unavailable" };
     }
     if (!response.ok) return { status: "unavailable" };
-    const value: unknown = await response.json();
+    const value: unknown = await timed("file_api_body", () => response.json());
     return isPublicFile(value)
       ? {
           status: "ok",

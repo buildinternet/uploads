@@ -2,8 +2,8 @@
 /**
  * Canonical site footer. The default (non-compact) variant is the columned
  * treatment shared by content pages: brand blurb, link columns, and a family
- * bar with the maintainer credit + a cross-link to the sibling Build Internet
- * tool (releases.sh links back to us the same way).
+ * bar with the maintainer credit. The "More from Build Internet" column
+ * cross-links the sibling tools (releases.sh links back to us the same way).
  *
  * Layout contract (mirrors releases.sh):
  * - Full-bleed border; inner column is max-width + centered.
@@ -23,14 +23,10 @@ interface Props {
 const { compact = false } = Astro.props;
 const REPO = "https://github.com/buildinternet/uploads";
 
-// Sibling tool in the Build Internet family — a registry of release notes.
-// rel omits "noreferrer" so releases.sh sees the referral traffic (mirrors
-// how its footer links to uploads.sh).
-const RELEASES_URL = "https://releases.sh";
 // Better Stack public status page for the uploads.sh workers + site.
 const STATUS_URL = "https://status.uploads.sh/";
 
-type FooterLink = { label: string; href: string };
+type FooterLink = { label: string; href: string; title?: string };
 type FooterColumn = { title: string; links: FooterLink[] };
 
 // Adding a future link is a one-line edit here — no markup changes needed.
@@ -43,8 +39,10 @@ const COLUMNS: FooterColumn[] = [
     title: "Resources",
     links: [
       { label: "Docs", href: "/docs" },
+      { label: "Pricing", href: "/pricing" },
       { label: "Agent guide", href: "/github-screenshots" },
       { label: "GitHub App", href: "/docs/github-app" },
+      { label: "Slack app", href: "/docs/slack" },
       { label: "Changelog", href: "/changelog" },
     ],
   },
@@ -57,20 +55,34 @@ const COLUMNS: FooterColumn[] = [
     ],
   },
   {
-    title: "Open source",
+    title: "Project",
     links: [
       { label: "GitHub", href: REPO },
       { label: "Status", href: STATUS_URL },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
       { label: "Terms", href: "/terms" },
       { label: "Privacy", href: "/privacy" },
     ],
   },
+  // Sibling tools, mirroring releases.sh's column of the same name.
+  {
+    title: "More from Build Internet",
+    links: [
+      {
+        label: "Release Notes Index",
+        href: "https://releases.sh",
+        title: "A registry of release notes from across the web",
+      },
+      {
+        label: "buildnotes",
+        href: "https://buildnotes.releases.sh",
+        title: "PR to blog post skill",
+      },
+    ],
+  },
 ];
+
+// External links skip "noreferrer" so sibling sites see the referral traffic.
+const isExternal = (href: string) => href.startsWith("http");
 ---
 
 {
@@ -96,7 +108,13 @@ const COLUMNS: FooterColumn[] = [
               <ul>
                 {column.links.map((link) => (
                   <li>
-                    <a href={link.href}>{link.label}</a>
+                    <a
+                      href={link.href}
+                      title={link.title}
+                      rel={isExternal(link.href) ? "noopener" : undefined}
+                    >
+                      {link.label}
+                    </a>
                   </li>
                 ))}
               </ul>
@@ -107,12 +125,6 @@ const COLUMNS: FooterColumn[] = [
           <p>
             Maintained by <a href="https://zachdunn.com">Zach Dunn</a> /{" "}
             <a href="https://buildinternet.com">Build Internet</a>.
-          </p>
-          <p>
-            Product changelogs registry for agents —{" "}
-            <a href={RELEASES_URL} rel="noopener">
-              Release Notes Index →
-            </a>
           </p>
         </div>
       </div>

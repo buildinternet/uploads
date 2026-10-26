@@ -63,6 +63,7 @@
  * Never logs a token value, email, or other PII: client_id, opaque user id,
  * grant_type, and the OAuth error code are the only identifying fields.
  */
+import { reportHandledError } from "@uploads/observability";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
@@ -136,8 +137,7 @@ export function writeAuthEventPoint(
       doubles: [],
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(JSON.stringify({ message: "auth event analytics write failed", error: message }));
+    reportHandledError(err);
   }
 }
 
@@ -371,10 +371,7 @@ export function buildTokenGrantAfterHandler(
       }
     } catch (err) {
       // Observability must never break the token endpoint.
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        JSON.stringify({ message: "oauth observability after-hook failed", error: message }),
-      );
+      reportHandledError(err);
     }
   };
 }

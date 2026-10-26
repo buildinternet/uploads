@@ -1,16 +1,52 @@
+import { withPublicReadTiming, type PublicReadMeasure } from "../public-read-timing";
 import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { resolvePublicFeed } from "../feeds";
-import { hydratePublicFeed } from "../feed-service";
+import { publicFeedGithub } from "../feed-github";
+import { hydratePublicFeed, publicFeedItemPage } from "../feed-service";
+import { decodePublicFeedCursor, feedRecordScope } from "../pr-scope";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
 
-export const publicFeeds = new Hono<WorkspaceVars>().get("/:id", async (c) => {
-  const record = await resolvePublicFeed(dbFor(c.env), c.req.param("id"));
-  if (!record) throw new NotFoundError("Feed not found.", { code: "feed_not_found" });
-  const workspace = await loadWorkspaceRecord(c.env, record.workspace);
-  if (!workspace) {
-    throw new NotFoundError("Feed not found.", { code: "feed_not_found" });
-  }
-  return c.json(await hydratePublicFeed(c.env, workspace, record));
-});
+function feedNotFound(): NotFoundError {
+  return new NotFoundError("Feed not found.", { code: "feed_not_found" });
+}
+
+async function liveFeed(env: Env, id: string, measure: PublicReadMeasure) {
+  const record = await measure("feed_resolve", () => resolvePublicFeed(dbFor(env), id));
+  if (!record) throw feedNotFound();
+  const workspace = await measure("workspace", () => loadWorkspaceRecord(env, record.workspace));
+  if (!workspace) throw feedNotFound();
+  return { record, workspace };
+}
+
+export const publicFeeds = new Hono<WorkspaceVars>()
+  .get("/:id", (c) =>
+    withPublicReadTiming(c, "/public/feeds/:id", "feed_api", async (measure) => {
+      const { record, workspace } = await liveFeed(c.env, c.req.param("id"), measure);
+      // Never throws, so starting it before the decode cannot leave an
+      // unhandled rejection when the decode throws `invalid_cursor`.
+      const githubPromise = measure("github", () => publicFeedGithub(c.env, record));
+      const cursor = await measure("cursor", () =>
+        decodePublicFeedCursor(dbFor(c.env), feedRecordScope(record), c.req.query("cursor")),
+      );
+      const [dto, github] = await Promise.all([
+        measure("hydrate", () => hydratePublicFeed(c.env, workspace, record, { cursor })),
+        githubPromise,
+      ]);
+      return c.json({ ...dto, github });
+    }),
+  )
+  // Pager item plus neighbours, found in the scope (cap 2,000) so items older
+  // than the first page still resolve. `findLiveLinkItem` keeps the hashed
+  // scope list per live link in KV (live-link-index.ts).
+  .get("/:id/items/:item", (c) =>
+    withPublicReadTiming(c, "/public/feeds/:id/items/:item", "feed_item_api", async (measure) => {
+      const { record, workspace } = await liveFeed(c.env, c.req.param("id"), measure);
+      const page = await measure("item_page", () =>
+        publicFeedItemPage(c.env, workspace, record, c.req.param("item"), c.env.LIVE_LINK_INDEX),
+      );
+      if (!page) throw new NotFoundError("Feed item not found.", { code: "feed_item_not_found" });
+      return c.json(page);
+    }),
+  );

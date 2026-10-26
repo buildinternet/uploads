@@ -43,4 +43,13 @@ describe("thumbUrl", () => {
     expect(thumbUrl(null, 560)).toBeNull();
     expect(thumbUrl("not a url", 560)).toBe("not a url");
   });
+
+  it("accepts an explicit jpeg or png format and still redirects on error", () => {
+    expect(thumbUrl("https://storage.uploads.sh/ws/a.jpg", 1200, { format: "jpeg" })).toBe(
+      "https://storage.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=jpeg,onerror=redirect/ws/a.jpg",
+    );
+    expect(thumbUrl("https://storage.uploads.sh/ws/a.png", 1200, { format: "png" })).toBe(
+      "https://storage.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=png,onerror=redirect/ws/a.png",
+    );
+  });
 });

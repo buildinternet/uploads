@@ -17,6 +17,7 @@
  */
 
 import {
+  reportHandledError,
   ServerTiming,
   serverTimingDisabled,
   slowOpThresholdMs,
@@ -112,6 +113,7 @@ export async function proxyAuthRequest(
     });
   } catch (err) {
     if (bounded && forwarded.signal.aborted && !request.signal.aborted) {
+      reportHandledError(err);
       return timing.applyTo(
         new Response(null, { status: 503, statusText: "auth session lookup timed out" }),
         { disabled: serverTimingDisabled(env) },
@@ -170,6 +172,7 @@ export async function serverGetSession(
     return await proxyAuthRequest(env, getSessionRequest);
   } catch (err) {
     if (getSessionRequest.signal.aborted) {
+      reportHandledError(err);
       // Synthetic response, not a throw: every current consumer parses a
       // Response via `sessionResultFromResponse` (401 → signed_out, non-ok →
       // `{ kind: "unavailable", reason: "server" }`) and only falls back to

@@ -17,9 +17,16 @@
  * same contract as any other overwrite in this API).
  */
 
-import { UPLOADER_KEYS } from "./uploader-identity";
+import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import { UnsupportedMediaTypeError } from "@uploads/errors";
-import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
+import {
+  classifierRowsOf,
+  getMetadataForKeys,
+  setFileMetadata,
+  setServerFileMetadata,
+} from "./file-metadata";
+import { reholdIfHeld } from "./held-storage";
+import { isHeld } from "./upload-hold";
 import { putObject, putOptsFromStoredObject } from "./files-core";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
@@ -283,6 +290,24 @@ export async function promoteBranchAttachments(
   const lineageField = lineage.length > 1 ? { lineage } : {};
   if (entries.length === 0) return { promoted, skipped, ...lineageField };
 
+  // `gh.status=unstaged` (issue #1124) drops a file out of auto-promotion
+  // without deleting it. Filter before the filename dedupe so an unstaged
+  // private copy cannot shadow a still-staged plain copy, and so unstaged
+  // files do not consume the promote cap.
+  const metaByKey = await getMetadataForKeys(
+    dbFor(env),
+    workspaceName,
+    entries.map((entry) => entry.key),
+  );
+  const promotable: StagedEntry[] = [];
+  for (const entry of entries) {
+    if (metaByKey.get(entry.key)?.["gh.status"] === "unstaged") {
+      skipped.push({ key: entry.key, reason: "unstaged" });
+      continue;
+    }
+    promotable.push(entry);
+  }
+
   // Dedupe by destination filename: the dual sweep above can list the SAME
   // filename under both the plain and private branch prefixes (a file
   // staged before this feature shipped, or during a privacy flip, plus a
@@ -295,7 +320,7 @@ export async function promoteBranchAttachments(
   const invalidEntries: StagedEntry[] = [];
   const unitByFilename = new Map<string, PromoteUnit>();
   const units: PromoteUnit[] = [];
-  for (const entry of entries) {
+  for (const entry of promotable) {
     if (!entry.filename) {
       invalidEntries.push(entry);
       continue;
@@ -329,13 +354,6 @@ export async function promoteBranchAttachments(
     skipped.push({ key, reason: "cap_exceeded" });
   }
 
-  const metaByKey = await getMetadataForKeys(
-    dbFor(env),
-    workspaceName,
-    toProcess
-      .filter((i) => i.kind === "unit")
-      .map((i) => (i as { unit: PromoteUnit }).unit.primary.key),
-  );
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
   const ref = `${owner}/${name}#${target.num}`.toLowerCase();
@@ -399,7 +417,9 @@ export async function promoteBranchAttachments(
           // written by the server, so the staged original's tags are the only
           // source of "who staged this".
           ...Object.fromEntries(
-            UPLOADER_KEYS.flatMap((key) => (stagedMeta?.[key] ? [[key, stagedMeta[key]]] : [])),
+            [...UPLOADER_KEYS, UPLOADER_PROOF_KEY].flatMap((metaKey) =>
+              stagedMeta?.[metaKey] ? [[metaKey, stagedMeta[metaKey]]] : [],
+            ),
           ),
           "gh.repo": `${owner}/${name}`.toLowerCase(),
           "gh.kind": "pull",
@@ -455,6 +475,22 @@ export async function promoteBranchAttachments(
     // below. Tagging the staged original is best-effort bookkeeping: a
     // failure here must not un-promote the file or land it in `skipped`.
     promoted.push(destKey);
+
+    try {
+      // The copy is not classified again, so its labels and any hold
+      // (`upload-hold.ts`) come from the staged original.
+      await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(stagedMeta));
+      await reholdIfHeld(env, ws, workspaceName, destKey, isHeld(stagedMeta));
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          message: "promote: failed to copy classifier rows",
+          key,
+          destKey,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
 
     try {
       // Merge (not replace) onto the staged original: mark it promoted

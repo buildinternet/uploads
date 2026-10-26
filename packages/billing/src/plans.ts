@@ -51,6 +51,13 @@ export interface PlanDefinition {
    * `marketsMemberCap`).
    */
   byoBucket: boolean;
+  /**
+   * Answers a day (UTC) from the Slack app's @-mention agent, per Slack
+   * workspace. Each answer is a billed model run. A Slack workspace bound to
+   * several uploads.sh workspaces gets the highest of their plans. Docs say
+   * only "limited on free, higher on Pro", so these can move freely.
+   */
+  slackAnswersPerDay: number;
   defaultLimits: WorkspacePlanLimits;
 }
 
@@ -62,6 +69,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     available: true,
     marketsMemberCap: true,
     byoBucket: true,
+    slackAnswersPerDay: 10,
     defaultLimits: {
       maxStorageBytes: 250_000_000,
       maxUploadsPerPeriod: 3000,
@@ -80,6 +88,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     available: true,
     marketsMemberCap: false,
     byoBucket: true,
+    slackAnswersPerDay: 60,
     // Decided 2026-07-22 (first-paid-plan memo): two marketed meters —
     // storage and one unified file cap (video ceiling = upload ceiling on
     // every plan since 2026-09-01). maxUploadsPerPeriod is an internal

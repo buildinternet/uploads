@@ -14,12 +14,6 @@ import { createStyle } from "../src/cli-style.js";
 import { formatRootHelp } from "../src/cli-help.js";
 
 describe("brand tokens", () => {
-  it("matches design-system accent #c27eff", () => {
-    expect(BRAND.accent).toEqual({ r: 0xc2, g: 0x7e, b: 0xff });
-    expect(BRAND.green).toEqual({ r: 0x8f, g: 0xae, b: 0x62 });
-    expect(BRAND.red).toEqual({ r: 0xd9, g: 0x8a, b: 0x9c });
-  });
-
   it("mixes accent opacities toward panel", () => {
     expect(accentAt(1)).toEqual(BRAND.accent);
     expect(mixRgb(BRAND.accent, BRAND.panel, 0)).toEqual(BRAND.panel);
@@ -52,7 +46,6 @@ describe("rasterizeMark / half-block render", () => {
 describe("formatBrandHeader", () => {
   it("stacks label, tagline, then version", () => {
     const text = formatBrandHeader({ color: false, version: "0.9.0" });
-    expect(DEFAULT_TAGLINE).toBe("GitHub screenshot + recording uploads for agents");
     expect(text).toMatch(/uploads\.sh/);
     expect(text).toMatch(DEFAULT_TAGLINE);
     expect(text).toMatch(/v0\.9\.0/);

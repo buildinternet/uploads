@@ -40,6 +40,7 @@ import { type D1Queryable } from "./db-session";
 export const INHERITABLE_META_KEYS = [
   "url",
   "path",
+  "screen",
   "env",
   "theme",
   "viewport",
@@ -55,6 +56,30 @@ const INHERITABLE_KEY_SET: ReadonlySet<string> = new Set(INHERITABLE_META_KEYS);
 
 interface HashRow {
   object_key: string;
+}
+
+/**
+ * The stored-body hash currently indexed for this key, or `undefined` when
+ * no row exists or the read fails. `putObject` reads this before
+ * `recordContentHash` overwrites it, to decide whether classifier rows
+ * still describe these bytes (`CLASSIFIER_ROW_KEYS`).
+ */
+export async function contentHashForKey(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+): Promise<string | undefined> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(workspace, objectKey)
+      .first<{ content_sha256: string }>();
+    return row?.content_sha256;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -82,6 +107,43 @@ export async function recordContentHash(
       .run();
   } catch {
     // Index maintenance is best-effort by design — see the doc comment.
+  }
+}
+
+/**
+ * Other keys in this workspace with the same stored bytes and a finished
+ * `ai.classifier` (`failed` and `skipped` do not qualify). Oldest first.
+ * Empty when the index is missing or the read fails: a miss costs a model
+ * call, not the upload.
+ */
+export async function contentHashDonorKeys(
+  db: D1Queryable,
+  workspace: string,
+  contentSha256: string,
+  selfKey: string,
+): Promise<string[]> {
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT h.object_key AS object_key
+         FROM file_content_hash h
+         INNER JOIN file_metadata m
+           ON m.workspace = h.workspace
+          AND m.object_key = h.object_key
+          AND m.meta_key = 'ai.classifier'
+         WHERE h.workspace = ?
+           AND h.content_sha256 = ?
+           AND h.object_key != ?
+           AND m.meta_value != 'failed'
+           AND m.meta_value != 'skipped'
+         ORDER BY h.updated_at ASC, h.object_key ASC
+         LIMIT 8`,
+      )
+      .bind(workspace, contentSha256, selfKey)
+      .all<{ object_key: string }>();
+    return rows.results.map((row) => row.object_key);
+  } catch {
+    return [];
   }
 }
 

@@ -92,6 +92,9 @@ that path too. Prefer **additive** migrations so “migrate then deploy” stays
 safe; destructive changes need a deliberate reverse order and should not rely
 on the default pipeline.
 
+A push does not preview `uploads-web`, `uploads-auth`, or `uploads-api`. See
+[previews.md](previews.md#no-automatic-branch-preview).
+
 Use `pnpm run deploy`, not `pnpm deploy` — the bare form is pnpm's own
 command.
 
@@ -99,3 +102,10 @@ command.
 
 Run `wrangler types` (or `pnpm --filter @uploads/api types`) so `Env` is
 regenerated into `worker-configuration.d.ts`. Never hand-write that file.
+
+## Optional public viewer
+
+The independent public viewer has a separate deploy command and a staged web
+binding switch. See [Public viewer Worker](public-viewer.md) for provisioning,
+preview isolation, and rollback. Deploy and validate it before
+adding the web service binding.

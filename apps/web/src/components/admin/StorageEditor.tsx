@@ -5,7 +5,7 @@
  * provenance (masked/presence fields only — never a credential value, matching
  * the /me storage projection), plus `configuredBy` (admin-ui-only). The only
  * write is the `byoBucketEnabled` kill-switch; lane activation/removal stays on
- * the workspace's own settings page.
+ * the Storage tab's Bucket section.
  */
 import { useEffect, useState } from "react";
 import { Button } from "@uploads/ui/components/ui/button";

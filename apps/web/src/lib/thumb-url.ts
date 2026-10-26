@@ -11,6 +11,10 @@
  * `fit=scale-down` never upscales small originals; `onerror=redirect` falls
  * back to the original bytes if the transform fails. Callers pass a width of
  * roughly 2× the CSS size so tiles stay crisp on retina displays.
+ *
+ * `format` defaults to `auto` (Cloudflare picks from the request's Accept
+ * header). Unfurl cards pass `jpeg` or `png` instead: crawlers often omit
+ * Accept, and `auto` can answer with a type they will not preview.
  */
 
 // Only hosts on zones WE control, with Image Transformations enabled. Never
@@ -20,9 +24,24 @@
 // the rewrite serves a 404 with no fallback to the original bytes.
 const TRANSFORMABLE_HOSTS = new Set(["embed.uploads.sh", "storage.uploads.sh", "store.uploads.sh"]);
 
-export function thumbUrl(src: string, width: number): string;
-export function thumbUrl(src: string | null, width: number): string | null;
-export function thumbUrl(src: string | null, width: number): string | null {
+/** `auto` is the tile default. `jpeg` and `png` are the crawler-stable formats. */
+export type ThumbFormat = "auto" | "jpeg" | "png";
+
+export interface ThumbUrlOptions {
+  format?: ThumbFormat;
+}
+
+export function thumbUrl(src: string, width: number, options?: ThumbUrlOptions): string;
+export function thumbUrl(
+  src: string | null,
+  width: number,
+  options?: ThumbUrlOptions,
+): string | null;
+export function thumbUrl(
+  src: string | null,
+  width: number,
+  options?: ThumbUrlOptions,
+): string | null {
   if (src === null) return null;
   let url: URL;
   try {
@@ -33,6 +52,7 @@ export function thumbUrl(src: string | null, width: number): string | null {
   if (!TRANSFORMABLE_HOSTS.has(url.hostname.toLowerCase())) return src;
   if (url.pathname.startsWith("/cdn-cgi/")) return src;
   if (url.pathname.toLowerCase().endsWith(".svg")) return src;
-  const options = `width=${width},quality=82,fit=scale-down,format=auto,onerror=redirect`;
-  return `${url.origin}/cdn-cgi/image/${options}${url.pathname}${url.search}`;
+  const format = options?.format === "jpeg" || options?.format === "png" ? options.format : "auto";
+  const transform = `width=${width},quality=82,fit=scale-down,format=${format},onerror=redirect`;
+  return `${url.origin}/cdn-cgi/image/${transform}${url.pathname}${url.search}`;
 }

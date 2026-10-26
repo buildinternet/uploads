@@ -1,6 +1,6 @@
 ---
 title: Set up your agent
-description: Install the uploads agent skills and MCP server so your coding agent can attach screenshots to GitHub on its own. Includes experimental AI image labels.
+description: Install the uploads agent skills and MCP server so your coding agent can attach screenshots to GitHub on its own.
 heading: Set up your agent
 tagline: Teach a coding agent to upload and attach media on its own.
 navLabel: Set up your agent
@@ -124,6 +124,10 @@ Don't wait for the PR. After each meaningful visual change:
 
   uploads put ./shot.png --meta path=/route --state after
 
+For a mobile or desktop app screen with no route, name the screen instead:
+
+  uploads put ./shot.png --app ios --screen "Chat" --state after
+
 On a branch, that stages the file for the PR. After opening the PR, run
 `uploads attach --promote` to post everything staged. It's safe to run
 even if the GitHub App already posted them.
@@ -144,7 +148,10 @@ For how staging works, see [Stage before a PR exists](/docs/attach-pull-request-
 
 Before `gh pr create`, the reminder hook nudges the agent if the branch touches UI files and
 nothing is staged. When files are staged, it says whether they attach on their own when the PR
-opens. It never blocks the PR. Turn it off with `UPLOADS_HOOK_DISABLE=1`.
+opens. If those files are older than 30 days, or they belong to a different branch, it suggests
+`uploads unstage --branch <name>` instead. It never blocks the PR. Turn it off with
+`UPLOADS_HOOK_DISABLE=1`. To check for screenshots on the PR itself, and block merges without them,
+see [Require screenshots on pull requests](/docs/require-screenshots).
 
 - **Claude Code and Codex:** included in the [plugin](#plugin).
 - **Grok and Cursor:** `uploads install` adds it when those tools are installed.
@@ -179,7 +186,9 @@ The **MCP server** gives the agent upload tools directly. There are two:
 | Server                                  | Use it when                     | Differences                                                                                                  |
 | --------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Local, `uploads mcp`                    | The agent runs on your machine  | Same tools as the CLI, including `attach`.                                                                   |
-| Hosted, `https://agents.uploads.sh/mcp` | The agent has no local checkout | No `attach` and no git defaults. Pass `repo` and `branch` to `put`, then call `promote` once the PR exists. |
+| Hosted, `https://agents.uploads.sh/mcp` | The agent has no local checkout | No `attach` and no git defaults. Pass `repo` and `branch` to `put`, then call `promote` once the PR exists. `list_activity` and `list_repo_files` list recent tagged files by pull request or by repo, and only this server has them. In a sandbox with a shell, `sign_upload_url` uploads files from disk. |
+
+For auth, scopes, and every tool's parameters, see the [MCP server reference](/docs/mcp).
 
 To use the local server instead of the hosted one:
 
@@ -206,31 +215,10 @@ codex mcp add uploads -- uploads mcp
 
 ## Experimental: AI labels <a class="anchor" href="#experimental-ai-tags" aria-label="Link to this section">#</a>
 
-<div class="note">
-  Experimental and **off by default**. The uploads.sh team turns it on per workspace. To try it,
-  open an issue on [the GitHub repo](https://github.com/buildinternet/uploads).
-</div>
+uploads.sh can label each uploaded image with AI, and hold a file for review when it may show a
+secret or personal data. Both are experimental and off by default. See
+[AI labels & holds](/docs/ai-labels), including [held uploads](/docs/ai-labels#held-uploads).
 
-When it's on, uploads.sh labels each file shortly after it's uploaded. The labels never replace a
-`path` or `state` you set, and a labeling error never fails the upload. A label it isn't confident
-about is left off.
-
-| Key             | Values                                                                                                                                                |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ai.kind`       | `screenshot` `photo` `diagram` `document` `code` `ui` `other`                                                                                         |
-| `ai.surface`    | `mobile` `desktop` `tablet` `unknown`                                                                                                                 |
-| `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
-| `ai.tags`       | Up to five kebab-case labels (raster images under 512 KiB)                                                                                            |
-| `ai.summary`    | One short sentence (raster images under 512 KiB)                                                                                                      |
-| `ai.classifier` | The labeler version, currently `v3`                                                                                                                   |
-
-Labels aren't in the upload's response. Read them afterward, or search by them:
-
-```ansi
-uploads meta get <key>          # one file's labels
-uploads find ai.screen=login    # files with a label
-```
-
-From an MCP client, use `get_metadata` and `find_files`. Clients can't set or delete `ai.*` keys.
+<span id="held-uploads"></span>
 
 </section>

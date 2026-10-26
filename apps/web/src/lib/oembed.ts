@@ -3,14 +3,18 @@
  *
  * Pages advertise discovery via
  *   <link rel="alternate" type="application/json+oembed" href="/oembed?url=…">
- * The endpoint re-fetches the public API so private/missing objects never leak.
- * Pages set `X-Frame-Options: DENY`, so responses never iframe the page —
- * images use `photo`, videos use an inline `<video>` snippet, else `link`.
+ * The endpoint re-fetches the public API so private, missing, or expired
+ * objects never leak. Images use `photo`. Videos use `video` whose `html` is
+ * an iframe of `/player` (share pages set `X-Frame-Options: DENY`, so the
+ * iframe must not point at the page itself). Everything else is `link`.
  */
 
 import { fetchPublicFile, fileKind, filePath, isSafeKey } from "./public-file";
+import { thumbUrl } from "./thumb-url";
+import { isPublicMediaUrl, renderPlayerIframe, videoContentType, videoFrame } from "./unfurl";
 import {
   fetchPublicFeed,
+  fetchPublicFeedItem,
   feedItemPath,
   feedPath,
   mediaKind as feedMediaKind,
@@ -32,9 +36,7 @@ export const OEMBED_PROVIDER_URL = "https://uploads.sh";
 
 /** Default photo edge when dimensions are unknown. */
 export const DEFAULT_PHOTO_SIZE = 1200;
-/** Default video frame when dimensions are unknown. */
-export const DEFAULT_VIDEO_WIDTH = 1280;
-export const DEFAULT_VIDEO_HEIGHT = 720;
+export { DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_WIDTH } from "./unfurl";
 /** Cap when the consumer omits maxwidth / maxheight. */
 export const ABSOLUTE_MAX_EDGE = 4096;
 
@@ -204,14 +206,6 @@ export function fitDimensions(
   };
 }
 
-function escapeHtmlAttr(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function provider(
   title?: string,
 ): Pick<OEmbedBase, "version" | "provider_name" | "provider_url" | "title" | "cache_age"> {
@@ -224,68 +218,71 @@ function provider(
   };
 }
 
-function forMedia(
-  kind: "image" | "video" | "file" | "unsupported",
-  mediaUrl: string,
-  title: string,
-  maxwidth?: number,
-  maxheight?: number,
-): OEmbedResponse {
-  if (kind === "image") {
-    const { width, height } = fitDimensions(
-      DEFAULT_PHOTO_SIZE,
-      DEFAULT_PHOTO_SIZE,
-      maxwidth,
-      maxheight,
-    );
-    return { ...provider(title), type: "photo", url: mediaUrl, width, height };
-  }
-  if (kind === "video") {
-    const { width, height } = fitDimensions(
-      DEFAULT_VIDEO_WIDTH,
-      DEFAULT_VIDEO_HEIGHT,
-      maxwidth,
-      maxheight,
-    );
-    return {
-      ...provider(title),
-      type: "video",
-      width,
-      height,
-      html: `<video src="${escapeHtmlAttr(mediaUrl)}" width="${width}" height="${height}" controls playsinline preload="metadata" style="max-width:100%;height:auto"></video>`,
-    };
-  }
-  return { ...provider(title), type: "link" };
+export interface ShareMedia {
+  title: string;
+  presentation: "image" | "video" | "file" | "link";
+  mediaUrl: string | null;
+  contentType: string | null;
+  posterUrl: string | null;
+  width: number | null;
+  height: number | null;
+  /** Public image used as a collection thumbnail. Not a video URL. */
+  thumbnailUrl: string | null;
 }
+
+export type ShareLoadResult =
+  | { status: "ok"; media: ShareMedia }
+  | { status: "not_found" }
+  | { status: "unavailable" };
 
 function filenameFromKey(key: string): string {
   const slash = key.lastIndexOf("/");
   return slash === -1 ? key : key.slice(slash + 1) || key;
 }
 
-function feedCoverThumbnail(
-  feed: PublicFeed,
-  maxwidth?: number,
-  maxheight?: number,
-): Pick<OEmbedLink, "thumbnail_url" | "thumbnail_width" | "thumbnail_height"> | undefined {
+function emptyLink(title: string): ShareMedia {
+  return {
+    title,
+    presentation: "link",
+    mediaUrl: null,
+    contentType: null,
+    posterUrl: null,
+    width: null,
+    height: null,
+    thumbnailUrl: null,
+  };
+}
+
+function shareFromItem(options: {
+  title: string;
+  kind: "image" | "video" | "file" | "missing";
+  url: string | null;
+  contentType: string | null;
+  posterUrl?: string | null;
+  width?: number;
+  height?: number;
+}): ShareMedia {
+  if (options.kind === "missing" || !options.url) return emptyLink(options.title);
+  return {
+    title: options.title,
+    presentation: options.kind,
+    mediaUrl: options.url,
+    contentType: options.contentType,
+    posterUrl: options.posterUrl ?? null,
+    width: options.width ?? null,
+    height: options.height ?? null,
+    thumbnailUrl: null,
+  };
+}
+
+function feedCoverUrl(feed: PublicFeed): string | null {
   const cover: PublicFeedItem | undefined = feed.items.find(
     (item) => feedMediaKind(item) === "image" && item.url,
   );
-  if (!cover?.url) return undefined;
-  const { width, height } = fitDimensions(
-    DEFAULT_PHOTO_SIZE,
-    DEFAULT_PHOTO_SIZE,
-    maxwidth,
-    maxheight,
-  );
-  return { thumbnail_url: cover.url, thumbnail_width: width, thumbnail_height: height };
+  return isPublicMediaUrl(cover?.url) ? cover.url : null;
 }
 
-function coverThumbnail(
-  gallery: PublicGallery,
-  maxwidth?: number,
-  maxheight?: number,
-): Pick<OEmbedLink, "thumbnail_url" | "thumbnail_width" | "thumbnail_height"> | undefined {
+function galleryCoverUrl(gallery: PublicGallery): string | null {
   const items = gallery.items.toSorted(
     (a, b) => a.position - b.position || a.id.localeCompare(b.id),
   );
@@ -296,14 +293,77 @@ function coverThumbnail(
     prefer && galleryMediaKind(prefer) === "image" && prefer.url
       ? prefer
       : items.find((item) => galleryMediaKind(item) === "image" && item.url);
-  if (!cover?.url) return undefined;
-  const { width, height } = fitDimensions(
-    DEFAULT_PHOTO_SIZE,
-    DEFAULT_PHOTO_SIZE,
-    maxwidth,
-    maxheight,
-  );
-  return { thumbnail_url: cover.url, thumbnail_width: width, thumbnail_height: height };
+  return isPublicMediaUrl(cover?.url) ? cover.url : null;
+}
+
+/**
+ * Poster frames are derived JPEGs. Resize them on hosts `thumbUrl` already
+ * transforms. A result past Discord's 2048-character URL cap stays raw.
+ */
+function posterCard(url: string): string {
+  const transformed = thumbUrl(url, 1200, { format: "jpeg" });
+  return transformed.length <= 2048 ? transformed : url;
+}
+
+function oembedBody(media: ShareMedia, options: OEmbedRequest): OEmbedResponse {
+  const { maxwidth, maxheight } = options;
+  if (media.presentation === "image" && isPublicMediaUrl(media.mediaUrl)) {
+    const { width, height } = fitDimensions(
+      DEFAULT_PHOTO_SIZE,
+      DEFAULT_PHOTO_SIZE,
+      maxwidth,
+      maxheight,
+    );
+    return { ...provider(media.title), type: "photo", url: media.mediaUrl, width, height };
+  }
+  if (
+    media.presentation === "video" &&
+    isPublicMediaUrl(media.mediaUrl) &&
+    videoContentType(media.contentType)
+  ) {
+    const frame = videoFrame(media.width, media.height);
+    const fitted = fitDimensions(frame.width, frame.height, maxwidth, maxheight);
+    const html = renderPlayerIframe({
+      siteOrigin: options.requestOrigin,
+      pageUrl: options.url,
+      width: fitted.width,
+      height: fitted.height,
+      title: media.title,
+    });
+    if (html) {
+      const poster = isPublicMediaUrl(media.posterUrl) ? posterCard(media.posterUrl) : undefined;
+      return {
+        ...provider(media.title),
+        type: "video",
+        width: fitted.width,
+        height: fitted.height,
+        html,
+        ...(poster
+          ? {
+              thumbnail_url: poster,
+              thumbnail_width: fitted.width,
+              thumbnail_height: fitted.height,
+            }
+          : {}),
+      };
+    }
+  }
+  if (isPublicMediaUrl(media.thumbnailUrl)) {
+    const { width, height } = fitDimensions(
+      DEFAULT_PHOTO_SIZE,
+      DEFAULT_PHOTO_SIZE,
+      maxwidth,
+      maxheight,
+    );
+    return {
+      ...provider(media.title),
+      type: "link",
+      thumbnail_url: media.thumbnailUrl,
+      thumbnail_width: width,
+      thumbnail_height: height,
+    };
+  }
+  return { ...provider(media.title), type: "link" };
 }
 
 function fromFetchFailure(
@@ -312,13 +372,16 @@ function fromFetchFailure(
   return status === "unavailable" ? { status: "unavailable" } : { status: "not_found" };
 }
 
-async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promise<OEmbedResult> {
+/** Fetch the public object behind a share URL. Private and missing stay not_found. */
+export async function loadShareMedia(
+  target: ShareTarget,
+  options: Pick<OEmbedRequest, "apiOrigin" | "fetch" | "timeoutMs">,
+): Promise<ShareLoadResult> {
   const api = {
     origin: options.apiOrigin,
     fetch: options.fetch,
     timeoutMs: options.timeoutMs,
   };
-  const { maxwidth, maxheight } = options;
 
   if (target.kind === "file") {
     const result = await fetchPublicFile(target.workspace, target.key, api);
@@ -326,39 +389,45 @@ async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promi
     const file = result.file;
     return {
       status: "ok",
-      body: forMedia(
-        fileKind(file.contentType),
-        file.url,
-        filenameFromKey(file.key),
-        maxwidth,
-        maxheight,
-      ),
+      media: shareFromItem({
+        title: filenameFromKey(file.key),
+        kind: fileKind(file.contentType),
+        url: file.url,
+        contentType: file.contentType,
+        posterUrl: file.posterUrl,
+        width: file.videoDimensions?.width,
+        height: file.videoDimensions?.height,
+      }),
     };
   }
 
-  if (target.kind === "feed" || target.kind === "feed-item") {
+  if (target.kind === "feed") {
     const feedResult = await fetchPublicFeed(target.id, api);
     if (feedResult.status !== "ok") return fromFetchFailure(feedResult.status);
     const feed = feedResult.feed;
-    if (target.kind === "feed") {
-      return {
-        status: "ok",
-        body: {
-          ...provider(feed.title),
-          type: "link",
-          ...feedCoverThumbnail(feed, maxwidth, maxheight),
-        },
-      };
-    }
-    const item = feed.items.find((entry) => entry.id === target.itemId);
-    if (!item) return { status: "not_found" };
-    const kind = feedMediaKind(item);
-    if (kind === "missing" || !item.url) {
-      return { status: "ok", body: { ...provider(item.filename), type: "link" } };
-    }
     return {
       status: "ok",
-      body: forMedia(kind, item.url, item.filename, maxwidth, maxheight),
+      media: { ...emptyLink(feed.title), thumbnailUrl: feedCoverUrl(feed) },
+    };
+  }
+
+  if (target.kind === "feed-item") {
+    // The item endpoint scans the whole scope, so an item older than the
+    // newest 50 still unfurls.
+    const itemResult = await fetchPublicFeedItem(target.id, target.itemId, api);
+    if (itemResult.status !== "ok") return fromFetchFailure(itemResult.status);
+    const item = itemResult.page.item;
+    return {
+      status: "ok",
+      media: shareFromItem({
+        title: item.filename,
+        kind: feedMediaKind(item),
+        url: item.url,
+        contentType: item.contentType,
+        posterUrl: item.posterUrl,
+        width: item.videoDimensions?.width,
+        height: item.videoDimensions?.height,
+      }),
     };
   }
 
@@ -369,24 +438,30 @@ async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promi
   if (target.kind === "gallery") {
     return {
       status: "ok",
-      body: {
-        ...provider(gallery.title),
-        type: "link",
-        ...coverThumbnail(gallery, maxwidth, maxheight),
-      },
+      media: { ...emptyLink(gallery.title), thumbnailUrl: galleryCoverUrl(gallery) },
     };
   }
 
   const item = gallery.items.find((entry) => entry.id === target.itemId);
   if (!item) return { status: "not_found" };
-  const kind = galleryMediaKind(item);
-  if (kind === "missing" || !item.url) {
-    return { status: "ok", body: { ...provider(item.filename), type: "link" } };
-  }
   return {
     status: "ok",
-    body: forMedia(kind, item.url, item.filename, maxwidth, maxheight),
+    media: shareFromItem({
+      title: item.filename,
+      kind: galleryMediaKind(item),
+      url: item.url,
+      contentType: item.contentType,
+      posterUrl: item.posterUrl,
+      width: item.videoDimensions?.width,
+      height: item.videoDimensions?.height,
+    }),
   };
+}
+
+async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promise<OEmbedResult> {
+  const loaded = await loadShareMedia(target, options);
+  if (loaded.status !== "ok") return loaded;
+  return { status: "ok", body: oembedBody(loaded.media, options) };
 }
 
 /** Validate format + share URL, fetch public data, return a typed result. */

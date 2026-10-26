@@ -19,10 +19,23 @@ type Cli = {
   /** Staged files per branch; `attach --promote` empties the promoted one. */
   counts: Record<string, number>;
   binding: [state: string, autoAttach: boolean];
-  /** Overrides for the nth staged file's JSON (filename, state, path). */
-  files?: { filename: string; state?: string; path?: string }[];
+  /** Overrides for the nth staged file's JSON (filename, state, path, branch). */
+  files?: {
+    filename: string;
+    state?: string;
+    path?: string;
+    branch?: string;
+    stagedAt?: string;
+    held?: boolean;
+  }[];
+  /** Files the synced comment counts as held after `attach --promote`. */
+  heldOnPr?: number;
   /** How `attach --promote` ends: everything moved (default), one skipped, or a server error. */
   promote?: "ok" | "partial" | "error";
+  /** The open PR for the session branch, as `gh pr view` reports it. */
+  openPr?: number;
+  /** Thumbnail fetches (`curl | base64`) fail when set. */
+  thumbsFail?: boolean;
 };
 
 type World = {
@@ -31,6 +44,7 @@ type World = {
   toasts: string[];
   clock: MockClock;
   output: { text: string };
+  opened: string[];
 };
 
 // The engine beneath the plugin: a still clock, nothing drawn when the plugin
@@ -50,6 +64,7 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
     toasts: [],
     clock: mock.clock(on, { now: 1_000_000 }),
     output: { text },
+    opened: [],
   };
   on("ui.render", async ($, e) => {
     const { Box } = $.ui.resolve(e);
@@ -59,6 +74,10 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
     "tool.call",
     async () => ({ result: { stdout: world.output.text }, text: world.output.text }) as never,
   );
+  on("ui.open", async (_$, e) => {
+    world.opened.push(`${e.id}:${e.title}`);
+    return { value: undefined } as never;
+  });
   on("ui.toast", async (_$, e) => {
     world.toasts.push(e.text);
     return { value: undefined };
@@ -67,7 +86,31 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
     const argv = [...e.argv];
     world.argvs.push(argv);
     if (argv[0] === "gh") {
+      if (argv.includes("number,url,state")) {
+        return cli.openPr
+          ? ok(
+              JSON.stringify({
+                number: cli.openPr,
+                url: `https://github.com/${REPO}/pull/${cli.openPr}`,
+                state: "OPEN",
+              }),
+            )
+          : { deny: "no pull request" };
+      }
       return ok(`${cli.head}\n`);
+    }
+    if (argv[0] === "sh") {
+      return cli.thumbsFail ? { deny: "curl failed" } : ok("AAAA\nBBBB\n");
+    }
+    if (argv[1] === "feed") {
+      return ok(`https://uploads.sh/feed/abc\nmore\n`);
+    }
+    if (argv[1] === "delete") {
+      const key = argv[2] ?? "";
+      const branch = cli.sessionBranch;
+      cli.counts[branch] = Math.max(0, (cli.counts[branch] ?? 0) - 1);
+      cli.files = cli.files?.filter((f) => `gh/x/${f.filename}` !== key);
+      return ok("");
     }
     if (argv[1] === "attach") {
       const from = argv[argv.indexOf("--from-branch") + 1] ?? cli.sessionBranch;
@@ -85,7 +128,19 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
                 reason: "too big",
               })),
             };
-      return ok(JSON.stringify({ target: {}, uploads: [], failures: [], promotion }));
+      const comment = {
+        action: "created",
+        count: staged,
+        via: "gh",
+        ...(cli.heldOnPr ? { held: cli.heldOnPr } : {}),
+      };
+      return ok(JSON.stringify({ target: {}, uploads: [], failures: [], comment, promotion }));
+    }
+    if (argv[1] === "approve") {
+      cli.files = cli.files?.map((f) =>
+        argv.includes(`gh/x/${f.filename}`) ? { ...f, held: false } : f,
+      );
+      return ok("");
     }
     const i = argv.indexOf("--branch");
     const branch = i === -1 ? cli.sessionBranch : (argv[i + 1] ?? "");
@@ -95,6 +150,7 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
         key: `gh/x/${name}`,
         filename: name,
         size: 94_000,
+        stagedAt: new Date(1_000_000 - 5 * 60_000).toISOString(),
         url: `https://storage.uploads.sh/default/gh/x/${name}`,
         ...cli.files?.[n],
       };
@@ -145,7 +201,7 @@ describe("gh pr create", () => {
       "feat/x",
       "--json",
     ]);
-    expect(world.toasts).toContainEqual("uploads: attached 2 staged files to PR #1051");
+    expect(world.toasts).toContainEqual("uploads: added 2 attachments to PR #1051");
     expect(ran.context?.join("\n")).toContain("PR #1051");
   });
 
@@ -155,7 +211,7 @@ describe("gh pr create", () => {
     const ran = await runBash($, world, "gh pr create --fill");
 
     expect(world.toasts).toContainEqual(
-      "uploads: couldn't attach 2 staged files to PR #1051; run uploads attach --promote",
+      "uploads: couldn't add 2 attachments to PR #1051; run uploads attach --promote",
     );
     expect(ran.context?.join("\n")).toContain("did not attach");
     // Nothing is recorded as attached, so the band keeps showing the files.
@@ -167,8 +223,19 @@ describe("gh pr create", () => {
 
     const ran = await runBash($, world, "gh pr create --fill");
 
-    expect(world.toasts).toContainEqual("uploads: attached 2 staged files to PR #1051; 1 skipped");
+    expect(world.toasts).toContainEqual("uploads: added 2 attachments to PR #1051; 1 skipped");
     expect(ran.context?.join("\n")).toContain("1 was skipped");
+  });
+
+  test("says which promoted files are held for review", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, heldOnPr: 1 });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(world.toasts).toContainEqual(
+      "uploads: added 2 attachments to PR #1051; 1 is held for review",
+    );
+    expect(ran.context?.join("\n")).toContain("uploads approve --pr 1051");
   });
 
   test(
@@ -191,7 +258,7 @@ describe("gh pr create", () => {
 
     expect(promoted(world)).toBe(false);
     expect(world.toasts).toContainEqual(
-      "uploads: 1 staged file will attach to PR #1051 via the uploads-sh bot",
+      "uploads: 1 attachment will attach to PR #1051 via the uploads-sh bot",
     );
   });
 
@@ -206,8 +273,61 @@ describe("gh pr create", () => {
 
     expect(promoted(world)).toBe(false);
     expect(world.toasts).toContainEqual(
-      "uploads: 3 staged files attached to PR #1051 by the uploads-sh bot",
+      "uploads: 3 attachments added to PR #1051 by the uploads-sh bot",
     );
+  });
+
+  test("suggests unstage when every staged file is older than 30 days", async ($, on) => {
+    const staleAt = new Date(1_000_000 - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const world = setup(on, {
+      binding: ["self", true],
+      files: [{ filename: "old.png", stagedAt: staleAt }],
+    });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(promoted(world)).toBe(false);
+    expect(world.toasts).toEqual([
+      "uploads: 1 attachment for feat/x looks stale; run uploads unstage --branch feat/x",
+    ]);
+    expect(ran.context?.join("\n") ?? "").not.toContain("Don't re-upload");
+  });
+
+  test("does not claim the App will attach when this branch has nothing staged", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 0 }, binding: ["self", true] });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(promoted(world)).toBe(false);
+    expect(world.toasts).toEqual([]);
+    expect(ran.context?.join("\n") ?? "").not.toContain("Don't re-upload");
+  });
+
+  test("does not claim another branch's files, even when the JSON still lists them", async ($, on) => {
+    const world = setup(
+      on,
+      {
+        counts: { "feat/x": 2 },
+        binding: ["self", true],
+        files: [
+          { filename: "a.png", branch: "refactor/room-stage-top-bar" },
+          { filename: "b.png", branch: "refactor/room-stage-top-bar" },
+        ],
+      },
+      "",
+    );
+    await runBash($, world, STAGE);
+    expect(await (await mountBand($)).find({ text: /waiting for a PR/ })).toBeUndefined();
+
+    world.output.text = PR_OUTPUT;
+    const ran = await runBash($, world, "gh pr create --fill");
+    expect(promoted(world)).toBe(false);
+    expect(world.toasts).toEqual([
+      "uploads: nothing on feat/x for PR #1051; run uploads unstage --branch refactor/room-stage-top-bar",
+    ]);
+    const context = ran.context?.join("\n") ?? "";
+    expect(context).toContain("uploads unstage --branch refactor/room-stage-top-bar");
+    expect(context).not.toContain("Don't re-upload");
   });
 
   test("does not promote when nothing is staged for the PR head", async ($, on) => {
@@ -239,23 +359,21 @@ describe("band", () => {
       await runBash($, world, STAGE);
 
       const ui = await mountBand($, surface);
-      expect(
-        await ui.find({ type: "Text", text: /3 uploads waiting for a PR on feat\/x/ }),
-      ).toBeTruthy();
+      expect(await ui.find({ type: "Text", text: /3 attachments waiting for a PR$/ })).toBeTruthy();
+      // The branch stays out of the band.
+      expect(await ui.find({ text: /feat\/x/ })).toBeUndefined();
     });
   }
 
   test("follows the session to a new branch", async ($, on) => {
     const world = setup(on, { counts: { "feat/x": 1, "feat/y": 2 }, binding: ["self", true] }, "");
     await runBash($, world, STAGE);
-    expect(
-      await (await mountBand($)).find({ text: /1 upload waiting for a PR on feat\/x/ }),
-    ).toBeTruthy();
+    expect(await (await mountBand($)).find({ text: /1 attachment waiting for a PR/ })).toBeTruthy();
 
     world.cli.sessionBranch = "feat/y";
     await runBash($, world, "git switch feat/y");
     expect(
-      await (await mountBand($)).find({ text: /2 uploads waiting for a PR on feat\/y/ }),
+      await (await mountBand($)).find({ text: /2 attachments waiting for a PR/ }),
     ).toBeTruthy();
   });
 
@@ -266,10 +384,11 @@ describe("band", () => {
     expect(await (await mountBand($, "terminal")).find({ type: "Image" })).toBeTruthy();
     const desktop = await mountBand($, "desktop");
     expect(await desktop.find({ type: "Image" })).toBeUndefined();
-    expect(await desktop.find({ type: "Text", text: "⇡" })).toBeTruthy();
+    expect(await desktop.find({ type: "Svg" })).toBeTruthy();
+    expect(await desktop.find({ type: "Text", text: "uploads" })).toBeTruthy();
   });
 
-  for (const surface of ["terminal", "desktop"] as const) {
+  for (const surface of ["terminal"] as const) {
     test(`lists staged files with links to their pages on ${surface}`, async ($, on) => {
       const world = setup(on, { counts: { "feat/x": 2 }, binding: ["self", true] }, "");
       await runBash($, world, STAGE);
@@ -331,5 +450,301 @@ describe("band", () => {
 
     const ui = await mountBand($);
     expect(await ui.findAll({ text: /uploads|staged/ })).toEqual([]);
+  });
+});
+
+const mountPane = ($: Engine, surface: "terminal" | "desktop" = "desktop") =>
+  $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: "Pane",
+    requestId: "uploads-staged",
+    props: { bodyColumns: 120 } as never,
+  });
+
+const BINDING_LINES: [string, [string, boolean], RegExp, boolean][] = [
+  ["self", ["self", true], /^\s*1 attachment waiting for a PR$/, false],
+  ["unknown", ["unknown", false], /^\s*1 attachment waiting for a PR$/, false],
+  [
+    "none",
+    ["none", false],
+    /^\s*1 attachment waiting for a PR · link the repo to auto-attach$/,
+    false,
+  ],
+  [
+    "other",
+    ["other", false],
+    /^\s*1 attachment won't attach: repo linked to another workspace$/,
+    true,
+  ],
+];
+
+describe("band headline", () => {
+  for (const surface of ["terminal", "desktop"] as const) {
+    for (const [name, binding, text, warn] of BINDING_LINES) {
+      test(`reads for a ${name} binding on ${surface}`, async ($, on) => {
+        const world = setup(on, { binding }, "");
+        await runBash($, world, STAGE);
+
+        const found = await (await mountBand($, surface)).find({ type: "Text", text });
+        expect(found).toBeTruthy();
+        expect(found?.props.color !== undefined).toBe(warn);
+      });
+    }
+
+    test(`says attachments were added to the PR on ${surface}`, async ($, on) => {
+      const world = setup(on, { counts: { "feat/x": 3 }, promote: "ok" }, "");
+      await runBash($, world, STAGE);
+      world.output.text = PR_OUTPUT;
+      await runBash($, world, "gh pr create --fill");
+
+      expect(
+        await (await mountBand($, surface)).find({ text: /^\s*3 attachments added to PR #1051$/ }),
+      ).toBeTruthy();
+    });
+  }
+});
+
+describe("desktop band", () => {
+  test("shows thumbnails, the overflow count, View and a dismiss button", async ($, on) => {
+    const world = setup(on, {
+      counts: { "feat/x": 6 },
+      files: Array.from({ length: 6 }, (_, n) => ({ filename: `s${n}.png` })),
+    });
+    await runBash($, world, STAGE);
+
+    const ui = await mountBand($, "desktop");
+    // The mark and four thumbnails.
+    expect(await ui.findAll({ type: "Svg" })).toHaveLength(5);
+    expect(await ui.find({ type: "Text", text: "+2" })).toBeTruthy();
+    expect(await ui.find({ type: "Button", text: "View" })).toBeTruthy();
+    const hide = await ui.find({ type: "Button", text: "Hide" });
+    expect(hide?.props.role).toBe("dismiss");
+    // The terminal keeps its own band: no thumbnails, no View.
+    const terminal = await mountBand($, "terminal");
+    expect(await terminal.find({ type: "Button", text: "View" })).toBeUndefined();
+  });
+
+  test("hides until the staged set changes", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 1 } });
+    await runBash($, world, STAGE);
+
+    const ui = await mountBand($, "desktop");
+    await ui.press({ key: "hide" });
+    expect(
+      await (await mountBand($, "desktop")).find({ text: /waiting for a PR/ }),
+    ).toBeUndefined();
+
+    // Same set, refreshed: still hidden.
+    await runBash($, world, STAGE);
+    expect(
+      await (await mountBand($, "desktop")).find({ text: /waiting for a PR/ }),
+    ).toBeUndefined();
+
+    // A new file changes the set.
+    world.cli.counts["feat/x"] = 2;
+    await runBash($, world, STAGE);
+    expect(
+      await (await mountBand($, "desktop")).find({ text: /2 attachments waiting for a PR/ }),
+    ).toBeTruthy();
+  });
+
+  test("View opens the pane", async ($, on) => {
+    const world = setup(on);
+    await runBash($, world, STAGE);
+
+    await (await mountBand($, "desktop")).press({ key: "view" });
+
+    expect(world.opened).toEqual(["uploads-staged:Staged attachments"]);
+  });
+});
+
+describe("staged pane", () => {
+  const pairFiles = [
+    { filename: "home-before.png" },
+    { filename: "home-after.png" },
+    { filename: "solo.png" },
+    { filename: "notes.txt" },
+  ];
+
+  test("draws a grid: pairs as one tile, singles, file cards, footnote", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 4 }, files: pairFiles });
+    await runBash($, world, STAGE);
+
+    const ui = await mountPane($);
+    // Tiles for home (pair), solo and notes.txt.
+    expect(await ui.findAll({ type: "Svg" })).toHaveLength(3);
+    expect(
+      await ui.find({ text: "4 attachments waiting for a PR · link the repo to auto-attach" }),
+    ).toBeTruthy();
+    expect(await ui.find({ text: /buildinternet\/uploads · feat\/x/ })).toBeTruthy();
+    expect(await ui.find({ type: "Button", text: "Copy markdown" })).toBeTruthy();
+    expect(await ui.find({ text: "5m ago" })).toBeTruthy();
+    const hosted = await ui.find({ type: "Link", text: "Hosted on uploads.sh" });
+    expect(hosted?.props.href).toBe("https://uploads.sh/account/workspaces/default");
+    expect(await ui.find({ text: ", not committed to the repo." })).toBeTruthy();
+    // No open PR: no feed button.
+    expect(await ui.find({ type: "Button", text: "Copy link" })).toBeUndefined();
+    // The pair tile carries a chip for each half; the txt tile is a file card.
+    const drawn = JSON.stringify(await ui.drawn());
+    expect(drawn).toContain("Before");
+    expect(drawn).toContain("After");
+    expect(drawn).toContain("TXT");
+  });
+
+  test("falls back to a file card when a thumbnail fails", async ($, on) => {
+    const world = setup(on, { thumbsFail: true, files: [{ filename: "a.png" }] });
+    await runBash($, world, STAGE);
+
+    const drawn = JSON.stringify(await (await mountPane($)).drawn());
+    expect(drawn).toContain("PNG");
+    expect(drawn).not.toContain("data:image/jpeg");
+  });
+
+  test("draws thumbnails as JPEG data URIs fetched through the image transform", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "a.png" }] });
+    await runBash($, world, STAGE);
+
+    expect(JSON.stringify(await (await mountPane($)).drawn())).toContain(
+      "data:image/jpeg;base64,AAAABBBB",
+    );
+    const fetch = world.argvs.find((argv) => argv[0] === "sh");
+    expect(fetch?.at(-1)).toContain(
+      "/cdn-cgi/image/width=360,fit=scale-down,format=jpeg,quality=70/",
+    );
+  });
+
+  test("on the terminal the grid has no images", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, files: pairFiles.slice(0, 2) });
+    await runBash($, world, STAGE);
+
+    const ui = await mountPane($, "terminal");
+    expect(await ui.findAll({ type: "Svg" })).toEqual([]);
+    expect(await ui.find({ type: "Button", text: "home" })).toBeTruthy();
+  });
+
+  test("copies the PR feed link when the branch has an open PR", async ($, on) => {
+    const world = setup(on, { openPr: 12 });
+    const copied: string[] = [];
+    on("ui.copy", async (_$, e) => {
+      copied.push(e.text);
+      return { value: undefined } as never;
+    });
+    await runBash($, world, STAGE);
+
+    const ui = await mountPane($);
+    await ui.press({ key: "feed" });
+
+    expect(world.argvs).toContainEqual(["uploads", "feed", "create", "--repo", REPO, "--pr", "12"]);
+    expect(copied).toEqual(["https://uploads.sh/feed/abc"]);
+    expect(world.toasts).toContainEqual("Copied the PR feed link");
+    expect(await ui.find({ type: "Link" })).toBeTruthy();
+  });
+
+  test("opens a row in the same pane, then returns to the grid", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, files: pairFiles.slice(0, 2) });
+    await runBash($, world, STAGE);
+
+    const detail = await mountPane($);
+    await detail.press({ key: "name-0" });
+
+    expect(await detail.find({ type: "Button", text: "← All attachments" })).toBeTruthy();
+    expect(await detail.find({ type: "Button", text: "Copy markdown" })).toBeTruthy();
+    expect(await detail.find({ type: "Button", text: "Remove" })).toBeTruthy();
+    expect(await detail.find({ text: "Before" })).toBeTruthy();
+    expect(await detail.findAll({ type: "Link", text: "Open on uploads.sh" })).toHaveLength(2);
+
+    await detail.press({ key: "back" });
+    expect(await detail.find({ text: /Hosted on uploads.sh/ })).toBeTruthy();
+  });
+
+  test("explains a file that can't be previewed", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "notes.txt" }] });
+    await runBash($, world, STAGE);
+    const detail = await mountPane($);
+    await detail.press({ key: "name-0" });
+
+    expect(await detail.find({ text: "notes.txt can't be previewed here." })).toBeTruthy();
+    expect(await detail.find({ type: "Link" })).toBeTruthy();
+  });
+
+  test("draws a held file as a lock card, fetches no thumbnail, and says so", async ($, on) => {
+    const world = setup(on, {
+      counts: { "feat/x": 2 },
+      files: [{ filename: "env.png", held: true }, { filename: "ok.png" }],
+    });
+    await runBash($, world, STAGE);
+
+    const ui = await mountPane($);
+    expect(
+      await ui.find({
+        text: "2 attachments waiting for a PR · link the repo to auto-attach · 1 held for review",
+      }),
+    ).toBeTruthy();
+    expect(JSON.stringify(await ui.drawn())).toContain("HELD");
+    const fetched = world.argvs.filter((argv) => argv[0] === "sh").map((argv) => argv.at(-1));
+    expect(fetched.some((url) => url?.includes("env.png"))).toBe(false);
+    expect(fetched.some((url) => url?.includes("ok.png"))).toBe(true);
+  });
+
+  test("marks a held file in the terminal band", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "env.png", held: true }] });
+    await runBash($, world, STAGE);
+
+    const band = await mountBand($);
+    await band.press({ key: "files" });
+    expect(await band.find({ text: " held for review" })).toBeTruthy();
+  });
+
+  test("Approve releases a held file from its detail view", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "env.png", held: true }] });
+    await runBash($, world, STAGE);
+    const ui = await mountPane($);
+    await ui.press({ key: "name-0" });
+
+    expect(await ui.find({ text: /env.png is held for review/ })).toBeTruthy();
+    expect(await ui.find({ type: "Link", text: "Review on uploads.sh" })).toBeTruthy();
+    await ui.press({ key: "approve" });
+    await world.clock.settle();
+
+    expect(world.argvs).toContainEqual(["uploads", "approve", "gh/x/env.png"]);
+    expect(world.toasts).toContainEqual("Approved env.png");
+    expect(await ui.find({ type: "Button", text: "Approve" })).toBeUndefined();
+  });
+
+  test("opens the pane on a file once it is held", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, files: [{ filename: "env.png" }] });
+    await runBash($, world, STAGE);
+    expect(world.opened).toEqual([]);
+
+    // The classifier's verdict lands after the upload; the next refresh sees it.
+    world.cli.files = [{ filename: "env.png", held: true }];
+    await runBash($, world, STAGE);
+    expect(world.opened).toEqual(["uploads-staged:env.png"]);
+
+    // The same hold doesn't open it again.
+    await runBash($, world, STAGE);
+    expect(world.opened).toHaveLength(1);
+  });
+
+  test("leaves the pane shut for a hold already there when the session starts", async ($, on) => {
+    const world = setup(on, { files: [{ filename: "env.png", held: true }] });
+    await runBash($, world, STAGE);
+    await runBash($, world, STAGE);
+    expect(world.opened).toEqual([]);
+  });
+
+  test("Remove deletes each file, then shows the grid", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, files: pairFiles.slice(0, 2) });
+    await runBash($, world, STAGE);
+    const ui = await mountPane($);
+    await ui.press({ key: "name-0" });
+    await ui.press({ key: "remove" });
+
+    expect(world.argvs.filter((argv) => argv[1] === "delete").map((argv) => argv[2])).toEqual([
+      "gh/x/home-before.png",
+      "gh/x/home-after.png",
+    ]);
+    expect(await ui.find({ text: /Hosted on uploads.sh|Nothing staged/ })).toBeTruthy();
   });
 });

@@ -121,9 +121,10 @@ managed comment), _managed comment_ (the single rewritten comment), _workspace_
 (the isolation boundary for files, limits, and tokens), _key_ (the hash-free
 path a file lives at), _state_ (`before`/`after` for pairing).
 
-**Constraints:** dark-only palette by construction (`color-scheme: dark`); the
-site ships no framework JavaScript on public pages (React only behind sign-in);
-Node ≥24 and pnpm ≥11 for local development.
+**Constraints:** light and dark appearances. The page follows the system, and
+the header control can pin either one. Dark stays the brand default when the
+system is dark. The site ships no framework JavaScript on public pages (React
+only behind sign-in). Node ≥24 and pnpm ≥11 for local development.
 
 ## Brand Commitments
 
@@ -131,10 +132,10 @@ Name is **uploads** / **uploads.sh**; the bot and GitHub App are referred to in
 prose as the "`uploads-sh` bot".
 
 Terminal-native, precise, quietly playful. A developer's tool that takes craft
-seriously — dark by construction, with one genuinely distinctive asset: Geist
-Pixel and its variable ELSH (element-shape) axis, used as the brand's signature
-rather than a wordmark-only garnish. Personality shows up in small, exact
-moments (pixel morphs, the chevron/upload motif), never in loudness.
+seriously. Dark is the primary palette, and the same tokens have a light
+appearance. Geist Pixel, with its variable ELSH (element-shape) axis, is the
+brand's signature rather than a wordmark-only garnish. Personality shows up in
+small, exact moments (pixel morphs, the chevron/upload motif), never in loudness.
 
 Three faces, defined once in `packages/ui/src/tokens.css`: Geist (sans — the
 interface voice: prose, headings, buttons, labels, navigation), Geist Mono

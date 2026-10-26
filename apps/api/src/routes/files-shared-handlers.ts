@@ -6,8 +6,10 @@ import {
 } from "@uploads/errors";
 import type { Context, Handler } from "hono";
 import { activeContentAllowed } from "../active-content";
+import { assertDeleteAllowed } from "../delete-auth";
 import {
   badKey,
+  deleteObject,
   finalizeUploadKey,
   headObjectJson,
   isManagedGithubKey,
@@ -29,6 +31,8 @@ import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from
 import { withUploaderTags } from "../uploader-identity";
 import { putObjectIdempotently } from "../upload-idempotency";
 import { sanitizeVisibility } from "../visibility";
+import { parseCliUserAgent } from "../client-activity";
+import { clientCanApprove, isHeld } from "../upload-hold";
 import type { WorkspaceVars } from "../workspace";
 import { dbFor, primaryDbFor } from "../db-session";
 
@@ -244,12 +248,11 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   // still validates and rejects before any write).
   const hasCustomMeta = Object.keys(custom).length > 0;
   // Uploader attribution (issue #340): gh.*-tagged uploads get server-derived
-  // `gh.uploader`/`gh.uploader-id` stamped from the bearer token's minting
-  // user — spread AFTER the client's pairs so a client-supplied value of
-  // those keys can't impersonate someone else. Attribution only (a shared
-  // token attributes to its minter); non-gh uploads and legacy tokens are
-  // untouched.
-  // A workspace service token (issue #1026) attributes to its label instead.
+  // tags. Client uploader keys are stripped first, including when this
+  // credential has nothing to stamp and when the stamp would pass the key
+  // cap. A user stamp also writes `gh.uploader-proof`, which own-delete
+  // requires. A workspace service token (issue #1026) attributes to its
+  // label instead, with no user id and no proof.
   let metadata = hasCustomMeta ? custom : undefined;
   if (metadata) {
     metadata = await withUploaderTags(
@@ -278,6 +281,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     surface: "api" as const,
     declaredContentType: c.req.header("Content-Type"),
     waitUntil,
+    enforceHold: clientCanApprove(parseCliUserAgent(c.req.header("User-Agent"))),
   };
 
   const idempotencyKey = c.req.header("Idempotency-Key");
@@ -326,17 +330,36 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   // Two-lane storage: a key uploaded before a storage switch still resolves,
   // from whichever lane actually holds it.
   const lane = await resolveObjectLane(c.env, ws, key);
-  if (!lane) throw new NotFoundError();
 
   const metadataParam = c.req.query("metadata");
   if (metadataParam === "1" || metadataParam === "true") {
     const metadata = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
+    // A held file's bytes may have left the public bucket; its rows (and
+    // `ai.hold`) still answer, so an agent can see why it is missing.
+    if (!lane && !isHeld(metadata)) throw new NotFoundError();
     return c.json({ metadata });
   }
+  if (!lane) throw new NotFoundError();
 
   const meta = await lane.store.head(key);
   const urls = objectPublicUrls(c.env, lane.config, key);
   return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
+}
+
+export async function deleteFileHandler(c: Context<WorkspaceVars>) {
+  const key = c.req.param("key")!;
+  // Authorize first. Key-shape validation used to run ahead of this and
+  // returned 400 to a write token, which told it the key was malformed
+  // before the scope check could say 403.
+  await assertDeleteAllowed({
+    db: dbFor(c.env),
+    workspaceName: c.get("workspaceName"),
+    key,
+    scopes: c.get("authScopes"),
+    identity: c.get("uploaderIdentity"),
+  });
+  if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
+  return c.json(await deleteObject(c.env, c.get("workspace"), key, c.get("workspaceName")));
 }
 
 export async function patchFileHandler(c: Context<WorkspaceVars>) {

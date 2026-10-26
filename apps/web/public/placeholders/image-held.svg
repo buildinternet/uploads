@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Held for review">
+  <rect x="0.5" y="0.5" width="639" height="359" rx="8" fill="#121214" stroke="#232327"/>
+  <g fill="none" stroke="#c27eff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(292 112) scale(1.4)">
+    <rect x="2" y="18" width="36" height="26" rx="4"/>
+    <path d="M10 18v-6a10 10 0 0 1 20 0v6"/>
+  </g>
+  <text x="320" y="222" text-anchor="middle" fill="#ececea" font-family="Geist, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="600">Held for review</text>
+  <text x="320" y="252" text-anchor="middle" fill="#8a8a83" font-family="Geist, ui-sans-serif, system-ui, sans-serif" font-size="16">This image may contain sensitive information.</text>
+</svg>

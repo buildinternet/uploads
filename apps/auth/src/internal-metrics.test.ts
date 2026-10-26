@@ -45,6 +45,8 @@ describe("GET /internal/metrics", () => {
       stripeCustomerId: null,
       notifyMemberJoin: true,
       notifyUsageLimits: true,
+      notifyWeeklyDigest: false,
+      notifyWeeklyWorkspaceDigest: false,
     } as schema.AuthUser);
   }
 

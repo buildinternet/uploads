@@ -15,9 +15,14 @@ import {
 } from "./github-webhook-queue";
 import { ingestForWebhook } from "./github-ingest";
 import { adoptLinkedFilesForWebhook } from "./github-link-adopt";
+import { findRepoLinkStrict } from "./github-repo-links";
 import { FakeKv } from "../test/fake-kv";
 
 vi.mock("./github-ingest", () => ({ ingestForWebhook: vi.fn() }));
+vi.mock("./github-repo-links", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./github-repo-links")>();
+  return { ...original, findRepoLinkStrict: vi.fn(original.findRepoLinkStrict) };
+});
 vi.mock("./github-link-adopt", () => ({
   adoptLinkedFilesForWebhook: vi.fn(),
   hasLinkCandidate: (text: string) => /https?:\/\//i.test(text),
@@ -88,7 +93,7 @@ describe("extractWebhookEvent", () => {
       pull_request: { number: 7, head: { ref: "feat", repo: { full_name: "acme/web" } } },
     });
     expect(ev).toEqual({
-      keys: ["ghref:acme/web#7"],
+      keys: ["ghref:acme/web#7", "ghref:pub:acme/web#7"],
       promote: { repo: "Acme/Web", num: 7, branch: "feat" },
     });
   });
@@ -99,7 +104,7 @@ describe("extractWebhookEvent", () => {
       repository: { full_name: "acme/web" },
       pull_request: { number: 7, head: { ref: "feat", repo: { full_name: "fork/web" } } },
     });
-    expect(ev).toEqual({ keys: ["ghref:acme/web#7"] });
+    expect(ev).toEqual({ keys: ["ghref:acme/web#7", "ghref:pub:acme/web#7"] });
   });
 
   const URL = "https://github.com/user-attachments/assets/0a1b2c3d-1111-2222-3333-444455556666";
@@ -160,6 +165,33 @@ describe("extractWebhookEvent", () => {
       comment: { id: 44, body: "plain text", user: { login: "octocat", type: "User" } },
     });
     expect(ev).toBeNull();
+  });
+
+  it("issue_comment created with only a repo-hosted image re-syncs the check", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: {
+        id: 44,
+        body: "![after](https://github.com/acme/app/blob/abc/after.png?raw=true)",
+        user: { login: "octocat", type: "User" },
+      },
+    });
+    expect(ev?.ingest).toBeUndefined();
+    expect(ev?.recheck).toEqual({ repo: "acme/app", num: 7 });
+
+    const onIssue = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7 },
+      comment: {
+        id: 44,
+        body: "![after](https://github.com/acme/app/blob/abc/after.png?raw=true)",
+        user: { login: "octocat", type: "User" },
+      },
+    });
+    expect(onIssue?.recheck).toBeUndefined();
   });
 
   it("issue_comment edited always sets ingest; deleted sets ingest only when the removed body had a url", () => {
@@ -360,7 +392,7 @@ describe("handleWebhook producer path", () => {
     kv.store.set("ghref:o/r#1", { value: "{}" });
     const queue = new FakeQueue();
     await handleWebhook(envWith(kv, queue), "issues", issuesPayload);
-    expect(queue.sent).toEqual([{ keys: ["ghref:o/r#1"] }]);
+    expect(queue.sent).toEqual([{ keys: ["ghref:o/r#1", "ghref:pub:o/r#1"] }]);
     // Not deleted inline — the consumer owns the delete now.
     expect(kv.store.has("ghref:o/r#1")).toBe(true);
   });
@@ -436,16 +468,20 @@ describe("handleGithubWebhookBatch", () => {
 
   it("dispatches ingest events to ingestForWebhook and acks", async () => {
     vi.mocked(ingestForWebhook).mockResolvedValueOnce(undefined);
+    vi.mocked(findRepoLinkStrict).mockResolvedValueOnce(null);
     const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
     const m = msg({ keys: [], ingest: ref });
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
     expect(ingestForWebhook).toHaveBeenCalledWith(expect.anything(), ref);
+    // A pull request's text changed, so the check re-syncs too (unbound repo here).
+    expect(vi.mocked(findRepoLinkStrict).mock.calls.at(-1)?.[1]).toBe("acme/app");
     expect(m.acked).toBe(true);
     expect(m.retried).toBe(false);
   });
 
   it("retries a message whose ingestForWebhook throws", async () => {
     vi.mocked(ingestForWebhook).mockRejectedValueOnce(new Error("transient"));
+    vi.mocked(findRepoLinkStrict).mockResolvedValueOnce(null);
     const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
     const m = msg({ keys: [], ingest: ref });
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
@@ -469,5 +505,80 @@ describe("handleGithubWebhookBatch", () => {
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
     expect(m.retried).toBe(true);
     expect(m.acked).toBe(false);
+  });
+});
+
+describe("extractWebhookEvent — PR rollup title/state", () => {
+  const repository = { full_name: "Acme/Web" };
+  const pull = (extra: Record<string, unknown> = {}) => ({
+    number: 7,
+    title: "Add dark mode",
+    head: { ref: "feat", repo: { full_name: "acme/web" } },
+    ...extra,
+  });
+
+  it("opened and reopened write state open", () => {
+    for (const action of ["opened", "reopened"]) {
+      const ev = extractWebhookEvent("pull_request", { action, repository, pull_request: pull() });
+      expect(ev?.prActivity).toEqual({
+        repo: "Acme/Web",
+        number: 7,
+        title: "Add dark mode",
+        state: "open",
+      });
+    }
+  });
+
+  it("closed writes merged or closed from the payload", () => {
+    const merged = extractWebhookEvent("pull_request", {
+      action: "closed",
+      repository,
+      pull_request: pull({ merged: true, state: "closed" }),
+    });
+    expect(merged?.prActivity?.state).toBe("merged");
+    const closed = extractWebhookEvent("pull_request", {
+      action: "closed",
+      repository,
+      pull_request: pull({ merged: false, state: "closed" }),
+    });
+    expect(closed?.prActivity?.state).toBe("closed");
+  });
+
+  it("edited trusts the payload's own state and title", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "edited",
+      repository,
+      pull_request: pull({ title: "Renamed", state: "closed", merged_at: "2026-10-01T00:00:00Z" }),
+    });
+    expect(ev?.prActivity).toEqual({
+      repo: "Acme/Web",
+      number: 7,
+      title: "Renamed",
+      state: "merged",
+    });
+  });
+
+  it("ignores synchronize, a missing title, and issues events", () => {
+    expect(
+      extractWebhookEvent("pull_request", {
+        action: "synchronize",
+        repository,
+        pull_request: pull(),
+      })?.prActivity,
+    ).toBeUndefined();
+    expect(
+      extractWebhookEvent("pull_request", {
+        action: "opened",
+        repository,
+        pull_request: pull({ title: undefined }),
+      })?.prActivity,
+    ).toBeUndefined();
+    expect(
+      extractWebhookEvent("issues", {
+        action: "opened",
+        repository,
+        issue: { number: 7, title: "Issue" },
+      })?.prActivity,
+    ).toBeUndefined();
   });
 });

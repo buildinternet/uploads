@@ -9,8 +9,25 @@ dist/
 .env.*
 !.env.example
 *.local
+# OS / Finder / Explorer metadata. The Claude directory scanner rejects a
+# plugin submission that contains these, so they must never be added.
+# A pattern with no slash already matches every directory; **/.DS_Store
+# is repeated so the nested case is obvious in this file.
 .DS_Store
+**/.DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+desktop.ini
+__MACOSX/
+.AppleDouble
+.LSOverride
+# AppleDouble sidecar written beside a real file (._filename).
+._*
+# Finder's custom-folder icon is a file named Icon followed by CR.
+# The CR stays inside the brackets so eol=lf cannot treat it as a CRLF
+# line ending and delete it. Do not rewrite this line as Icon?.
+Icon[]
 worker-configuration.d.ts
 *.log
 pnpm-debug.log*

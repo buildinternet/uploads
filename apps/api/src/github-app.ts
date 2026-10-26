@@ -321,6 +321,19 @@ export async function installationToken(
   }
 }
 
+/** An installation token for `repo`, or null without the App or an installation. */
+export async function repoInstallationToken(
+  env: Env,
+  repo: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  const cfg = githubAppConfig(env);
+  if (!cfg) return null;
+  const installId = await installationForRepo(env, cfg, repo, fetchImpl);
+  if (installId === null) return null;
+  return installationToken(env, cfg, installId, fetchImpl);
+}
+
 /**
  * Repo visibility cache TTL — private/public is rare to flip, but not never
  * (issue #631's private-attachment-prefix decision hinges on it), so 600s
@@ -369,9 +382,13 @@ export async function repoIsPrivate(
  */
 export async function cacheRepoPrivacy(env: Env, repo: string, isPrivate: boolean): Promise<void> {
   if (!REPO_RE.test(repo)) return;
-  await env.GITHUB_CACHE.put(`ghpriv:${repo}`, isPrivate ? "1" : "0", {
-    expirationTtl: REPO_PRIVACY_TTL,
-  });
+  const key = `ghpriv:${repo}`;
+  const value = isPrivate ? "1" : "0";
+  // KV allows about one write per second per key, and a burst of webhooks
+  // for one repo all carry the same visibility. Skip the write when the
+  // cache already agrees; the entry still expires on its own TTL.
+  if ((await cacheGet(env, key)) === value) return;
+  await env.GITHUB_CACHE.put(key, value, { expirationTtl: REPO_PRIVACY_TTL });
 }
 
 /** PR head-ref cache TTL — a PR's head ref never changes once opened. */

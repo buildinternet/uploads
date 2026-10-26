@@ -1,0 +1,118 @@
+[
+  {
+    "name": "gallery_create",
+    "title": "Create gallery"
+  },
+  {
+    "name": "gallery_get",
+    "title": "Get gallery"
+  },
+  {
+    "name": "gallery_add",
+    "title": "Add gallery item"
+  },
+  {
+    "name": "gallery_link",
+    "title": "Link gallery"
+  },
+  {
+    "name": "gallery_find_by_reference",
+    "title": "Find galleries"
+  },
+  {
+    "name": "feed_create",
+    "title": "Create change feed"
+  },
+  {
+    "name": "feed_get",
+    "title": "Get change feed"
+  },
+  {
+    "name": "put",
+    "title": "Upload file"
+  },
+  {
+    "name": "screenshot",
+    "title": "Capture screenshot"
+  },
+  {
+    "name": "attach",
+    "title": "Attach to GitHub"
+  },
+  {
+    "name": "list",
+    "title": "List files"
+  },
+  {
+    "name": "staged",
+    "title": "List staged files"
+  },
+  {
+    "name": "unstage",
+    "title": "Unstage files"
+  },
+  {
+    "name": "delete",
+    "title": "Delete file"
+  },
+  {
+    "name": "get_metadata",
+    "title": "Get metadata"
+  },
+  {
+    "name": "list_held",
+    "title": "List held files"
+  },
+  {
+    "name": "approve",
+    "title": "Approve held files"
+  },
+  {
+    "name": "set_metadata",
+    "title": "Set metadata"
+  },
+  {
+    "name": "find_files",
+    "title": "Find files"
+  },
+  {
+    "name": "list_metadata_keys",
+    "title": "List metadata keys"
+  },
+  {
+    "name": "usage",
+    "title": "Show usage"
+  },
+  {
+    "name": "reconcile",
+    "title": "Reconcile usage"
+  },
+  {
+    "name": "purge_expired",
+    "title": "Purge expired files"
+  },
+  {
+    "name": "comment",
+    "title": "Sync attachments comment"
+  },
+  {
+    "name": "search_docs",
+    "title": "Search uploads.sh docs"
+  },
+  {
+    "name": "changelog",
+    "title": "Product changelog"
+  },
+  {
+    "name": "whoami",
+    "title": "Who am I"
+  },
+  {
+    "name": "doctor",
+    "title": "Diagnose setup"
+  },
+  {
+    "name": "report",
+    "title": "Send diagnostic report"
+  }
+]

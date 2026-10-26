@@ -50,26 +50,51 @@ function stubAuth(
   };
 }
 
-/** Minimal KV stub recording puts so cache behavior is assertable. */
-function fakeKv() {
+/**
+ * Minimal KV stub recording puts so cache behavior is assertable. `records`
+ * seeds `ws:<name>` workspace records (returned pre-parsed, as for
+ * `{ type: "json" }` reads) and the `ws:` key listing.
+ */
+function fakeKv(
+  records: Record<string, Record<string, unknown>> = {},
+  metadata: Record<string, unknown> = {},
+  opts: { failList?: boolean; failWsGets?: boolean } = {},
+) {
   const store = new Map<string, string>();
   let puts = 0;
+  let wsGets = 0;
   return {
     store,
+    get wsGets() {
+      return wsGets;
+    },
     get puts() {
       return puts;
     },
     binding: {
-      get: (async (key: string) => store.get(key) ?? null) as unknown as KVNamespace["get"],
+      get: (async (key: string) => {
+        if (key.startsWith("ws:")) {
+          wsGets += 1;
+          if (opts.failWsGets) throw new Error("kv down");
+          return records[key.slice(3)] ?? null;
+        }
+        return store.get(key) ?? null;
+      }) as unknown as KVNamespace["get"],
       put: (async (key: string, value: string) => {
         puts += 1;
         store.set(key, value);
       }) as unknown as KVNamespace["put"],
-      list: (async () => ({
-        keys: [],
-        list_complete: true,
-        cacheStatus: null,
-      })) as unknown as KVNamespace["list"],
+      list: (async () => {
+        if (opts.failList) throw new Error("kv list down");
+        return {
+          keys: Object.keys(records).map((name) => ({
+            name: `ws:${name}`,
+            ...(name in metadata ? { metadata: metadata[name] } : {}),
+          })),
+          list_complete: true,
+          cacheStatus: null,
+        };
+      }) as unknown as KVNamespace["list"],
     } as KVNamespace,
   };
 }
@@ -184,6 +209,97 @@ describe("GET /admin-ui/metrics/overview", () => {
     }
   });
 
+  it("summarizes daily uploads per workspace and flags BYO-bucket workspaces", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      // A second acme upload makes it the busier workspace on the day.
+      await bumpDailyMetric(db, { metric: "upload", workspace: "acme", bytes: 10 }, new Date());
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv({
+          acme: { accountId: "acc", accessKeyId: "ak", secretAccessKey: "sk" },
+          beta: {},
+        }).binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=7", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        totals: { workspacesWithByob: number };
+        series: {
+          uploadsByDay: {
+            day: string;
+            total: number;
+            workspaces: number;
+            top: { workspace: string; count: number }[];
+          }[];
+          uploadWorkspaces: { workspace: string; count: number }[];
+          uploadsByWorkspace?: unknown;
+        };
+        workspaces: { workspace: string; byob: boolean }[];
+      };
+      expect(body.totals.workspacesWithByob).toBe(1);
+      // The unbounded per-(day, workspace) rows are no longer shipped.
+      expect(body.series.uploadsByWorkspace).toBeUndefined();
+      expect(body.series.uploadsByDay).toHaveLength(1);
+      expect(body.series.uploadsByDay[0]).toMatchObject({
+        total: 3,
+        workspaces: 2,
+        top: [
+          { workspace: "acme", count: 2 },
+          { workspace: "beta", count: 1 },
+        ],
+      });
+      expect(body.series.uploadWorkspaces).toEqual([
+        { workspace: "acme", count: 2 },
+        { workspace: "beta", count: 1 },
+      ]);
+      const byName = Object.fromEntries(body.workspaces.map((w) => [w.workspace, w.byob]));
+      expect(byName).toEqual({ acme: true, beta: false });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reads BYO status from key metadata without per-workspace record reads", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const kv = fakeKv(
+        { acme: {}, beta: {} },
+        { acme: { byob: true }, beta: { byob: false } },
+        { failWsGets: true },
+      );
+      const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=7", {}, env);
+      const body = (await res.json()) as {
+        totals: { workspacesWithByob: number | null };
+        workspaces: { workspace: string; byob: boolean }[];
+      };
+      expect(body.totals.workspacesWithByob).toBe(1);
+      expect(kv.wsGets).toBe(0);
+      expect(Object.fromEntries(body.workspaces.map((w) => [w.workspace, w.byob]))).toEqual({
+        acme: true,
+        beta: false,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reports BYO count as null (unknown) when the registry cannot be listed", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const kv = fakeKv({ acme: {} }, {}, { failList: true });
+      const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=7", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { totals: { workspacesWithByob: number | null } };
+      expect(body.totals.workspacesWithByob).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("serves the second request from cache without recomputing", async () => {
     const { sqlite, db } = await seededDb();
     try {
@@ -191,7 +307,7 @@ describe("GET /admin-ui/metrics/overview", () => {
       const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
       await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(kv.puts).toBe(1);
-      expect(kv.store.has("metrics:overview:v3:30")).toBe(true);
+      expect(kv.store.has("metrics:overview:v6:30")).toBe(true);
       const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(res.status).toBe(200);
       expect(kv.puts).toBe(1);
@@ -330,6 +446,120 @@ describe("GET /admin-ui/metrics/overview", () => {
       } as unknown as Env;
       const res = await app().request("/admin-ui/metrics/overview?days=365", {}, env);
       expect(res.status).toBe(400);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("GET /admin-ui/metrics/uploads/*", () => {
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  it("401s with no session and 403s for a non-admin", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      for (const path of [
+        `/admin-ui/metrics/uploads/day?day=${today()}`,
+        "/admin-ui/metrics/uploads/workspace?workspace=acme",
+      ]) {
+        const anon = { AUTH: stubAuth(null), DB: db, REGISTRY: fakeKv().binding } as unknown as Env;
+        expect((await app().request(path, {}, anon)).status).toBe(401);
+        const plain = {
+          AUTH: stubAuth(NON_ADMIN_USER),
+          DB: db,
+          REGISTRY: fakeKv().binding,
+        } as unknown as Env;
+        expect((await app().request(path, {}, plain)).status).toBe(403);
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns every contributor for a day", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      await bumpDailyMetric(db, { metric: "upload", workspace: "acme", bytes: 10 }, new Date());
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request(`/admin-ui/metrics/uploads/day?day=${today()}`, {}, env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        day: today(),
+        total: 3,
+        contributors: [
+          { workspace: "acme", count: 2, bytes: 110 },
+          { workspace: "beta", count: 1, bytes: 50 },
+        ],
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("rejects a malformed or impossible day", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      for (const day of ["", "yesterday", "2026-13-40", "2026-02-30"]) {
+        const res = await app().request(
+          `/admin-ui/metrics/uploads/day?day=${encodeURIComponent(day)}`,
+          {},
+          env,
+        );
+        expect(res.status).toBe(400);
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns one workspace's daily series", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request(
+        "/admin-ui/metrics/uploads/workspace?workspace=acme&days=7",
+        {},
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        workspace: string;
+        window: { days: number };
+        series: { day: string; count: number; bytes: number }[];
+      };
+      expect(body.workspace).toBe("acme");
+      expect(body.window.days).toBe(7);
+      expect(body.series).toEqual([{ day: today(), count: 1, bytes: 100 }]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("validates workspace and window", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      for (const qs of ["", "workspace=acme&days=365", `workspace=${"x".repeat(101)}`]) {
+        const res = await app().request(`/admin-ui/metrics/uploads/workspace?${qs}`, {}, env);
+        expect(res.status).toBe(400);
+      }
     } finally {
       sqlite.close();
     }

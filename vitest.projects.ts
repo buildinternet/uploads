@@ -14,9 +14,11 @@ import { defineConfig } from "vitest/config";
 // at the root loads this file, via `--config vitest.projects.ts`; per-package
 // runs are unaffected and keep using Vitest defaults, as before.
 //
-// Packages carry no per-package Vitest config and rely on defaults (node
-// environment, TS via esbuild); resolving each project against its own root
-// keeps workspace-package imports (e.g. `@uploads/api/workspace`) working.
+// A package adds `vitest.config.ts` only when Node cannot resolve a Worker
+// built-in (apps/auth's Durable Object, and any suite that imports
+// `@uploads/observability/issues` → `cloudflare:workers`). Otherwise projects
+// use Vitest defaults. Resolving each project against its own root keeps
+// workspace-package imports (e.g. `@uploads/api/workspace`) working.
 //
 // Note: `apps/mcp` imports `@buildinternet/uploads` from its built `dist/`, so
 // the root `pretest` script builds that package before this runner starts.

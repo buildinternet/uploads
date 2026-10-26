@@ -8,7 +8,6 @@ import {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
   AUTO_RENDER_OPTIONS,
-  GH_PRIVATE_ROOT,
   ghPrivateAttachmentKey,
   ghPrivateBranchAttachmentKey,
   ghPrivateBranchKeyPrefix,
@@ -104,10 +103,6 @@ describe("private-repo key builders/parsers (api copy) — golden parity fixture
     const target: GhTarget = { repo: "acme/web", kind: "pull", num: 1 };
     expect(() => ghPrivateKeyPrefix(badId, target)).toThrow();
     expect(() => ghPrivateBranchKeyPrefix(badId)).toThrow();
-  });
-
-  it("GH_PRIVATE_ROOT matches the fixture's literal prefix", () => {
-    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
   });
 });
 
@@ -264,17 +259,15 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/a.webp", { meta: { path: "/settings", state: "after" } }),
         img("gh/acme/web/pull/12/b.webp", { meta: { path: "/settings", state: "before" } }),
       ]);
-      expect(body).toContain("<table><tr>");
-      expect(body).toContain("<strong>Before</strong>");
-      expect(body).toContain("<strong>After</strong>");
+      expect(body).toContain("<table><tr><th>Before</th><th>After</th></tr><tr>");
       // Before cell comes first regardless of which key sorts first.
       const beforeIdx = body.indexOf("b.webp");
       const afterIdx = body.indexOf("a.webp");
       expect(beforeIdx).toBeGreaterThan(-1);
       expect(beforeIdx).toBeLessThan(afterIdx);
-      // Each side's own path/state caption is preserved.
-      expect(body).toContain("<code>/settings</code> · <code>before</code>");
-      expect(body).toContain("<code>/settings</code> · <code>after</code>");
+      // Each side keeps its path caption; the header carries the state.
+      expect(body).toContain('.webp"></a><br><code>/settings</code></td>');
+      expect(body).not.toContain("<code>before</code>");
       // Only one table row — no leftover standalone <img> rendering for these two.
       expect(body.match(/<table>/g)).toHaveLength(1);
     });
@@ -284,7 +277,7 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/hero-after.webp"),
         img("gh/acme/web/pull/12/hero-before.webp"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
       const beforeIdx = body.indexOf("hero-before.webp");
       const afterIdx = body.indexOf("hero-after.webp");
       expect(beforeIdx).toBeLessThan(afterIdx);
@@ -295,7 +288,7 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/after.png"),
         img("gh/acme/web/pull/12/before.png"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
     });
 
     it("does not pair mismatched extensions or unrelated stems", () => {
@@ -391,6 +384,40 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/shot.webp", { meta: { path: "/x", state: "after" } }),
       ]);
       expect(body).not.toContain("<table>");
+    });
+
+    it("puts every pair in one table, one row each", () => {
+      const body = attachmentsCommentBody([
+        img("gh/acme/web/pull/12/home-after.webp"),
+        img("gh/acme/web/pull/12/home-before.webp"),
+        img("gh/acme/web/pull/12/solo.webp"),
+        img("gh/acme/web/pull/12/settings-after.webp"),
+        img("gh/acme/web/pull/12/settings-before.webp"),
+      ]);
+      expect(body.match(/<table>/g)).toHaveLength(1);
+      expect(body.match(/<th>Before<\/th>/g)).toHaveLength(1);
+      expect(body.match(/<tr><td/g)).toHaveLength(2);
+      // Unpaired shots render on their own after the table.
+      expect(body.indexOf("</table>")).toBeLessThan(body.indexOf("solo.webp"));
+    });
+
+    it("pairs two videos by their posters", () => {
+      const video = (name: string, state: string) => ({
+        key: `gh/acme/web/pull/12/${name}`,
+        url: `https://uploads.sh/f/${name}`,
+        embedUrl: null,
+        pageUrl: `https://uploads.sh/f/acme/${name}`,
+        posterUrl: `https://embed.uploads.sh/_internal/posters/${name}.jpg`,
+        videoMeta: { durationSeconds: 7 },
+        meta: { path: "/projects", state },
+      });
+      const body = attachmentsCommentBody([
+        video("after.mp4", "after"),
+        video("before.mp4", "before"),
+      ]);
+      expect(body).toContain("<th>Before</th><th>After</th>");
+      expect(body.indexOf("before.mp4.jpg")).toBeLessThan(body.indexOf("after.mp4.jpg"));
+      expect(body).toContain("▶ Play video · 0:07 · <code>/projects</code>");
     });
   });
 
@@ -680,8 +707,192 @@ describe("image dimensions (issue #365 follow-up)", () => {
       img("gh/acme/web/pull/12/hero-before.png", { imageMeta: { width: 150, height: 100 } }),
       img("gh/acme/web/pull/12/hero-after.png", { imageMeta: { width: 150, height: 100 } }),
     ]);
-    expect(body).toContain("<table><tr>");
+    expect(body).toContain("<th>Before</th>");
     const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
     expect(widths).toEqual([150, 150]);
+  });
+});
+
+const goldenLiveLink = JSON.parse(
+  readFileSync(
+    fileURLToPath(
+      new NodeURL("../../../test/fixtures/github-comment-golden-live-link.json", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as {
+  items: AttachmentItem[];
+  galleries: [];
+  target: Pick<GhTarget, "kind" | "num">;
+  liveLinkUrl: string;
+  expected: string;
+};
+
+describe("live link line", () => {
+  const one: AttachmentItem[] = [
+    {
+      key: "gh/acme/web/pull/12/shot.png",
+      url: "https://storage.uploads.sh/acme/gh/acme/web/pull/12/shot.png",
+    },
+  ];
+
+  it("renders the golden body with the line under the heading", () => {
+    expect(
+      attachmentsCommentBody(
+        goldenLiveLink.items,
+        goldenLiveLink.galleries,
+        ATTACHMENTS_MARKER,
+        AUTO_RENDER_OPTIONS,
+        goldenLiveLink.target,
+        { liveLinkUrl: goldenLiveLink.liveLinkUrl },
+      ),
+    ).toBe(goldenLiveLink.expected);
+  });
+
+  it("uses the singular for one file", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        liveLinkUrl: "https://uploads.sh/c/feed_x",
+      },
+    );
+    expect(body).toContain(
+      `<a href="https://uploads.sh/c/feed_x"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>1 file · `,
+    );
+  });
+
+  it("turns the button golden while a file is held", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      { liveLinkUrl: "https://uploads.sh/c/feed_x", heldCount: 1 },
+    );
+    expect(body).toContain('src="https://uploads.sh/brand/comment/view-on-uploads-held.svg"');
+    expect(body).not.toContain("view-on-uploads.svg");
+  });
+
+  it("shows the required-uploads checklist before the footer", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        checklist: [
+          { label: "Uploads", met: true },
+          { label: "Mobile", met: false },
+        ],
+      },
+    );
+    expect(body).toContain("**Required:** ✅ Uploads · ⬜ Mobile\n\n");
+    expect(body.indexOf("**Required:**")).toBeGreaterThan(body.indexOf("shot.png"));
+  });
+
+  it("shows AI notes as a block, open only when one warns", () => {
+    const warn = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        aiNotes: [
+          {
+            label: "Before and after look the same",
+            outcome: "warning",
+            details: ["`before.png` and `after.png` look the same"],
+          },
+        ],
+      },
+    );
+    expect(warn).toContain(
+      "<details open><summary>AI notes · 1 warning</summary>\n\n- ⚠️ Before and after look the same\n  - `before.png` and `after.png` look the same\n\n</details>\n\n",
+    );
+    const quiet = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        aiNotes: [
+          {
+            label: "After screens not checked",
+            outcome: "skipped",
+            details: ["No files are marked as after."],
+          },
+        ],
+      },
+    );
+    expect(quiet).toContain("<details><summary>AI notes · nothing to flag</summary>");
+    expect(quiet).toContain("- ➖ After screens not checked\n  - No files are marked as after.");
+  });
+
+  it("shows the skip label in place of the checklist", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        checklist: [{ label: "Uploads", met: false }],
+        skipLabel: "uploads:skip-verify",
+      },
+    );
+    expect(body).toContain(
+      "**Required uploads skipped** by the <code>uploads:skip-verify</code> label",
+    );
+    expect(body).not.toContain("**Required:**");
+  });
+
+  it("closes the comment, after the note and the media", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      { ...AUTO_RENDER_OPTIONS, note: "Staging only." },
+      undefined,
+      { liveLinkUrl: "https://uploads.sh/c/feed_x" },
+    );
+    expect(body.startsWith(`${ATTACHMENTS_MARKER}\nStaging only.\n\n`)).toBe(true);
+    expect(body.endsWith("</sub>")).toBe(true);
+    expect(body.indexOf("view-on-uploads.svg")).toBeGreaterThan(body.indexOf("shot.png"));
+  });
+
+  it("omits the line without a URL and on an empty comment", () => {
+    expect(attachmentsCommentBody(one)).not.toContain("view-on-uploads.svg");
+    expect(
+      attachmentsCommentBody(one, [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
+        liveLinkUrl: null,
+      }),
+    ).not.toContain("view-on-uploads.svg");
+    expect(
+      attachmentsCommentBody([], [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
+        liveLinkUrl: "https://uploads.sh/c/feed_x",
+      }),
+    ).toBe(attachmentsCommentBody([]));
+  });
+
+  it("escapes the URL into the href", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        liveLinkUrl: 'https://uploads.sh/c/a"b<c',
+      },
+    );
+    expect(body).toContain('href="https://uploads.sh/c/a&quot;b&lt;c"');
   });
 });

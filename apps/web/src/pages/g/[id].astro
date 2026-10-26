@@ -1,9 +1,11 @@
 ---
 import BaseHead from "../../components/BaseHead.astro";
-import GalleryReferences from "../../components/GalleryReferences.astro";
 import Brand from "../../components/Brand.astro";
+import ThemeToggle from "../../components/ThemeToggle.astro";
 import Footer from "../../components/Footer.astro";
+import GalleryReferences from "../../components/GalleryReferences.astro";
 import MediaFallback from "../../components/MediaFallback.astro";
+import UnfurlMeta from "../../components/UnfurlMeta.astro";
 import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/media-load";
 import {
   applyPublicGalleryHeaders,
@@ -14,7 +16,7 @@ import {
   type PublicGalleryItem,
 } from "../../lib/public-gallery";
 import { oembedDiscoveryHref } from "../../lib/oembed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../lib/og";
+import { collectionPreview } from "../../lib/unfurl";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../lib/ssr-fetch";
 
@@ -33,6 +35,18 @@ const gallery = result.status === "ok" ? result.gallery : null;
 const canonical = new URL(galleryPath(id), Astro.url.origin).href;
 const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
 const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
+const description = gallery?.description ?? "A public media gallery hosted by uploads.sh.";
+const preview = gallery
+  ? collectionPreview(
+      gallery.items.map((item) => ({
+        id: item.id,
+        kind: kind(item),
+        url: item.url,
+        posterUrl: item.posterUrl,
+      })),
+      gallery.coverItemId,
+    )
+  : null;
 ---
 
 <!doctype html>
@@ -42,19 +56,16 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{gallery ? `${gallery.title} · uploads.sh` : "Gallery unavailable · uploads.sh"}</title>
-    <meta
-      name="description"
-      content={gallery?.description ?? "A public media gallery hosted by uploads.sh."}
+    <meta name="description" content={description} />
+    <UnfurlMeta
+      pageUrl={canonical}
+      siteOrigin={Astro.url.origin}
+      title={gallery?.title ?? "Gallery unavailable"}
+      description={description}
+      kind={preview?.source === "image" ? "image" : "other"}
+      mediaUrl={preview?.source === "image" ? preview.url : null}
+      posterUrl={preview?.source === "poster" ? preview.url : null}
     />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={gallery?.title ?? "Gallery unavailable"} />
-    <meta
-      property="og:description"
-      content={gallery?.description ?? "A public media gallery hosted by uploads.sh."}
-    />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:site_name" content={OG_SITE_NAME} />
-    <meta property="og:image" content={OG_DEFAULT_IMAGE} />
     {
       oembedHref && gallery && (
         <link
@@ -92,6 +103,11 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
         margin-bottom: 40px;
         font: var(--text-meta) var(--sans);
         letter-spacing: 0.02em;
+      }
+      .nav-end {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
       }
       .public {
         color: var(--muted);
@@ -243,7 +259,13 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
   </head>
   <body>
     <main class="shell">
-      <nav><Brand /><span class="public">public gallery</span></nav>
+      <nav>
+        <Brand />
+        <div class="nav-end">
+          <ThemeToggle />
+          <span class="public">public gallery</span>
+        </div>
+      </nav>
       {
         gallery ? (
           <>

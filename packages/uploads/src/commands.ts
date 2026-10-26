@@ -12,6 +12,7 @@ import {
   type ResolveGhPrefixOptions,
   type ResolveGhPrefixResult,
   type RotateGhPrefixResult,
+  scopeRemedy,
   type UploadsClient,
 } from "./client.js";
 import {
@@ -20,10 +21,12 @@ import {
   flagBool,
   flagInt,
   flagValues,
+  unknownFlags,
   UsageError,
   type CommandFlags,
 } from "./cli-args.js";
 import {
+  authUrlFromApi,
   resolvePutDefaults,
   workspaceMismatch,
   workspaceFromToken,
@@ -31,12 +34,14 @@ import {
 } from "./config.js";
 import { buildUploadMarkdown, fileKindFromName } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
+import { applyLocalFeedLinks } from "./comment-live-link.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { fetchUploadSource, resolveUploadFilename } from "./fetch-upload-source.js";
 import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
+import { isHeldUpload } from "./upload-hold.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import { mergeSidecarMeta } from "./sidecar.js";
 import {
@@ -101,17 +106,9 @@ export const UPLOAD_BATCH_CONCURRENCY = 8;
 export const ATTACH_CONCURRENCY = UPLOAD_BATCH_CONCURRENCY;
 
 /**
- * Fail-open wrapper around `client.resolveGhPrefix` (issue #631): resolves to
- * `{ mode: "plain" }` on ANY failure — an HTTP/network error (already handled
- * inside `resolveGhPrefix` itself), or a self-hosted/older server or test
- * double that lacks the method entirely (the outer try/catch here). Never
- * blocks an upload or a read-back, and never logs — this is not an error.
- * Call once per command invocation and thread the resolved mode through
- * (uploadPuts/uploadAttachments/uploadBranchAttachments each do this once
- * internally, ahead of their per-file loop); `resolveGhPrefix` itself also
- * caches per-process by repo+branch+target, so repeat callers in the same
- * process (e.g. attach's promote + comment-sync + upload, all for the same
- * target) cost one request total.
+ * Fail-open `client.resolveGhPrefix`: any failure, including a server or
+ * test double without the method, resolves to `{ mode: "plain" }`. Call once
+ * per command; the client also caches per repo+branch+target.
  */
 export async function resolveGhPrefixSafe(
   client: UploadsClient,
@@ -125,15 +122,14 @@ export async function resolveGhPrefixSafe(
 }
 
 /**
- * The list of prefixes to fan a multi-prefix list/gather across (issue
- * #631): the plain prefix plus every active private prefix, if any — a
- * repo's history can be split across the plain shape and MULTIPLE private
- * prefixes (e.g. a prefix rotation, or the repo went private after some
- * files were uploaded), not just the currently-resolved one. Falls back to
- * `[prefixId]` when the server omits `activePrefixIds` (optional field — an
- * older/self-hosted worker), so a private repo is never listed as zero
- * private prefixes. Collapses to `[plainPrefix]` in plain mode, so callers
- * that special-case a single-prefix array stay byte-identical to pre-#631.
+ * Prefixes to fan a list across: the plain prefix plus every active private
+ * one, since a repo's history can span several (rotation, or the repo went
+ * private later). An empty or missing `activePrefixIds` falls back to
+ * `[prefixId]`. Plain mode collapses to `[plainPrefix]`.
+ *
+ * Not for `uploads staged`: a branch resolve's private key has no branch
+ * segment, so `activePrefixIds` would list every branch. Staged uses
+ * `branchPrefixIds`.
  */
 export function ghListPrefixes(
   plainPrefix: string,
@@ -141,17 +137,15 @@ export function ghListPrefixes(
   privatePrefixFor: (prefixId: string) => string,
 ): string[] {
   if (ghPrefix.mode !== "private") return [plainPrefix];
-  return [plainPrefix, ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map(privatePrefixFor)];
+  const ids = ghPrefix.activePrefixIds;
+  const privateIds = ids && ids.length > 0 ? ids : [ghPrefix.prefixId];
+  return [plainPrefix, ...privateIds.map(privatePrefixFor)];
 }
 
 /**
- * Merge-list helper for a multi-prefix fan-out: runs `fetchItems` per prefix
- * concurrently and concatenates in prefix order. Encodes the first-prefix-
- * only cursor rule once — a cursor is opaque and scoped to the prefix it was
- * minted against, so a multi-prefix merge only ever hands it to the FIRST
- * prefix; every other prefix always starts from its own beginning (undefined
- * cursor), or a cursor minted for one prefix's keyspace would get replayed
- * against a different one.
+ * Runs `fetchItems` per prefix concurrently and concatenates in prefix order.
+ * A cursor is scoped to the prefix it was minted for, so only the first
+ * prefix receives it; the others start from the beginning.
  */
 export async function ghMergedList<T>(
   prefixes: readonly string[],
@@ -275,6 +269,7 @@ Options:
                         preserved. Use "uploads meta set" to edit individual keys.
   --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
   --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
+  --screen <name>       App screen shown when there's no route, e.g. "Chat" (sets meta screen=)
   --replace             Allow overwriting an existing object on a strict (--key/default) key
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
@@ -341,11 +336,9 @@ export function ghTargetFromFlags(
 }
 
 /**
- * Extensions that mark a `--branch` value as almost certainly a filename that
- * got swallowed by the optional-value lookahead (e.g. `--branch shot.png`
- * with no other file args). Branch names legitimately contain dots (e.g.
- * `release/1.2`, `v1.2.3`), so this only matches known media/document
- * extensions, never bare dotted segments.
+ * Extensions that mark a `--branch` value as a filename swallowed by the
+ * optional-value lookahead (`--branch shot.png`). Branch names can contain
+ * dots (`release/1.2`), so only known media/document extensions match.
  */
 const BRANCH_LIKE_FILE_EXTENSIONS = new Set([
   ".png",
@@ -368,26 +361,15 @@ const BRANCH_LIKE_FILE_EXTENSIONS = new Set([
   ".pdf",
 ]);
 
-/**
- * True when `value` looks like a filename that was mistakenly consumed as the
- * `--branch` value: it names a file that exists on disk, or its extension is
- * a known media/document type. Ordinary branch names (including dotted ones
- * like `v1.2` or `release/1.2`) never match either check.
- */
 function looksLikeFileNotBranch(value: string): boolean {
   if (existsSync(value)) return true;
   return BRANCH_LIKE_FILE_EXTENSIONS.has(extname(value).toLowerCase());
 }
 
 /**
- * Reads `--branch [name]` — an optional-value flag: `--branch` alone resolves
- * the current git branch (`resolveCurrentBranch`); `--branch feature/x` uses
- * the given name verbatim. Returns undefined when the flag is absent at all
- * (distinct from an empty/whitespace value, which is rejected). Throws
- * UsageError if `--branch` is given more than once, or if the value looks
- * like a filename accidentally swallowed by the optional-value lookahead
- * (e.g. `uploads attach --branch shot.png` with no other file args) — see
- * `looksLikeFileNotBranch`.
+ * Reads `--branch [name]`: bare `--branch` resolves the current git branch;
+ * undefined when absent. Throws UsageError on a repeated flag, an empty
+ * value, or a value that looks like a swallowed filename.
  */
 export function branchFromFlags(
   flags: CommandFlags["flags"],
@@ -456,14 +438,10 @@ export function optimizeOptionsFromFlags(
 }
 
 /**
- * Whether the derived-metadata tier is on — screenshot capture facts and EXIF
- * promotion. `--no-auto` and `UPLOADS_NO_AUTO_META=1` turn it off; `--auto`
- * forces past the config default.
- *
- * Deliberately *not* gated on `--no-git`. That flag means "don't shell out to
- * git", which says nothing about a viewport or a URL path — a capture of a
- * local .html file outside any repo should still record what it captured.
- * `--no-git` still disables gh.* below, which genuinely needs a repo.
+ * Whether derived metadata (screenshot capture facts, EXIF promotion) is on.
+ * `--no-auto` / `UPLOADS_NO_AUTO_META=1` turn it off; `--auto` forces it on.
+ * Not gated on `--no-git`: a capture outside any repo should still record
+ * what it captured.
  */
 export function derivedMetaEnabled(
   flags: CommandFlags["flags"],
@@ -491,9 +469,8 @@ export function warnNearMissMeta(
 }
 
 /**
- * Canonical `state`/`app` pairs from their dedicated flags. Shared by put,
- * attach and screenshot. These are sugar for the matching `--meta` keys; the
- * point is `--help` discoverability and `--state` validation.
+ * Canonical `state`/`app`/`screen` pairs from their dedicated flags (sugar for
+ * `--meta`, mainly for `--help` discoverability and `--state` validation).
  */
 export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<string, string> {
   const meta: Record<string, string> = {};
@@ -504,6 +481,11 @@ export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<stri
     const normalized = app.trim().toLowerCase();
     if (normalized.length === 0) throw new UsageError("--app requires a value");
     meta.app = normalized;
+  }
+  const screen = flagString(flags, "--screen");
+  if (screen !== undefined) {
+    if (screen.trim().length === 0) throw new UsageError("--screen requires a value");
+    meta.screen = screen.trim();
   }
   return meta;
 }
@@ -587,18 +569,10 @@ export async function prepareImageForUpload(
 }
 
 /**
- * Merge an image's own EXIF-derived facts under any explicit metadata, when
- * the caller asked for them and the filename could plausibly be an image —
- * only an `image/*` extension, or none at all (an extension-less
- * screenshot), is worth an `imageFactsFromBytes` probe
- * (`sharp(bytes).metadata()` under the hood); a known non-image extension (a
- * 25 MB zip, a `.log`, a PDF…) skips it rather than paying a sharp call that
- * can only come back empty.
- *
- * Best-effort by contract: `imageFactsFromBytes` never rejects, and a full key
- * budget drops the derived pairs rather than failing the upload. Returns the
- * input untouched (including `undefined`) when there is nothing to add, so a
- * metadata-free upload stays metadata-free.
+ * Merges an image's EXIF-derived facts under explicit metadata. Only probes
+ * files with an image extension or none, so a zip or PDF never pays a sharp
+ * call. Best-effort: a full key budget drops the derived pairs, and nothing
+ * to add returns the input untouched.
  */
 async function maybeDeriveImageFacts(
   enabled: boolean | undefined,
@@ -623,19 +597,11 @@ export interface UploadPreparedImageOptions {
   /** gh attachment key wins over `key` when both are set (matches every call site). */
   ghTarget?: GhTarget;
   /**
-   * Branch-staged key (issue #403): wins over `key`, loses to `ghTarget` (the
-   * two are mutually exclusive at every call site — a PR/issue target always
-   * implies staging is moot). Produces the exact same key as `attach
-   * --branch` for the same filename via `ghBranchAttachmentKey`.
+   * Branch-staged key: wins over `key`. Mutually exclusive with `ghTarget`.
+   * Same key as `attach --branch` for the same filename.
    */
   ghBranchTarget?: BranchTarget;
-  /**
-   * Resolved GitHub-key mode (issue #631), from a single upstream
-   * `resolveGhPrefixSafe` call — never resolved here. Passed straight to
-   * `ghAttachmentKeyForMode`/`ghBranchAttachmentKeyForMode`, which own the
-   * plain-vs-private branch. Ignored when neither `ghTarget` nor
-   * `ghBranchTarget` is set.
-   */
+  /** Resolved once upstream by `resolveGhPrefixSafe`. Ignored without a gh target. */
   ghPrefix?: ResolveGhPrefixResult;
   key?: string;
   prefix?: string;
@@ -645,25 +611,15 @@ export interface UploadPreparedImageOptions {
   contentType?: string;
   dryRun?: boolean;
   /**
-   * Opt in to overwriting an existing object on a strict (non-`gh/`) key —
-   * see issue #174. Ignored server-side on managed `gh/` paths (`ghTarget`
-   * set), which always hot-swap.
+   * Overwrite an existing object on a strict (non-`gh/`) key. Ignored on
+   * managed `gh/` paths, which always hot-swap.
    */
   replace?: boolean;
   metadata?: Record<string, string>;
-  /**
-   * Promote this image's own EXIF allowlist into its metadata (see
-   * image-facts.ts). Lives here, on the shared bytes tail, so every upload
-   * surface — CLI put/screenshot, MCP put/screenshot — derives alike.
-   */
+  /** Promote this image's EXIF allowlist into its metadata (see image-facts.ts). */
   deriveImageFacts?: boolean;
   provenanceClient?: string;
-  /**
-   * Alt text for the markdown. Takes the prepared result so callers whose
-   * default depends on the post-frame/optimize filename can use it — each
-   * call site's existing default is preserved verbatim (see
-   * .context/2026-07-16-screenshot-command-RESULT.md, "Simplify pass").
-   */
+  /** Alt text, given the prepared result so it can use the post-optimize filename. */
   alt: (prepared: PreparedUpload) => string;
   width?: number;
 }
@@ -673,22 +629,17 @@ export interface UploadPreparedImageResult {
   prepared: PreparedUpload;
   markdown: string;
   /**
-   * The queryable metadata this upload actually sent — `opts.metadata` after
-   * any derived image facts were merged in. Callers that need to reason about
-   * what was stored (see `pathMetaHintFor`) must read this, not
-   * `result.metadata`, which is the API's R2 provenance echo.
+   * The metadata this upload actually sent, after derived image facts.
+   * `result.metadata` is the API's R2 provenance echo, not this.
    */
   sentMetadata?: Record<string, string>;
 }
 
 /**
- * Shared bytes-oriented upload tail: frame + optimize the bytes, resolve the
- * object key (gh attachment key wins over an explicit key; extension
- * rewritten post-optimize), put, and build the GitHub embed markdown. Used by
- * the screenshot CLI command, the MCP screenshot tool, and the MCP put
- * tool's contentBase64 path — the three in-memory-bytes call sites.
- * uploadPuts/uploadAttachments loop over file paths with their own bounded
- * concurrency and delegate here per item.
+ * Shared bytes upload tail: frame + optimize, resolve the key (gh key wins
+ * over an explicit key; extension rewritten after optimize), put, and build
+ * the GitHub embed markdown. Used by the screenshot command and the MCP
+ * screenshot and put tools.
  */
 export async function uploadPreparedImage(
   client: UploadsClient,
@@ -777,19 +728,24 @@ export function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
 }
 
 /**
- * List every attachment under the target's prefix and create/update the
- * managed comment. Prefers the server-side bot endpoint (`uploads-sh[bot]`,
- * rendered from this workspace's own data); any failure to post that way —
- * not installed, declined, self-hosted 404, network error — falls through to
- * the local-`gh` path so self-hosters keep working unchanged. Throws on gh
- * failure — callers decide whether that is fatal (`comment` command) or a
- * warning (`put --comment`).
+ * Lists the target's attachments and creates/updates the managed comment.
+ * Prefers the server-side bot endpoint; any failure there falls back to the
+ * local `gh` path so self-hosters keep working. Throws on gh failure.
  */
 export interface AttachmentsCommentResult {
   action: "created" | "updated" | "skipped";
   count: number;
   /** Who posted the comment: the GitHub App bot, or the local `gh` fallback. */
   via: "bot" | "gh";
+  /** Files on the PR or issue held for review, when any. */
+  held?: number;
+}
+
+/** Human-mode line for files the comment counts as held for review; empty when none. */
+export function heldNote(comment: Pick<AttachmentsCommentResult, "held">): string {
+  const n = comment.held ?? 0;
+  if (n === 0) return "";
+  return `>> ${n} file${n === 1 ? " is" : "s are"} held for review: check, then run uploads approve\n`;
 }
 
 /** Human-mode suffix noting who posted the managed comment. */
@@ -798,23 +754,16 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
 }
 
 /**
- * Thrown by `syncAttachmentsComment` when the server declines with
- * `not_authorized` (issue #297 baseline control — this repo is bound to a
- * different workspace) or `actor_not_authorized` (issue #297 control 2 — the
- * workspace requires the caller to be on the target PR/issue thread).
- * Deliberately not caught by the generic "bot endpoint
- * unreachable" fallback below: falling back to gh here would let the
- * human's own credentials post anyway, defeating the point of the
- * server-side gate.
+ * Thrown when the server declines with `not_authorized` (repo bound to
+ * another workspace) or `actor_not_authorized` (caller isn't on the thread).
+ * Never falls back to gh: the user's own credentials would bypass the gate.
  */
 export class GithubCommentAuthorizationError extends Error {}
 
 /**
- * `opts.resync` marks an explicit `uploads comment` invocation rather than a
- * background sync (attach, screenshot, put --comment). It costs the server one
- * extra comment listing and in exchange collapses any duplicate managed
- * comment (issue #480) — worth it on the rare, explicitly-asked-for resync,
- * not on every attach.
+ * `opts.resync` marks an explicit `uploads comment`. It costs the server an
+ * extra comment listing to collapse duplicate managed comments, so
+ * background syncs skip it.
  */
 export async function syncAttachmentsComment(
   client: UploadsClient,
@@ -838,7 +787,14 @@ export async function syncAttachmentsComment(
   }
 
   if (bot) {
-    if (bot.posted) return { action: bot.action, count: bot.count, via: "bot" };
+    if (bot.posted) {
+      return {
+        action: bot.action,
+        count: bot.count,
+        via: "bot",
+        ...(bot.held ? { held: bot.held } : {}),
+      };
+    }
     if (bot.reason === "not_authorized") {
       throw new GithubCommentAuthorizationError(
         `${bot.message ?? `${target.repo} is not authorized for this workspace.`}\n` +
@@ -846,9 +802,8 @@ export async function syncAttachmentsComment(
           `binding, use that workspace instead, or post the comment manually with gh.`,
       );
     }
-    // Actor-on-PR gate (issue #297 control 2, workspace opt-in): same
-    // no-gh-fallback rule as not_authorized — the workspace explicitly asked
-    // the server to hold this line, so the CLI shouldn't route around it.
+    // Same no-gh-fallback rule as not_authorized: the workspace asked the
+    // server to hold this line.
     if (bot.reason === "actor_not_authorized") {
       throw new GithubCommentAuthorizationError(
         `${bot.message ?? `You are not an actor on ${target.repo}#${target.num}.`}\n` +
@@ -866,17 +821,10 @@ export async function syncAttachmentsComment(
     }
   }
 
-  // Link adoption (issue #708): local-gh fallback parity with the bot's own
-  // adoption (issue #701, apps/api/src/github-link-adopt.ts). When the bot
-  // already handled this target the server already adopted for us, so this
-  // only runs once we've fallen through to gh. Scans the PR/issue body and
-  // every comment for pasted uploads.sh URLs and adopts each one that
-  // resolves (server-side, inside `POST .../github/attach`) to a file in
-  // THIS workspace's own bound-repo attachment prefix — copy, never move,
-  // same as the bot path. Best-effort end to end: any failure (not a git
-  // repo, `gh` unavailable/unauthenticated, config unreadable) degrades to
-  // "adopt nothing" rather than blocking the comment sync it rides along
-  // with.
+  // Link adoption, parity with the bot path (apps/api/src/github-link-adopt.ts).
+  // Only runs once we've fallen back to gh. Adopts (copies) pasted uploads.sh
+  // URLs from the PR body and comments that resolve to this workspace's
+  // bound-repo prefix. Best-effort: any failure adopts nothing.
   let adoptedCount = 0;
   let preAdoptionAttachmentCount: number | undefined;
   try {
@@ -888,11 +836,7 @@ export async function syncAttachmentsComment(
       if (hasLinkCandidate(text)) {
         const urls = extractCandidateUrls(text);
         if (urls.length > 0) {
-          // Baseline BEFORE this pass's adoptions land (mirrors the bot
-          // path's `gatherCommentBody` call before its own copies) — feeds
-          // the noise guard below without a lone adoption inflating its own
-          // count. Plain prefix only (not the private-prefix listing done
-          // for the final render below) — good enough for a guard decision.
+          // Baseline before this pass's adoptions, for the noise guard below.
           preAdoptionAttachmentCount = (await client.listAll({ prefix: ghKeyPrefix(target) }))
             .length;
           for (const url of urls) {
@@ -904,33 +848,21 @@ export async function syncAttachmentsComment(
               });
               adoptedCount++;
             } catch {
-              // Not a resolvable uploads.sh URL, belongs to a different
-              // workspace, or the source was deleted — silently dropped,
-              // matching the bot path's contract (a throw from
-              // `resolveAttachSourceKey` is caught per-URL there too).
+              // Not resolvable, another workspace's, or deleted: dropped,
+              // as on the bot path.
             }
           }
         }
       }
     }
   } catch {
-    // Not a git repo, `.uploads.yml` unreadable, or `gh` unavailable for the
-    // PR/comments fetch — degrade to no adoption this pass.
+    // Not a git repo, unreadable config, or no `gh`: adopt nothing.
   }
 
-  // gh fallback: gather from this workspace's own data and post via local `gh`.
-  // Note (issues #304, #365): this CLI process has no server-side
-  // WorkspaceRecord in scope, so it cannot honor a workspace's
-  // githubCommentLinkToFilePage=false or githubCommentShowMetadata=false — it
-  // always links to the file page and always shows metadata here, matching the
-  // defaults. This only diverges from the bot-posted comment for a workspace
-  // that both sets one of those flags false and falls through to this path.
-  //
-  // Also list every active private prefix for this repo (issue #631): a
-  // private repo's attachments can live under a randomized prefix instead of
-  // the plain one. `resolveGhPrefixSafe` is fail-open (any resolve failure,
-  // including a client that lacks the method entirely) — plain-only listing,
-  // silently, matching pre-#631 behavior exactly.
+  // gh fallback: gather from this workspace's data and post via local `gh`.
+  // There is no server-side WorkspaceRecord here, so only the committed
+  // .uploads.yml is honored, not workspace comment settings. Private repos
+  // can store attachments under randomized prefixes, so list those too.
   const ghPrefix = await resolveGhPrefixSafe(client, {
     repo: target.repo,
     target: { kind: target.kind, num: target.num },
@@ -938,17 +870,17 @@ export async function syncAttachmentsComment(
   const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
     ghPrivateKeyPrefix(id, target),
   );
-  const items: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
+  const metadataByKey = new Map<string, Record<string, string>>();
+  const listedItems: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
     (await client.listAll({ prefix, metadata: true })).map(
       ({ key, url, embedUrl, pageUrl, size, metadata }) => {
-        // The list endpoint returns every metadata key; the comment
-        // renders only these two. Narrowing here keeps both render paths
-        // byte-identical.
+        // Full metadata feeds the live link scope check; the rendered item
+        // carries only the narrowed fields below.
+        if (metadata) metadataByKey.set(key, metadata);
+        // Narrowed to the fields the comment renders, matching the bot path.
         const path = metadata?.path;
         const state = metadata?.state;
-        // Server-derived image dimensions (parity with the bot path's
-        // COMMENT_META_KEYS hydration): finite positive numbers only, field
-        // omitted entirely when neither parses.
+        // Server-derived dimensions, as on the bot path. Omitted unless valid.
         const imgWidth = Number(metadata?.["image.width"]);
         const imgHeight = Number(metadata?.["image.height"]);
         const hasImgWidth = Number.isFinite(imgWidth) && imgWidth > 0;
@@ -974,6 +906,21 @@ export async function syncAttachmentsComment(
       },
     ),
   );
+  // A held file never renders; only a count line says it exists.
+  const items = listedItems.filter((item) => !isHeldUpload(metadataByKey.get(item.key)));
+  // A held file on hosted storage is no longer in the listing; the server's
+  // held list still counts it. Best-effort, like the rest of this path.
+  const heldKeys = new Set(
+    listedItems.filter((item) => !items.includes(item)).map((item) => item.key),
+  );
+  try {
+    for (const file of (await Promise.all(prefixes.map((p) => client.listHeld(p)))).flat()) {
+      heldKeys.add(file.key);
+    }
+  } catch {
+    // Older server, or no files:read: count only what the listing shows.
+  }
+  const heldCount = heldKeys.size;
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
@@ -1015,13 +962,10 @@ export async function syncAttachmentsComment(
   );
 
   const marker = attachmentsMarker(workspace);
-  // Honor a committed .uploads.yml on the working tree (issue #307). This CLI
-  // process has no server-side WorkspaceRecord in scope (see the note above),
-  // so it resolves against `null` workspace defaults — a documented
-  // divergence from the bot path (commands.ts:728 / apps/api's
-  // resolveRepoCommentOptions, which also layers the workspace's own
-  // githubComment* fields).
+  // Committed .uploads.yml, resolved against null workspace defaults (the
+  // bot path also layers the workspace's githubComment* settings).
   let renderOptions: CommentRenderOptions = AUTO_RENDER_OPTIONS;
+  let linkToFilePage = true;
   try {
     const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
     const { config } = readLocalRepoCommentConfig(root);
@@ -1033,30 +977,30 @@ export async function syncAttachmentsComment(
       metaState: options.metaState,
       note: options.note,
     };
+    linkToFilePage = options.linkToFilePage;
   } catch {
     // Not a git repo, or the config file couldn't be read — fall back to auto.
   }
+  // linkToFilePage: false links raw object URLs, as the bot does.
+  if (!linkToFilePage) for (const item of items) item.pageUrl = null;
+  // Live link: same create, scope predicate, and header as the bot. Null on
+  // failure, which renders the plain comment.
+  const liveLinkUrl = linkToFilePage
+    ? await applyLocalFeedLinks(client, target, items, metadataByKey)
+    : null;
   // Append only on the local-gh path: bot posts already carry the uploads-sh
   // bot identity, so this note would be wrong there.
-  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
-  const count = items.length + previewGalleries.length;
-  // Noise guard (issue #708, mirrors the bot's `shouldSyncAfterAdopt`): a
-  // lone adopted link with nothing else already attached is already fully
-  // visible inline in the PR/comment — don't create a brand-new comment just
-  // to repeat it. `upsertAttachmentsComment` still PATCHes an existing
-  // managed comment unconditionally (its own `if (existing)` branch runs
-  // regardless of `createIfMissing`), so "a managed comment already exists"
-  // and "other attachments are already present" both heal/sync for free
-  // here without any extra condition — this only ever suppresses a fresh
-  // create.
+  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target, { liveLinkUrl, heldCount })}\n${GH_FALLBACK_AUTHOR_NOTE}`;
+  const count = items.length + previewGalleries.length + heldCount;
+  // Noise guard, mirroring the bot's `shouldSyncAfterAdopt`: a lone adopted
+  // link with nothing else attached is already visible inline, so don't
+  // create a comment just to repeat it. An existing comment still updates.
   const skipLoneAdoptionCreate = adoptedCount === 1 && (preAdoptionAttachmentCount ?? 0) === 0;
-  // Empty (count 0) renders the neutral empty-state body but must not create a
-  // comment — it only rewrites one that already exists (`action: "skipped"`
-  // when none does).
+  // An empty body only rewrites an existing comment; it never creates one.
   const { action } = upsertAttachmentsComment(target, body, run, marker, {
     createIfMissing: count > 0 && !skipLoneAdoptionCreate,
   });
-  return { action, count, via: "gh" };
+  return { action, count, via: "gh", ...(heldCount > 0 ? { held: heldCount } : {}) };
 }
 
 // --- attach ---
@@ -1158,6 +1102,7 @@ Options:
                         (never preserves) — use "uploads meta set" to add to it instead.
   --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
   --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
+  --screen <name>       App screen shown when there's no route, e.g. "Chat" (sets meta screen=)
 
 Examples:
   uploads attach ./before.png ./after.png
@@ -1172,31 +1117,28 @@ Examples:
 `;
 
 /**
- * Lever 3 (issue #469): a nudge for when an image lands on a PR/issue with
- * no `path` metadata — `path` is one of the highest-value queryable tags
- * (same tier as `state=`), and unlike `uploads screenshot` (which derives it
- * from the captured URL), a plain `attach`/`put --pr`/`put --issue` of an
- * already-existing image has nothing to derive it from, so it's easy to
- * forget. Fires once per batch (not per file). Non-image uploads (zips,
- * PDFs, etc.) are exempt — "findable by page" doesn't apply to them.
+ * Nudge when an image lands on a PR/issue with no `path` (or `screen`)
+ * metadata. Fires once per batch; non-images are exempt. When every such
+ * shot is from a non-web `app`, the tip suggests `--screen` instead.
  *
- * Checks the *resolved* metadata each upload actually sent (`--meta` pairs +
- * sidecar manifest + derived image facts, index-aligned with `uploads`) —
- * NOT `PutResult.metadata`. That field is the API's echo of the object's R2
- * provenance bag (`client`, `source-name`, `content-sha256`, `uploaded-at`),
- * never the queryable D1 tags, so it can't answer this question: reading it
- * made the tip fire on every image, including ones uploaded with an explicit
- * `--meta path=` (PR #509).
+ * Reads the metadata each upload actually sent, not `PutResult.metadata`,
+ * which is the R2 provenance echo and never has `path`.
  */
 export function pathMetaHintFor(
   uploads: readonly { contentType: string }[],
   /** Index-aligned with `uploads` — see `uploadPuts`/`uploadAttachments`. */
   sentMetadata: readonly (Record<string, string> | undefined)[],
 ): string | undefined {
-  const missingPath = uploads.some(
-    (u, i) => u.contentType.startsWith("image/") && !sentMetadata[i]?.path,
-  );
-  return missingPath ? "tip: add --meta path=/route so this shot is findable by page" : undefined;
+  const missing = uploads.flatMap((u, i) => {
+    const meta = sentMetadata[i];
+    return u.contentType.startsWith("image/") && !meta?.path && !meta?.screen ? [meta] : [];
+  });
+  if (missing.length === 0) return undefined;
+  // A non-web app has screens, not routes.
+  const appScreen = missing.every((meta) => meta?.app && meta.app !== "web");
+  return appScreen
+    ? "tip: add --screen <name> so this shot is findable by screen"
+    : "tip: add --meta path=/route so this shot is findable by page";
 }
 
 export type AttachUploadItem = PutResult & {
@@ -1217,12 +1159,7 @@ export type AttachFailure = {
   error: { message: string; code?: string; status?: number };
 };
 
-/**
- * Bounded fan-out for `uploads attach`'s already-uploaded-object args (issue
- * #702) — attach args are independent server calls (no shared batch state
- * like `uploadAttachments`'s optimize/frame prep), so this stays a thin
- * wrapper rather than a variant of that function.
- */
+/** Bounded fan-out for attach args naming already-uploaded objects. */
 const ATTACH_EXISTING_CONCURRENCY = 4;
 
 async function attachExistingBatch(
@@ -1310,10 +1247,8 @@ interface UploadAttachmentBatchOptions {
 }
 
 /**
- * Shared prepare + put loop for both PR/issue attach (`uploadAttachments`)
- * and branch-staged attach (`uploadBranchAttachments`) — bounded concurrency,
- * per-file errors collect in `failures` (does not throw). `firstError` is the
- * original cause of the first failure — for rethrowing single-file CLI paths.
+ * Shared prepare + put loop for PR/issue and branch-staged attach. Bounded
+ * concurrency; per-file errors collect in `failures`.
  */
 async function uploadAttachmentBatch(
   opts: UploadAttachmentBatchOptions,
@@ -1333,11 +1268,9 @@ async function uploadAttachmentBatch(
       try {
         const sourceName = basename(file);
         const bytes = readFileArg(file);
-        // Sidecar manifest from a prior `screenshot --out` of this exact file
-        // (issue #469 lever 2) — see mergeSidecarMeta.
+        // Sidecar manifest from a prior `screenshot --out` of this file.
         const baseMetadata = mergeSidecarMeta(file, bytes, opts.metadata);
-        // Same EXIF promotion uploadPreparedImage does; attach keeps its own
-        // per-file tail (it builds keys differently), so it opts in here too.
+        // Attach builds keys itself, so it opts into EXIF promotion here.
         const metadata = await maybeDeriveImageFacts(
           opts.deriveImageFacts,
           sourceName,
@@ -1406,11 +1339,7 @@ async function uploadAttachmentBatch(
   return { uploads, failures, firstError, sentMetadata };
 }
 
-/**
- * Prepare + put each path as a PR/issue attachment with bounded concurrency.
- * Per-file errors collect in `failures` (does not throw). `firstError` is the
- * original cause of the first failure — for rethrowing single-file CLI paths.
- */
+/** Prepare + put each path as a PR/issue attachment. See `uploadAttachmentBatch`. */
 export async function uploadAttachments(opts: {
   client: UploadsClient;
   target: GhTarget;
@@ -1429,7 +1358,7 @@ export async function uploadAttachments(opts: {
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<UploadBatchResult<AttachUploadItem>> {
-  // Resolved once for the whole batch (issue #631) — never per file.
+  // Resolved once per batch, never per file.
   const ghPrefix = await resolveGhPrefixSafe(opts.client, {
     repo: opts.target.repo,
     target: { kind: opts.target.kind, num: opts.target.num },
@@ -1447,11 +1376,8 @@ export interface BranchTarget {
 }
 
 /**
- * Prepare + put each path as a branch-staged attachment (pre-PR) with
- * bounded concurrency. Same shape as `uploadAttachments`, keyed under
- * `gh/<owner>/<repo>/branch/<branch>/<filename>` instead of a PR/issue
- * number. Never syncs the managed comment — callers must not call
- * `syncAttachmentsComment` for a branch target.
+ * Like `uploadAttachments`, keyed under `gh/<owner>/<repo>/branch/<branch>/`.
+ * Never syncs the managed comment.
  */
 export async function uploadBranchAttachments(opts: {
   client: UploadsClient;
@@ -1470,7 +1396,7 @@ export async function uploadBranchAttachments(opts: {
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<UploadBatchResult<AttachUploadItem>> {
-  // Resolved once for the whole batch (issue #631) — never per file.
+  // Resolved once per batch, never per file.
   const ghPrefix = await resolveGhPrefixSafe(opts.client, {
     repo: opts.target.repo,
     branch: opts.target.branch,
@@ -1512,7 +1438,7 @@ export async function uploadPuts(opts: {
   /** Single-file --key. */
   explicitKey?: string;
   ghTarget?: GhTarget;
-  /** Branch-staged key (issue #403) — see UploadPreparedImageOptions.ghBranchTarget. */
+  /** Branch-staged key, see UploadPreparedImageOptions.ghBranchTarget. */
   ghBranchTarget?: BranchTarget;
   prefix?: string;
   repo?: string;
@@ -1520,11 +1446,7 @@ export async function uploadPuts(opts: {
   deriveRepoFromGit?: boolean;
   contentType?: string;
   dryRun?: boolean;
-  /**
-   * Opt in to overwriting an existing object on a strict (non-`gh/`) key —
-   * see issue #174. Ignored server-side when `ghTarget` targets a managed
-   * `gh/` path, which always hot-swaps.
-   */
+  /** See UploadPreparedImageOptions.replace. */
   replace?: boolean;
   optimize: OptimizeImageOptions;
   frame: {
@@ -1558,7 +1480,7 @@ export async function uploadPuts(opts: {
     throw new UsageError("--name cannot be combined with multiple files");
   }
 
-  // Resolved once for the whole batch (issue #631) — never per file.
+  // Resolved once per batch, never per file.
   const ghPrefix = opts.ghTarget
     ? await resolveGhPrefixSafe(opts.client, {
         repo: opts.ghTarget.repo,
@@ -1609,9 +1531,8 @@ export async function uploadPuts(opts: {
               ? basename(opts.explicitKey)
               : "stdin.bin"
             : basename(file));
-        // Sidecar manifest from a prior `screenshot --out` of this exact file
-        // (issue #469 lever 2) — see mergeSidecarMeta. Not applicable to stdin
-        // or URL fetches.
+        // Sidecar manifest from a prior `screenshot --out` of this file.
+        // Not applicable to stdin or URL fetches.
         const metadata =
           item.path && item.path !== "-"
             ? mergeSidecarMeta(item.path, bytes, opts.metadata)
@@ -1682,18 +1603,11 @@ export async function uploadPuts(opts: {
 }
 
 /**
- * Best-effort branch-rename registration (issue #920): reads this branch's
- * reflog for `git branch -m` steps and tells the server about each one, so a
- * later promote sweeps the branch's whole name lineage instead of only its
- * current name. No-op when the reflog has no rename (the common case) and
- * when the client predates the route. Every failure is swallowed — this runs
- * alongside staging and promote, and must never fail either. Set
- * `UPLOADS_DEBUG=1` to see what was skipped.
- *
- * `opts.explicit` marks a branch the user named themselves (`--from-branch`
- * / the MCP `fromBranch` argument): that is the manual escape hatch (PR
- * #919), and its lineage belongs to a different name than the one we are
- * standing on, so nothing is registered for it.
+ * Best-effort branch-rename registration: reads the reflog for
+ * `git branch -m` steps and reports each, so a later promote sweeps the
+ * branch's old names too. Swallows every failure (`UPLOADS_DEBUG=1` shows
+ * them). Skipped for `opts.explicit` (`--from-branch`), whose lineage
+ * belongs to a different name than the checkout.
  */
 export async function registerRenamesBestEffort(
   client: UploadsClient,
@@ -1726,11 +1640,8 @@ export async function registerRenamesBestEffort(
 }
 
 /**
- * Best-effort call to `POST /v1/workspaces/:workspace/github/promote` (server contract,
- * PR #310). Degrade-safe like `syncAttachmentsComment`'s bot path: an older
- * or self-hosted worker without this route (404), a forbidden token (403),
- * or a network error all collapse to "nothing promoted" — the caller must
- * never let this fail the attach. Returns undefined on any failure.
+ * Best-effort `POST .../github/promote`. A 404 (older or self-hosted worker),
+ * 403, or network error returns undefined; it must never fail the attach.
  */
 async function attemptPromoteBranch(
   client: UploadsClient,
@@ -1745,10 +1656,8 @@ async function attemptPromoteBranch(
 }
 
 /**
- * Human-mode note(s) for a promotion that actually promoted something. When
- * the server-side sweep followed a rename it adds a second line naming the
- * older branch names (issue #920): `lineage` is current-name-first, so the
- * older names are its tail.
+ * Human-mode note for a promotion that moved something. A followed rename
+ * adds a line naming the older branch names (`lineage` is current-first).
  */
 function promotionNote(
   promotion: PromoteBranchAttachmentsResult,
@@ -1810,10 +1719,9 @@ export async function runAttach(
     return runAttachPromoteOnly(ctx, parsed, run);
   }
 
-  // Validate --branch (including the filename-lookahead guard) before the
-  // zero-positionals bailout below — otherwise `uploads attach --branch
-  // shot.png` (where shot.png is swallowed as the branch value, leaving no
-  // file args) would silently print help instead of a clear UsageError.
+  // Validate --branch before the zero-positionals bailout, so
+  // `--branch shot.png` (file swallowed as the value) errors instead of
+  // printing help.
   const branchArg = branchFromFlags(parsed.flags, run);
 
   if (parsed.positionals.length === 0) {
@@ -1845,11 +1753,8 @@ export async function runAttach(
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
-  // User-supplied extras first, then the resolved target's gh.* — explicit
-  // target pairs always win over a same-named --meta extra (documented above).
-  // Validate the merged map (not just the extras) so the 24-key/8KB caps are
-  // enforced client-side even when extras alone are under the cap but extras
-  // + the gh.* pairs push the merged map over it.
+  // Explicit target gh.* pairs win over same-named --meta extras. Validate the
+  // merged map so the key/size caps cover extras + gh.* together.
   const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
   const metadata = {
     ...metaExtras,
@@ -1858,10 +1763,9 @@ export async function runAttach(
   };
   if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
-  // Args that exist on disk are always local files, even if they'd also
-  // parse as a key/URL. Everything else is a candidate for the server-side
-  // attach-existing path (issue #702) — resolved/validated server-side, so a
-  // typo'd path and a genuinely-missing object key report the same way.
+  // Args that exist on disk are local files. Everything else goes to the
+  // server-side attach-existing path, so a typo'd path and a missing key
+  // report the same way.
   const localFiles = parsed.positionals.filter((p) => existsSync(p));
   const remoteArgs = parsed.positionals.filter((p) => !existsSync(p));
   const moveExisting = parsed.flags.has("--move");
@@ -1908,10 +1812,8 @@ export async function runAttach(
   const failures = [...localFailures, ...remoteFailures];
   const firstError = localFailures.length > 0 ? uploadResult.firstError : remoteResult.firstError;
 
-  // Single-arg total failure: rethrow so CLI exit codes stay auth/network-aware.
-  // The remote-attach path's friendlier not-found message (attachExistingBatch)
-  // wins over the raw client error text, but the original error's class/code
-  // (UploadsError) is preserved so exit-code mapping stays unaffected.
+  // Single-arg total failure: rethrow so exit codes stay auth/network-aware,
+  // using the friendlier not-found message but keeping the error's class/code.
   if (
     uploads.length === 0 &&
     attachedExisting.length === 0 &&
@@ -1925,14 +1827,9 @@ export async function runAttach(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
-  // Auto-promote: before the comment sync, best-effort promote this
-  // workspace's own branch-staged attachments (from an earlier `attach
-  // --branch` while the PR didn't exist yet) into this PR's attachment
-  // prefix, so the comment gather below sees them in the same invocation.
-  // Never for issues (branch staging only ever targets a future PR), never
-  // with --no-promote, and silently skipped (no client call at all) when the
-  // current git branch can't be resolved (detached HEAD, not a repo) — this
-  // must never fail the attach itself.
+  // Auto-promote this branch's staged attachments into the PR before the
+  // comment sync, so the gather below sees them. Never for issues or with
+  // --no-promote; skipped silently when the branch can't be resolved.
   let promotion: PromoteBranchAttachmentsResult | undefined;
   let promotedBranch: string | undefined;
   if (target.kind === "pull" && !parsed.flags.has("--no-promote")) {
@@ -1962,7 +1859,7 @@ export async function runAttach(
     }
   }
 
-  // Lever 3 (issue #469): tip when an image lands here with no `path` meta.
+  // Tip when an image lands here with no `path` meta.
   const pathHint =
     uploads.length > 0 && !ctx.quiet ? pathMetaHintFor(uploads, sentMetadata) : undefined;
 
@@ -2009,7 +1906,7 @@ export async function runAttach(
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
-        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
       );
     if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
@@ -2021,11 +1918,9 @@ export async function runAttach(
 }
 
 /**
- * `attach --branch` path: stages files under
- * `gh/<owner>/<repo>/branch/<branch>/<filename>` instead of a PR/issue
- * number. Never syncs the managed comment (there is no PR/issue to comment
- * on yet, and the comment-gatherer only lists PR/issue prefixes anyway —
- * branch-staged keys are invisible to it by construction).
+ * `attach --branch`: stages files under
+ * `gh/<owner>/<repo>/branch/<branch>/<filename>`. Never syncs the managed
+ * comment; there is no PR yet.
  */
 async function runAttachBranch(
   ctx: CliContext,
@@ -2055,8 +1950,7 @@ async function runAttachBranch(
   }
 
   const target: BranchTarget = { repo, branch };
-  // Register any `git branch -m` steps behind this name (issue #920) so the
-  // promote that runs when the PR opens sweeps the older names too.
+  // So the promote at PR open also sweeps this branch's older names.
   await registerRenamesBestEffort(ctx.client, run, repo, branch);
   const { uploads, failures, firstError } = await uploadBranchAttachments({
     client: ctx.client,
@@ -2074,9 +1968,7 @@ async function runAttachBranch(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
-  // Stage-time binding warning (issue #398): only worth checking once staging
-  // actually produced something to warn about. Best-effort — see
-  // resolveStageBindingWarning; never affects exit code or the upload itself.
+  // Advisory only; never affects the exit code.
   const bindingWarning =
     uploads.length > 0 ? await resolveStageBindingWarning({ ctx, defaults, repo }) : undefined;
 
@@ -2118,12 +2010,8 @@ async function runAttachBranch(
 }
 
 /**
- * One source of truth for the "staged, but not going to auto-attach" advisory
- * text (issue #398), shared by the `attach --branch`/bare-`put` stage-time
- * warning below and the `uploads staged` view (issue #405) — both surfaces
- * must say the exact same thing for the same binding state, verified by
- * tests on both call sites. Returns undefined for `"self"` (the happy path —
- * callers each phrase that themselves) and any unrecognized value.
+ * The "staged, but won't auto-attach" advisory, shared by the stage-time
+ * warning and `uploads staged`. Undefined for `"self"` and unknown values.
  */
 export function stagingBindingAdvisory(binding: string, repo: string): string | undefined {
   switch (binding) {
@@ -2144,15 +2032,10 @@ export function stagingBindingAdvisory(binding: string, repo: string): string | 
 }
 
 /**
- * Best-effort stage-time binding warning (issue #398): after `attach
- * --branch` stages files, checks whether `repo` is bound to THIS workspace —
- * webhook auto-promotion at PR open only fires for a repo already bound
- * (#297), and staging alone never binds one. Fires only for `binding: "none"`
- * (unbound) or `"other"` (bound elsewhere); `"self"` and any failure
- * (network, non-200, older server without the route, `binding: "unknown"`)
- * are silent — this is advisory only and must never make staging look like
- * it failed. Same suppression as the #393 put nudge: `--quiet`,
- * `UPLOADS_NO_NUDGE=1` (env or config).
+ * Stage-time binding warning: auto-promotion at PR open only fires when the
+ * repo is bound to this workspace, and staging never binds one. Warns for
+ * `"none"` and `"other"`; silent for `"self"` and any failure. Suppressed by
+ * `--quiet` and `UPLOADS_NO_NUDGE=1`.
  */
 export async function resolveStageBindingWarning(opts: {
   ctx: CliContext;
@@ -2172,15 +2055,10 @@ export async function resolveStageBindingWarning(opts: {
 }
 
 /**
- * `attach --promote` with zero file arguments: resolve the PR target (same
- * resolution as the default `runAttach` path), promote this workspace's
- * branch-staged attachments into it, then run the comment sync — useful
- * right after `gh pr create` when the PR was opened without a fresh attach
- * (auto-promotion on the default path only fires when you attach a file).
- * Unlike the default path's best-effort branch resolution, this is an
- * explicit user action: `resolveCurrentBranch` throwing (detached HEAD, not
- * a repo) propagates as a UsageError instead of silently skipping. Always
- * exits 0 — an empty staging prefix is success, not a failure.
+ * `attach --promote` with no files: promote this branch's staged attachments
+ * into the resolved PR, then sync the comment. Useful right after
+ * `gh pr create`. As an explicit action, an unresolvable branch is a
+ * UsageError. An empty staging prefix still exits 0.
  */
 async function runAttachPromoteOnly(
   ctx: CliContext,
@@ -2230,25 +2108,19 @@ async function runAttachPromoteOnly(
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
-        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
       );
   }
   return 0;
 }
 
-/** Bounds the best-effort `gh pr view` lookup the put nudge (issue #393) makes
- * on top of the normal put flow — long enough for a real gh call, short
- * enough to never be felt as a hang. */
+/** Bounds the put nudge's `gh pr view` so it is never felt as a hang. */
 const PUT_NUDGE_GH_TIMEOUT_MS = 3000;
 
 /**
- * The bare-put nudge's wording (issue #393, made concrete by issue #700):
- * teaches `--pr`/`attach --branch` as an upgrade from a targetless `put`.
- * `pr` present → names the PR and, once upload `keys` are known, appends a
- * ready-made follow-up command naming them verbatim (e.g. `uploads attach
- * --pr 1250 f/abc123.webp`); otherwise a generic variant that still points
- * at `--pr <num>`. Used verbatim for both the human-mode stderr line and the
- * JSON `hint` field.
+ * The bare-put nudge, used for both the stderr line and the JSON `hint`.
+ * With a PR and known keys it spells out the follow-up `uploads attach`
+ * command.
  */
 export function putNudgeText(branch: string, pr: number | undefined, keys: string[] = []): string {
   const prClause =
@@ -2260,11 +2132,7 @@ export function putNudgeText(branch: string, pr: number | undefined, keys: strin
   return `${base}. Already uploaded? uploads attach --pr ${pr} ${keys.join(" ")}`;
 }
 
-/**
- * Auto-PR note (issue #700): announces at the moment it fires that a bare
- * put/screenshot on this branch was auto-attached to `pr` — the default
- * behavior change this issue introduces — and how to opt out.
- */
+/** Announces that a bare put/screenshot was auto-attached to `pr`, and how to opt out. */
 export function autoPrNoteText(pr: number): string {
   return (
     `note: branch maps to open PR #${pr} — auto-attached (stable key + managed comment sync). ` +
@@ -2273,26 +2141,17 @@ export function autoPrNoteText(pr: number): string {
 }
 
 /**
- * Best-effort bare-put/screenshot nudge context (issue #393): resolves the
- * branch and, when detectable, the open PR for it — fires only when there is
- * no targeting flag at all (`--pr`/`--issue`/`--key`; `--branch` too, though
- * `put` doesn't currently accept it — defensive parity with `attach`), is
- * inside a git repo (reusing `deriveRepoFromGit`, the same detection the
- * default screenshot key's repo segment uses), and the current branch isn't
- * the default one. Never throws — any failure (not a repo, detached HEAD,
- * `gh` missing/unauthenticated/timed out) degrades to "no nudge" or, once a
- * branch is already known, to a context with `pr: undefined` (the generic
- * no-PR wording). Must never affect put's exit code, stdout, or upload
- * behavior. Callers turn the result into text via `putNudgeText`, once any
- * upload keys are known.
+ * Best-effort context for the bare-put nudge: the branch and, when
+ * detectable, its open PR. Only when there is no targeting flag, inside a
+ * git repo, off the default branch. Never throws; a failed PR lookup yields
+ * `pr: undefined` (generic wording).
  */
 export function resolvePutNudgeContext(opts: {
   quiet: boolean;
   noNudge: boolean;
   ghTarget: GhTarget | undefined;
   keyHint: string | undefined;
-  /** True when an explicit `--branch`-style flag was given (CLI `attach`
-   * parity; `put`/MCP `put` don't accept one — pass false there). */
+  /** `attach` parity; `put` has no `--branch`, so pass false there. */
   hasBranchFlag?: boolean;
   noGit: boolean;
   repoArg: string | undefined;
@@ -2302,7 +2161,7 @@ export function resolvePutNudgeContext(opts: {
   if (quiet) return undefined;
   if (noNudge) return undefined;
   if (ghTarget || keyHint || noGit) return undefined;
-  if (hasBranchFlag) return undefined; // not a real put flag today; defensive only
+  if (hasBranchFlag) return undefined;
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
     const branch = resolveCurrentBranchSafe(run);
@@ -2315,10 +2174,7 @@ export function resolvePutNudgeContext(opts: {
 
     let pr: number | undefined;
     try {
-      // Only swap in the bounded runner for the real subprocess path — an
-      // injected `run` (tests, or a future caller) is trusted to already be
-      // fast/fake, and execFileSync's `timeout` option is meaningless
-      // against anything that isn't actually shelling out.
+      // Only bound the real subprocess; an injected `run` is trusted.
       const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
       const repo = resolveRepo(repoArg, timed);
       pr = resolveCurrentPullRequest(repo, timed).num;
@@ -2331,32 +2187,20 @@ export function resolvePutNudgeContext(opts: {
   }
 }
 
-/** A #700 auto-PR match: the PR the current branch maps to, plus that branch. */
+/** The PR the current branch maps to, plus that branch. */
 export interface AutoPrMatch {
   target: GhTarget;
   branch: string;
 }
 
 /**
- * Auto-PR context (issue #700): when a bare put/screenshot has no explicit
- * destination flag at all (`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/
- * `--destination`, and for `screenshot` no explicit `--branch`) and runs on a
- * branch that maps to exactly one open PR, this resolves that PR so the
- * caller can behave as if `--pr <n>` had been passed — stable key + managed
- * comment sync — instead of the #403/#469 staging default or the plain dated
- * layout. `resolveCurrentPullRequest`'s `gh pr view <branch>` lookup is
- * already the unambiguous case: it names the single open PR whose head is
- * that branch, or fails (no open PR, or `gh` unavailable/unauthenticated) —
- * there is no "ambiguous, more than one" state to further disambiguate.
- * Opt-out: `noAutoPr` (the caller folds in `--no-pr` and
- * `UPLOADS_NO_AUTO_PR=1`/config). Never fires outside a git checkout, on the
- * default branch, or with `--no-git`; any failure (not a repo, detached
- * HEAD, gh missing/unauthenticated/timed out, no open PR) degrades to
- * undefined so the caller falls back to its normal staging/dated behavior.
+ * Auto-PR: when a bare put/screenshot has no destination flag and the branch
+ * has exactly one open PR (`gh pr view <branch>`), behave as if `--pr <n>`
+ * was passed. Opt out with `noAutoPr` (`--no-pr`, `UPLOADS_NO_AUTO_PR=1`).
+ * Never fires outside a repo, on the default branch, or with `--no-git`; any
+ * failure returns undefined and the caller stages or uses the dated layout.
  *
- * The match carries the `branch` it was resolved from, so callers that need
- * the current branch (the #920 rename registration) reuse it instead of
- * spawning `git rev-parse` a second time.
+ * Carries `branch` so callers needn't run `git rev-parse` again.
  */
 export function resolveAutoPrTarget(opts: {
   ghTarget: GhTarget | undefined;
@@ -2364,8 +2208,7 @@ export function resolveAutoPrTarget(opts: {
   refArg: string | undefined;
   prefixArg: string | undefined;
   destinationArg: string | undefined;
-  /** Explicit `--branch` (screenshot only) also opts out — put has no
-   * `--branch` flag today, so callers pass undefined there. */
+  /** Explicit `--branch` (screenshot only) also opts out. */
   branchArg?: string | undefined;
   noGit: boolean;
   noAutoPr: boolean;
@@ -2397,8 +2240,7 @@ export function resolveAutoPrTarget(opts: {
       : branch === "main" || branch === "master"; // undetermined: err toward the old default
     if (onDefaultBranch) return undefined;
 
-    // Same bounded-timeout treatment as the #393 nudge's `gh pr view` call —
-    // this must never be felt as a hang.
+    // Bounded, like the nudge's `gh pr view`.
     const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
     const repo = resolveRepo(repoArg, timed);
     return { target: resolveCurrentPullRequest(repo, timed), branch };
@@ -2408,31 +2250,17 @@ export function resolveAutoPrTarget(opts: {
 }
 
 /**
- * Bare-put branch-staging trigger (issue #403): put on a non-default git
- * branch stages to the branch prefix by default — the branch becomes the
- * organizing unit instead of the date, superseding the #393 CLI nudge for
- * this case (see `putStagingNoteText`). Reuses the same detection stack as
- * `resolvePutNudge` (`deriveRepoFromGit` / `resolveCurrentBranch` /
- * `resolveDefaultBranch` / main-master fallback) plus a `resolveRepo` lookup
- * (needed for the "owner/name" staging key) and an explicit-flag opt-out:
- * `ghTarget`/`keyHint`/`refArg`/`prefixArg`/`destinationArg` set, or `noGit`,
- * forces the classic dated (or typed-destination) layout. Never throws — any
- * failure (not a repo, detached HEAD, gh missing/unauthenticated/timed out,
- * unresolvable repo) degrades to "no staging", leaving the caller to fall
- * back to the dated path.
- *
- * Plain-params (not CLI `flags`) so both `runPut` and the local stdio MCP
- * `put` tool — same staging default, issue #403's scope — can call this
- * without either depending on the other's argument shape.
+ * Bare put on a non-default branch stages to the branch prefix by default.
+ * Any explicit target (`ghTarget`, key, ref, prefix, destination) or
+ * `noGit` keeps the dated layout. Never throws; any failure means no
+ * staging. Takes plain params so the CLI and the stdio MCP `put` share it.
  */
 export function resolvePutStagingTarget(opts: {
   ghTarget: GhTarget | undefined;
   keyHint: string | undefined;
   refArg: string | undefined;
   prefixArg: string | undefined;
-  /** Explicit `--destination` (CLI) / `destination` (MCP) also opts out — it
-   * resolves to its own prefix via `resolvePutPrefix`, which staging would
-   * otherwise silently override. */
+  /** `--destination` opts out too; staging would otherwise override its prefix. */
   destinationArg: string | undefined;
   noGit: boolean;
   repoArg: string | undefined;
@@ -2451,8 +2279,7 @@ export function resolvePutStagingTarget(opts: {
       : branch === "main" || branch === "master"; // undetermined: err toward the dated layout
     if (onDefaultBranch) return undefined;
 
-    // Same bounded-timeout treatment as the #393 nudge's `gh pr view` call —
-    // this is best-effort, and must never be felt as a hang.
+    // Bounded, like the nudge's `gh pr view`.
     const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
     const repo = resolveRepo(repoArg, timed);
     return { repo, branch };
@@ -2463,10 +2290,7 @@ export function resolvePutStagingTarget(opts: {
 
 /**
  * Merges a staging target's `gh.*` branch metadata over `base` and validates
- * the result (same builder, same contract as `attach --branch`) — the one
- * merge+validate step shared by every staging call site: `runPut`,
- * `runScreenshot`, and both the local stdio MCP `put` and `screenshot`
- * tools.
+ * it, as `attach --branch` does. Shared by every staging call site.
  */
 export function mergeStagingMeta(
   base: Record<string, string> | undefined,
@@ -2477,12 +2301,7 @@ export function mergeStagingMeta(
   return merged;
 }
 
-/**
- * The bare-put staging note's wording (issue #403): replaces the #393 nudge
- * for the (now default) case where a bare put on a non-default branch stages
- * to the branch prefix instead of landing on the dated layout. Used verbatim
- * for both the human-mode stderr line and the JSON `hint` field.
- */
+/** The bare-put staging note, used for both the stderr line and the JSON `hint`. */
 export function putStagingNoteText(branch: string): string {
   return (
     `note: staged for branch ${branch} — auto-comments to pull request when opened ` +
@@ -2492,7 +2311,7 @@ export function putStagingNoteText(branch: string): string {
 
 // --- staged ---
 
-/** One file currently staged for a branch (issue #405). */
+/** One file currently staged for a branch. */
 export interface StagedFile {
   /** Full object key (`gh/<owner>/<repo>/branch/<branch>/<filename>`). */
   key: string;
@@ -2506,12 +2325,16 @@ export interface StagedFile {
   state?: string;
   /** `path` metadata (the captured page path), when present: pairs a before with its after. */
   path?: string;
+  /** `gh.branch` when the object carries it. Absent on older staged files. */
+  branch?: string;
+  /** Held for review (`ai.hold=pending`): its bytes are private until `uploads approve`. */
+  held?: true;
 }
 
-/** Tri-state binding, folded into a ready-to-render advisory (issue #405/#398). */
+/** Tri-state binding, folded into a ready-to-render advisory. */
 export interface StagedBinding {
   state: "self" | "other" | "none" | "unknown";
-  /** True only for "self" — the only state where staged files actually auto-attach. */
+  /** True only for "self", the only state where staged files auto-attach. */
   autoAttach: boolean;
   message: string;
 }
@@ -2524,13 +2347,9 @@ export interface StagedResult {
 }
 
 /**
- * Binding lookup for `uploads staged`, folded into a renderable `StagedBinding`.
- * `"none"`/`"other"` reuse `stagingBindingAdvisory` — the exact #398 wording,
- * one source of truth. `"self"` gets its own message (the #398 warning stays
- * silent on "self"; this view is the one place that names the happy path
- * explicitly). Any failure (network, non-200, older server without the
- * route) degrades to `"unknown"` rather than throwing — this is a read-only
- * view and a binding check failing must never make it fail outright.
+ * Binding lookup for `uploads staged`. `"none"`/`"other"` reuse
+ * `stagingBindingAdvisory`; `"self"` gets its own message. Any failure
+ * degrades to `"unknown"` so the read-only view never fails on it.
  */
 export async function resolveStagedBinding(
   client: UploadsClient,
@@ -2566,11 +2385,80 @@ export async function resolveStagedBinding(
 }
 
 /**
- * Shared core for `uploads staged` (CLI) and the `staged` MCP tool (issue
- * #405): lists files still staged (not yet promoted) via one `list` call against the branch staging prefix
- * (`ghBranchKeyPrefix` — never hand-built) plus the #398 binding check. Never
- * throws on the binding check (see `resolveStagedBinding`); a failed `list`
- * call still propagates, same as every other read command.
+ * Private prefix ids `uploads staged` may list for one branch.
+ *
+ * A private staged key (`gh/private/<id>/branch/<filename>`) has no branch
+ * name; the id belongs to one branch. `branchPrefixIds` is that branch's
+ * active id, then its retired ids. An older worker may put every branch's id
+ * in `activePrefixIds`, so that list is ignored here.
+ */
+function stagedPrivatePrefixIds(ghPrefix: ResolveGhPrefixResult): string[] {
+  if (ghPrefix.mode !== "private") return [];
+  const scoped = ghPrefix.branchPrefixIds?.filter((id) => id !== "");
+  if (scoped && scoped.length > 0) return scoped;
+  return [ghPrefix.prefixId];
+}
+
+/**
+ * Pull-request copies of this branch's files, keyed by filename.
+ *
+ * The value is the latest `gh.promoted-at` or `gh.attached-at`, or null when
+ * a copy carries neither. Promotion usually flips the branch object's
+ * `gh.status`, but a copy that landed through link adoption can leave the
+ * branch object at `staged` with no promoted marker. Comparing timestamps
+ * hides those without a backfill, and a newer `gh.staged-at` (a re-stage of
+ * the same name) stays visible. A lookup failure returns an empty map: the
+ * view must still list what the prefix scan found.
+ */
+async function promotedPullTwins(
+  client: UploadsClient,
+  repo: string,
+  branch: string,
+): Promise<Map<string, string | null>> {
+  const twins = new Map<string, string | null>();
+  if (typeof client.findFilesAll !== "function") return twins;
+  let items: { key: string; metadata?: Record<string, string> }[];
+  try {
+    const found = await client.findFilesAll({
+      "gh.repo": repo.toLowerCase(),
+      "gh.branch": branch.toLowerCase(),
+      "gh.kind": "pull",
+    });
+    items = found.items;
+  } catch {
+    return twins;
+  }
+  for (const item of items) {
+    const filename = item.key.split("/").pop();
+    if (!filename) continue;
+    const at = item.metadata?.["gh.promoted-at"] || item.metadata?.["gh.attached-at"] || null;
+    const prev = twins.get(filename);
+    if (prev === undefined) twins.set(filename, at);
+    else if (at && (prev === null || at > prev)) twins.set(filename, at);
+  }
+  return twins;
+}
+
+/** True when a pull copy of this filename is at least as new as the stage. */
+function pullTwinHidesFile(
+  filename: string,
+  stagedAt: string | undefined,
+  twins: Map<string, string | null>,
+): boolean {
+  const base = filename.split("/").pop() ?? filename;
+  const twinAt = twins.get(base);
+  // No twin, or a twin with no timestamp: don't guess. A missing time must
+  // not hide a file that is still staged.
+  if (twinAt === undefined || twinAt === null) return false;
+  return !stagedAt || twinAt >= stagedAt;
+}
+
+/**
+ * Shared core for `uploads staged` and the `staged` MCP tool: files still
+ * staged for this branch. On a private repo only this branch's ids are
+ * listed. A file stays when its `gh.branch` matches or is absent and it has
+ * not been promoted. A failed `list` propagates; the binding and pull-copy
+ * lookups fail open.
  */
 export async function resolveStaged(opts: {
   client: UploadsClient;
@@ -2579,34 +2467,55 @@ export async function resolveStaged(opts: {
 }): Promise<StagedResult> {
   const { client, repo, branch } = opts;
   const plainPrefix = ghBranchKeyPrefix(repo, branch);
-  // Also list every active private prefix, if any (issue #631) — mirrors
-  // syncAttachmentsComment's gh-fallback gather above: a repo's staged
-  // history can be split across the plain shape and MULTIPLE private
-  // prefixes (e.g. a prefix rotation, or the repo went private after some
-  // files were staged), not just the currently-resolved one. Fail-open: any
-  // resolve failure degrades to plain-only, byte-identical to pre-#631.
+  // Fail-open: any resolve failure lists the plain prefix only.
   const ghPrefix = await resolveGhPrefixSafe(client, { repo, branch });
-  const prefixes = ghListPrefixes(plainPrefix, ghPrefix, (id) => ghPrivateBranchKeyPrefix(id));
-  const [files, binding] = await Promise.all([
+  const prefixes = [
+    plainPrefix,
+    ...stagedPrivatePrefixIds(ghPrefix).map((id) => ghPrivateBranchKeyPrefix(id)),
+  ];
+  const wanted = branch.toLowerCase();
+  const [listed, binding, twins] = await Promise.all([
     ghMergedList(prefixes, undefined, async (prefix) => {
       const list = await client.list({ prefix, metadata: true });
-      // Promotion copies files into the PR prefix but leaves the branch copy
-      // behind marked `gh.status=promoted`; those are no longer "staged".
-      // A missing status (older files) still counts as staged.
-      return list.items
-        .filter((item) => item.metadata?.["gh.status"] !== "promoted")
-        .map((item) => ({
-          key: item.key,
-          filename: item.key.slice(prefix.length),
-          size: item.size,
-          stagedAt: item.metadata?.["gh.staged-at"],
-          url: item.url,
-          ...(item.metadata?.state ? { state: item.metadata.state } : {}),
-          ...(item.metadata?.path ? { path: item.metadata.path } : {}),
-        }));
+      return list.items.map((item) => ({ item, prefix }));
     }),
     resolveStagedBinding(client, repo),
+    promotedPullTwins(client, repo, branch),
   ]);
+  const files: StagedFile[] = [];
+  for (const { item, prefix } of listed) {
+    const meta = item.metadata;
+    const fileBranch = meta?.["gh.branch"];
+    // Present-and-different is another branch's file. Absent stays: the
+    // prefix we listed is already this branch's (public key, or this
+    // branch's private id).
+    if (fileBranch && fileBranch.toLowerCase() !== wanted) continue;
+    // Promotion tags the branch copy. `gh.promoted-to` / `gh.promoted-at`
+    // cover a tag that landed without flipping `gh.status`.
+    if (
+      meta?.["gh.status"] === "promoted" ||
+      meta?.["gh.status"] === "unstaged" ||
+      meta?.["gh.promoted-to"] ||
+      meta?.["gh.promoted-at"]
+    ) {
+      continue;
+    }
+    const filename = item.key.startsWith(prefix) ? item.key.slice(prefix.length) : item.key;
+    const stagedAt = meta?.["gh.staged-at"];
+    if (pullTwinHidesFile(filename, stagedAt, twins)) continue;
+    files.push({
+      key: item.key,
+      filename,
+      size: item.size,
+      stagedAt,
+      url: item.url,
+      ...(fileBranch ? { branch: fileBranch } : {}),
+      ...(meta?.state ? { state: meta.state } : {}),
+      ...(meta?.path ? { path: meta.path } : {}),
+      ...(meta?.screen ? { screen: meta.screen } : {}),
+      ...(meta?.["ai.hold"] === "pending" ? { held: true as const } : {}),
+    });
+  }
   return { repo, branch, files, binding };
 }
 
@@ -2614,9 +2523,11 @@ const STAGED_HELP = `uploads staged [--branch <name>] [--repo <owner/name>] [--f
 
 Read-only view of what's staged for a branch (\`attach --branch\` / bare
 \`put\` on a non-default branch, issue #403) and whether it will auto-attach
-once a PR opens. One \`list\` call against the branch staging prefix
-(gh/<owner>/<repo>/branch/<branch>/) plus a binding check — files:read only,
-no new server surface.
+once a PR opens. Lists this branch's staging prefix only. On a private repo
+the key is gh/private/<id>/branch/<file> (no branch segment; the id is per
+branch). A file whose gh.branch is a different branch is omitted, and so is
+a file already copied onto a pull request or marked unstaged. Plus a
+binding check. Unstage with \`uploads unstage\`; this command never writes.
 
 Defaults: current git branch (same resolution as \`attach --branch\`, worktree-
 safe), repo from --repo / gh / git remote (same as every other command).
@@ -2657,9 +2568,7 @@ export async function runStaged(
   const result = await resolveStaged({ client: ctx.client, repo, branch });
 
   if (format === "json") {
-    // Always a valid JSON document, even with zero files — never empty
-    // stdout (issue #405 explicitly calls out find --format json's empty-
-    // stdout-on-no-matches wart as a wrong pattern to avoid here).
+    // Always a valid JSON document, even with zero files.
     await writeJson(result);
     return 0;
   }
@@ -2672,13 +2581,413 @@ export async function runStaged(
   for (const file of result.files) {
     const size = file.size !== undefined ? formatByteSize(file.size) : "? B";
     const staged = file.stagedAt ? `  staged ${file.stagedAt}` : "";
-    await writeStdout(`${file.filename}  ${size}${staged}  ${file.url ?? "(no url)"}\n`);
+    const held = file.held ? "  held for review" : "";
+    await writeStdout(`${file.filename}  ${size}${staged}${held}  ${file.url ?? "(no url)"}\n`);
   }
   process.stderr.write(`binding: ${result.binding.state} — ${result.binding.message}\n`);
-  // Promote is pointless advice when the repo belongs to another workspace —
-  // the cross-tenant gate (#297) would reject it from here.
+  // Promote advice is pointless when another workspace owns the repo.
   if (result.binding.state !== "other") {
     process.stderr.write(`once the PR exists: uploads attach --promote\n`);
+  }
+  return 0;
+}
+
+const UNSTAGE_LIST_LIMIT = 1000;
+const UNSTAGE_MAX_PAGES = 20;
+
+export interface UnstageFile {
+  key: string;
+  url: string | null;
+  action: "unstaged" | "unchanged";
+}
+
+export interface UnstageResult {
+  dryRun: boolean;
+  repo?: string;
+  branch?: string;
+  files: UnstageFile[];
+  truncated?: boolean;
+}
+
+/**
+ * Still in the branch's staged set. A different `gh.branch` is another
+ * branch's file. Promoted and unstaged files are already out. Pull-request
+ * twins stay in: `uploads staged` hides them, but they would still
+ * auto-promote until this command marks them unstaged.
+ */
+function stillStagedForBranch(meta: Record<string, string> | undefined, branch: string): boolean {
+  const fileBranch = meta?.["gh.branch"];
+  if (fileBranch && fileBranch.toLowerCase() !== branch.toLowerCase()) return false;
+  if (meta?.["gh.status"] === "promoted" || meta?.["gh.status"] === "unstaged") return false;
+  if (meta?.["gh.promoted-to"] || meta?.["gh.promoted-at"]) return false;
+  return true;
+}
+
+async function listPrefixForUnstage(
+  client: UploadsClient,
+  prefix: string,
+): Promise<{
+  items: { key: string; url: string | null; metadata?: Record<string, string> }[];
+  truncated: boolean;
+}> {
+  const items: { key: string; url: string | null; metadata?: Record<string, string> }[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < UNSTAGE_MAX_PAGES; page++) {
+    const result = await client.list({
+      prefix,
+      metadata: true,
+      limit: UNSTAGE_LIST_LIMIT,
+      cursor,
+    });
+    for (const item of result.items) {
+      items.push({ key: item.key, url: item.url, metadata: item.metadata });
+    }
+    if (!result.cursor) return { items, truncated: false };
+    cursor = result.cursor;
+  }
+  return { items, truncated: true };
+}
+
+/**
+ * Shared core for `uploads unstage` and the stdio `unstage` tool. Sets
+ * `gh.status=unstaged`; the object and URL stay. Branch mode needs an
+ * explicit branch so a bare call can't clear the wrong checkout.
+ */
+export async function unstageFiles(opts: {
+  client: UploadsClient;
+  keys?: string[];
+  repo?: string;
+  branch?: string;
+  dryRun?: boolean;
+}): Promise<UnstageResult> {
+  const keys = (opts.keys ?? []).filter((key) => key.length > 0);
+  const branch = opts.branch;
+  const dryRun = opts.dryRun === true;
+  if (keys.length > 0 && branch) {
+    throw new UsageError("pass either keys or --branch, not both", {
+      example: "uploads unstage --branch feature/thing",
+    });
+  }
+  if (keys.length === 0 && !branch) {
+    throw new UsageError("unstage requires --branch or one or more keys", {
+      example: "uploads unstage --branch feature/thing",
+    });
+  }
+  if (opts.repo && !branch) {
+    throw new UsageError("--repo requires --branch", {
+      example: "uploads unstage --branch feature/thing --repo owner/name",
+    });
+  }
+
+  if (keys.length > 0) {
+    const files: UnstageFile[] = [];
+    for (const key of keys) {
+      const { metadata } = await opts.client.getMetadata(key);
+      if (metadata["gh.status"] === "unstaged") {
+        files.push({ key, url: null, action: "unchanged" });
+        continue;
+      }
+      if (!dryRun) {
+        await opts.client.patchMetadata(key, { set: { "gh.status": "unstaged" } });
+      }
+      files.push({ key, url: null, action: "unstaged" });
+    }
+    return { dryRun, files };
+  }
+
+  const repo = opts.repo;
+  if (!repo) {
+    throw new UsageError("unstage --branch needs a repo", {
+      example: "uploads unstage --branch feature/thing --repo owner/name",
+    });
+  }
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, { repo, branch });
+  const prefixes = [
+    ghBranchKeyPrefix(repo, branch!),
+    ...stagedPrivatePrefixIds(ghPrefix).map((id) => ghPrivateBranchKeyPrefix(id)),
+  ];
+  const files: UnstageFile[] = [];
+  let truncated = false;
+  for (const prefix of prefixes) {
+    const listed = await listPrefixForUnstage(opts.client, prefix);
+    if (listed.truncated) truncated = true;
+    for (const item of listed.items) {
+      if (!stillStagedForBranch(item.metadata, branch!)) continue;
+      if (!dryRun) {
+        await opts.client.patchMetadata(item.key, { set: { "gh.status": "unstaged" } });
+      }
+      files.push({ key: item.key, url: item.url, action: "unstaged" });
+    }
+  }
+  return {
+    dryRun,
+    repo,
+    branch,
+    files,
+    ...(truncated ? { truncated: true } : {}),
+  };
+}
+
+const UNSTAGE_HELP = `uploads unstage (--branch <name> [--repo <owner/name>] | <key...>) [--dry-run]
+
+Mark staged files as unstaged. The object and its URL stay. The files drop
+out of \`uploads staged\`, auto-promotion, and the Claude plugin band. Needs
+files:write (a metadata write), not files:delete.
+
+--branch clears everything still staged for that branch, including a private
+repo (\`gh/private/<id>/branch/…\`, this branch's prefix ids only). It does
+not default to the current git branch. Pass keys instead to unstage specific
+objects, including one that was already promoted.
+
+--dry-run reports what would change and writes nothing.
+
+Examples:
+  uploads unstage --branch feature/thing
+  uploads unstage --branch feature/thing --repo owner/name --dry-run
+  uploads unstage gh/owner/name/branch/feature-thing/shot.png
+`;
+
+export async function runUnstage(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    writeCommandHelp(UNSTAGE_HELP);
+    return 0;
+  }
+  const branch = flagString(parsed.flags, "--branch");
+  const repoFlag = flagString(parsed.flags, "--repo");
+  const dryRun = flagBool(parsed.flags, "--dry-run");
+  const keys = parsed.positionals;
+  const repo = branch ? (repoFlag ?? resolveRepo(undefined, run)) : repoFlag;
+  const result = await unstageFiles({
+    client: ctx.client,
+    keys,
+    branch,
+    repo,
+    dryRun,
+  });
+
+  if (ctx.json) {
+    await writeJson(result);
+  } else if (!ctx.quiet) {
+    if (result.files.length === 0) {
+      const where = result.branch ? ` for ${result.branch}` : "";
+      process.stderr.write(`nothing staged${where}\n`);
+    }
+    for (const file of result.files) {
+      const verb = dryRun
+        ? file.action === "unchanged"
+          ? "unchanged"
+          : "would unstage"
+        : file.action;
+      process.stderr.write(`${verb} ${file.key}\n`);
+    }
+    if (result.truncated) {
+      process.stderr.write("stopped after the list cap; run again to clear the rest\n");
+    }
+  }
+  return 0;
+}
+
+// --- approve ---
+
+export interface ApproveFile {
+  key: string;
+  /** `held`: listed only (no `--all`, or `--dry-run`). */
+  action: "approved" | "not_held" | "held";
+  reason?: string;
+}
+
+export interface ApproveResult {
+  dryRun: boolean;
+  repo?: string;
+  number?: number;
+  files: ApproveFile[];
+}
+
+/**
+ * Release held uploads. With keys, approve each one. With a PR/issue target,
+ * list its held files, and approve them only when `all` is set.
+ */
+export async function approveHeldFiles(opts: {
+  client: UploadsClient;
+  keys?: string[];
+  target?: GhTarget;
+  all?: boolean;
+  dryRun?: boolean;
+}): Promise<ApproveResult> {
+  const keys = (opts.keys ?? []).filter((key) => key.length > 0);
+  const dryRun = opts.dryRun === true;
+  if (keys.length > 0 && opts.target) {
+    throw new UsageError("pass either keys or --pr/--issue, not both", {
+      example: "uploads approve --pr 123",
+    });
+  }
+  if (keys.length === 0 && !opts.target) {
+    throw new UsageError("approve requires --pr, --issue, or one or more keys", {
+      example: "uploads approve --pr 123",
+    });
+  }
+  if (opts.all && !opts.target) {
+    throw new UsageError("--all requires --pr or --issue", {
+      example: "uploads approve --pr 123 --all",
+    });
+  }
+
+  if (keys.length > 0) {
+    const files: ApproveFile[] = [];
+    for (const key of keys) {
+      if (dryRun) {
+        // The held list, not `getMetadata`: a held file on hosted storage
+        // has left the public bucket, so its metadata read 404s.
+        const held = (await listHeldUnder(opts.client, [key])).find((file) => file.key === key);
+        files.push(
+          held ? { key, action: "held", reason: held.reason } : { key, action: "not_held" },
+        );
+        continue;
+      }
+      const result = await opts.client.approve(key);
+      files.push({ key, action: result.approved ? "approved" : "not_held" });
+    }
+    return { dryRun, files };
+  }
+
+  const target = opts.target!;
+  const held = await listHeldFiles(opts.client, { target });
+  const files: ApproveFile[] = [];
+  for (const { key, reason } of held) {
+    if (opts.all && !dryRun) {
+      const result = await opts.client.approve(key);
+      files.push({ key, action: result.approved ? "approved" : "not_held", reason });
+    } else {
+      files.push({ key, action: "held", reason });
+    }
+  }
+  return { dryRun, repo: target.repo, number: target.num, files };
+}
+
+/** Held files on a PR or issue, or under `prefix` (all of them by default). */
+export async function listHeldFiles(
+  client: UploadsClient,
+  opts: { target?: GhTarget; prefix?: string },
+): Promise<{ key: string; reason: string }[]> {
+  const { target } = opts;
+  if (!target) return listHeldUnder(client, [opts.prefix ?? ""]);
+  const ghPrefix = await resolveGhPrefixSafe(client, {
+    repo: target.repo,
+    target: { kind: target.kind, num: target.num },
+  });
+  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
+    ghPrivateKeyPrefix(id, target),
+  );
+  return listHeldUnder(client, prefixes);
+}
+
+/**
+ * Held files under `prefixes`, from the server's held list: a held file on
+ * hosted storage leaves the public bucket, so `list` cannot see it. A server
+ * without that route has never held a file.
+ */
+async function listHeldUnder(
+  client: UploadsClient,
+  prefixes: readonly string[],
+): Promise<{ key: string; reason: string }[]> {
+  try {
+    const pages = await Promise.all(prefixes.map((prefix) => client.listHeld(prefix)));
+    return pages.flat().map((file) => ({ key: file.key, reason: file.reason ?? "flagged" }));
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) return [];
+    throw err;
+  }
+}
+
+/** Where a workspace admin turns holds off. */
+export function holdSettingsHint(config: { apiUrl: string; workspace: string }): string {
+  const url = `${authUrlFromApi(config.apiUrl)}/account/workspaces/${encodeURIComponent(config.workspace)}/settings/ai-labels`;
+  return `a workspace admin can turn holds off in Settings → AI labels: ${url}`;
+}
+
+const APPROVE_HELP = `uploads approve (--pr <n> | --issue <n>) [--repo <owner/name>] [--all] [--dry-run]
+uploads approve <key...> [--dry-run]
+
+Release uploads held for review. The classifier holds a file it thinks shows
+a secret (an API key, a password, a token) or sensitive personal data (an ID
+document, a card number). A held file stays out of the managed PR comment,
+public feeds, galleries, and its /f/ page until a workspace member approves
+it. On hosted storage its raw URL returns 404 while it is held, and comes
+back at the same URL on approval. A file in your own bucket keeps serving
+from your domain.
+
+Check the file first. If it does show a credential, rotate the credential
+and replace or delete the file instead of approving it.
+
+With --pr or --issue and no --all, lists the held files and changes nothing.
+--all approves every held file on that PR or issue. Pass keys to approve
+specific files. Approving re-syncs the managed comment. Needs files:write.
+
+Examples:
+  uploads approve --pr 123
+  uploads approve --pr 123 --all
+  uploads approve gh/owner/name/pull/123/settings.png
+`;
+
+export async function runApprove(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    writeCommandHelp(APPROVE_HELP);
+    return 0;
+  }
+  const target = ghTargetFromFlags(parsed.flags, run);
+  const all = flagBool(parsed.flags, "--all");
+  const dryRun = flagBool(parsed.flags, "--dry-run");
+  const result = await approveHeldFiles({
+    client: ctx.client,
+    keys: parsed.positionals,
+    target,
+    all,
+    dryRun,
+  });
+  // The server re-syncs the bot comment on approval. This covers the
+  // local-gh comment path, where the bot cannot post.
+  if (target && !dryRun && result.files.some((file) => file.action === "approved")) {
+    try {
+      await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
+    } catch {
+      // Best-effort: the approval itself already landed.
+    }
+  }
+
+  if (ctx.json) {
+    await writeJson(result);
+  } else if (!ctx.quiet) {
+    if (result.files.length === 0) {
+      const where = result.repo ? ` on ${result.repo}#${result.number}` : "";
+      process.stderr.write(`nothing held${where}\n`);
+    }
+    for (const file of result.files) {
+      const verb =
+        file.action === "approved" ? "approved" : file.action === "held" ? "held" : "not held";
+      const why = file.reason ? ` (${file.reason})` : "";
+      process.stderr.write(`${verb} ${file.key}${why}\n`);
+    }
+    if (target && !all && result.files.some((file) => file.action === "held")) {
+      const flag = target.kind === "issues" ? "--issue" : "--pr";
+      process.stderr.write(
+        `check each file, then run: uploads approve ${flag} ${target.num} --all\n`,
+      );
+    }
+    if (result.files.some((file) => file.action !== "not_held")) {
+      process.stderr.write(`${holdSettingsHint(ctx.config)}\n`);
+    }
   }
   return 0;
 }
@@ -2718,9 +3027,8 @@ export async function runPut(
   }
   const multi = files.length > 1 || urlArgs.length > 1;
 
-  // Resolved early (issue #700): both the auto-PR opt-out default and the
-  // `--no-git`-gated staging/auto-PR detection below need it before the rest
-  // of put's flag parsing.
+  // Resolved early: the auto-PR opt-out and the `--no-git`-gated detection
+  // below both need it.
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
 
@@ -2732,12 +3040,9 @@ export async function runPut(
     throw new UsageError("--no-pr takes no value");
   }
   const noAutoPr = flagBool(parsed.flags, "--no-pr") || defaults.noAutoPr === true;
-  // Auto-PR context (issue #700): a bare put (no --pr/--issue/--key/--ref/
-  // --prefix/--destination, not --no-git/--no-pr) on a branch that maps to
-  // exactly one open PR behaves as if `--pr <n>` had been passed — see
-  // resolveAutoPrTarget. Supersedes both the #403 staging default and the
-  // #393 nudge for this case; computed before the gh.* metadata resolution
-  // below since it takes over that resolution entirely.
+  // A bare put on a branch with exactly one open PR behaves as if `--pr <n>`
+  // was passed (see resolveAutoPrTarget). Takes over the gh.* resolution
+  // below, so it runs first.
   const autoPrMatch: AutoPrMatch | undefined = ghTarget
     ? undefined
     : resolveAutoPrTarget({
@@ -2753,18 +3058,15 @@ export async function runPut(
       });
   const autoPrTarget = autoPrMatch?.target;
   const effectiveGhTarget = ghTarget ?? autoPrTarget;
-  // Comment sync runs by default with --pr/--issue (matches `attach`); opt
-  // out with --no-comment. --comment is accepted as a redundant no-op for
-  // back-compat with scripts written before this default flipped (#537).
+  // Comment sync is on by default with --pr/--issue; --comment is a
+  // back-compat no-op.
   const wantComment = !parsed.flags.has("--no-comment");
   const galleryId = flagString(parsed.flags, "--gallery");
   const nameFlag = flagString(parsed.flags, "--name");
   const dryRun = flagBool(parsed.flags, "--dry-run");
-  // Strict-overwrite escape hatch (issue #174): only matters on non-gh/ keys
-  // (--key or the default put path) — the server ignores `replace` on
-  // managed gh/ paths (--pr/--issue), which always hot-swap regardless.
+  // Only matters on non-gh/ keys; managed gh/ paths always hot-swap.
   const replaceFlag = flagBool(parsed.flags, "--replace") || process.env.UPLOADS_OVERWRITE === "1";
-  // Validate --meta up front (fail fast, before reading/optimizing the file).
+  // Validate --meta before reading or optimizing the file.
   const userMeta = ((): Record<string, string> | undefined => {
     const pairs = flagValues(parsed.flags, "--meta");
     const fromMeta = warnNearMissMeta(ctx, pairs.length > 0 ? parseMetaFlags(pairs) : {});
@@ -2850,14 +3152,8 @@ export async function runPut(
           })()
         : defaults.width;
 
-  // Bare-put branch staging (issue #403): a bare put (no --pr/--issue/--key/
-  // --ref/--prefix/--destination, not --no-git) on a non-default git branch
-  // stages to the branch prefix — identical key/metadata to `attach
-  // --branch` — instead of the dated layout. Computed before gh.* metadata
-  // resolution below since it takes over that resolution entirely (branch
-  // metadata, not PR/issue metadata) and supersedes the #393 nudge for this
-  // case. `effectiveGhTarget` (explicit --pr/--issue OR the #700 auto-PR
-  // match) wins over staging, same as it wins over the dated layout.
+  // Bare put on a non-default branch stages to the branch prefix, same
+  // key/metadata as `attach --branch`. An explicit or auto-PR target wins.
   const stagingTarget = resolvePutStagingTarget({
     ghTarget: effectiveGhTarget,
     keyHint,
@@ -2869,32 +3165,25 @@ export async function runPut(
     run,
   });
 
-  // gh.* metadata: explicit --pr/--issue target (or the #700 auto-PR match)
-  // wins over --meta; staging wins over --meta the same way (matches attach
-  // --branch); otherwise best-effort auto resolution (on by default) where
-  // --meta wins. --no-git, --no-auto, or UPLOADS_NO_AUTO_META disable auto;
-  // --auto forces past the config default but never past --no-git (no repo
-  // to resolve).
+  // gh.* metadata: an explicit/auto-PR target or staging wins over --meta;
+  // otherwise best-effort auto resolution where --meta wins. --no-git,
+  // --no-auto and UPLOADS_NO_AUTO_META disable auto; --auto never overrides
+  // --no-git.
   let metadata = userMeta;
   let attachedRef: string | undefined;
   if (effectiveGhTarget) {
     const merged = { ...userMeta, ...ghMetadataFromTargetWithTitle(effectiveGhTarget, run) };
-    validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
+    validateMetaMap(merged);
     metadata = merged;
     attachedRef = merged["gh.ref"];
-    // Auto-PR (#700) suppresses staging, so the staging branch below never
-    // runs — but this put still comes from a branch that may have been
-    // renamed while files were staged under the old name. Register the
-    // lineage here too (issue #920), reusing the branch the match already
-    // resolved. Only for the auto-PR match: an explicit --pr/--issue names
-    // no branch of its own.
+    // Auto-PR skips staging, but the branch may have been renamed while files
+    // were staged under the old name, so register the lineage here too.
     if (autoPrMatch && !dryRun) {
       await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
     }
   } else if (stagingTarget) {
     metadata = mergeStagingMeta(userMeta, stagingTarget);
-    // Branch staging: register any rename behind this name (issue #920) so
-    // the PR-time promote finds files staged under the older names too.
+    // So the PR-time promote also finds files staged under older names.
     if (!dryRun) {
       await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
     }
@@ -2909,53 +3198,34 @@ export async function runPut(
       if (autoTarget) {
         const autoMeta = ghMetadataFromTargetWithTitle(autoTarget, run);
         const merged = { ...autoMeta, ...userMeta };
-        // Auto resolution must never fail the upload: if merging the gh.* pairs
-        // would exceed the metadata caps, drop them and upload with --meta only.
+        // Auto gh.* must never fail the upload: past the metadata caps, drop
+        // them and upload with --meta only.
         try {
           validateMetaMap(merged);
           metadata = merged;
           attachedRef = merged["gh.ref"];
-        } catch {
-          // keep metadata = userMeta (already validated); skip auto gh.*
-        }
+        } catch {}
       }
     }
   }
 
-  // Derived `repo` (spec: 2026-08-11-screenshots-project-grouping-design.md):
-  // the capturing repo, on every layout including gh/staging. mergeDerivedMeta
-  // keeps explicit --meta repo= wins and never breaks the caps.
-  //
-  // `metadata === undefined` means "leave whatever's already stored for this
-  // key untouched" (client.ts only sends X-Uploads-Meta-* when the map is
-  // defined; a defined map is a full replace server-side). A bare `uploads
-  // put` with no --meta/gh/staging context leaves `metadata` undefined by
-  // design — never synthesize `{ repo }` there just because a repo happens
-  // to be derivable, or a plain re-upload of an existing key would silently
-  // wipe everything already stored on it. Only fold repo in when `metadata`
-  // is already a defined object for another reason.
+  // Derived `repo`, on every layout. Only folded in when `metadata` is
+  // already defined: an undefined map leaves stored metadata untouched,
+  // while a defined one replaces it, so synthesizing `{ repo }` on a plain
+  // re-upload would wipe what's stored.
   if (!noGit && derivedMetaEnabled(parsed.flags, defaults) && metadata !== undefined) {
     const slug = deriveRepoSlugFromGit(run);
     if (slug) metadata = mergeDerivedMeta(metadata, { repo: slug });
   }
 
-  // #692 follow-up: a path-tagged upload with no repo/gh.repo/app context and
-  // no real (non-local) origin lands in the screenshots page's fallback
-  // buckets — one advisory line at the moment the context went missing.
-  // --no-git is an explicit choice, so it suppresses the nudge too.
+  // A path-tagged upload with no repo/app context and no real origin lands
+  // in the screenshots page's fallback buckets, so say so once. --no-git
+  // suppresses it.
   const contextNudge =
     !ctx.quiet && !defaults.noNudge && !noGit ? noProjectContextNudge(metadata) : undefined;
 
-  // Bare-put nudge (issue #393): only relevant when neither auto-PR nor
-  // staging took over — once `effectiveGhTarget`/`stagingTarget` resolves,
-  // that IS the upgrade the nudge used to point at, so this is skipped
-  // entirely rather than firing redundantly. Still fires as before for a
-  // bare put that lands on the dated layout with a detectable PR (e.g. an
-  // explicit --ref/--prefix opts out of staging AND auto-PR, or --no-pr/
-  // UPLOADS_NO_AUTO_PR opts out of auto-PR specifically). The concrete
-  // key-naming text (issue #700) is finished below, once upload keys exist.
-  // Best-effort — see resolvePutNudgeContext; never affects exit code,
-  // stdout, or the upload.
+  // Bare-put nudge: skipped when auto-PR or staging took over, since that is
+  // the upgrade it points at. Text is finished below once keys exist.
   const nudgeContext =
     effectiveGhTarget || stagingTarget
       ? undefined
@@ -2970,19 +3240,14 @@ export async function runPut(
           run,
         });
 
-  // Staging note (issue #403): same suppression as the #393 nudge
-  // (--quiet, UPLOADS_NO_NUDGE=1 env/config); staging itself is NOT gated by
-  // either — only whether the note is printed/hinted.
+  // Suppressed by --quiet / UPLOADS_NO_NUDGE=1; staging itself is not.
   const stagingNote =
     stagingTarget && !ctx.quiet && !defaults.noNudge
       ? putStagingNoteText(stagingTarget.branch)
       : undefined;
 
-  // Auto-PR note (issue #700): announces the default-behavior change at the
-  // moment it fires, so a bare put that silently became a --pr attach isn't
-  // a surprise — names the PR and how to opt out. Same suppression as the
-  // other advisories (--quiet, UPLOADS_NO_NUDGE=1); NOT gated by --no-pr/
-  // UPLOADS_NO_AUTO_PR since those are what prevent it from firing at all.
+  // Announce the auto-PR attach so it isn't a surprise. Suppressed by
+  // --quiet / UPLOADS_NO_NUDGE=1.
   const autoPrNote =
     autoPrTarget && !ctx.quiet && !defaults.noNudge ? autoPrNoteText(autoPrTarget.num) : undefined;
 
@@ -3066,10 +3331,7 @@ export async function runPut(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
-  // Concrete bare-put nudge text (issue #700): built once upload keys exist,
-  // so the ready-made follow-up names them, e.g.
-  // "uploads attach --pr 1250 f/abc123.webp". Falls back to the plain
-  // #393 wording when there are no successful uploads to name.
+  // Built once keys exist, so the follow-up command can name them.
   const nudge =
     nudgeContext && uploads.length > 0
       ? putNudgeText(
@@ -3079,27 +3341,18 @@ export async function runPut(
         )
       : undefined;
 
-  // Stage-time binding warning (issue #398/#400): same check `attach
-  // --branch` runs, now also on the bare-put staging path. Best-effort — see
-  // resolveStageBindingWarning; never affects exit code or the upload.
+  // Same binding check as `attach --branch`. Advisory only.
   const bindingWarning =
     stagingTarget && uploads.length > 0
       ? await resolveStageBindingWarning({ ctx, defaults, repo: stagingTarget.repo })
       : undefined;
-  // Lever 3 (issue #469): tip when a --pr/--issue put lands an image with no
-  // `path` meta. Only relevant on the (explicit or auto) gh target path — the
-  // bare-put staging/dated paths aren't attached to a PR/issue yet, so
-  // there's nothing to look up from a page later.
+  // Only on the gh target path; staged and dated uploads aren't on a PR yet.
   const pathHint =
     effectiveGhTarget && uploads.length > 0 && !ctx.quiet
       ? pathMetaHintFor(uploads, sentMetadata)
       : undefined;
-  // One JSON `hint` slot, shared across every advisory this command can
-  // surface. `autoPrNote` and `nudge` are mutually exclusive with each other
-  // and with `stagingNote` (each corresponds to a different destination the
-  // upload landed on); pathHint only ever fires on the gh-target path, so it
-  // never competes with the other three. Same precedence stderr prints,
-  // below.
+  // One JSON `hint` slot, same precedence as stderr below. The first three
+  // are mutually exclusive; pathHint only fires on the gh-target path.
   const jsonHint = autoPrNote ?? nudge ?? bindingWarning ?? stagingNote ?? pathHint ?? contextNudge;
 
   type GalleryOutcome = {
@@ -3140,7 +3393,7 @@ export async function runPut(
       );
       if (logHuman)
         process.stderr.write(
-          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
         );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
@@ -3497,6 +3750,9 @@ const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--r
 
 Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
 
+uploads list has no --branch. To see files staged for a branch, run
+uploads staged --branch <name>. An unknown flag is an error.
+
 --meta <k=v> (repeatable, ANDed) and/or --name <term> switch to the search
 endpoint — returned items include their matched metadata. Combines with
 --prefix, not with --pr/--issue. --name is a case-insensitive
@@ -3565,6 +3821,45 @@ async function runFindFiles(
   return 0;
 }
 
+const LIST_FLAGS = new Set([
+  "--prefix",
+  "--pr",
+  "--issue",
+  "--repo",
+  "--limit",
+  "--cursor",
+  "--all",
+  "--meta",
+  "--name",
+  "--workspace",
+  "-w",
+  "--json",
+  "--quiet",
+]);
+
+function rejectUnknownListFlags(flags: CommandFlags["flags"]): void {
+  const name = unknownFlags(flags, LIST_FLAGS)[0];
+  if (!name) return;
+  if (name === "--branch") {
+    throw new UsageError(
+      "unknown flag --branch for uploads list. Files staged for a branch are uploads staged.",
+      { example: "uploads staged --branch feature/thing" },
+    );
+  }
+  throw new UsageError(`unknown flag ${name} for uploads list`, {
+    example: "uploads list --prefix screenshots/",
+  });
+}
+
+/** `--json` / `--quiet` after the command, which global parsing does not see. */
+function commandOutputView(ctx: CliContext, flags: CommandFlags["flags"]): CliContext {
+  return {
+    ...ctx,
+    json: ctx.json || flagBool(flags, "--json"),
+    quiet: ctx.quiet || flagBool(flags, "--quiet"),
+  };
+}
+
 export async function runList(
   ctx: CliContext,
   args: string[],
@@ -3576,6 +3871,8 @@ export async function runList(
     writeCommandHelp(LIST_HELP);
     return 0;
   }
+  rejectUnknownListFlags(parsed.flags);
+  const view = commandOutputView(ctx, parsed.flags);
   const metaPairs = flagValues(parsed.flags, "--meta");
   const nameFlag = flagString(parsed.flags, "--name");
   if (metaPairs.length > 0 || nameFlag !== undefined) {
@@ -3583,28 +3880,23 @@ export async function runList(
       throw new UsageError("--meta/--name cannot be combined with --pr/--issue");
     }
     return runFindFiles(
-      ctx,
+      view,
       metaPairs.length > 0 ? parseMetaFlags(metaPairs) : {},
       parsed.flags,
       nameFlag,
     );
   }
-  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
+  const defaults = resolvePutDefaults({ envFile: view.envFile });
   const prefixFlag = flagString(parsed.flags, "--prefix");
   let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
-  // Also list every active private prefix, if any (issue #631) — mirrors
-  // syncAttachmentsComment's gh-fallback gather: a repo's attachment
-  // history can be split across the plain shape and MULTIPLE private
-  // prefixes, not just the currently-resolved one. `prefixes` stays
-  // undefined outside --pr/--issue (unchanged behavior); when defined it
-  // collapses to just `[prefix]` in plain mode, so the single-request path
-  // below is byte-identical to pre-#631 output there.
+  // With --pr/--issue, also list every active private prefix (see
+  // ghListPrefixes). Plain mode collapses to `[prefix]`.
   let prefixes: string[] | undefined;
   if (ghTarget) {
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
     prefix = ghKeyPrefix(ghTarget);
-    const ghPrefix = await resolveGhPrefixSafe(ctx.client, {
+    const ghPrefix = await resolveGhPrefixSafe(view.client, {
       repo: ghTarget.repo,
       target: { kind: ghTarget.kind, num: ghTarget.num },
     });
@@ -3618,32 +3910,29 @@ export async function runList(
     const items =
       prefixes && prefixes.length > 1
         ? await ghMergedList(prefixes, cursor, (p, c) =>
-            ctx.client.listAll({ prefix: p, limit, cursor: c }),
+            view.client.listAll({ prefix: p, limit, cursor: c }),
           )
-        : await ctx.client.listAll({ prefix, limit, cursor });
-    if (ctx.json) await writeJson({ items, cursor: null });
+        : await view.client.listAll({ prefix, limit, cursor });
+    if (view.json) await writeJson({ items, cursor: null });
     else
       for (const item of items)
         await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
     return 0;
   }
 
-  // Merged multi-prefix pages don't have a meaningful combined cursor —
-  // dropped (null) only when there's more than one prefix to merge; the
-  // single-prefix path (every non-private call, plus every call before
-  // #631) is untouched. Same first-prefix-only cursor guard as --all above.
+  // Merged multi-prefix pages have no meaningful combined cursor.
   const result =
     prefixes && prefixes.length > 1
       ? {
           items: await ghMergedList(
             prefixes,
             cursor,
-            async (p, c) => (await ctx.client.list({ prefix: p, limit, cursor: c })).items,
+            async (p, c) => (await view.client.list({ prefix: p, limit, cursor: c })).items,
           ),
           cursor: null,
         }
-      : await ctx.client.list({ prefix, limit, cursor });
-  if (ctx.json) await writeJson(result);
+      : await view.client.list({ prefix, limit, cursor });
+  if (view.json) await writeJson(result);
   else {
     for (const item of result.items)
       await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
@@ -3683,11 +3972,8 @@ export async function runFind(ctx: CliContext, args: string[], help = false): Pr
     writeCommandHelp(FIND_HELP);
     return 0;
   }
-  // Same flag/positional symmetry as `meta set` (issue #545): `find` is the
-  // alias for `list --meta`, so `find --meta k=v` must not dead-end.
-  // Bare positionals without `=` are the filename term (issue #528) so
-  // `uploads find hero` works without a flag. Empty input is rejected inside
-  // `runFindFiles` (shared with `list --name` / `--meta`).
+  // `find --meta k=v` works like `meta set`. Bare positionals without `=` are
+  // the filename term, so `uploads find hero` works.
   const nameFlag = flagString(parsed.flags, "--name");
   const kvPositionals: string[] = [];
   const bareNames: string[] = [];
@@ -3776,11 +4062,8 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
           example: "uploads meta set screenshots/myapp/42/shot.png --meta path=/settings",
         });
       }
-      // `--meta k=v` is accepted alongside the positional form: `put`, `list`,
-      // and `screenshot` all spell metadata that way, and `put`'s own success
-      // tip teaches the flag, so carrying it here is the natural guess
-      // (issue #545). Positionals come first so argument order still reads
-      // left to right when both are used.
+      // `--meta k=v` is accepted alongside positionals, as on put/list.
+      // Positionals come first.
       const pairs = [...parsed.positionals.slice(2), ...flagValues(parsed.flags, "--meta")];
       const del = flagValues(parsed.flags, "--delete");
       if (pairs.length === 0 && del.length === 0) {
@@ -3799,8 +4082,7 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
       return 0;
     }
     case "keys": {
-      // Workspace vocabulary discovery (issue #528) — which meta keys exist
-      // and how common they are, before agents guess at find filters.
+      // Which meta keys exist and how common they are.
       const result = await ctx.client.listMetadataKeys();
       if (ctx.json) await writeJson(result);
       else {
@@ -3835,25 +4117,13 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
   }
 }
 
-/** The metadata keys the managed comment renders (path/state, PR #370). */
-const COMMENT_RENDERED_META_KEYS = ["path", "state"];
+/** The metadata keys the managed comment renders. */
+const COMMENT_RENDERED_META_KEYS = ["screen", "path", "state"];
 
 /**
- * Best-effort managed-comment refresh after `meta set` touches a
- * display-relevant key on a PR/issue-keyed object (issue #470) — without
- * this, backfilled `path=`/`state=` never reaches the rendered comment until
- * an unrelated attach fires. Bot endpoint only (no gh fallback — this is a
- * metadata tweak, not an explicit comment command); any failure degrades to
- * a stderr hint instead of failing the metadata write that already landed.
- */
-/**
- * Resolve the `{repo, kind, num}` target for a key, whether plain
- * (`parseGhKey`) or private-prefixed (issue #631, `parseGhPrivateKey` —
- * cannot recover the repo from the key alone, since the randomized prefix
- * deliberately omits it). For a private key, reads `gh.repo` metadata — the
- * attach/put that created this key already wrote it — via the same metadata
- * client call `meta get` uses. Fail-open: any read failure, or a key that
- * isn't gh-managed at all, resolves to undefined (nothing to resync).
+ * Resolve the `{repo, kind, num}` target for a plain or private-prefixed gh
+ * key. A private key omits the repo, so read its `gh.repo` metadata. Any
+ * failure, or a non-gh key, resolves to undefined.
  */
 async function resolveGhTargetForResync(
   client: UploadsClient,
@@ -3935,10 +4205,52 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
     else process.stderr.write(`dry-run: would delete ${key}\n`);
     return 0;
   }
-  const result = await ctx.client.delete(key);
+  const result = await deleteAndRefreshComment(ctx.client, key);
   if (ctx.json) await writeJson(result);
-  else if (!ctx.quiet) process.stderr.write(`deleted ${result.key}\n`);
+  else if (!ctx.quiet) {
+    process.stderr.write(`deleted ${result.key}\n`);
+    if (result.commentRefreshed) {
+      process.stderr.write("refreshed the managed comment\n");
+    } else if (result.commentHint) {
+      process.stderr.write(`tip: run \`${result.commentHint}\` to refresh the PR comment\n`);
+    }
+  }
   return 0;
+}
+
+/** Plain or private PR/issue attachment. Branch keys are not attachments. */
+const GH_ATTACHMENT_KEY =
+  /^gh\/(?:[^/]+\/[^/]+|private\/[0-9a-f]{32})\/(?:pull|issues)\/[1-9][0-9]*\//;
+
+/**
+ * Delete one object. When the key is a PR/issue attachment, resolve the
+ * comment target first (metadata goes away with the object) and refresh the
+ * managed comment, or return the `uploads comment` hint when the bot post
+ * does not land. Non-attachment keys return the delete result alone.
+ */
+export async function deleteAndRefreshComment(
+  client: UploadsClient,
+  key: string,
+): Promise<{ key: string; deleted: boolean; commentRefreshed?: boolean; commentHint?: string }> {
+  const target = GH_ATTACHMENT_KEY.test(key)
+    ? await resolveGhTargetForResync(client, key)
+    : undefined;
+  const result = await client.delete(key);
+  if (!target) return result;
+  const flag = target.kind === "pull" ? "--pr" : "--issue";
+  const commentHint = `uploads comment ${flag} ${target.num}`;
+  try {
+    const bot = await client.upsertGithubComment({
+      repo: target.repo,
+      num: target.num,
+      kind: target.kind,
+      resync: true,
+    });
+    if (bot.posted) return { ...result, commentRefreshed: true };
+  } catch {
+    // The delete already landed. The hint is the recovery.
+  }
+  return { ...result, commentRefreshed: false, commentHint };
 }
 
 // --- comment ---
@@ -3994,7 +4306,7 @@ export async function runComment(
     } else {
       line = `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`;
     }
-    process.stderr.write(line);
+    process.stderr.write(line + heldNote(result));
   }
   return 0;
 }
@@ -4009,7 +4321,7 @@ Usage:
 
 Scans the PR/issue description and comments for github.com/user-attachments
 media and public cursor.com/artifacts/c/art-* rewrite URLs, mirrors new ones
-into the workspace (indexed, not added to the managed comment), and detaches
+into the workspace (indexed and included in the managed comment), and detaches
 ones no longer referenced. Viewer (/artifacts/v/) and login-walled agent-page
 links are skipped — enable Allow posting artifacts to GitHub so the PR gets a
 public /c/ URL. Works on any repo linked to the workspace; the .uploads.yml
@@ -4100,7 +4412,7 @@ Examples:
   uploads github rotate-prefix --repo-level
 `;
 
-/** Older servers' health payload predates recommendedEvents/missingRecommendedEvents — treat as no recommendations rather than crashing. */
+/** Older servers omit missingRecommendedEvents; treat that as none. */
 function missingRecommendedEventsOf(result: GithubHealthResult): string[] {
   return Array.isArray(result.missingRecommendedEvents) ? result.missingRecommendedEvents : [];
 }
@@ -4119,11 +4431,8 @@ function formatGithubDoctor(result: GithubHealthResult): string {
     return `github app: configured, but health check failed${result.hint ? ` — ${result.hint}` : ""}\n`;
   }
   if (result.ok) {
-    // The ACTUAL subscribed list, not just the required subset — printing
-    // requiredEvents here once misdiagnosed a live App as "not subscribed to
-    // issue_comment" when it was (2026-08-11). `events` is non-null on every
-    // ok result (the null case returns above); the requiredEvents fallback
-    // only guards a malformed payload from an older server.
+    // Print the actual subscribed list, not the required subset, which once
+    // misdiagnosed a live App as unsubscribed.
     const subscribed = Array.isArray(result.events)
       ? [...result.events].sort()
       : [...result.requiredEvents];
@@ -4198,11 +4507,9 @@ async function runGithubLink(ctx: CliContext, repo: string, statusOnly: boolean)
     return 0;
   }
   if (!statusOnly && result.claimed === false) {
-    // Cross-tenant authorization (issue #297): `reason: "not_authorized"`
-    // means the repo is unbound but this workspace couldn't be verified as
-    // entitled to claim it (no linked GitHub account, or that account lacks
-    // push access) — distinct from the older "someone else already owns it"
-    // case, which still reports `result.workspace`.
+    // `not_authorized`: the repo is unbound but this workspace couldn't be
+    // verified as entitled to claim it (no linked GitHub account, or no push
+    // access). "Owned elsewhere" still reports `result.workspace`.
     if (result.reason === "not_authorized") {
       process.stderr.write(
         `note: ${repo} isn't linked to any workspace yet, and this workspace couldn't be ` +
@@ -4499,12 +4806,8 @@ export interface DoctorReport {
   /** Workspace/token mismatch warning (also present in hints). */
   warning?: string;
   /**
-   * Storage-lane summary (issue #775): the usage endpoint carries a
-   * bearer-safe `storage` object (mode + fallback-lane count + health), so
-   * doctor reports it from the same call it already makes. `checked` is
-   * false when usage failed or the server predates the field — then `note`
-   * falls back to the honest "can't check from here" line (the full
-   * projection on `GET /me/workspaces/:name/storage` stays session-gated).
+   * Storage-lane summary from the usage response. `checked` is false when
+   * usage failed or the server predates the field.
    */
   storage: {
     checked: boolean;
@@ -4528,13 +4831,7 @@ export interface DoctorReport {
   };
 }
 
-/**
- * Best-effort local-browser detection for doctor. fs scans only, no browser
- * launch. Guarded for non-Node runtimes as a precaution for any future
- * non-Node consumer of this module — apps/mcp today only imports
- * `buildMarkdown`/`buildScreenshotKey` from the package root, not
- * `buildDoctorReport`, so this guard isn't exercised on that path currently.
- */
+/** Best-effort local-browser detection for doctor: fs scans only, never launches one. */
 async function detectBrowserForDoctor(detectRoots?: DetectRoots): Promise<DoctorReport["browser"]> {
   if (typeof process === "undefined" || !process.versions?.node) {
     return {
@@ -4584,8 +4881,6 @@ export async function buildDoctorReport(
   if (config.apiUrl.includes("localhost") || config.apiUrl.includes("127.0.0.1")) {
     hints.push("local API uses dev KV — prod tokens won't work unless minted with --local");
   }
-  // Independent checks — fs-based browser detection doesn't depend on the
-  // network health probe (or vice versa).
   const [browser, health] = await Promise.all([
     detectBrowserForDoctor(detectRoots),
     client.health(),
@@ -4649,8 +4944,11 @@ export async function buildDoctorReport(
       }
       scopes = snap.scopes;
       if (scopes && !scopes.includes("files:delete")) {
+        const remedy = scopeRemedy("files:delete");
         hints.push(
-          "token lacks files:delete (`uploads delete` will be forbidden) — re-run `uploads login` for a full-scope token",
+          scopes.includes("files:write")
+            ? `token has files:write but not files:delete — you can delete gh/ attachments the server stamped as yours; older files and other deletes need files:delete. ${remedy}`
+            : `token lacks files:delete. ${remedy}`,
         );
       }
     } catch (err) {

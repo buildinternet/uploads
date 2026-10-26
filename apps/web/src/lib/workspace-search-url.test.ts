@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applySearchLocation,
   buildSearchQuery,
   isValidMetaKey,
   isValidMetaValue,
@@ -101,5 +102,43 @@ describe("readSearchName", () => {
     const query = buildSearchQuery([{ key: "gh.repo", value: "a/b" }], "screenshot");
     expect(readSearchName(`?${query}`)).toBe("screenshot");
     expect(readSearchFilters(`?${query}`)).toEqual([{ key: "gh.repo", value: "a/b" }]);
+  });
+});
+
+describe("applySearchLocation", () => {
+  it("moves the address to Storage and writes name + meta.*", () => {
+    const next = applySearchLocation(
+      new URL("https://uploads.sh/account/workspaces/acme/files?path=a/&ws=acme&view=grid"),
+      "acme",
+      [{ key: "gh.repo", value: "acme/web" }],
+      "hero",
+    );
+    expect(next.pathname).toBe("/account/workspaces/acme/storage");
+    expect(next.searchParams.get("path")).toBeNull();
+    expect(next.searchParams.get("ws")).toBeNull();
+    expect(next.searchParams.get("name")).toBe("hero");
+    expect(next.searchParams.get("meta.gh.repo")).toBe("acme/web");
+    // Layout preference belongs to workspace-files-view; search must keep it.
+    expect(next.searchParams.get("view")).toBe("grid");
+  });
+
+  it("clears prior meta.* terms and the prefix alias", () => {
+    const next = applySearchLocation(
+      new URL("https://uploads.sh/account/workspaces/acme/storage?meta.app=web&prefix=a/&name=x"),
+      "acme",
+      [],
+    );
+    expect(next.search).toBe("");
+  });
+
+  it("leaves the pathname alone for an invalid workspace", () => {
+    const next = applySearchLocation(
+      new URL("https://uploads.sh/account/workspaces?ws=Not_Valid"),
+      "Not_Valid",
+      [{ key: "app", value: "web" }],
+    );
+    expect(next.pathname).toBe("/account/workspaces");
+    expect(next.searchParams.get("ws")).toBeNull();
+    expect(next.searchParams.get("meta.app")).toBe("web");
   });
 });

@@ -17,6 +17,7 @@ import {
   slowOpThresholdMs,
   timeOp,
 } from "@uploads/observability";
+import { setIssueContext } from "@uploads/observability/issues";
 import type { MiddlewareHandler } from "hono";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 
@@ -127,10 +128,15 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
         details: { status: response.status },
       });
     }
-    const body = (await response.json().catch(() => undefined)) as
-      | GetSessionResponse
-      | null
-      | undefined;
+    let body: GetSessionResponse | null;
+    try {
+      body = (await response.json()) as GetSessionResponse | null;
+    } catch (err) {
+      throw new ServiceUnavailableError("auth service returned a malformed session", {
+        code: "auth_session_unavailable",
+        cause: err,
+      });
+    }
     if (body === null) return null;
     if (!body || typeof body !== "object" || !body.user) {
       throw new ServiceUnavailableError("auth service returned a malformed session", {
@@ -141,13 +147,25 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
     // rides on a leftover cookie, treat the caller as signed out so /me and
     // /admin-ui cannot keep serving them.
     if (body.user.banned === true) return null;
+    setIssueContext({
+      userId: body.user.id,
+      sessionId: sessionRecordId(body.session),
+    });
     return body.user;
   } catch (err) {
     if (err instanceof ServiceUnavailableError || err instanceof RateLimitedError) throw err;
     throw new ServiceUnavailableError("auth service is unavailable", {
       code: "auth_session_unavailable",
+      cause: err,
     });
   }
+}
+
+/** Session row id only. The session token is a credential and must not be an attribute. */
+function sessionRecordId(session: unknown): string | undefined {
+  if (!session || typeof session !== "object") return undefined;
+  const id = (session as { id?: unknown }).id;
+  return typeof id === "string" ? id : undefined;
 }
 
 /** 401s unless `sessionAuth` found a valid session. */

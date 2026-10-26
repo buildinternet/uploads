@@ -17,6 +17,7 @@ class RacyKv {
   store = new Map<string, string>();
   gets = 0;
   puts = 0;
+  metadata = new Map<string, unknown>();
   beforeGet: ((gets: number) => void) | undefined;
 
   constructor(seed: Record<string, unknown> = {}) {
@@ -32,9 +33,11 @@ class RacyKv {
     return json || opts === "json" ? JSON.parse(raw) : raw;
   };
 
-  put = async (key: string, value: string): Promise<void> => {
+  // Like real KV, a put without `metadata` erases whatever was stored.
+  put = async (key: string, value: string, opts?: { metadata?: unknown }): Promise<void> => {
     this.puts += 1;
     this.store.set(key, value);
+    this.metadata.set(key, opts?.metadata);
   };
 
   read(name: string): WorkspaceRecord {
@@ -179,5 +182,33 @@ describe("mutateWorkspaceRecord", () => {
       ({ deletedAt: _, ...rest }) => rest,
     );
     expect(restored.deletedAt).toBeUndefined();
+  });
+});
+
+describe("mutateWorkspaceRecord key metadata", () => {
+  it("writes { byob } metadata alongside the record", async () => {
+    const kv = new RacyKv({ "ws:acme": BASE });
+    await mutateWorkspaceRecord(envFor(kv), "acme", (r) => ({
+      ...r,
+      binding: undefined,
+      accountId: "acc",
+      accessKeyId: "ak",
+      secretAccessKey: "sk",
+    }));
+    expect(kv.metadata.get("ws:acme")).toEqual({ byob: true });
+  });
+
+  it("flips metadata back when the record stops being BYO", async () => {
+    const kv = new RacyKv({
+      "ws:acme": {
+        provider: "r2",
+        bucket: "b",
+        accountId: "acc",
+        accessKeyId: "a",
+        secretAccessKey: "s",
+      },
+    });
+    await mutateWorkspaceRecord(envFor(kv), "acme", (r) => ({ ...r, binding: "UPLOADS" }));
+    expect(kv.metadata.get("ws:acme")).toEqual({ byob: false });
   });
 });

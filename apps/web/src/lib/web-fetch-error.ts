@@ -1,3 +1,5 @@
+import { reportHandledError } from "@uploads/observability";
+
 /**
  * Last-resort Worker error boundary for the web origin. Astro already maps
  * page throws to 500.astro; this covers unexpected throws in the markdown
@@ -19,8 +21,8 @@ export async function respondWebFetchFailure(
         statusText: "Internal Server Error",
         headers: page.headers,
       });
-    } catch {
-      // Fall through to the plain-text body.
+    } catch (err) {
+      reportHandledError(err);
     }
   }
   return new Response("Internal Server Error", {

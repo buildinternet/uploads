@@ -1,5 +1,116 @@
 # @buildinternet/uploads
 
+## 0.60.1
+
+### Patch Changes
+
+- 999e816: Require sharp 0.35.5 so image processing picks up the fixes for GHSA-wq5f-xc86-pv6w and GHSA-rgj7-g3m4-5g8c.
+- a99a88f: The API client now comes from the new `@buildinternet/uploads-sdk` package. `createUploadsClient` and its types are still exported from `@buildinternet/uploads`, with no behavior change.
+- Updated dependencies [862c678]
+  - @buildinternet/uploads-sdk@0.1.0
+
+## 0.60.0
+
+### Minor Changes
+
+- 079389b: Add `--screen <name>` (and a `screen` MCP field) for mobile and desktop app screens that have no route, e.g. `uploads put ./chat.png --app ios --screen "Chat"`. `screen` is now a canonical metadata key: the PR comment shows it under the image, next to `path` when both are set, and before/after shots pair on it. The no-path tip suggests `--screen` for non-web `--app` shots, and `view=` now warns as a near-miss of `screen`.
+
+### Patch Changes
+
+- 482c43d: `.uploads.yml` accepts `check.ai` (`ready-screen`, `identical-before-after`, or `all`) for advisory AI notes on the "Check for visuals" check.
+- 031fcee: `uploads ingest` help now says imported GitHub attachments appear in the managed PR comment.
+- 901d994: The CLI warns once a day when your login token expires within 7 days, with the date and `uploads login --force` to renew it. JSON output (`--json`, `--format json`) and `--quiet` stay silent. The Claude Code mod opens its staged attachments pane on a file when uploads.sh newly holds it for review, so its Approve is one click away.
+
+## 0.59.6
+
+### Patch Changes
+
+- 36ad5cd: Update the bundled MCP server SDK so `uploads mcp` includes the October 2026 protocol fixes for shared connections and tool-input validation
+
+## 0.59.5
+
+### Patch Changes
+
+- e92c63e: `uploads approve` now ends with a line saying a workspace admin can turn holds off in Settings → AI labels, with the link.
+- e8a9855: Classify hosted MCP `put` and `sign_upload_url` uploads, so a file showing a likely secret or ID is held for review like a CLI upload
+- a841413: Require files-sdk 3.1.1 for the optional agent file tools
+- 5465087: Stop holding uploads flagged `ai.pii=other`; only identity documents and payment or bank numbers hold for personal data
+- 4249cb2: Count images committed to the repo and linked from a PR toward the uploads.sh check
+
+## 0.59.4
+
+### Patch Changes
+
+- fa6918f: Before/after pairs in the PR comment now share one table with a Before and After header, one row per pair. Two videos tagged before and after pair the same way images do.
+- d608204: The comment's View on uploads.sh button turns golden yellow while a file is held, and `.uploads.yml` accepts `uiPaths` and `noUploadsComment`.
+- 9a73033: The PR comment's live link is now a "View on uploads.sh" button at the end of the comment, after the screenshots, with the file count in the footer beside the add-media hint.
+- 84bec59: The github-screenshots skill explains the neutral "UI files changed" check, which now appears on PRs that change common UI files with nothing attached, even when no UI paths are set. The pre-PR screenshot reminder no longer counts deleted UI files.
+- ed9d927: Count screenshots attached on GitHub toward the uploads.sh check, so contributors without uploads.sh can pass
+- ad63165: `uploads login` now replaces a saved token the server rejects (expired or revoked) without `--force`, and an expired token's error says when it expired.
+- d21a6eb: Once the server says a token expired, the CLI and the local MCP server stop sending it. Later calls fail right away with the same message until `uploads login` saves a new token, so background refreshes no longer hit the API with a dead token.
+- 8c802bd: `.uploads.yml` accepts `check.require` and `check.skipLabels`, so a repo can make the uploads.sh check fail when a PR changes UI files without the uploads it expects.
+- 51838ed: `check.require` in `.uploads.yml` now falls back to the workspace's Require screenshots on UI changes setting.
+- 2cf108b: `uiPaths` in `.uploads.yml` now falls back to the workspace's UI file paths setting.
+
+## 0.59.3
+
+### Patch Changes
+
+- 865ed9a: `uploads staged` marks files held for review (`held: true` in `--format json`, "held for review" in the human listing). The Claude Code mod draws a held file as a lock card instead of fetching its thumbnail, counts held files in the band, offers Approve in the pane's detail view, and says when files it attached on `gh pr create` are held.
+
+## 0.59.2
+
+### Patch Changes
+
+- 29339cf: New upload keys keep only the final extension dot: interior dots, spaces, and other special characters in a filename collapse to single dashes (`127.0.0.1-admin.webp` → `127-0-0-1-admin.webp`). Existing keys and URLs are unchanged.
+- f41a9bd: The PR comment line for held uploads now reads "1 file is held for your review".
+- ef79a6e: A put that the classifier may still hold now returns `holdCheck: "pending"`, and comment syncs report `held` with a CLI line when files on the PR or issue are held for review.
+- 30308c7: `uploads mcp` gains `list_held` and `approve` for uploads held for review, and `uploads meta get` (MCP `get_metadata`) now answers for a held file instead of returning Not found.
+
+## 0.59.1
+
+### Patch Changes
+
+- 6d765c5: `uploads approve <key> --dry-run` now reports a held file correctly when its bytes have moved out of public storage, instead of failing with "Not found".
+
+## 0.59.0
+
+### Minor Changes
+
+- 3c3758b: Add `uploads approve`. The classifier can now hold an upload it thinks shows a secret or sensitive personal data, and the managed PR comment shows a held count in its place. `uploads approve --pr <n>` lists held files, `--all` approves them, and `uploads approve <key>` approves one file. The local-gh comment path leaves held files out the same way the bot does. The bundled CLI skill documents the flow.
+
+## 0.58.0
+
+### Minor Changes
+
+- 5da7003: Add `uploads unstage` to clear a branch's staged files without deleting them. A write token can delete `gh/` objects the server stamped as that user's. Files uploaded before that stamp still need `files:delete`. A missing-scope error names the scope and where to mint it.
+
+### Patch Changes
+
+- 4879d8a: `uploads staged --branch` returns only that branch's still-staged files on private repos, and the Claude plugin no longer reports another branch's files as waiting.
+
+## 0.57.1
+
+### Patch Changes
+
+- e625574: Hosted MCP output schemas include `list_activity` and `list_repo_files`. The local `uploads mcp` server does not gain those tools.
+
+## 0.57.0
+
+### Minor Changes
+
+- 79c6603: When the managed PR comment posts through your local `gh` (no GitHub App on the repo), it now matches the bot comment: it creates the pull request's live link (the same feed `uploads feed create --pr` makes), opens with a `N files · View all on uploads.sh →` line, and links each file tagged with that pull request to its live link page. If the live link can't be created (an older server or a network error), the comment renders as before. `linkToFilePage: false` in `.uploads.yml` turns off the line and links each file to its raw URL, as the bot comment does.
+
+### Patch Changes
+
+- 314c069: API requests now send `User-Agent: @buildinternet/uploads/<version> (cli)`, or `(mcp)` from `uploads mcp`, so uploads.sh can tell which CLI version each token is using.
+
+## 0.56.7
+
+### Patch Changes
+
+- 02a800a: `uploads hook pre-pr-screenshot` now fires only when the shell command actually runs `gh pr create` (not when the text appears in a quoted argument, like a `grep`), and it reads the branch and diff from the `cwd` in the hook payload instead of the hook process's own directory, so worktree sessions report the right branch.
+
 ## 0.56.6
 
 ### Patch Changes

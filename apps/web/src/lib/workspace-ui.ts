@@ -76,12 +76,21 @@ export type UsageSnapshot = {
   storageBudgetBasis?: "total" | "shared";
 };
 
+/** Counts with grouped digits: 10,000, not 10000. */
+export function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/** "1 object" / "12,345 objects". */
+export function objectCountLabel(n: number): string {
+  return `${formatCount(n)} object${n === 1 ? "" : "s"}`;
+}
+
 function formatUsagePlain(usage: UsageSnapshot): string {
-  const parts = [
-    formatBytes(usage.bytes),
-    `${usage.objects} object${usage.objects === 1 ? "" : "s"}`,
-  ];
-  if (usage.uploadsInPeriod > 0) parts.push(`${usage.uploadsInPeriod} uploads this month`);
+  const parts = [formatBytes(usage.bytes), objectCountLabel(usage.objects)];
+  if (usage.uploadsInPeriod > 0) {
+    parts.push(`${formatCount(usage.uploadsInPeriod)} uploads this month`);
+  }
   return parts.join(" · ");
 }
 
@@ -107,8 +116,19 @@ function progressRowHtml(label: string, detail: string, pct: number): string {
   </div>`;
 }
 
-export function renderUsageHtml(usage: UsageSnapshot): string {
-  const meters: { label: string; detail: string; pct: number }[] = [];
+export interface UsageMeter {
+  label: string;
+  detail: string;
+  pct: number;
+}
+
+/**
+ * The capped meters for a usage snapshot (storage, uploads this month), in
+ * display order. Empty when the plan sets no caps. Shared by the HTML
+ * builder below and the sidebar's usage footer.
+ */
+export function usageMeters(usage: UsageSnapshot): UsageMeter[] {
+  const meters: UsageMeter[] = [];
   // BYO-active workspaces (`storageBudgetBasis: "shared"`) meter only the
   // residue still on hosted storage — bytes in the customer's own bucket are
   // unmetered, so a total-bytes meter would overstate usage against a cap
@@ -126,18 +146,32 @@ export function renderUsageHtml(usage: UsageSnapshot): string {
   const uploadsPct = usagePct(usage.uploadsInPeriod, usage.maxUploadsPerPeriod);
   if (uploadsPct !== null && usage.maxUploadsPerPeriod) {
     meters.push({
-      label: "Uploads this month",
-      detail: `${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod}`,
+      label: "Monthly uploads",
+      detail: `${formatCount(usage.uploadsInPeriod)} of ${formatCount(usage.maxUploadsPerPeriod)}`,
       pct: uploadsPct,
     });
   }
-  const byoNote = byoActive
-    ? `<div class="usage-meta">Storage on your own bucket is unmetered — the plan limit only counts files on hosted storage.</div>`
-    : "";
+  return meters;
+}
+
+export const BYO_USAGE_NOTE =
+  "Storage on your own bucket is unmetered — the plan limit only counts files on hosted storage.";
+
+/** Plain one-line usage, for plans with no caps to meter against. */
+export function usagePlainText(usage: UsageSnapshot): string {
+  return formatUsagePlain(usage);
+}
+
+export function renderUsageHtml(usage: UsageSnapshot): string {
+  const meters = usageMeters(usage);
+  const byoNote =
+    usage.storageBudgetBasis === "shared"
+      ? `<div class="usage-meta">${escapeHtml(BYO_USAGE_NOTE)}</div>`
+      : "";
   if (!meters.length) {
     return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>${byoNote}`;
   }
-  const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
+  const objects = objectCountLabel(usage.objects);
   return `<div class="ul-progress">${meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("")}</div><div class="usage-meta">${escapeHtml(objects)}</div>${byoNote}`;
 }
 
@@ -356,174 +390,7 @@ export function createErrorCopy(code: string): string {
   }
 }
 
-/** Fields the account galleries table/grid needs (extra API fields are fine). */
-export interface GalleryTableRow {
-  url: string;
-  title: string;
-  description: string | null;
-  updatedAt: string;
-  itemCount?: number;
-  references?: Array<{ coordinate: string; canonicalUrl: string | null }>;
-  /** Cover thumbnail URL for grid view; null/absent → placeholder tile. */
-  previewUrl?: string | null;
-}
-
-/** Short table-cell date (e.g. "Jul 3, 2026"). Invalid ISO falls back to the raw string. */
-export function formatGalleryDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-}
-
 const EMPTY_CELL = `<span class="muted">—</span>`;
-
-/** Up to three linked PR/issue coordinates; remainder as "+N". */
-function renderGalleryLinksHtml(
-  references: Array<{ coordinate: string; canonicalUrl: string | null }>,
-): string {
-  if (!references.length) return EMPTY_CELL;
-  const shown = references.slice(0, 3);
-  const extra = references.length - shown.length;
-  const chips = shown
-    .map((ref) => {
-      const label = escapeHtml(ref.coordinate);
-      if (ref.canonicalUrl) {
-        return `<a class="ws-gallery-link" href="${escapeHtml(ref.canonicalUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-      }
-      return `<span class="ws-gallery-link ws-gallery-link--plain">${label}</span>`;
-    })
-    .join("");
-  const more = extra > 0 ? `<span class="muted ws-gallery-link-more">+${extra}</span>` : "";
-  return `<div class="ws-gallery-links">${chips}${more}</div>`;
-}
-
-/** Account galleries table HTML. Empty list → "" (caller paints the empty state). */
-export function renderGalleriesTableHtml(galleries: GalleryTableRow[]): string {
-  if (!galleries.length) return "";
-  const rows = galleries
-    .map((g) => {
-      const itemsCell =
-        typeof g.itemCount === "number" ? escapeHtml(String(g.itemCount)) : EMPTY_CELL;
-      const desc = g.description?.trim()
-        ? `<div class="muted ws-gallery-desc">${escapeHtml(g.description.trim())}</div>`
-        : "";
-      return `<tr>
-  <td>
-    <a class="ws-gallery-title" href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a>
-    ${desc}
-  </td>
-  <td class="num">${itemsCell}</td>
-  <td>${renderGalleryLinksHtml(g.references ?? [])}</td>
-  <td class="muted ws-gallery-updated">${escapeHtml(formatGalleryDate(g.updatedAt))}</td>
-</tr>`;
-    })
-    .join("");
-  return `<div class="ws-table-wrap">
-<table class="ws-table" aria-label="Galleries">
-  <thead>
-    <tr>
-      <th scope="col">Name</th>
-      <th scope="col" class="num">Items</th>
-      <th scope="col">Linked</th>
-      <th scope="col">Updated</th>
-    </tr>
-  </thead>
-  <tbody>${rows}</tbody>
-</table>
-</div>`;
-}
-
-export type GalleriesLayout = "grid" | "list";
-
-const GALLERY_VIEW_ICONS: Record<GalleriesLayout, string> = {
-  list: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>`,
-  grid: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.5"/></svg>`,
-};
-
-/** Photos glyph for a gallery with no still-image cover (empty, or video/other cover). */
-const GALLERY_COVER_GLYPH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="6" width="13" height="10" rx="1.5"/><path d="M3.5 13l3-2.6 2.8 2.2 3-3.4 4.2 4.2"/><path d="M7.5 19.5H18a2.5 2.5 0 0 0 2.5-2.5V9.5"/></svg>`;
-
-/** The empty-cover glyph tile (visible; the image variant's fallback adds its own attrs). */
-function galleryCoverGlyphHtml(): string {
-  return `<span class="ws-gallery-card__glyph">${GALLERY_COVER_GLYPH}</span>`;
-}
-
-/**
- * Grid/list segmented toggle. Reuses the files-table `.wft-view` chrome so the
- * two tabs' controls look identical. `view` is the pressed one; buttons carry
- * `data-gallery-view` for the page script to read.
- */
-export function renderGalleriesViewToggleHtml(view: GalleriesLayout): string {
-  const button = (id: GalleriesLayout, label: string): string =>
-    `<button type="button" class="wft-view__btn" data-gallery-view="${id}" aria-pressed="${
-      view === id ? "true" : "false"
-    }" aria-label="${label}" title="${label}">${GALLERY_VIEW_ICONS[id]}</button>`;
-  return `<div class="wft-view ws-gallery-viewtoggle" role="group" aria-label="Gallery layout">${button(
-    "grid",
-    "Grid view",
-  )}${button("list", "List view")}</div>`;
-}
-
-/** "1 item" / "N items" / "empty" for a gallery's cover count line. */
-function galleryItemsLabel(count: number | undefined): string {
-  if (!count) return "empty";
-  return count === 1 ? "1 item" : `${count} items`;
-}
-
-/**
- * Cover cell: a lazy `<img>` when a still-image preview exists, else a glyph
- * tile. The image variant is a `data-media-load` root with a hidden
- * `[data-media-fallback]` glyph, so `bindMediaFallbacks` (media-load.ts) swaps
- * to the glyph when the bytes 404 — including the already-failed/cached case a
- * plain `error` listener would miss. Same wiring the public `/g/` grid uses.
- */
-function renderGalleryCoverHtml(g: GalleryTableRow): string {
-  const href = escapeHtml(g.url);
-  const label = `Open ${escapeHtml(g.title)}`;
-  if (g.previewUrl) {
-    return `<a class="ws-gallery-card__cover" data-media-load href="${href}" target="_blank" rel="noopener noreferrer" aria-label="${label}"><img class="ws-gallery-card__img" src="${escapeHtml(
-      g.previewUrl,
-    )}" alt="" loading="lazy" decoding="async" /><span class="ws-gallery-card__glyph" data-media-fallback hidden>${GALLERY_COVER_GLYPH}</span></a>`;
-  }
-  return `<a class="ws-gallery-card__cover ws-gallery-card__cover--empty" href="${href}" target="_blank" rel="noopener noreferrer" aria-label="${label}">${galleryCoverGlyphHtml()}</a>`;
-}
-
-/** Account galleries grid HTML. Empty list → "" (caller paints the empty state). */
-export function renderGalleriesGridHtml(galleries: GalleryTableRow[]): string {
-  if (!galleries.length) return "";
-  const cards = galleries
-    .map((g) => {
-      const desc = g.description?.trim()
-        ? `<p class="muted ws-gallery-card__desc">${escapeHtml(g.description.trim())}</p>`
-        : "";
-      const links = renderGalleryLinksHtml(g.references ?? []);
-      const linksBlock =
-        g.references && g.references.length
-          ? `<div class="ws-gallery-card__links">${links}</div>`
-          : "";
-      return `<article class="ws-gallery-card">
-  ${renderGalleryCoverHtml(g)}
-  <div class="ws-gallery-card__body">
-    <a class="ws-gallery-card__title" href="${escapeHtml(
-      g.url,
-    )}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a>
-    ${desc}
-    <div class="ws-gallery-card__meta">
-      <span class="ws-gallery-card__count">${escapeHtml(galleryItemsLabel(g.itemCount))}</span>
-      <span class="muted ws-gallery-card__updated">${escapeHtml(formatGalleryDate(g.updatedAt))}</span>
-    </div>
-    ${linksBlock}
-  </div>
-</article>`;
-    })
-    .join("");
-  return `<div class="ws-gallery-grid" aria-label="Galleries">${cards}</div>`;
-}
-
-/** Galleries body for the current layout — grid (default) or list table. */
-export function renderGalleriesHtml(galleries: GalleryTableRow[], view: GalleriesLayout): string {
-  return view === "list" ? renderGalleriesTableHtml(galleries) : renderGalleriesGridHtml(galleries);
-}
 
 /**
  * Copy-to-clipboard via event delegation under `root`.
@@ -593,7 +460,7 @@ export function skeletonBarHtml(width: string): string {
 /** Label/value skeleton widths for each meter row, cycled when `meters` runs past this table. */
 const USAGE_METER_WIDTHS: Array<{ label: string; value: string }> = [
   { label: "52px", value: "96px" }, // "Storage"
-  { label: "108px", value: "78px" }, // "Uploads this month"
+  { label: "108px", value: "78px" }, // "Monthly uploads"
 ];
 
 /**
@@ -604,7 +471,7 @@ const USAGE_METER_WIDTHS: Array<{ label: string; value: string }> = [
  * two meters, one meter, or — when no caps are set at all — a structurally
  * different single-line `usage-text` block. This placeholder can only guess;
  * `meters` (default 2, the common case of both caps set) lets a caller
- * express its best guess, same as `renderGalleriesPlaceholderHtml(rows)`.
+ * express its best guess, same as the other placeholder builders.
  *
  * A workspace with no caps (plan never applied) still collapses once, from
  * these meters down to the one-line text, on its first visit — that shift is
@@ -698,76 +565,6 @@ export function renderEmptyStateHtml(opts: EmptyStateOptions): string {
     ? `<div data-slot="empty-content" class="${shape.content}">${opts.content}</div>`
     : "";
   return `<div data-slot="empty" class="${shape.root}"><div data-slot="empty-header" class="${shape.header}">${media}<div data-slot="empty-title" class="${EMPTY_TITLE_CLASS}">${escapeHtml(opts.title)}</div>${description}</div>${content}</div>`;
-}
-
-/**
- * Galleries empty state.
- *
- * Built as the page's primary element rather than a muted footnote: when a
- * workspace has no galleries, "you have none, here is how to make one" *is*
- * the content, and burying it under a command block inverted the hierarchy.
- *
- * No body sentence: the page-header note above this block already explains
- * what a gallery is — a restatement here was stacking, not informing. This
- * stays down to the state plus the one action that resolves it, using the
- * `card` variant's centered layout rather than left-set like a list row. The
- * page hides its reference-commands details block while this is shown, so
- * the create command appears exactly once.
- */
-export function renderGalleriesEmptyHtml(createCmd: string): string {
-  const safe = escapeHtml(createCmd);
-  return renderEmptyStateHtml({
-    title: "No galleries yet",
-    content: `<div class="command"><code>${safe}</code><button type="button" data-copy="${safe}" aria-live="polite">copy</button></div>`,
-  });
-}
-
-/** Galleries table placeholder — same chrome as `renderGalleriesTableHtml`. */
-export function renderGalleriesPlaceholderHtml(rows = 3): string {
-  // Varying widths so the block reads as a list of distinct rows rather than
-  // a solid slab.
-  const widths = ["68%", "54%", "76%"];
-  const body = Array.from({ length: rows }, (_, i) => {
-    const w = widths[i % widths.length];
-    return `<tr>
-  <td>${skeletonBarHtml(w)}</td>
-  <td class="num">${skeletonBarHtml("24px")}</td>
-  <td>${skeletonBarHtml("92px")}</td>
-  <td class="ws-gallery-updated">${skeletonBarHtml("72px")}</td>
-</tr>`;
-  }).join("");
-  return `<div class="ws-table-wrap" aria-busy="true">
-<table class="ws-table" aria-label="Galleries">
-  <thead>
-    <tr>
-      <th scope="col">Name</th>
-      <th scope="col" class="num">Items</th>
-      <th scope="col">Linked</th>
-      <th scope="col">Updated</th>
-    </tr>
-  </thead>
-  <tbody>${body}</tbody>
-</table>
-</div>`;
-}
-
-/** Galleries grid placeholder — same card chrome as `renderGalleriesGridHtml`. */
-export function renderGalleriesGridPlaceholderHtml(cards = 6): string {
-  const widths = ["62%", "48%", "70%"];
-  const card = (i: number): string => `<article class="ws-gallery-card ws-gallery-card--skel">
-  <span class="ws-gallery-card__cover ws-gallery-card__cover--empty" aria-hidden="true"></span>
-  <div class="ws-gallery-card__body">
-    <span class="ws-gallery-card__title">${skeletonBarHtml(widths[i % widths.length])}</span>
-    <div class="ws-gallery-card__meta">${skeletonBarHtml("48px")}${skeletonBarHtml("64px")}</div>
-  </div>
-</article>`;
-  const body = Array.from({ length: cards }, (_, i) => card(i)).join("");
-  return `<div class="ws-gallery-grid" aria-busy="true">${body}</div>`;
-}
-
-/** Loading placeholder for the current galleries layout — grid (default) or list. */
-export function renderGalleriesPlaceholderForView(view: GalleriesLayout): string {
-  return view === "list" ? renderGalleriesPlaceholderHtml() : renderGalleriesGridPlaceholderHtml();
 }
 
 /**

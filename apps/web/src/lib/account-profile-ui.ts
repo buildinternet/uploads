@@ -9,13 +9,16 @@ import {
   getAccountInfo,
   getSession,
   listAccounts,
+  listDigestPreferences,
   listSessions,
   type AuthSession,
+  type DigestWorkspacePreference,
   type LinkedAccount,
   type ProviderAccountInfo,
   type SessionUser,
 } from "./auth-client";
 import { githubMarkSvg } from "./brand-icons";
+import type { SlackLink } from "./slack-connect";
 import { deviceLabel, formatSessionTime, isCliUserAgent } from "./session-device";
 import { escapeHtml } from "./workspace-ui";
 
@@ -27,6 +30,8 @@ export interface ProfilePageData {
   /** Live GitHub profile when a github account is linked; null otherwise or on failure. */
   githubInfo: ProviderAccountInfo | null;
   sessions: AuthSession[] | null;
+  /** Null when the preferences request failed. An empty list means no memberships. */
+  digestWorkspaces: DigestWorkspacePreference[] | null;
 }
 
 /**
@@ -42,13 +47,21 @@ export async function loadProfilePageData(
   fetchImpl?: typeof fetch,
 ): Promise<ProfilePageData> {
   if (!cookie.trim()) {
-    return { user: null, currentToken: null, accounts: null, githubInfo: null, sessions: null };
+    return {
+      user: null,
+      currentToken: null,
+      accounts: null,
+      githubInfo: null,
+      sessions: null,
+      digestWorkspaces: null,
+    };
   }
 
-  const [sessionResult, accounts, sessions] = await Promise.all([
+  const [sessionResult, accounts, sessions, digestWorkspaces] = await Promise.all([
     getSession(authOrigin, { cookie, fetchImpl }),
     listAccounts(authOrigin, { cookie, fetchImpl }),
     listSessions(authOrigin, { cookie, fetchImpl }),
+    listDigestPreferences(authOrigin, { cookie, fetchImpl }),
   ]);
 
   const user = sessionResult.kind === "signed_in" ? sessionResult.session.user : null;
@@ -67,7 +80,41 @@ export async function loadProfilePageData(
       })
     : null;
 
-  return { user, currentToken, accounts, githubInfo, sessions };
+  return { user, currentToken, accounts, githubInfo, sessions, digestWorkspaces };
+}
+
+function digestChecked(on: boolean): string {
+  return on ? " checked" : "";
+}
+
+/**
+ * One table row per workspace, one checkbox column per digest. The admin
+ * pulse cell is a dash unless the membership is an admin or owner. Each
+ * checkbox carries its own aria-label because the column header alone
+ * doesn't name the workspace. Server-safe.
+ */
+export function renderWeeklyDigestHtml(workspaces: DigestWorkspacePreference[]): string {
+  if (workspaces.length === 0) {
+    return `<p class="muted settings-note">Join a workspace to get a weekly digest.</p>`;
+  }
+  const rows = workspaces
+    .map((workspace) => {
+      const name = escapeHtml(workspace.name || workspace.slug);
+      const orgId = escapeHtml(workspace.organizationId);
+      const admin = workspace.admin
+        ? `<input type="checkbox" data-digest="admin" data-org-id="${orgId}" aria-label="Admin pulse for ${name}"${digestChecked(workspace.notifyWeeklyWorkspaceDigest)} />`
+        : `<span class="digest-table__na" title="For workspace admins">—</span>`;
+      return `<tr>
+        <th scope="row"><span class="digest-table__name">${name}</span> <span class="digest-table__role">${escapeHtml(workspace.role)}</span></th>
+        <td class="digest-table__toggle"><input type="checkbox" data-digest="member" data-org-id="${orgId}" aria-label="Weekly summary for ${name}"${digestChecked(workspace.notifyWeeklyDigest)} /></td>
+        <td class="digest-table__toggle">${admin}</td>
+      </tr>`;
+    })
+    .join("");
+  return `<table class="digest-table">
+    <thead><tr><th scope="col">Workspace</th><th scope="col" class="digest-table__toggle">Weekly summary</th><th scope="col" class="digest-table__toggle">Admin pulse</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function asNonEmptyString(value: unknown): string | null {
@@ -162,6 +209,53 @@ export function renderSignInMethodsHtml(
           </li>`;
     })
     .join("");
+}
+
+/** Where "Add to Slack" starts the app's OAuth install (apps/slack). */
+export const SLACK_INSTALL_URL = "https://agents.uploads.sh/slack/install";
+
+/**
+ * The Slack section's body on /account/profile: one row per connected Slack
+ * account with a Disconnect button, or, with none, how to connect. `null`
+ * (the links request failed) gets a retry-later line.
+ */
+export function renderSlackLinksHtml(links: SlackLink[] | null): string {
+  if (links === null) {
+    return `<p class="muted settings-note">Couldn’t load your Slack connections.</p>`;
+  }
+  if (links.length === 0) {
+    return `<div class="slack-empty">
+      <p class="settings-note">Get a Slack message when an upload is held for review, and approve it without leaving Slack. Add the uploads.sh app to your Slack workspace, then press <strong>Connect uploads.sh</strong> on the app’s <strong>Home</strong> tab.</p>
+      <p class="slack-empty__actions">
+        <a class="text-btn text-btn--boxed" href="${SLACK_INSTALL_URL}">Add to Slack</a>
+        <a class="text-btn" href="/docs/slack">How it works</a>
+      </p>
+    </div>`;
+  }
+  return `<ul class="detail-list" id="slack-links-list">${links
+    .map((link) => {
+      const needsUpdate = link.missingScopes.length > 0;
+      const meta = needsUpdate
+        ? "Needs updated Slack permissions for held-upload messages"
+        : `Connected ${formatSessionTime(link.linkedAt)}`;
+      const update = needsUpdate
+        ? `<a class="text-btn text-btn--boxed" href="${SLACK_INSTALL_URL}">Update permissions</a>`
+        : "";
+      return `<li>
+            <div class="detail-main">
+              <div class="detail-title">
+                <span>${escapeHtml(link.teamName ?? "Slack workspace")}</span>
+                <span class="ul-badge ul-badge--ok">Connected</span>
+              </div>
+              <div class="detail-meta">${escapeHtml(meta)}</div>
+            </div>
+            <div class="detail-action">
+              ${update}
+              <button type="button" class="text-btn text-btn--boxed" data-slack-unlink data-team-id="${escapeHtml(link.teamId)}" data-slack-user-id="${escapeHtml(link.slackUserId)}">Disconnect</button>
+            </div>
+          </li>`;
+    })
+    .join("")}</ul>`;
 }
 
 /**

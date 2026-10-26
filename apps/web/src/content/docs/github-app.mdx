@@ -5,13 +5,14 @@ heading: GitHub App
 tagline: "The recommended setup: bot-posted comments and live PR/issue titles."
 navLabel: GitHub App
 navSlug: github-app
-navOrder: 6
+navOrder: 10
 navGroup: github
 toc:
   - { id: what-it-adds, label: What it adds }
   - { id: install, label: Install it }
   - { id: staging, label: Staging before a PR exists }
   - { id: ingest, label: Imported attachments }
+  - { id: check, label: Check for visuals }
   - { id: permissions, label: Permissions & events }
   - { id: bindings, label: Repo bindings }
   - { id: self-healing, label: Self-healing comments }
@@ -34,7 +35,7 @@ import { GITHUB_APP_INSTALL_URL, GITHUB_APP_URL } from "../../lib/github-app";
 ## What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a>
 
 Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what makes the staged
-loop hands-off. Five things change:
+loop hands-off. Seven things change:
 
 - **The bot posts all linked media automatically.** The attachments comment is created and kept
   current on the server — no local `gh` auth, no comments under contributors' own accounts.
@@ -46,6 +47,11 @@ loop hands-off. Five things change:
 - **Images dropped directly on GitHub get mirrored in.** Attachments people drag into PR and issue
   text, and public Cursor `art-*` rewrite URLs, are imported into the workspace. See
   [Imported attachments](#ingest).
+- **PRs get a "Check for visuals" check.** One row in the checks list says what's attached and
+  whether anything is held for review. See [Check for visuals](#check).
+- **UI changes can require screenshots.** The check notes a PR that changes UI files with nothing
+  attached, and can fail until screenshots arrive. See
+  [Require screenshots on pull requests](/docs/require-screenshots).
 
 Everything in these docs still works without it — see [Without the App](#without-it).
 
@@ -106,11 +112,12 @@ When someone drags an image or video into a PR or issue on GitHub itself, or att
 Cursor cloud-agent rewrite URLs (`cursor.com/artifacts/c/art-*`) from a linked PR or issue body or
 comment. It does this on create and on edit. Imported files carry the same `gh.*` metadata as CLI
 uploads, so they show up in search and on the "From GitHub" rail of file pages. They survive even
-if the original host's copy goes away. They never appear in the managed attachments comment; they're
-an index, not a source of truth.
+if the original host's copy goes away. They also appear in the managed attachments comment and
+count toward the check, so the comment stays the full set of visuals for the PR, even when the same
+images are inline in the description.
 
 Viewer pages (`/artifacts/v/`) and login-walled agent artifact links are skipped — turn
-on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets a public `/c/` URL.
+on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets a public link.
 `uploads ingest` runs the same import on demand when you want a backfill.
 
 Importing is **on by default** for linked repos. Turn it off per workspace on the workspace's
@@ -127,15 +134,55 @@ Two filters keep low-value files out:
 
 </section>
 
+<section id="check">
+
+## Check for visuals <a class="anchor" href="#check" aria-label="Link to this section">#</a>
+
+The App adds an **Uploads.sh / Check for visuals** row to a pull request's checks, next to your tests and builds. It says
+what's attached and whether anything is held for review, and notes when a PR changes UI files with
+nothing attached. It can also fail until a UI change has screenshots, so you can require it before
+merging. See [Require screenshots on pull requests](/docs/require-screenshots).
+
+A held file never fails the check, so a hold can't block a merge: a hold is about the uploaded file,
+not the PR's code.
+
+</section>
+
+<section id="no-uploads">
+
+## PRs with no uploads <a class="anchor" href="#no-uploads" aria-label="Link to this section">#</a>
+
+A pull request that changes UI files with nothing attached gets a neutral check, and a short how-to
+comment once UI file paths are set. Which files count, and how to turn the comment off, are on
+[Require screenshots on pull requests](/docs/require-screenshots#ui-files).
+
+</section>
+
+<section id="required">
+
+## Required uploads <a class="anchor" href="#required" aria-label="Link to this section">#</a>
+
+To make the check fail when a UI change is missing screenshots, and to block merges on it, see
+[Require screenshots on pull requests](/docs/require-screenshots#basic).
+
+</section>
+
 <section id="permissions">
 
 ## Permissions & events <a class="anchor" href="#permissions" aria-label="Link to this section">#</a>
 
-The App asks for one permission: **Issues and Pull requests, read & write** — to read titles and
-state and post the one managed attachments comment. It never touches other comments, PR
-descriptions, or your code. If your org installed the App before a permission was added, GitHub holds
-the upgrade until an org admin approves it. In the meantime, the CLI prints the approval link and
-posts via `gh`.
+The App asks for three permissions:
+
+- **Issues and Pull requests, read & write.** Reads titles and state, and posts the one managed
+  attachments comment. It never touches other comments, PR descriptions, or your code.
+- **Checks, read & write.** Shows the [Check for visuals](#check) check on pull requests. It only creates
+  and updates its own check. It can't change, re-run, or cancel your CI.
+- **Single file, read.** Reads the repo's comment settings file (`.uploads.yml` and its five
+  sibling paths) and nothing else.
+
+If your org installed the App before a permission was added, GitHub holds the upgrade until an org
+admin approves it. Until then, comments fall back to the CLI posting via `gh` (it prints the
+approval link), and the check simply doesn't appear.
 
 The App also needs **webhook event subscriptions** (Settings → your App → _Permissions & events_ →
 _Subscribe to events_):
@@ -144,8 +191,11 @@ _Subscribe to events_):
   updates and staged-file auto-promotion silently do nothing.
 - **Recommended — `issue_comment`.** Enables [self-healing comments](#self-healing); the App works
   fully without it.
+- **Recommended — `repository`.** When a repo is made private, its PR and issue titles stop showing
+  on public pages right away. Without it, those cached titles expire on their own within 24 hours.
 
-`uploads github doctor` checks the subscriptions directly and reports anything missing.
+`uploads github doctor` checks the `issues`, `pull_request`, and `issue_comment` subscriptions
+directly and reports anything missing.
 
 Branch-rename following for staged uploads (see
 [Attach artifacts to pull requests](/docs/attach-pull-request-images)) is done client-side by the CLI on purpose, so
@@ -173,6 +223,25 @@ with `uploads github link --status`.
   verifies live against GitHub that the calling token's linked GitHub account can push to it. Tokens
   with no linked GitHub identity can't make first claims (they still work on repos already bound to
   them), and repos bound before this check existed keep working.
+
+</section>
+
+<section id="held-files">
+
+## Held files <a class="anchor" href="#held-files" aria-label="Link to this section">#</a>
+
+If uploads.sh thinks an attachment shows a secret (an API key, a password, a token) or sensitive
+personal data (an ID document, a card number), it holds the file for review. The comment then leaves
+the file out and shows one line instead:
+
+```text
+🔒 1 file is held for your review · approve with uploads approve --pr 12
+```
+
+The line never names the file. A workspace member checks the file, then runs
+`uploads approve --pr 12 --all`, and the comment and the [Check for visuals](#check) check update. While a
+file is held, the comment's **View on uploads.sh** button turns golden yellow. If the file does show a real credential,
+rotate it and delete the file instead. See [Held uploads](/docs/ai-labels#held-uploads).
 
 </section>
 

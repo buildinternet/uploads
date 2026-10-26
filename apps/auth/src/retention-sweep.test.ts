@@ -38,6 +38,10 @@ function seedDeviceCode(id: string, expiresAt: Date) {
     });
 }
 
+function seedClientAssertion(id: string, expiresAt: Date) {
+  return drizzle(db, { schema }).insert(schema.oauthClientAssertion).values({ id, expiresAt });
+}
+
 describe("runAuthRetentionSweep", () => {
   it("deletes expired verification and device_code rows, keeps unexpired ones", async () => {
     const past = new Date(Date.now() - 60_000);
@@ -50,9 +54,17 @@ describe("runAuthRetentionSweep", () => {
     await seedDeviceCode("expired-1", past);
     await seedDeviceCode("live-1", future);
 
+    await seedClientAssertion("jti-expired-1", past);
+    await seedClientAssertion("jti-expired-2", past);
+    await seedClientAssertion("jti-live-1", future);
+
     const result = await runAuthRetentionSweep(env);
 
-    expect(result).toEqual({ verificationDeleted: 2, deviceCodeDeleted: 1 });
+    expect(result).toEqual({
+      verificationDeleted: 2,
+      deviceCodeDeleted: 1,
+      clientAssertionDeleted: 2,
+    });
 
     const dz = drizzle(db, { schema });
     const remainingVerification = await dz.select().from(schema.verification);
@@ -60,6 +72,9 @@ describe("runAuthRetentionSweep", () => {
 
     expect(remainingVerification.map((r) => r.id)).toEqual(["live-1"]);
     expect(remainingDeviceCode.map((r) => r.id)).toEqual(["live-1"]);
+    // A live jti must survive: deleting it early would reopen replay.
+    const remainingAssertions = await dz.select().from(schema.oauthClientAssertion);
+    expect(remainingAssertions.map((r) => r.id)).toEqual(["jti-live-1"]);
   });
 
   it("is a no-op when nothing is expired", async () => {
@@ -69,7 +84,11 @@ describe("runAuthRetentionSweep", () => {
 
     const result = await runAuthRetentionSweep(env);
 
-    expect(result).toEqual({ verificationDeleted: 0, deviceCodeDeleted: 0 });
+    expect(result).toEqual({
+      verificationDeleted: 0,
+      deviceCodeDeleted: 0,
+      clientAssertionDeleted: 0,
+    });
   });
 
   it("batches beyond a single page of results", async () => {

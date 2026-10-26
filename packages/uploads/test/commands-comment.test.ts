@@ -7,9 +7,11 @@ import type { UploadsClient } from "../src/client.js";
 import {
   GithubCommentAuthorizationError,
   runComment,
+  heldNote,
   syncAttachmentsComment,
   type CliContext,
 } from "../src/commands.js";
+import { feedItemIdFor } from "../src/comment-render-scope.generated.js";
 import { ATTACHMENTS_MARKER, attachmentsMarker, GH_FALLBACK_AUTHOR_NOTE } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
@@ -130,6 +132,48 @@ describe("runComment", () => {
     expect(create!.input).toContain("<code>uploads put &lt;file&gt; --pr 5</code>");
     // Gh-fallback only: explain why the comment is under a human account.
     expect(create!.input).toContain(GH_FALLBACK_AUTHOR_NOTE);
+  });
+
+  it("leaves a held file out of the gh-fallback comment and adds the approve line", async () => {
+    const { run, calls } = ghRunner();
+    const client = listClient([
+      { key: "gh/o/r/pull/5/after.png", url: "https://x.test/gh/o/r/pull/5/after.png" },
+      {
+        key: "gh/o/r/pull/5/settings-token.png",
+        url: "https://x.test/gh/o/r/pull/5/settings-token.png",
+        metadata: { "ai.hold": "pending" },
+      } as { key: string; url: string | null },
+    ]);
+    await runComment(ctxWith(client), ["--pr", "5", "--repo", "o/r"], false, run);
+    const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
+    expect(create!.input).toContain("after.png");
+    expect(create!.input).not.toContain("settings-token");
+    expect(create!.input).toContain(
+      "🔒 1 file is held for your review · approve with <code>uploads approve --pr 5</code>",
+    );
+  });
+
+  it("carries the held count from the bot and the gh fallback", async () => {
+    const target = { repo: "o/r", kind: "pull" as const, num: 5 };
+    const bot = fakeClient({
+      upsertGithubComment: async () => ({ posted: true, action: "updated", count: 2, held: 1 }),
+    });
+    const fromBot = await syncAttachmentsComment(bot, target, ghRunner().run);
+    expect(fromBot).toEqual({ action: "updated", count: 2, via: "bot", held: 1 });
+    expect(heldNote(fromBot)).toBe(
+      ">> 1 file is held for review: check, then run uploads approve\n",
+    );
+    expect(heldNote({})).toBe("");
+
+    const client = listClient([
+      {
+        key: "gh/o/r/pull/5/settings-token.png",
+        url: "https://x.test/gh/o/r/pull/5/settings-token.png",
+        metadata: { "ai.hold": "pending" },
+      } as { key: string; url: string | null },
+    ]);
+    const viaGh = await syncAttachmentsComment(client, target, ghRunner().run);
+    expect(viaGh).toMatchObject({ via: "gh", held: 1 });
   });
 
   it("does not append the gh-author note when the bot posts successfully", async () => {
@@ -719,5 +763,109 @@ describe("syncAttachmentsComment", () => {
       expect(posted.match(/<img/g)?.length).toBe(1);
       expect(posted).toContain("<details>");
     });
+  });
+});
+
+describe("syncAttachmentsComment gh fallback live link", () => {
+  const target = { repo: "o/r", kind: "pull" as const, num: 5 };
+  const key = "gh/o/r/pull/5/after.png";
+  const movedKey = "gh/o/r/pull/5/moved.png";
+  const feed = {
+    id: "feed_abcdefghijklmnopqrstuv",
+    url: "https://x.test/c/feed_abcdefghijklmnopqrstuv",
+    workspace: "test",
+    repo: "o/r",
+    path: null,
+    number: 5,
+    kind: "pull",
+    title: "o/r#5",
+    createdAt: "2026-10-04T12:00:00.000Z",
+    updatedAt: "2026-10-04T12:00:00.000Z",
+    items: [],
+  };
+
+  function taggedClient(createFeed: unknown): UploadsClient {
+    return fakeClient({
+      listAll: (async () => [
+        {
+          key,
+          url: `https://x.test/${key}`,
+          embedUrl: null,
+          pageUrl: `https://x.test/f/test/${key}`,
+          metadata: { "gh.repo": "o/r", "gh.number": "5" },
+        },
+        {
+          key: movedKey,
+          url: `https://x.test/${movedKey}`,
+          embedUrl: null,
+          pageUrl: `https://x.test/f/test/${movedKey}`,
+          metadata: { "gh.repo": "o/r", "gh.number": "6" },
+        },
+      ]) as unknown as UploadsClient["listAll"],
+      createFeed: createFeed as UploadsClient["createFeed"],
+    });
+  }
+
+  function created(calls: { args: string[]; input?: string }[]): string {
+    const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
+    expect(create).toBeDefined();
+    return create!.input ?? "";
+  }
+
+  it("adds the live link line and links in-scope items to their live link page", async () => {
+    const { run, calls } = ghRunner();
+    const createFeed = vi.fn(async () => feed);
+    const result = await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
+    expect(result.via).toBe("gh");
+    const body = created(calls);
+    expect(body).toContain(
+      `<a href="${feed.url}"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>2 files · `,
+    );
+    expect(body).toContain(`${feed.url}/${await feedItemIdFor(key)}`);
+    expect(body).toContain(`https://x.test/f/test/${movedKey}`);
+    expect(createFeed).toHaveBeenCalledWith({ repo: "o/r", pr: 5 });
+  });
+
+  it("renders today's comment when the live link cannot be created", async () => {
+    const { run, calls } = ghRunner();
+    const createFeed = vi.fn(async () => {
+      throw new Error("Feed create failed.");
+    });
+    await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
+    const body = created(calls);
+    expect(body).not.toContain("view-on-uploads.svg");
+    expect(body).toContain(`https://x.test/f/test/${key}`);
+  });
+
+  it("skips the live link for a client without createFeed", async () => {
+    const { run, calls } = ghRunner();
+    const client = listClient([{ key, url: `https://x.test/${key}` }]);
+    await syncAttachmentsComment(client, target, run, "test");
+    expect(created(calls)).not.toContain("view-on-uploads.svg");
+  });
+
+  it("honors linkToFilePage: false from .uploads.yml like the bot (raw links, no line, no create)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-commands-comment-live-"));
+    try {
+      fs.writeFileSync(path.join(root, ".uploads.yml"), "comment:\n  linkToFilePage: false\n");
+      let posted = "";
+      const run: CommandRunner = (cmd, args, input) => {
+        if (cmd === "git" && args[0] === "rev-parse" && args.includes("--show-toplevel")) {
+          return `${root}\n`;
+        }
+        if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+        if (args[1]?.includes("per_page=100")) return "[]";
+        if (input) posted = input;
+        return JSON.stringify({ id: 9 });
+      };
+      const createFeed = vi.fn(async () => feed);
+      await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
+      expect(createFeed).not.toHaveBeenCalled();
+      expect(posted).not.toContain("view-on-uploads.svg");
+      expect(posted).not.toContain("/f/test/");
+      expect(posted).toContain(`https://x.test/${key}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

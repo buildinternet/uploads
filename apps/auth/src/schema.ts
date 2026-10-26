@@ -1,18 +1,12 @@
 /**
- * Better Auth's D1 schema island, scoped to this worker only (see
- * docs/superpowers/plans/2026-07-12-better-auth-introduction.md, D2).
+ * Better Auth's D1 schema, scoped to this worker. snake_case columns,
+ * camelCase keys, integer timestamp and boolean modes: Better Auth's
+ * canonical drizzle D1 shape.
  *
- * snake_case columns, camelCase keys, integer timestamp mode + boolean mode —
- * Better Auth's canonical shape for the drizzle D1 adapter. Reconciled against
- * `npx @better-auth/cli generate` output and
- * `~/Code/releases/workers/api/src/db/schema-auth.ts`, trimmed to the Phase 1
- * plugin set (core tables + magicLink's `verification` + `rateLimit`).
- *
- * ⚠ footgun: this file and ./migrations/*.sql are hand-synced — there is no
- * generator wired into CI. Each table below is annotated with the migration
- * file that created it; keep that comment current when the schema changes.
- * Drizzle `relations()` below are TS-only (for `advanced.database.joins`) and
- * do not need a migration.
+ * This file and ./migrations/*.sql are hand-synced; no generator runs in CI.
+ * Each table names the migrations that created it; keep that current.
+ * Drizzle `relations()` are TS-only (for `advanced.database.joins`) and need
+ * no migration.
  */
 import { relations } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -24,11 +18,8 @@ const timestampCol = (name: string) =>
     .$defaultFn(() => new Date());
 
 /**
- * Core identity table. Better Auth writes `role`/`banned`/`banExpires` only
- * once the `admin` plugin is mounted (Phase 2, see src/auth.ts) — the columns
- * were added in Phase 1 anticipating this, so the Phase 2 migration is
- * additive-free for this table (verified: no ALTER TABLE for `user` in
- * `migrations/20260712210000_admin_plugin.sql`).
+ * Core identity table. `role`/`banned`/`banExpires` are written by the
+ * `admin` plugin.
  *
  * Paired migrations: `20260712200000_better_auth_core.sql`,
  * `20260714120000_cli_onboarded_at.sql` (`cli_onboarded_at`).
@@ -49,14 +40,12 @@ export const user = sqliteTable("user", {
   banExpires: integer("ban_expires", { mode: "timestamp" }),
   /** First CLI device-flow session; sticky. */
   cliOnboardedAt: integer("cli_onboarded_at", { mode: "timestamp" }),
-  /** `@better-auth/stripe`'s `user` schema addition (dormant until the
-   * plugin is mounted — see docs/superpowers/plans/2026-07-22-stripe-phase2-
-   * better-auth-plugin.md). Paired migration:
+  /** `@better-auth/stripe`'s `user` addition. Paired migration:
    * `migrations/20260722190000_stripe_subscription.sql`. */
   stripeCustomerId: text("stripe_customer_id"),
   /** Per-user pref: email me when someone joins a workspace I administer.
-   * Default on. Declared as a better-auth additionalField (src/auth.ts) so
-   * /api/auth/update-user writes it and the session returns it. */
+   * Default on. A better-auth additionalField, so update-user writes it and
+   * the session returns it. */
   notifyMemberJoin: integer("notify_member_join", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
@@ -66,17 +55,43 @@ export const user = sqliteTable("user", {
   notifyUsageLimits: integer("notify_usage_limits", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
+  /** Per-user pref: message me in Slack when an upload is held for review
+   * (apps/api/src/slack-hold-notify.ts). Default on; inert until the user
+   * connects Slack. Same additionalField mechanism as notifyMemberJoin. */
+  notifySlackHolds: integer("notify_slack_holds", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => true),
+  /** Per-user pref: email me when an upload is held for review
+   * (apps/api/src/hold-email-notify.ts). Default off, since holds can be
+   * noisy. Same additionalField mechanism as notifyMemberJoin. */
+  notifyEmailHolds: integer("notify_email_holds", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => false),
+  /** Per-user pref: email me product updates and announcements. Default on;
+   * unticked at sign-up via src/product-updates.ts. Only operator-run
+   * campaigns send these (apps/api/src/cli-upgrade-campaign.ts). */
+  notifyProductUpdates: integer("notify_product_updates", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => true),
+  /**
+   * Retired account-wide weekly digest flags; live preferences are on
+   * `member`. Kept for rollout. New mail doesn't read them.
+   */
+  notifyWeeklyDigest: integer("notify_weekly_digest", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => false),
+  notifyWeeklyWorkspaceDigest: integer("notify_weekly_workspace_digest", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => false),
 });
 
 /**
- * Signed-in sessions. `cookieCache` (5 min, see src/auth.ts) keeps most
- * `get-session` calls off this table.
+ * Signed-in sessions. `cookieCache` (src/auth.ts) keeps most `get-session`
+ * calls off this table.
  *
  * Paired migrations: `migrations/20260712200000_better_auth_core.sql` (core
- * columns), `migrations/20260712210000_admin_plugin.sql` (`impersonated_by`,
- * written by the `admin` plugin's impersonation feature — Phase 2),
- * `migrations/20260712220000_organization.sql` (`active_organization_id`,
- * written by the `organization` plugin — Phase 3),
+ * columns), `migrations/20260712210000_admin_plugin.sql` (`impersonated_by`),
+ * `migrations/20260712220000_organization.sql` (`active_organization_id`),
  * `migrations/20260723120000_session_cli_version.sql` (`cli_version`).
  */
 export const session = sqliteTable(
@@ -101,18 +116,14 @@ export const session = sqliteTable(
 );
 
 /**
- * Linked identity provider accounts — GitHub OAuth rows land here (Phase 1).
- * `password` stays unused (email/password is explicitly out of scope, see D3)
- * but is part of Better Auth's canonical account shape.
+ * Linked identity provider accounts (GitHub). `password` is unused but part
+ * of Better Auth's canonical shape.
  *
- * Better Auth 1.7 scopes account identity by `(issuer, accountId)` — every row
- * carries a synthetic `issuer` (`local:oauth:github` for our GitHub accounts,
- * per `createOAuthAccountIssuer`). Nullable at the DB level (added + backfilled
- * by migration 20260821120000; SQLite can't add a NOT NULL column to a
- * populated table), but Better Auth always populates it on insert.
+ * Accounts are keyed by `(providerId, accountId)`. The old `issuer` column is
+ * dropped by a later migration, after this worker deploys, because the
+ * previous worker still selects it.
  *
- * Paired migrations: `migrations/20260712200000_better_auth_core.sql`,
- * `migrations/20260821120000_better_auth_1_7.sql` (`issuer` + lookup index).
+ * Paired migrations: `apps/api/migrations/20260822120000_auth_tables.sql`.
  */
 export const account = sqliteTable(
   "account",
@@ -123,8 +134,6 @@ export const account = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    /** Better Auth 1.7 account-identity issuer (see table doc). */
-    issuer: text("issuer"),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
@@ -137,16 +146,14 @@ export const account = sqliteTable(
   },
   (t) => [
     index("idx_account_user_id").on(t.userId),
-    // findAccountByKey({ issuer, accountId }) — Better Auth 1.7 keys account
-    // identity on this pair. Unique: a prod audit confirmed zero collisions
-    // (migration 20260821120000).
-    uniqueIndex("idx_account_issuer_account_id").on(t.issuer, t.accountId),
+    // One row per provider identity: findAccountByKey throws on a duplicate,
+    // which blocks that user's GitHub sign-in. Migration 20261005000000.
+    uniqueIndex("idx_account_provider_account_id").on(t.providerId, t.accountId),
   ],
 );
 
 /**
- * Single-use verification records — magic-link tokens (`storeToken: "hashed"`,
- * see src/auth.ts) live here.
+ * Single-use verification records (hashed magic-link tokens).
  *
  * Paired migrations: `migrations/20260712200000_better_auth_core.sql`,
  * `migrations/20260722180000_retention_expires_at_idx.sql`
@@ -170,16 +177,10 @@ export const verification = sqliteTable(
 );
 
 /**
- * Better Auth's database-backed rate limiter storage model. Retained
- * unused: since the 2026-08-23 D1 stall incident, src/auth.ts supplies its
- * own `rateLimit.customStorage` backed by a per-key Durable Object
- * (src/rate-limit-do.ts), falling back to Better Auth's in-process memory
- * Map when the RATE_LIMIT binding is absent. Either way D1 is out of the
- * rate-limit path. This table is kept only so existing deployments don't
- * need a drop migration — nothing reads or
- * writes it anymore. Model name is fixed at "rateLimit" by Better Auth;
- * `count`/`lastRequest` are plain epoch-ms integers, not timestamp-mode
- * columns.
+ * Better Auth's database rate-limit model, unused: rate limiting uses a
+ * Durable Object or in-memory storage, never D1 (src/auth.ts). Kept so
+ * deployments don't need a drop migration. `count`/`lastRequest` are epoch-ms
+ * integers.
  *
  * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
  */
@@ -191,11 +192,9 @@ export const rateLimit = sqliteTable("rate_limit", {
 });
 
 /**
- * Organizations (plan D4/Phase 3): `organization.slug === workspace name`,
- * 1:1 for now (see apps/api/src/org-workspaces.ts for the indirection that
- * keeps this an implementation detail). No `team` support (D3 explicitly
- * excludes it) and no auto-provisioning hooks — orgs are only created via
- * `/internal/orgs` (admin-provisioned, per D4) or the backfill script.
+ * Organizations: `organization.slug` is the workspace name, 1:1 (see
+ * apps/api/src/org-workspaces.ts). No teams. Created only via
+ * `/internal/orgs` or the backfill script.
  *
  * Paired migration: `migrations/20260712220000_organization.sql`.
  */
@@ -206,18 +205,18 @@ export const organization = sqliteTable("organization", {
   logo: text("logo"),
   createdAt: timestampCol("created_at"),
   metadata: text("metadata"),
-  /** `@better-auth/stripe`'s `organization` schema addition (dormant until
-   * the plugin is mounted). Paired migration:
+  /** `@better-auth/stripe`'s `organization` addition. Paired migration:
    * `migrations/20260722190000_stripe_subscription.sql`. */
   stripeCustomerId: text("stripe_customer_id"),
 });
 
 /**
- * Org membership. `role` here is the org-scoped `owner`/`admin`/`member`
- * role (stock organization-plugin roles, no custom access control) — distinct
- * from the global `user.role` written by the `admin` plugin (Phase 2).
+ * Org membership. `role` is the org-scoped `owner`/`admin`/`member`, distinct
+ * from the global `user.role`.
  *
- * Paired migration: `migrations/20260712220000_organization.sql`.
+ * Paired migrations: `migrations/20260712220000_organization.sql`,
+ * `apps/api/migrations/20261012150000_auth_member_weekly_digest.sql`
+ * (`notify_weekly_digest`, `notify_weekly_workspace_digest`).
  */
 export const member = sqliteTable(
   "member",
@@ -231,6 +230,14 @@ export const member = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
     createdAt: timestampCol("created_at"),
+    /** Weekly summary of this workspace. Default off. */
+    notifyWeeklyDigest: integer("notify_weekly_digest", { mode: "boolean" })
+      .notNull()
+      .$defaultFn(() => false),
+    /** Weekly admin pulse for this workspace. Default off. Admins and owners only. */
+    notifyWeeklyWorkspaceDigest: integer("notify_weekly_workspace_digest", { mode: "boolean" })
+      .notNull()
+      .$defaultFn(() => false),
   },
   (t) => [
     index("idx_member_organization_id").on(t.organizationId),
@@ -239,9 +246,7 @@ export const member = sqliteTable(
 );
 
 /**
- * Pending org invitations. `sendInvitationEmail` (src/auth.ts) links to
- * `${WEB_ORIGIN}/accept-invitation/<id>` — this table's `id` is that path
- * segment.
+ * Pending org invitations. `id` is the `/accept-invitation/<id>` path segment.
  *
  * Paired migration: `migrations/20260712220000_organization.sql`.
  */
@@ -269,16 +274,10 @@ export const invitation = sqliteTable(
 );
 
 /**
- * Device-authorization (RFC 8628) pending requests (plan D5/Phase 4): the
- * `deviceAuthorization` plugin's store backing `uploads login`. The field set
- * is mandated by the plugin (see its `schema.mjs`) — note there are NO
- * created/updated timestamps. `expires_at`/`last_polled_at` use drizzle's
- * `mode: "timestamp"` (stored as integer epoch *seconds*, not ms): the plugin
- * writes/reads `Date` objects the adapter serializes, so the round-trip is
- * second-precision — deliberately not this file's non-null `timestampCol`
- * helper, since both may be null/absent. Like `rate_limit`, the SQL table name
- * is snake_case but the drizzle-adapter schema KEY must stay the camelCase
- * model name `deviceCode`.
+ * RFC 8628 device-authorization requests for `uploads login`. The field set
+ * is mandated by the plugin, with no created/updated timestamps.
+ * `expires_at`/`last_polled_at` are nullable epoch seconds, so they don't use
+ * `timestampCol`. The adapter key must stay the camelCase model name.
  *
  * Paired migrations: `migrations/20260712230000_device_code.sql`,
  * `migrations/20260722180000_retention_expires_at_idx.sql`
@@ -290,8 +289,7 @@ export const deviceCode = sqliteTable(
     id: text("id").primaryKey(),
     deviceCode: text("device_code").notNull(),
     userCode: text("user_code").notNull(),
-    // null until a signed-in session claims/approves the request (see the
-    // /device page on apps/web and the plugin's device/approve endpoint).
+    // null until a signed-in session claims or approves the request.
     userId: text("user_id"),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     // pending | approved | denied
@@ -302,8 +300,7 @@ export const deviceCode = sqliteTable(
     scope: text("scope"),
   },
   (t) => [
-    // Better Auth 1.7 made these unique lookup indexes (migration
-    // 20260821120000 dedups first, then recreates them UNIQUE).
+    // Unique lookup indexes (migration 20260821120000 dedups first).
     uniqueIndex("idx_device_code_device_code").on(t.deviceCode),
     uniqueIndex("idx_device_code_user_code").on(t.userCode),
     // Retention sweep: expires_at < now. Migration: 20260722180000_retention_expires_at_idx.sql
@@ -312,11 +309,8 @@ export const deviceCode = sqliteTable(
 );
 
 /**
- * `jwt()` plugin keyset (issue #224, Lane A): the signing keypair for OAuth
- * access-token JWTs, encrypted at rest under the Better Auth secret. Model
- * name is fixed at "jwks" by the plugin. `expiresAt` is optional (key
- * rotation, unused for now). Better Auth 1.7 added `alg`/`crv` (the signing
- * algorithm and curve persisted alongside each key).
+ * `jwt()` plugin keyset: the OAuth access-token signing keypair, encrypted
+ * under the Better Auth secret. Model name fixed at "jwks".
  *
  * Paired migrations: `migrations/20260717000000_oauth_provider.sql`,
  * `migrations/20260821120000_better_auth_1_7.sql` (`alg`, `crv`).
@@ -332,11 +326,8 @@ export const jwks = sqliteTable("jwks", {
 });
 
 /**
- * `@better-auth/oauth-provider` tables (issue #224, Lane A: OAuth 2.1
- * authorization server). Adapter keys must match the plugin's model names;
- * SQL is snake_case. `string[]` columns are JSON text (drizzle `mode: "json"`)
- * — mirrors `~/Code/sunny/apps/auth/src/schema.ts:239-336`, itself reconciled
- * against `npx @better-auth/cli generate` output for this plugin.
+ * `@better-auth/oauth-provider` tables. Adapter keys match the plugin's model
+ * names; SQL is snake_case. `string[]` columns are JSON text.
  *
  * Paired migration: `migrations/20260717000000_oauth_provider.sql`.
  */
@@ -356,9 +347,8 @@ export const oauthClient = sqliteTable(
     responseTypes: text("response_types", { mode: "json" }).$type<string[]>(),
     contacts: text("contacts", { mode: "json" }).$type<string[]>(),
     tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
-    /** Deprecated in Better Auth 1.7 (superseded by tokenEndpointAuthMethod /
-     * applicationType). Columns retained rather than dropped — the plugin
-     * ignores them and dropping is destructive on D1. */
+    /** Deprecated and ignored by the plugin; kept because dropping is
+     * destructive on D1. */
     type: text("type"),
     public: integer("public", { mode: "boolean" }),
     requirePKCE: integer("require_pkce", { mode: "boolean" }),
@@ -478,12 +468,9 @@ export const oauthConsent = sqliteTable(
 );
 
 /**
- * `@better-auth/oauth-provider` 1.7 protected-resource model (replaces the
- * 1.6 `validAudiences` list). Rows are seeded at boot from
- * `oauthProvider({ resources })` in src/auth.ts (`resourceSeedMode:
- * "insertOnly"`, the safe default — boot never overwrites admin CRUD edits).
- * `identifier` is the RFC 8707 `resource` value; a minted access token's `aud`
- * is bound to it.
+ * Protected resources, seeded at boot from `oauthProvider({ resources })`
+ * (insert-only, so admin edits survive). `identifier` is the RFC 8707
+ * `resource`; a token's `aud` is bound to it.
  *
  * Paired migration: `migrations/20260821120000_better_auth_1_7.sql`.
  */
@@ -506,10 +493,8 @@ export const oauthResource = sqliteTable("oauth_resource", {
 });
 
 /**
- * Client ⋈ resource binding for `@better-auth/oauth-provider` 1.7. Authoritative
- * only when `enforcePerClientResources` is enabled (this worker leaves it off,
- * so the table is present for schema parity but unused). Compound-unique on
- * `(clientId, resourceId)`.
+ * Client ⋈ resource binding. Only used with `enforcePerClientResources`,
+ * which this worker leaves off; present for schema parity.
  *
  * Paired migration: `migrations/20260821120000_better_auth_1_7.sql`.
  */
@@ -542,15 +527,9 @@ export const oauthClientAssertion = sqliteTable("oauth_client_assertion", {
 });
 
 /**
- * Per-grant workspace choice (issue #231, auth side): the user's last
- * explicit workspace pick for the OAuth 2.1 authorization server, one row per
- * user. Custom table (not part of `@better-auth/oauth-provider`) — read by
- * `resolveWorkspaceChoiceReferenceId` (src/workspace-choice.ts) to build the
- * `postLogin.consentReferenceId` the plugin ties to `oauth_consent` rows, and
- * written by `POST /api/auth/oauth2/workspace-choice`. Single-workspace users
- * never get a row (the hook returns `undefined` for them, see
- * src/workspace-choice.ts) so this table only ever holds multi-workspace
- * users' picks.
+ * A multi-workspace user's last explicit workspace pick for OAuth, one row
+ * per user. Custom table, read by `resolveWorkspaceChoiceReferenceId` and
+ * written by `POST /api/auth/oauth2/workspace-choice`.
  *
  * Paired migration: `migrations/20260718000000_oauth_workspace_choice.sql`.
  */
@@ -562,15 +541,8 @@ export const oauthWorkspaceChoice = sqliteTable("oauth_workspace_choice", {
 });
 
 /**
- * `@better-auth/stripe`'s `subscription` model (Stripe phase 2, see
- * docs/superpowers/plans/2026-07-22-stripe-phase2-better-auth-plugin.md).
- * Dormant: the plugin only mounts when `STRIPE_SECRET_KEY` and
- * `STRIPE_WEBHOOK_SECRET` are both set (src/auth.ts), so this table stays
- * unwritten until then. Field set is mandated by the installed plugin
- * version — reconciled against `@better-auth/stripe@1.6.23`'s
- * `dist/index.mjs` `subscriptions` schema export, NOT the phase-2 plan's
- * example (which omits `cancelAt`/`canceledAt`/`endedAt`/`billingInterval`/
- * `stripeScheduleId`).
+ * `@better-auth/stripe`'s `subscription` model. Unwritten until both Stripe
+ * secrets are set. The field set follows the installed plugin's schema.
  *
  * Paired migration: `migrations/20260722190000_stripe_subscription.sql`.
  */
@@ -595,17 +567,10 @@ export const subscription = sqliteTable("subscription", {
 });
 
 /**
- * Durable retry queue for the billing plan bridge (issue #451). Written by
- * `syncWorkspacePlan` (src/billing-bridge.ts) when the `POST
- * /internal/billing/plan` call to apps/api fails, drained by the cron in
- * src/billing-outbox.ts.
- *
- * `referenceId` (the organization id) is the primary key, so a repeat failure
- * for the same org replaces its pending row instead of queueing a duplicate.
- *
- * Deliberately carries NO plan column: the drain recomputes the desired plan
- * from the `subscription` table at retry time, so a queued row can never
- * re-apply a plan that a later event has already superseded.
+ * Retry queue for the billing plan bridge: written when the call to apps/api
+ * fails, drained by src/billing-outbox.ts. Keyed by organization id, so
+ * repeats replace the pending row. No plan column: the drain recomputes the
+ * plan, so a stale row can't re-apply a superseded one.
  *
  * Paired migration: `migrations/20260723150000_billing_plan_outbox.sql`.
  */
@@ -619,20 +584,10 @@ export const billingPlanOutbox = sqliteTable("billing_plan_outbox", {
 });
 
 /**
- * GitHub login capture at OAuth-link time (issue #580). Better Auth's
- * `account` row only ever gets the fixed field set the library writes on
- * link/sign-in (tokens, `accountId`, `providerId`) — there is no hook that
- * receives the raw provider profile at that point, so a `githubLogin` column
- * bolted onto `account` would have no write path. This table is instead
- * populated as a side effect of `mapProfileToUser` (see src/auth.ts's github
- * provider config), which DOES see the raw profile (including `login`) and
- * runs on every completed GitHub OAuth callback — first link AND every
- * re-authentication of an already-linked account — so last-write-wins holds
- * for renames without depending on Better Auth's internal account
- * create/update timing. Keyed by the numeric GitHub account id (same value
- * stored in `account.accountId` for `providerId = 'github'`), not by user id,
- * so a write here never races the user/account rows Better Auth creates
- * afterward for a brand-new sign-up.
+ * GitHub login per GitHub account. `account` has no write path for it, so
+ * `mapProfileToUser` (which sees the raw profile on every callback) writes
+ * here, last-write-wins for renames. Keyed by GitHub account id so it never
+ * races the user/account rows of a new sign-up.
  *
  * Paired migration: `migrations/20260731120000_github_identity.sql`.
  */

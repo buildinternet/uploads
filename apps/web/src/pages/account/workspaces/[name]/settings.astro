@@ -1,18 +1,17 @@
 ---
 /**
  * Workspace settings — GitHub comment defaults (Task 7, issue #307) plus a
- * live preview of the managed comment, and the poster opt-out switches
- * (PDF first-page previews and video posters). Storage / BYO-bucket and the
- * workspace details summary live on the sibling `settings/storage.astro`
- * page now — see that file's doc comment. Both blocks start `hidden` and
- * reveal on session (same progressive-reveal convention as the account
- * pages generally): admin-gated data has nothing to show until the
- * session/role check lands anyway.
+ * live preview of the managed comment. Slack, previews (PDF/video posters)
+ * and AI labels each have their own sub-page under `settings/`; storage and
+ * BYO-bucket live on the Storage tab. The block starts `hidden` and reveals
+ * on session: admin-gated data has nothing to show until the role check lands.
  *
  * The preview lives in `WorkspaceLayout`'s `preview` rail slot (paired with
  * `wideRail`) rather than in the content column — issue #365's redesign
  * moves it into the right rail, above Tip and Quick actions.
  */
+import SettingRow from "../../../../components/settings/SettingRow.astro";
+import SettingSwitch from "../../../../components/settings/SettingSwitch.astro";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { GITHUB_APP_INSTALL_URL } from "../../../../lib/github-app";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
@@ -38,21 +37,12 @@ const tip = {
         Control how uploads appear in comments on issues and pull requests.
       </p>
 
-      <div
-        class="cs-install flex flex-wrap items-center justify-between gap-4 mt-4 mb-1 rounded-[var(--radius-sm)] border border-border bg-card px-3.5 py-3"
-        id="cs-install"
-        hidden
-      >
-        <p
-          class="cs-install__body m-0 max-w-[44ch] text-[13px] leading-[1.55] text-body [text-wrap:pretty]"
-        >
-          The GitHub App posts and updates these comments — install it on your repos to get started.
+      <div class="settings-connect" id="cs-install" hidden>
+        <p>
+          The GitHub App posts and updates these comments. Install it on your repos to get started.
         </p>
-        <a
-          class="cs-install__cta flex-none rounded-[var(--radius-sm)] border border-border bg-background px-[13px] py-[7px] font-semibold text-[13px] text-foreground no-underline whitespace-nowrap hover:border-primary hover:text-primary focus-visible:border-primary focus-visible:text-primary focus-visible:outline-none"
-          href={GITHUB_APP_INSTALL_URL}
-          target="_blank"
-          rel="noopener noreferrer">Install GitHub App →</a
+        <a class="ul-btn" href={GITHUB_APP_INSTALL_URL} target="_blank" rel="noopener noreferrer"
+          >Install GitHub App</a
         >
       </div>
 
@@ -60,219 +50,145 @@ const tip = {
 
       <div id="cs-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
-      <form class="ws-form max-w-none mt-2" id="cs-form">
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+      <form class="setting-rows" id="cs-form">
+        <SettingRow
           id="cs-row-width"
+          chipId="cs-row-width-chip"
+          label="Image width"
+          description="How wide inline screenshots render in the comment."
         >
-          <div class="cs-row__info min-w-0">
-            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
-              <span class="cs-row__label font-semibold text-[13px] text-foreground"
-                >Image width</span
-              >
-              <span class="cs-row__chip-slot" id="cs-row-width-chip"></span>
-            </div>
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+          <div class="cs-seg" role="radiogroup" aria-label="Image width" id="cs-image-width">
+            <button
+              type="button"
+              class="cs-seg__btn"
+              role="radio"
+              aria-checked="true"
+              tabindex="0"
+              data-value="auto">auto</button
             >
-              How wide inline screenshots render in the comment.
-            </p>
+            <button
+              type="button"
+              class="cs-seg__btn"
+              role="radio"
+              aria-checked="false"
+              tabindex="-1"
+              data-value="full">full</button
+            >
+            <button
+              type="button"
+              class="cs-seg__btn"
+              role="radio"
+              aria-checked="false"
+              tabindex="-1"
+              data-value="custom">custom</button
+            >
           </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <div class="cs-seg" role="radiogroup" aria-label="Image width" id="cs-image-width">
-              <button
-                type="button"
-                class="cs-seg__btn"
-                role="radio"
-                aria-checked="true"
-                tabindex="0"
-                data-value="auto">auto</button
-              >
-              <button
-                type="button"
-                class="cs-seg__btn"
-                role="radio"
-                aria-checked="false"
-                tabindex="-1"
-                data-value="full">full</button
-              >
-              <button
-                type="button"
-                class="cs-seg__btn"
-                role="radio"
-                aria-checked="false"
-                tabindex="-1"
-                data-value="custom">custom</button
-              >
-            </div>
-            <input
-              type="number"
-              id="cs-image-width-px"
-              class="ul-input cs-image-width-px"
-              style="width: 7rem"
-              step="1"
-              min="160"
-              max="1000"
-              placeholder="160–1000"
-              hidden
-            />
-          </div>
-        </div>
+          <input
+            type="number"
+            id="cs-image-width-px"
+            class="ul-input cs-image-width-px"
+            style="width: 7rem"
+            step="1"
+            min="160"
+            max="1000"
+            placeholder="160–1000"
+            hidden
+          />
+        </SettingRow>
 
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        <SettingRow
           id="cs-row-max-inline"
+          chipId="cs-row-max-inline-chip"
+          label="Max inline images"
+          description='Attachments beyond this collapse into a "more files" link.'
         >
-          <div class="cs-row__info min-w-0">
-            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
-              <span class="cs-row__label font-semibold text-[13px] text-foreground"
-                >Max inline images</span
-              >
-              <span class="cs-row__chip-slot" id="cs-row-max-inline-chip"></span>
-            </div>
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              Attachments beyond this collapse into a "more files" link.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <input
-              type="number"
-              id="cs-max-inline"
-              class="ul-input"
-              style="width: 8rem"
-              step="1"
-              min="1"
-              max="48"
-              placeholder="auto (16)"
-            />
-          </div>
-        </div>
+          <input
+            type="number"
+            id="cs-max-inline"
+            class="ul-input"
+            style="width: 8rem"
+            step="1"
+            min="1"
+            max="48"
+            placeholder="auto (16)"
+          />
+        </SettingRow>
 
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        <SettingRow
           id="cs-row-meta"
+          chipId="cs-row-meta-chip"
+          label="Metadata captions"
+          description="Show extra details like filename, dimensions, and size under each image."
         >
-          <div class="cs-row__info min-w-0">
-            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
-              <span class="cs-row__label font-semibold text-[13px] text-foreground"
-                >Metadata captions</span
-              >
-              <span class="cs-row__chip-slot" id="cs-row-meta-chip"></span>
-            </div>
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              Show extra details like filename, dimensions, and size under each image.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="cs-show-metadata"
-              aria-checked="false"
-              aria-label="Metadata captions"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
+          <SettingSwitch id="cs-show-metadata" label="Metadata captions" />
+        </SettingRow>
 
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        <SettingRow
           id="cs-row-link"
+          chipId="cs-row-link-chip"
+          label="Link items to file pages"
+          description="Each item links to a hosted file page for larger previews."
         >
-          <div class="cs-row__info min-w-0">
-            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
-              <span class="cs-row__label font-semibold text-[13px] text-foreground"
-                >Link items to file pages</span
-              >
-              <span class="cs-row__chip-slot" id="cs-row-link-chip"></span>
-            </div>
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              Each item links to a hosted file page for larger previews.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="cs-link-to-file-page"
-              aria-checked="false"
-              aria-label="Link items to file pages"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
+          <SettingSwitch id="cs-link-to-file-page" label="Link items to file pages" />
+        </SettingRow>
 
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        <SettingRow
           id="cs-row-ingest"
+          label="Import GitHub attachments"
+          description="Mirror manually added images and video on pull requests and issues into this workspace and include them in the managed comment. On by default; bot-authored and tiny images are filtered out."
         >
-          <div class="cs-row__info min-w-0">
-            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
-              <span class="cs-row__label font-semibold text-[13px] text-foreground"
-                >Import GitHub attachments</span
-              >
-            </div>
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              Mirror manually added images and video on pull requests and issues into this
-              workspace. On by default; bot-authored and tiny images are filtered out.
-            </p>
+          <SettingSwitch id="cs-ingest-github-attachments" label="Import GitHub attachments" />
+        </SettingRow>
+
+        <SettingRow
+          id="cs-row-require"
+          chipId="cs-row-require-chip"
+          label="Require screenshots on UI changes"
+          description="Fail the Check for visuals check on pull requests that change UI files with nothing attached. Make it a required check in GitHub to block merges. A repo's check.require in .uploads.yml replaces this."
+          docsHref="/docs/require-screenshots"
+        >
+          <SettingSwitch id="cs-require-uploads" label="Require screenshots on UI changes" />
+        </SettingRow>
+
+        <SettingRow
+          id="cs-row-no-uploads"
+          label="Comment when a PR has no uploads"
+          description="When a pull request changes UI files and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
+          docsHref="/docs/require-screenshots#no-uploads-comment"
+        >
+          <SettingSwitch id="cs-no-uploads-comment" label="Comment when a PR has no uploads" />
+        </SettingRow>
+
+        <div class="setting-row setting-row--stacked" id="cs-row-ui-paths">
+          <div class="setting-row__head">
+            <label for="cs-ui-paths" class="setting-row__label">UI file paths</label>
+            <span id="cs-row-ui-paths-chip"></span>
           </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="cs-ingest-github-attachments"
-              aria-checked="false"
-              aria-label="Import GitHub attachments"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
+          <p class="setting-row__desc">
+            Files that count as UI changes, one pattern per line. Left empty, common UI files (.tsx,
+            .css, .astro and similar) count, and they show only in the check with no comment. A
+            repo's own uiPaths in .uploads.yml replaces this list.
+            <a href="/docs/require-screenshots#ui-files">How it works</a>
+          </p>
+          <textarea
+            id="cs-ui-paths"
+            class="ul-input mt-2 box-border w-full resize-y font-mono text-[13px] leading-[1.5]"
+            rows="3"
+            placeholder={"apps/web/**\n*.css"}></textarea>
         </div>
 
-        <div class="cs-row cs-row--note block border-b-0 pt-4" id="cs-row-note">
-          <div class="cs-row__note-head flex items-baseline gap-2">
-            <span class="cs-row__label font-semibold text-[13px] text-foreground"
-              >Note (optional)</span
-            >
-            <span class="cs-row__chip-slot" id="cs-row-note-chip"></span>
-            <span class="cs-row__note-count ml-auto text-[12px] text-muted-foreground"
+        <div class="setting-row setting-row--stacked" id="cs-row-note">
+          <div class="setting-row__head">
+            <label for="cs-note" class="setting-row__label">Note (optional)</label>
+            <span id="cs-row-note-chip"></span>
+            <span class="ml-auto text-[12px] text-muted-foreground"
               ><span id="cs-note-count">0</span>/500</span
             >
           </div>
-          <p
-            class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-          >
-            Included with every managed comment.
-          </p>
+          <p class="setting-row__desc">Included with every managed comment.</p>
           <textarea
             id="cs-note"
-            class="ul-input cs-note mt-2 box-border w-full resize-y text-[13px] leading-[1.5]"
+            class="ul-input mt-2 box-border w-full resize-y text-[13px] leading-[1.5]"
             maxlength="500"
             rows="2"
             placeholder="e.g. Screenshots update on every push."></textarea>
@@ -302,78 +218,6 @@ const tip = {
           >
         </div>
       </form>
-    </div>
-
-    <div class="settings-section" id="poster-section" hidden>
-      <h2>Previews</h2>
-      <p class="settings-note muted">
-        These switches save either way, and they take effect when poster generation is on for the
-        platform.
-      </p>
-      <div id="poster-error" class="ul-callout" data-state="error" role="alert" hidden></div>
-      <div class="ws-form max-w-none mt-2">
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
-        >
-          <div class="cs-row__info min-w-0">
-            <span class="cs-row__label font-semibold text-[13px] text-foreground"
-              >PDF first-page previews</span
-            >
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              A preview of the first page, shown in comments and on the file page.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="poster-pdf"
-              aria-checked="false"
-              aria-label="PDF first-page previews"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
-        <div
-          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b-0 py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
-        >
-          <div class="cs-row__info min-w-0">
-            <span class="cs-row__label font-semibold text-[13px] text-foreground"
-              >Video posters</span
-            >
-            <p
-              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
-            >
-              A still frame from the video, shown in comments and on the file page.
-            </p>
-          </div>
-          <div class="cs-row__control flex items-center gap-2.5">
-            <button
-              type="button"
-              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
-              role="switch"
-              data-slot="switch"
-              id="poster-video"
-              aria-checked="false"
-              aria-label="Video posters"
-            >
-              <span
-                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
-                data-slot="switch-thumb"
-                aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
-      </div>
-      <p id="poster-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
   </section>
 
@@ -460,7 +304,7 @@ const tip = {
        workspace-default control still shows the value, just de-emphasized,
        since the repo config wins regardless of what's picked here. Toggled
        via classList, not a static utility, so it stays a CSS rule. */
-    .cs-row--dimmed {
+    :global(.setting-row.cs-row--dimmed) {
       opacity: 0.5;
     }
 
@@ -527,15 +371,12 @@ const tip = {
       getGithubInstalled,
       getWorkspaceCommentPreview,
       getWorkspaceCommentSettings,
-      getWorkspacePosterSettings,
       getWorkspaceRepoLinks,
       patchWorkspaceCommentSettings,
-      patchWorkspacePosterSettings,
       type CommentOptionSource,
       type CommentPreview,
       type CommentPreviewResult,
       type CommentSettings,
-      type PosterSettings,
     } from "../../../../lib/api-client";
     import { renderCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
@@ -590,7 +431,10 @@ const tip = {
       const metaToggle = requireElement<HTMLButtonElement>("#cs-show-metadata", page);
       const linkToggle = requireElement<HTMLButtonElement>("#cs-link-to-file-page", page);
       const ingestToggle = requireElement<HTMLButtonElement>("#cs-ingest-github-attachments", page);
+      const noUploadsToggle = requireElement<HTMLButtonElement>("#cs-no-uploads-comment", page);
+      const requireToggle = requireElement<HTMLButtonElement>("#cs-require-uploads", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
+      const uiPathsInput = requireElement<HTMLTextAreaElement>("#cs-ui-paths", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
       const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
       const resetBtn = requireElement<HTMLButtonElement>("#cs-reset-btn", page);
@@ -606,6 +450,19 @@ const tip = {
       ) as unknown as HTMLSelectElement;
       const previewBodyEl = requireElement<HTMLElement>("#cs-preview-body", page);
       const previewChipDirty = requireElement<HTMLElement>("#cs-preview-chip-dirty", page);
+      // A preview image that fails to load (deleted, expired, or a test
+      // fixture) swaps to the standard placeholder instead of the browser's
+      // broken-image glyph. `error` doesn't bubble, so listen in capture.
+      previewBodyEl.addEventListener(
+        "error",
+        (event) => {
+          const img = event.target;
+          if (!(img instanceof HTMLImageElement) || img.dataset.placeholder) return;
+          img.dataset.placeholder = "unavailable";
+          img.src = "/placeholders/image-unavailable.svg";
+        },
+        true,
+      );
 
       /** One entry per settings row. `source` reads the row's badge state out
        * of a preview — the metadata row is the only one backed by two keys,
@@ -619,6 +476,8 @@ const tip = {
         },
         { id: "link", source: (p) => p.source.linkToFilePage ?? "auto" },
         { id: "note", source: (p) => p.source.note ?? "auto" },
+        { id: "ui-paths", source: (p) => p.source.uiPaths ?? "auto" },
+        { id: "require", source: (p) => p.source.checkRequire ?? "auto" },
       ];
       const chipTargets = chipRows.map((target) => ({
         ...target,
@@ -754,8 +613,20 @@ const tip = {
           showMetadata: toggleOn(metaToggle),
           linkToFilePage: toggleOn(linkToggle),
           note: noteInput.value.trim() === "" ? null : noteInput.value,
+          uiPaths: uiPathsFromInput(),
           ingestGithubAttachments: toggleOn(ingestToggle),
+          noUploadsComment: toggleOn(noUploadsToggle),
+          requireUploads: toggleOn(requireToggle),
         };
+      }
+
+      /** One glob per line; blank lines dropped. Empty means "no default" (null). */
+      function uiPathsFromInput(): string[] | null {
+        const paths = uiPathsInput.value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        return paths.length > 0 ? paths : null;
       }
 
       function isDirty(): boolean {
@@ -820,7 +691,10 @@ const tip = {
         // Unset means the platform default, which is ON (issue #690) — paint
         // the toggle the way ingestion will actually behave.
         paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
+        paintToggle(noUploadsToggle, settings.noUploadsComment ?? true);
+        paintToggle(requireToggle, settings.requireUploads ?? false);
         noteInput.value = settings.note ?? "";
+        uiPathsInput.value = (settings.uiPaths ?? []).join("\n");
         noteCount.textContent = String(noteInput.value.length);
         // Baseline off the painted form, not `settings`: the toggles normalise
         // `null` to a boolean above, so reading the form back keeps the dirty
@@ -838,8 +712,11 @@ const tip = {
       bindToggle(metaToggle, () => markEdited());
       bindToggle(linkToggle, () => markEdited());
       bindToggle(ingestToggle, () => markEdited());
+      bindToggle(noUploadsToggle, () => markEdited());
+      bindToggle(requireToggle, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());
       maxInlineInput.addEventListener("input", () => markEdited());
+      uiPathsInput.addEventListener("input", () => markEdited());
       noteInput.addEventListener("input", () => {
         noteCount.textContent = String(noteInput.value.length);
         markEdited();
@@ -973,94 +850,6 @@ const tip = {
 
       onSession(() => {
         void loadCommentSettings();
-      });
-    });
-
-    onAstroPageLoad(() => {
-      const sectionEl = document.getElementById("poster-section");
-      if (!sectionEl) return;
-      const section = sectionEl;
-
-      const page = "workspace poster settings";
-      const visit = getPageVisit();
-      const stillHere = (): boolean => isCurrentPageVisit(visit);
-      const w = window as unknown as {
-        __UPLOADS_API_ORIGIN__: string;
-        __UPLOADS_ACTIVE_WORKSPACE__: string;
-      };
-      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
-      const workspaceName = resolveActiveWorkspace(
-        window.location.pathname,
-        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-      );
-
-      const pdfToggle = requireElement<HTMLButtonElement>("#poster-pdf", page);
-      const videoToggle = requireElement<HTMLButtonElement>("#poster-video", page);
-      const statusEl = requireElement<HTMLElement>("#poster-status", page);
-      const errorEl = requireElement<HTMLElement>("#poster-error", page);
-
-      function toggleOn(btn: HTMLButtonElement): boolean {
-        return btn.getAttribute("aria-checked") === "true";
-      }
-      function paintToggle(btn: HTMLButtonElement, on: boolean): void {
-        btn.setAttribute("aria-checked", on ? "true" : "false");
-      }
-      function showError(message: string | null): void {
-        if (!message) {
-          errorEl.hidden = true;
-          errorEl.textContent = "";
-          return;
-        }
-        errorEl.hidden = false;
-        errorEl.textContent = message;
-      }
-      function paint(settings: PosterSettings): void {
-        paintToggle(pdfToggle, settings.pdfPosterEnabled);
-        paintToggle(videoToggle, settings.videoPosterEnabled);
-      }
-
-      function setBusy(busy: boolean): void {
-        pdfToggle.disabled = busy;
-        videoToggle.disabled = busy;
-      }
-      function wire(btn: HTMLButtonElement, key: "pdfPosterEnabled" | "videoPosterEnabled"): void {
-        btn.addEventListener("click", () => {
-          const desired = !toggleOn(btn);
-          paintToggle(btn, desired);
-          setBusy(true);
-          showError(null);
-          statusEl.textContent = "Saving…";
-          void (async () => {
-            const result = await patchWorkspacePosterSettings(apiOrigin, workspaceName, {
-              [key]: desired,
-            });
-            if (!stillHere()) return;
-            setBusy(false);
-            if (result.kind === "ok") {
-              paint(result.settings);
-              statusEl.textContent = "Saved.";
-              return;
-            }
-            paintToggle(btn, !desired);
-            statusEl.textContent = "";
-            showError(result.kind === "invalid" ? result.message : "Couldn’t save. Try again.");
-          })();
-        });
-      }
-
-      wire(pdfToggle, "pdfPosterEnabled");
-      wire(videoToggle, "videoPosterEnabled");
-
-      async function loadPosterSettings(): Promise<void> {
-        const result = await getWorkspacePosterSettings(apiOrigin, workspaceName);
-        if (!stillHere()) return;
-        if (result.kind !== "ok") return;
-        paint(result.settings);
-        section.hidden = false;
-      }
-
-      onSession(() => {
-        void loadPosterSettings();
       });
     });
   </script>

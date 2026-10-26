@@ -16,7 +16,7 @@
  */
 
 import { bumpDailyMetric, logAdoptionFailure } from "./adoption";
-import { type D1Queryable } from "./db-session";
+import { isD1ExportInProgress, type D1Queryable } from "./db-session";
 
 export interface RepoLink {
   repo: string;
@@ -87,15 +87,17 @@ export async function recordRepoLink(
       }
     }
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "repo link record failed",
-        repo,
-        workspaceName,
-        source,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    const line = JSON.stringify({
+      message: "repo link record failed",
+      repo,
+      workspaceName,
+      source,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // During the nightly backup's D1 lock this is expected, and the next
+    // attach for the repo records the link again.
+    if (isD1ExportInProgress(err)) console.warn(line);
+    else console.error(line);
   }
 }
 
@@ -259,4 +261,19 @@ export async function setRepoLink(
     )
     .bind(normalizeRepo(repo), workspaceName, installationId, source, now.toISOString())
     .run();
+}
+
+/**
+ * Lowercased repos bound to `workspaceName`: the `linkedRepos` of the member
+ * title audience (`resolveTitles(env, refs, { audience: "member", linkedRepos })`,
+ * github-titles.ts). Fails closed: a D1 error yields an empty set, so every
+ * ref falls back to the public ladder.
+ */
+export async function linkedRepoSet(db: D1Queryable, workspaceName: string): Promise<Set<string>> {
+  return new Set(
+    await listRepoLinksForWorkspace(db, workspaceName).then(
+      (links) => links.map((link) => link.repo.toLowerCase()),
+      () => [],
+    ),
+  );
 }

@@ -44,6 +44,7 @@
  */
 import crypto from "node:crypto";
 import { wranglerKvKey } from "./run-timed.mjs";
+import { workspaceKeyMetadata } from "./workspace-key-metadata.mjs";
 import { sharedAgentLimitFields } from "./workspace-limit-defaults.mjs";
 // Node's built-in type stripping (this repo's engines floor is >=24) lets a
 // plain .mjs script import a .ts source file directly, so the enc:v1: sealing
@@ -230,6 +231,8 @@ if (master && (record.accessKeyId || record.secretAccessKey)) {
   }
 }
 
+record.createdAt = new Date().toISOString();
+
 Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
 
 const appliedLimits = {
@@ -285,6 +288,7 @@ try {
     op: "put",
     key: `ws:${name}`,
     value: JSON.stringify(record),
+    metadata: workspaceKeyMetadata(record),
     local: opts.local,
     stdio: "inherit",
   });

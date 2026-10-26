@@ -1,0 +1,5 @@
+# uploads.sh config for this repo. See https://uploads.sh/docs/comment-config
+comment:
+  check:
+    # Advisory AI notes on the "Check for visuals" check. They never fail it.
+    ai: all

@@ -480,6 +480,29 @@ async function resolveMintWorkspace(
   throw new UsageError(`multiple workspaces available (${names}); pass --workspace <name>`);
 }
 
+/**
+ * True only when the server answers 401 for the saved token. A working token,
+ * a network failure or no saved token at all keeps the --force guard.
+ */
+async function savedTokenRejected(
+  existing: ReturnType<typeof loadConfigFile>,
+  apiUrl: string,
+): Promise<boolean> {
+  const token = existing.UPLOADS_TOKEN;
+  const workspace = token ? (existing.UPLOADS_WORKSPACE ?? workspaceFromToken(token)) : undefined;
+  if (!token || !workspace) return false;
+  try {
+    await createUploadsClient({
+      apiUrl: existing.UPLOADS_API_URL ?? apiUrl,
+      workspace,
+      token,
+    }).list({ limit: 1 });
+    return false;
+  } catch (err) {
+    return err instanceof UploadsError && err.code === "UNAUTHORIZED";
+  }
+}
+
 export async function runLogin(
   args: string[],
   opts: { json?: boolean; apiUrl?: string },
@@ -495,8 +518,12 @@ export async function runLogin(
   const path = flagString(parsed.flags, "--path") ?? resolveConfigPath();
   const force = flagBool(parsed.flags, "--force");
   const existing = loadConfigFile(path);
-  if (existing.UPLOADS_TOKEN && !force)
+  // A saved token the server rejects (expired or revoked) is replaced without --force.
+  const replace = force || (await savedTokenRejected(existing, apiUrl));
+  if (existing.UPLOADS_TOKEN && !replace)
     throw new UsageError(`credentials already exist in ${path}; use --force to replace them`);
+  if (existing.UPLOADS_TOKEN && !force && !opts.json)
+    process.stderr.write("the saved token no longer works; replacing it\n\n");
   if (process.env.UPLOADS_TOKEN && !force)
     throw new UsageError(
       "UPLOADS_TOKEN is already set in the environment; unset it or use --force",
@@ -541,7 +568,7 @@ export async function runLogin(
       // Device login only — enables throttled session.cliVersion refresh.
       ...(result.sessionToken ? { UPLOADS_SESSION_TOKEN: result.sessionToken } : {}),
     },
-    { force },
+    { force: replace },
   );
   if (
     !["UPLOADS_API_URL", "UPLOADS_WORKSPACE", "UPLOADS_TOKEN"].every((key) =>

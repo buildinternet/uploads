@@ -206,4 +206,34 @@ describe("scheduled handler — active-content host sweep (#929)", () => {
       sqlite.close();
     }
   });
+
+  it("does not run the daily sweeps from the Monday digest cron", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const registry = fakeRegistry({ [`ws:${WS}`]: RECORD });
+      const env = { REGISTRY: registry, DB: database(sqlite) } as unknown as Env;
+      sqlite.db
+        .prepare(
+          `INSERT INTO idempotency_requests
+           (workspace, principal, operation, key_hash, fingerprint, owner_nonce, state,
+            response_status, response_body, created_at, expires_at)
+           VALUES (?, 'd1-token:test', 'gallery.create.v1', 'expired', 'fingerprint', NULL,
+                   'completed', 201, '{}', ?, ?)`,
+        )
+        .run(WS, daysAgo(2), daysAgo(1));
+      const fetchSpy = vi.fn(async () => new Response("nope", { status: 500 }));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const { ctx, settle } = fakeExecutionContext();
+      await worker.scheduled({ cron: "0 14 * * 1" } as ScheduledController, env, ctx);
+      await settle();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(sqlite.db.prepare("SELECT key_hash FROM idempotency_requests").all()).toEqual([
+        { key_hash: "expired" },
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
 });

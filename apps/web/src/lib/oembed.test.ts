@@ -231,7 +231,7 @@ describe("resolveOEmbed", () => {
     });
   });
 
-  it("returns a video response with escaped HTML for a video file", async () => {
+  it("returns a video iframe for a video file, and uses stored dimensions", async () => {
     const fetchMock = vi.fn(async () => jsonResponse(publicVideo));
     const page = sharePageUrl(SITE, {
       kind: "file",
@@ -250,8 +250,34 @@ describe("resolveOEmbed", () => {
     if (result.body.type !== "video") return;
     expect(result.body.width).toBe(DEFAULT_VIDEO_WIDTH);
     expect(result.body.height).toBe(DEFAULT_VIDEO_HEIGHT);
-    expect(result.body.html).toContain(`src="${publicVideo.url}"`);
-    expect(result.body.html).toContain("controls");
+    expect(result.body.html).toContain("<iframe ");
+    expect(result.body.html).toContain(`/player?url=${encodeURIComponent(page)}`);
+    expect(result.body.html).toContain("allowfullscreen");
+    expect(result.body.html).not.toContain(publicVideo.url);
+
+    const sized = await resolveOEmbed({
+      url: page,
+      requestOrigin: SITE,
+      apiOrigin: API,
+      maxwidth: 960,
+      fetch: (async () =>
+        jsonResponse({
+          ...publicVideo,
+          posterUrl: "https://storage.uploads.sh/acme/_internal/posters/clips/demo.mp4.jpg",
+          videoDimensions: { width: 1920, height: 1080 },
+        })) as typeof fetch,
+    });
+    expect(sized.status).toBe("ok");
+    if (sized.status !== "ok" || sized.body.type !== "video") return;
+    expect(sized.body.width).toBe(960);
+    expect(sized.body.height).toBe(540);
+    expect(sized.body.thumbnail_url).toBe(
+      "https://storage.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=jpeg,onerror=redirect/acme/_internal/posters/clips/demo.mp4.jpg",
+    );
+    expect(sized.body.thumbnail_width).toBe(960);
+    expect(sized.body.thumbnail_height).toBe(540);
+    expect(sized.body.html).toContain('width="960"');
+    expect(sized.body.html).toContain('height="540"');
   });
 
   it("returns link + thumbnail for a gallery index", async () => {
@@ -274,10 +300,23 @@ describe("resolveOEmbed", () => {
     });
   });
 
-  it("returns photo for a feed item image", async () => {
+  it("returns photo for a feed item image, including one past the newest 50", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toContain(`/public/feeds/${FEED_ID}`);
-      return jsonResponse(publicFeed);
+      expect(String(input)).toContain(`/public/feeds/${FEED_ID}/items/${FEED_ITEM_ID}`);
+      return jsonResponse({
+        feed: {
+          id: FEED_ID,
+          title: publicFeed.title,
+          repo: publicFeed.repo,
+          number: publicFeed.number,
+          kind: publicFeed.kind,
+        },
+        item: publicFeed.items[0],
+        prev: null,
+        next: null,
+        index: 61,
+        total: 62,
+      });
     });
     const page = sharePageUrl(SITE, {
       kind: "feed-item",

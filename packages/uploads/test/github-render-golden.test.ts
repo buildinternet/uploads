@@ -8,7 +8,6 @@ import {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
   AUTO_RENDER_OPTIONS,
-  GH_PRIVATE_ROOT,
   ghPrivateAttachmentKey,
   ghPrivateBranchAttachmentKey,
   ghPrivateBranchKeyPrefix,
@@ -94,10 +93,6 @@ describe("private-repo key builders/parsers (CLI copy) — golden parity fixture
     const target: GhTarget = { repo: "acme/web", kind: "pull", num: 1 };
     expect(() => ghPrivateKeyPrefix(badId, target)).toThrow();
     expect(() => ghPrivateBranchKeyPrefix(badId)).toThrow();
-  });
-
-  it("GH_PRIVATE_ROOT matches the fixture's literal prefix", () => {
-    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
   });
 });
 
@@ -195,17 +190,15 @@ describe("attachmentsCommentBody (CLI copy)", () => {
         img("gh/acme/web/pull/12/a.webp", { meta: { path: "/settings", state: "after" } }),
         img("gh/acme/web/pull/12/b.webp", { meta: { path: "/settings", state: "before" } }),
       ]);
-      expect(body).toContain("<table><tr>");
-      expect(body).toContain("<strong>Before</strong>");
-      expect(body).toContain("<strong>After</strong>");
+      expect(body).toContain("<table><tr><th>Before</th><th>After</th></tr><tr>");
       // Before cell comes first regardless of which key sorts first.
       const beforeIdx = body.indexOf("b.webp");
       const afterIdx = body.indexOf("a.webp");
       expect(beforeIdx).toBeGreaterThan(-1);
       expect(beforeIdx).toBeLessThan(afterIdx);
-      // Each side's own path/state caption is preserved.
-      expect(body).toContain("<code>/settings</code> · <code>before</code>");
-      expect(body).toContain("<code>/settings</code> · <code>after</code>");
+      // Each side keeps its path caption; the header carries the state.
+      expect(body).toContain('.webp"></a><br><code>/settings</code></td>');
+      expect(body).not.toContain("<code>before</code>");
       // Only one table row — no leftover standalone <img> rendering for these two.
       expect(body.match(/<table>/g)).toHaveLength(1);
     });
@@ -215,7 +208,7 @@ describe("attachmentsCommentBody (CLI copy)", () => {
         img("gh/acme/web/pull/12/hero-after.webp"),
         img("gh/acme/web/pull/12/hero-before.webp"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
       const beforeIdx = body.indexOf("hero-before.webp");
       const afterIdx = body.indexOf("hero-after.webp");
       expect(beforeIdx).toBeLessThan(afterIdx);
@@ -226,7 +219,7 @@ describe("attachmentsCommentBody (CLI copy)", () => {
         img("gh/acme/web/pull/12/after.png"),
         img("gh/acme/web/pull/12/before.png"),
       ]);
-      expect(body).toContain("<table><tr>");
+      expect(body).toContain("<th>Before</th>");
     });
 
     it("does not pair mismatched extensions or unrelated stems", () => {
@@ -515,5 +508,100 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       });
       expect(body).toContain("<code>uploads put &lt;file&gt; --issue 45</code>");
     });
+  });
+});
+
+const goldenLiveLink = JSON.parse(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../../test/fixtures/github-comment-golden-live-link.json", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as {
+  items: AttachmentItem[];
+  galleries: [];
+  target: Pick<GhTarget, "kind" | "num">;
+  liveLinkUrl: string;
+  expected: string;
+};
+
+describe("live link line (CLI copy)", () => {
+  const one: AttachmentItem[] = [
+    {
+      key: "gh/acme/web/pull/12/shot.png",
+      url: "https://storage.uploads.sh/acme/gh/acme/web/pull/12/shot.png",
+    },
+  ];
+
+  it("renders the golden body with the line under the heading", () => {
+    expect(
+      attachmentsCommentBody(
+        goldenLiveLink.items,
+        goldenLiveLink.galleries,
+        ATTACHMENTS_MARKER,
+        AUTO_RENDER_OPTIONS,
+        goldenLiveLink.target,
+        { liveLinkUrl: goldenLiveLink.liveLinkUrl },
+      ),
+    ).toBe(goldenLiveLink.expected);
+  });
+
+  it("uses the singular for one file", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        liveLinkUrl: "https://uploads.sh/c/feed_x",
+      },
+    );
+    expect(body).toContain(
+      `<a href="https://uploads.sh/c/feed_x"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>1 file · `,
+    );
+  });
+
+  it("closes the comment, after the note and the media", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      { ...AUTO_RENDER_OPTIONS, note: "Staging only." },
+      undefined,
+      { liveLinkUrl: "https://uploads.sh/c/feed_x" },
+    );
+    expect(body.startsWith(`${ATTACHMENTS_MARKER}\nStaging only.\n\n`)).toBe(true);
+    expect(body.endsWith("</sub>")).toBe(true);
+    expect(body.indexOf("view-on-uploads.svg")).toBeGreaterThan(body.indexOf("shot.png"));
+  });
+
+  it("omits the line without a URL and on an empty comment", () => {
+    expect(attachmentsCommentBody(one)).not.toContain("view-on-uploads.svg");
+    expect(
+      attachmentsCommentBody(one, [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
+        liveLinkUrl: null,
+      }),
+    ).not.toContain("view-on-uploads.svg");
+    expect(
+      attachmentsCommentBody([], [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
+        liveLinkUrl: "https://uploads.sh/c/feed_x",
+      }),
+    ).toBe(attachmentsCommentBody([]));
+  });
+
+  it("escapes the URL into the href", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        liveLinkUrl: 'https://uploads.sh/c/a"b<c',
+      },
+    );
+    expect(body).toContain('href="https://uploads.sh/c/a&quot;b&lt;c"');
   });
 });

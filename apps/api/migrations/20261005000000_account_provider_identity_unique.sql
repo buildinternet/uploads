@@ -1,0 +1,12 @@
+-- One account row per (provider_id, account_id). Better Auth 1.7.7 throws
+-- "Multiple accounts match the same accountId" on a duplicate pair, which
+-- blocks social sign-in for that user. The unique (issuer, account_id) index
+-- dropped in 20261004120000 used to stop duplicate GitHub rows; this replaces
+-- it with the key Better Auth 1.7.3+ actually looks up. Production had no
+-- duplicate pairs when this was written.
+--
+-- This fails if a duplicate pair exists. Find them with
+--   SELECT provider_id, account_id, COUNT(*) FROM account
+--   GROUP BY 1, 2 HAVING COUNT(*) > 1;
+-- and delete the stale row of each pair before re-running.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_provider_account_id ON account (provider_id, account_id);

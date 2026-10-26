@@ -1,0 +1,59 @@
+---
+/**
+ * Files view sub-nav: By pull request (default), By repo, By page. Plain
+ * links; each view is its own SSR page load with its own seed.
+ */
+import { filesViewHref, type FilesView } from "../../lib/files-view-state";
+
+interface Props {
+  workspace: string;
+  current: FilesView;
+}
+
+const { workspace, current } = Astro.props;
+const tabs: { view: FilesView; label: string }[] = [
+  { view: "pulls", label: "By pull request" },
+  { view: "repos", label: "By repo" },
+  { view: "pages", label: "By page" },
+];
+---
+
+<nav class="files-nav" aria-label="Files views">
+  {
+    tabs.map((tab) => (
+      <a
+        class="files-nav__tab"
+        href={filesViewHref(workspace, tab.view)}
+        aria-current={tab.view === current ? "page" : undefined}
+      >
+        {tab.label}
+      </a>
+    ))
+  }
+</nav>
+
+<style>
+  .files-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .files-nav__tab {
+    padding: 8px 12px;
+    margin-bottom: -1px;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .files-nav__tab:hover,
+  .files-nav__tab:focus-visible {
+    color: var(--fg);
+  }
+  .files-nav__tab[aria-current="page"] {
+    color: var(--fg);
+    border-bottom-color: var(--fg);
+  }
+</style>

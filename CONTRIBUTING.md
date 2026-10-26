@@ -63,7 +63,7 @@ pnpm dev:stack:check --json  # machine-readable readiness + session smoke proof
 ```
 
 `pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so WEB
-gets `https://uploads.local.buildinternet.dev` instead of a bare port. Local
+gets `https://local.uploadrouter.dev` instead of a bare port. Local
 sign-in behaves like production — `/account/*` and `/admin/*` work in a
 browser. [docs/local-dev.md](docs/local-dev.md#named-local-urls-portless) has
 the origin table, OAuth redirect URIs, and a curl smoke test.
@@ -196,12 +196,9 @@ migrations when `apps/api/migrations/**` changes. Manual deploys
 `deploy:auth`) need `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in
 `.env`. Use `pnpm run deploy`, not bare `pnpm deploy` — that is pnpm's built-in.
 
-For a branch environment, run `npx wrangler preview` from the app's directory
-(Workers Previews; enabled on the account). Each app's `wrangler.jsonc` has a
-`previews` block that re-points stateful bindings at preview-tier resources —
-previews never touch production KV/D1/R2. Which app to preview for a given
-change, per-branch overrides, migrations, seeding, and secrets are all in
-[docs/previews.md](docs/previews.md).
+Pushing a branch does not preview the web, auth, or api workers. Upload a
+preview only when the change needs a live worker; the command is in
+[docs/previews.md](docs/previews.md#no-automatic-branch-preview).
 
 Full setup is in [docs/deploy.md](docs/deploy.md); the operator runbook is
 [docs/ops.md](docs/ops.md).

@@ -6,6 +6,7 @@
   Link: <https://github.com/buildinternet/uploads/blob/main/docs/api.md>; rel="service-doc"; type="text/markdown"
   Link: </llms.txt>; rel="describedby"; type="text/plain"
   Link: </auth.md>; rel="describedby"; type="text/markdown"
+  Link: </pricing.md>; rel="describedby"; type="text/markdown"
   Link: </.well-known/mcp/server-card.json>; rel="alternate"; type="application/json"
   Link: </.well-known/agent-skills/index.json>; rel="alternate"; type="application/json"
   Link: </.well-known/releases.json>; rel="alternate"; type="application/json"
@@ -59,6 +60,10 @@
   Cache-Control: public, max-age=300
 
 /auth.md
+  Content-Type: text/markdown; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/pricing.md
   Content-Type: text/markdown; charset=utf-8
   Cache-Control: public, max-age=300
 

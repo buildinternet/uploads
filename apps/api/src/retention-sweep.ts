@@ -9,7 +9,12 @@ import { deleteOrg, listOrgs } from "./org-workspaces";
 import { purgeExpiredObjects } from "./retention";
 import { PROBE_PREFIX } from "./storage-verify";
 import { teardownWorkspace } from "./workspace-teardown";
-import { isPurgedTombstone, type PurgedTombstone, type WorkspaceRecord } from "./workspace";
+import {
+  listWorkspaceNames,
+  isPurgedTombstone,
+  type PurgedTombstone,
+  type WorkspaceRecord,
+} from "./workspace";
 
 export interface SweepResult {
   workspacesScanned: number;
@@ -110,118 +115,111 @@ async function reapOrphanedProbeObjects(env: Env): Promise<SweepResult["probesRe
 }
 
 export async function runRetentionSweep(env: Env): Promise<SweepResult> {
-  let cursor: string | undefined;
   let workspacesScanned = 0;
   let workspacesWithRetention = 0;
   const purged: SweepResult["purged"] = [];
   const workspacesFinalized: SweepResult["workspacesFinalized"] = [];
 
-  do {
-    const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-    for (const entry of page.keys) {
-      workspacesScanned += 1;
-      const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-      if (!name) continue;
+  for (const name of await listWorkspaceNames(env)) {
+    workspacesScanned += 1;
 
-      let record: WorkspaceRecord | PurgedTombstone | null = null;
-      try {
-        record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(entry.name, "json");
-      } catch (err) {
-        purged.push({
+    let record: WorkspaceRecord | PurgedTombstone | null = null;
+    try {
+      record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(`ws:${name}`, "json");
+    } catch (err) {
+      purged.push({
+        workspace: name,
+        deleted: 0,
+        freedBytes: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+    if (!record) continue;
+    // Already-finalized tombstone — nothing to do, skip harmlessly.
+    if (isPurgedTombstone(record)) continue;
+
+    if (record.deletedAt) {
+      // Soft-deleted: skip normal retention purge; finalize once the grace
+      // window has elapsed. A missing or unparseable purgeAt must never
+      // fall through to teardown (NaN comparisons are false, which would
+      // otherwise read as "grace elapsed") — surface it as an error instead.
+      if (!record.purgeAt) continue;
+      const purgeAtMs = Date.parse(record.purgeAt);
+      if (!Number.isFinite(purgeAtMs)) {
+        workspacesFinalized.push({
           workspace: name,
-          deleted: 0,
+          objectsDeleted: 0,
           freedBytes: 0,
-          error: err instanceof Error ? err.message : String(err),
+          galleriesDeleted: 0,
+          error: `unparseable purgeAt: ${record.purgeAt}`,
         });
         continue;
       }
-      if (!record) continue;
-      // Already-finalized tombstone — nothing to do, skip harmlessly.
-      if (isPurgedTombstone(record)) continue;
+      if (Date.now() < purgeAtMs) continue;
 
-      if (record.deletedAt) {
-        // Soft-deleted: skip normal retention purge; finalize once the grace
-        // window has elapsed. A missing or unparseable purgeAt must never
-        // fall through to teardown (NaN comparisons are false, which would
-        // otherwise read as "grace elapsed") — surface it as an error instead.
-        if (!record.purgeAt) continue;
-        const purgeAtMs = Date.parse(record.purgeAt);
-        if (!Number.isFinite(purgeAtMs)) {
-          workspacesFinalized.push({
-            workspace: name,
-            objectsDeleted: 0,
-            freedBytes: 0,
-            galleriesDeleted: 0,
-            error: `unparseable purgeAt: ${record.purgeAt}`,
-          });
-          continue;
-        }
-        if (Date.now() < purgeAtMs) continue;
-
-        try {
-          // No `purgeObjects` here — the sweep is automated, not an
-          // operator confirming the bucket is platform-owned, so an
-          // unprefixed record always keeps its objects (objectsSkipped)
-          // while platform state (KV/D1/galleries) is still torn down.
-          const result = await teardownWorkspace(env, name, record, {
-            reason: "grace_period_expired",
-            force: true,
-            replaceWithTombstone: true,
-          });
-          workspacesFinalized.push({
+      try {
+        // No `purgeObjects` here — the sweep is automated, not an
+        // operator confirming the bucket is platform-owned, so an
+        // unprefixed record always keeps its objects (objectsSkipped)
+        // while platform state (KV/D1/galleries) is still torn down.
+        const result = await teardownWorkspace(env, name, record, {
+          reason: "grace_period_expired",
+          force: true,
+          replaceWithTombstone: true,
+        });
+        workspacesFinalized.push({
+          workspace: name,
+          objectsDeleted: result.objectsDeleted,
+          freedBytes: result.freedBytes,
+          galleriesDeleted: result.galleriesDeleted,
+          ...(result.objectsSkipped ? { objectsSkipped: result.objectsSkipped } : {}),
+        });
+        console.log(
+          JSON.stringify({
+            event: "workspace_purged",
             workspace: name,
             objectsDeleted: result.objectsDeleted,
             freedBytes: result.freedBytes,
             galleriesDeleted: result.galleriesDeleted,
-            ...(result.objectsSkipped ? { objectsSkipped: result.objectsSkipped } : {}),
-          });
-          console.log(
-            JSON.stringify({
-              event: "workspace_purged",
-              workspace: name,
-              objectsDeleted: result.objectsDeleted,
-              freedBytes: result.freedBytes,
-              galleriesDeleted: result.galleriesDeleted,
-              objectsSkipped: result.objectsSkipped,
-            }),
-          );
-        } catch (err) {
-          workspacesFinalized.push({
-            workspace: name,
-            objectsDeleted: 0,
-            freedBytes: 0,
-            galleriesDeleted: 0,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        continue;
-      }
-
-      if (typeof record.retentionDays !== "number" || record.retentionDays <= 0) continue;
-
-      workspacesWithRetention += 1;
-      try {
-        const result = await purgeExpiredObjects(env, record, name);
-        if ("skipped" in result) {
-          purged.push({ workspace: name, deleted: 0, freedBytes: 0, skipped: true });
-        } else {
-          purged.push({
-            workspace: name,
-            deleted: result.deleted,
-            freedBytes: result.freedBytes,
-          });
-        }
+            objectsSkipped: result.objectsSkipped,
+          }),
+        );
       } catch (err) {
-        purged.push({
+        workspacesFinalized.push({
           workspace: name,
-          deleted: 0,
+          objectsDeleted: 0,
           freedBytes: 0,
+          galleriesDeleted: 0,
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      continue;
     }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+
+    if (typeof record.retentionDays !== "number" || record.retentionDays <= 0) continue;
+
+    workspacesWithRetention += 1;
+    try {
+      const result = await purgeExpiredObjects(env, record, name);
+      if ("skipped" in result) {
+        purged.push({ workspace: name, deleted: 0, freedBytes: 0, skipped: true });
+      } else {
+        purged.push({
+          workspace: name,
+          deleted: result.deleted,
+          freedBytes: result.freedBytes,
+        });
+      }
+    } catch (err) {
+      purged.push({
+        workspace: name,
+        deleted: 0,
+        freedBytes: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // #250 orphan-org sweep: after the ws-record pass, list every auth-side org
   // and delete (force) any whose slug has no `ws:<slug>` KV key at all, or

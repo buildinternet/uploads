@@ -4,10 +4,12 @@ import {
   focusIsKeyboardDriven,
   formatShotCount,
   groupsFromCatalog,
+  isPagesLocation,
   isRepoLabel,
   isScreenshotsNavState,
   lastUpdatedLabel,
   leafName,
+  pairPartners,
   pairedShotKeys,
   pathQueryMatches,
   pathSuggestions,
@@ -22,8 +24,13 @@ import {
   type ScreenshotsView,
   shotKindFromKey,
   shotPreviewCaption,
+  shotTileInput,
   shotPreviewPosition,
+  previewPrDisplay,
+  ghKindFallbackLabel,
+  shotPrLabelInput,
 } from "./workspace-screenshots";
+import { filesRouteRedirect } from "./workspace-route-redirects";
 
 describe("pairedShotKeys", () => {
   it("marks a tile paired only when the opposite state exists in the same collection", () => {
@@ -163,6 +170,22 @@ describe("shotPreviewCaption", () => {
     expect(cap.ref).toBeUndefined();
     expect(cap.pr).toBeUndefined();
   });
+
+  it("adds page, state and device for the hover card", () => {
+    expect(
+      shotPreviewCaption({
+        key: "shot.png",
+        state: "after",
+        metadata: { path: "/settings", "ai.surface": "mobile" },
+      }),
+    ).toEqual({ name: "shot.png", page: "/settings", state: "After", device: "Mobile" });
+    expect(
+      shotPreviewCaption({
+        key: "shot.png",
+        metadata: { screen: "Login", state: "before", "ai.surface": "watch" },
+      }),
+    ).toEqual({ name: "shot.png", page: "Login", state: "Before" });
+  });
 });
 
 describe("projectLabelFromItemMeta", () => {
@@ -201,49 +224,88 @@ describe("projectLabelFromItemMeta", () => {
 });
 
 describe("screenshots view URL state", () => {
-  it("round-trips project, path, and q", () => {
-    expect(readScreenshotsView("?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat")).toEqual({
+  it("round-trips project, path, and q under view=pages", () => {
+    expect(readScreenshotsView("?view=pages&project=acme%2Fweb&path=%2Fadmin&q=%2Fcat")).toEqual({
       project: "acme/web",
       path: "/admin",
       q: "/cat",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
+      surface: null,
+      since: null,
+      by: "path",
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
-      "?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
+      "?view=pages&project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
     );
-    expect(screenshotsSearch("acme/web", "")).toBe("?project=acme%2Fweb");
-    expect(screenshotsSearch("", "")).toBe("");
-    expect(screenshotsSearch("", "", "/catalog")).toBe("?q=%2Fcatalog");
+    expect(screenshotsSearch("acme/web", "")).toBe("?view=pages&project=acme%2Fweb");
+    expect(screenshotsSearch("", "")).toBe("?view=pages");
+    expect(screenshotsSearch("", "/admin")).toBe("?view=pages&path=%2Fadmin");
+    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("?view=pages");
+    expect(screenshotsSearch("", "", "/catalog")).toBe("?view=pages&q=%2Fcatalog");
   });
-  it("round-trips the recent-feed toggle, defaulting to grouped", () => {
-    expect(readScreenshotsView("?view=recent").feed).toBe("recent");
-    expect(readScreenshotsView("?view=nonsense").feed).toBe("grouped");
-    expect(readScreenshotsView("").feed).toBe("grouped");
-    expect(screenshotsSearch("", "", "", "recent")).toBe("?view=recent");
-    expect(screenshotsSearch("acme/web", "", "", "recent")).toBe("?project=acme%2Fweb&view=recent");
-    expect(screenshotsSearch("", "", "", "grouped")).toBe("");
+
+  it("reads sort=recent and the legacy view=recent, writes sort=recent", () => {
+    expect(readScreenshotsView("?view=pages&sort=recent").sort).toBe("recent");
+    expect(readScreenshotsView("?view=recent").sort).toBe("recent");
+    expect(readScreenshotsView("?sort=nonsense").sort).toBe("grouped");
+    expect(readScreenshotsView("?view=nonsense").sort).toBe("grouped");
+    expect(readScreenshotsView("").sort).toBe("grouped");
+    expect(screenshotsSearch("", "", "", "recent")).toBe("?view=pages&sort=recent");
+    expect(screenshotsSearch("acme/web", "", "", "recent")).toBe(
+      "?view=pages&sort=recent&project=acme%2Fweb",
+    );
   });
+
   it("keeps legacy bare ?path= links working", () => {
     expect(readScreenshotsView("?path=%2Fadmin")).toEqual({
       project: "",
       path: "/admin",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
+      surface: null,
+      since: null,
+      by: "path",
     });
-    expect(screenshotsSearch("", "/admin")).toBe("?path=%2Fadmin");
   });
 
-  it("round-trips the merged-only toggle, defaulting to false", () => {
+  it("round-trips the merged-only toggle and the type filter", () => {
     expect(readScreenshotsView("?merged=1").merged).toBe(true);
     expect(readScreenshotsView("?merged=0").merged).toBe(false);
-    expect(readScreenshotsView("").merged).toBe(false);
-    expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?merged=1");
-    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("");
-    expect(screenshotsSearch("acme/web", "", "", "recent", true)).toBe(
-      "?project=acme%2Fweb&view=recent&merged=1",
+    expect(readScreenshotsView("?type=video").type).toBe("video");
+    expect(readScreenshotsView("?type=gif").type).toBeNull();
+    expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?view=pages&merged=1");
+    expect(screenshotsSearch("acme/web", "", "", "recent", true, "other")).toBe(
+      "?view=pages&sort=recent&project=acme%2Fweb&merged=1&type=other",
     );
+  });
+
+  it("round-trips the device filter and screen drill-ins", () => {
+    expect(readScreenshotsView("?surface=mobile").surface).toBe("mobile");
+    expect(readScreenshotsView("?surface=watch").surface).toBeNull();
+    const screen = readScreenshotsView("?view=pages&screen=Settings");
+    expect(screen.path).toBe("Settings");
+    expect(screen.by).toBe("screen");
+    // `path` wins when a hand-edited URL carries both.
+    expect(readScreenshotsView("?path=%2Fa&screen=B").by).toBe("path");
+    expect(screenshotsSearch("", "Settings", "", "grouped", false, null, "mobile", "screen")).toBe(
+      "?view=pages&screen=Settings&surface=mobile",
+    );
+  });
+
+  // A drill-in URL the island writes must not be mistaken for an old
+  // bucket-browser `?path=` link and bounce to Storage.
+  it("never writes a URL that /files would redirect to Storage", () => {
+    for (const search of [
+      screenshotsSearch("", "/settings"),
+      screenshotsSearch("acme/web", "/admin", "/cat", "recent", true, "video"),
+      screenshotsSearch("", ""),
+    ]) {
+      expect(filesRouteRedirect("acme", search)).toBeNull();
+    }
   });
 });
 
@@ -252,48 +314,53 @@ describe("screenshots view hrefs and history mode", () => {
     project: "",
     path: "",
     q: "",
-    feed: "grouped",
+    sort: "grouped",
     merged: false,
+    type: null,
+    surface: null,
+    since: null,
+    by: "path",
   };
 
-  it("builds a path-based screenshots URL with encoded query state", () => {
-    expect(
-      screenshotsViewHref("acme", {
-        project: "acme/web",
-        path: "/admin",
-        q: "",
-        feed: "grouped",
-        merged: false,
-      }),
-    ).toBe("/account/workspaces/acme/screenshots?project=acme%2Fweb&path=%2Fadmin");
-    expect(screenshotsViewHref("acme", overview)).toBe("/account/workspaces/acme/screenshots");
-    expect(screenshotsSearchFromView(overview)).toBe("");
+  it("builds a Files By page URL with encoded query state", () => {
+    expect(screenshotsViewHref("acme", { ...overview, project: "acme/web", path: "/admin" })).toBe(
+      "/account/workspaces/acme/files?view=pages&project=acme%2Fweb&path=%2Fadmin",
+    );
+    expect(screenshotsViewHref("acme", overview)).toBe("/account/workspaces/acme/files?view=pages");
+    expect(screenshotsSearchFromView(overview)).toBe("?view=pages");
   });
 
   it("pushes history for project or path changes, replaces for filter tweaks", () => {
     expect(screenshotsHistoryMode(overview, { ...overview, path: "/settings" })).toBe("push");
     expect(screenshotsHistoryMode(overview, { ...overview, project: "acme/web" })).toBe("push");
     expect(screenshotsHistoryMode(overview, { ...overview, q: "/cat" })).toBe("replace");
-    expect(screenshotsHistoryMode(overview, { ...overview, feed: "recent" })).toBe("replace");
+    expect(screenshotsHistoryMode(overview, { ...overview, sort: "recent" })).toBe("replace");
     expect(screenshotsHistoryMode(overview, { ...overview, merged: true })).toBe("replace");
+    expect(screenshotsHistoryMode(overview, { ...overview, type: "video" })).toBe("replace");
   });
 
   it("treats views as equal only when every field matches", () => {
     expect(screenshotsViewsEqual(overview, { ...overview })).toBe(true);
     expect(screenshotsViewsEqual(overview, { ...overview, path: "/x" })).toBe(false);
+    expect(screenshotsViewsEqual(overview, { ...overview, type: "other" })).toBe(false);
   });
 
   it("recognizes the nav marker on a ClientRouter-shaped history state", () => {
     expect(isScreenshotsNavState({ index: 2, scrollX: 0, scrollY: 0 })).toBe(false);
     expect(
-      isScreenshotsNavState({
-        index: 2,
-        scrollX: 0,
-        scrollY: 0,
-        uploadsScreenshotsNav: true,
-      }),
+      isScreenshotsNavState({ index: 2, scrollX: 0, scrollY: 0, uploadsScreenshotsNav: true }),
     ).toBe(true);
     expect(isScreenshotsNavState(null)).toBe(false);
+  });
+
+  it("claims popstate only for the Files By page URL", () => {
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files", "?view=pages&path=%2Fx")).toBe(
+      true,
+    );
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files/", "?view=pages")).toBe(true);
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files", "")).toBe(false);
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files", "?view=repos")).toBe(false);
+    expect(isPagesLocation("acme", "/account/workspaces/acme/storage", "?view=pages")).toBe(false);
   });
 });
 
@@ -314,22 +381,37 @@ describe("pathSuggestions", () => {
   ];
   it("dedupes the same path across projects, summing counts", () => {
     expect(pathSuggestions(catalog, { project: "", q: "" })).toEqual([
-      { path: "/admin", count: 5 },
-      { path: "/catalog/families", count: 5 },
+      { path: "/admin", by: "path", count: 5 },
+      { path: "/catalog/families", by: "path", count: 5 },
     ]);
   });
   it("respects the project scope and path query", () => {
     expect(pathSuggestions(catalog, { project: "acme/web", q: "/admin" })).toEqual([
-      { path: "/admin", count: 3 },
+      { path: "/admin", by: "path", count: 3 },
     ]);
     expect(pathSuggestions(catalog, { project: "", q: "cat" })).toEqual([
-      { path: "/catalog/families", count: 5 },
+      { path: "/catalog/families", by: "path", count: 5 },
+    ]);
+  });
+
+  it("keeps a screen name apart from a path with the same text", () => {
+    expect(
+      pathSuggestions(
+        [
+          { project: "acme/app", path: "Settings", by: "screen" as const, count: 2 },
+          { project: "acme/web", path: "Settings", count: 1 },
+        ],
+        { project: "", q: "sett" },
+      ),
+    ).toEqual([
+      { path: "Settings", by: "screen", count: 2 },
+      { path: "Settings", by: "path", count: 1 },
     ]);
   });
 
   it("matches a half-typed segment by substring, unlike pathQueryMatches", () => {
     expect(pathSuggestions(catalog, { project: "", q: "/ca" })).toEqual([
-      { path: "/catalog/families", count: 5 },
+      { path: "/catalog/families", by: "path", count: 5 },
     ]);
   });
   it("caps the list", () => {
@@ -471,5 +553,138 @@ describe("focusIsKeyboardDriven", () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+describe("shotPrLabelInput", () => {
+  const titles = { "acme/web#7": { title: "Fix nav", state: "merged", kind: "pull" as const } };
+
+  it("uses the stored ref with the resolved title and state", () => {
+    expect(
+      shotPrLabelInput({ ghKind: "pull", ghNumber: "7", ghRef: "acme/web#7" }, titles),
+    ).toEqual({ ghRef: "acme/web#7", kind: "pull", title: "Fix nav", state: "merged" });
+  });
+
+  it("reads gh.* metadata on search items and normalizes issue kinds", () => {
+    expect(
+      shotPrLabelInput(
+        { metadata: { "gh.kind": "issues", "gh.number": "3", "gh.ref": "acme/web#3" } },
+        {},
+      ),
+    ).toEqual({ ghRef: "acme/web#3", kind: "issue", title: null, state: null });
+  });
+
+  it("rebuilds the ref from repo and number", () => {
+    expect(
+      shotPrLabelInput({ metadata: { "gh.repo": "acme/web", "gh.number": "7" } }, titles),
+    ).toMatchObject({ ghRef: "acme/web#7", title: "Fix nav" });
+  });
+
+  it("falls back to a bare #n when only the number is known", () => {
+    expect(shotPrLabelInput({ ghNumber: "9" }, {})?.ghRef).toBe("#9");
+  });
+
+  it("returns null without a GitHub number or ref", () => {
+    expect(shotPrLabelInput({ metadata: {} }, {})).toBeNull();
+  });
+
+  it("drops an empty title and an unknown state", () => {
+    expect(
+      shotPrLabelInput(
+        { ghRef: "acme/web#7" },
+        { "acme/web#7": { title: "", state: "draft", kind: "pull" } },
+      ),
+    ).toMatchObject({ title: null, state: null });
+  });
+});
+
+describe("previewPrDisplay", () => {
+  const titles = { "acme/web#7": { title: "Fix nav", state: "open", kind: "pull" as const } };
+
+  it("returns a label when the caption has a ref", () => {
+    expect(previewPrDisplay({ pr: "PR #7", ref: "acme/web#7", kind: "pull" }, titles)).toEqual({
+      label: { ghRef: "acme/web#7", kind: "pull", title: "Fix nav", state: "open" },
+    });
+  });
+
+  it("keeps the plain caption text when there is a number but no ref", () => {
+    const caption = shotPreviewCaption({ key: "x/a.png", ghKind: "issue", ghNumber: "3" });
+    expect(caption.ref).toBeUndefined();
+    expect(previewPrDisplay({ ...caption, kind: "issue" }, titles)).toEqual({ text: "Issue #3" });
+  });
+
+  it("is null without a PR caption", () => {
+    expect(previewPrDisplay({}, titles)).toBeNull();
+  });
+});
+
+describe("ghKindFallbackLabel", () => {
+  it("restores the kind-only wording", () => {
+    expect(ghKindFallbackLabel("pull")).toBe("PR");
+    expect(ghKindFallbackLabel("issue")).toBe("Issue");
+    expect(ghKindFallbackLabel("issues")).toBe("Issue");
+    expect(ghKindFallbackLabel("discussion")).toBe("discussion");
+    expect(ghKindFallbackLabel(undefined)).toBe("GitHub");
+  });
+});
+
+describe("shotTileInput", () => {
+  it("treats a url-less item as withheld when no status is given", () => {
+    expect(shotTileInput({ key: "a.png", url: null, embedUrl: null })).toEqual({
+      key: "a.png",
+      status: "withheld",
+      url: null,
+      embedUrl: null,
+      contentType: null,
+      posterUrl: null,
+    });
+  });
+
+  it("keeps an explicit status, content type, and poster", () => {
+    expect(
+      shotTileInput({
+        key: "d.pdf",
+        url: "https://s/d.pdf",
+        embedUrl: null,
+        status: "available",
+        contentType: "application/pdf",
+        posterUrl: "https://s/d.poster.png",
+      }),
+    ).toEqual({
+      key: "d.pdf",
+      status: "available",
+      url: "https://s/d.pdf",
+      embedUrl: null,
+      contentType: "application/pdf",
+      posterUrl: "https://s/d.poster.png",
+    });
+  });
+});
+
+describe("pairPartners", () => {
+  it("maps each paired key to its counterpart, by token and by lone fallback", () => {
+    expect(
+      pairPartners([
+        { key: "g/hero-after.png", state: "after" },
+        { key: "g/hero-before.png", state: "before" },
+        { key: "g/other-after.png", state: "after" },
+      ]),
+    ).toEqual(
+      new Map([
+        ["g/hero-after.png", "g/hero-before.png"],
+        ["g/hero-before.png", "g/hero-after.png"],
+      ]),
+    );
+    expect(
+      pairPartners([
+        { key: "g/old.png", state: "before" },
+        { key: "g/new.png", state: "after" },
+      ]),
+    ).toEqual(
+      new Map([
+        ["g/old.png", "g/new.png"],
+        ["g/new.png", "g/old.png"],
+      ]),
+    );
   });
 });

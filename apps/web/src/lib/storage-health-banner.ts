@@ -1,7 +1,7 @@
 /**
  * Signed-in banner for a broken BYO bucket (issue #826).
  *
- * An admin shouldn't have to open the storage settings tab to find out that
+ * An admin shouldn't have to open the Storage tab to find out that
  * uploads are failing, so every workspace tab checks the active lane's health
  * once per page load and paints a dismissable notice pointing at the fix.
  *
@@ -12,6 +12,7 @@
  */
 import { getWorkspaceStorageStatus } from "./api-client";
 import { onSession } from "./account-shell";
+import { workspaceStorageBucketHref, workspaceStoragePath } from "./workspace-browse-url";
 
 /** sessionStorage prefix for per-failure dismissals. */
 const DISMISS_KEY_PREFIX = "uploads:storageHealthDismissed:";
@@ -43,14 +44,21 @@ function markDismissed(workspace: string, since: string | undefined): void {
   }
 }
 
-export function storageSettingsPath(workspace: string): string {
-  return `/account/workspaces/${encodeURIComponent(workspace)}/settings/storage`;
+/**
+ * Where the banner's action link points. On the Storage tab the bucket card
+ * is on the same page, so a bare `#bucket` fragment scrolls to it without a
+ * navigation; on every other tab it is the full Storage URL with `#bucket`.
+ */
+export function storageBannerLinkHref(workspace: string, pathname: string): string {
+  return pathname === workspaceStoragePath(workspace)
+    ? "#bucket"
+    : workspaceStorageBucketHref(workspace);
 }
 
 export interface InitStorageHealthBannerOptions {
   /** Query root for `[data-storage-health-banner]`. Defaults to `document`. */
   root?: Document | Element;
-  /** Current path, for the "already on the fix page" check. Defaults to `location.pathname`. */
+  /** Current path, to keep the link on-page when already on Storage. Defaults to `location.pathname`. */
   pathname?: string;
 }
 
@@ -58,9 +66,9 @@ export interface InitStorageHealthBannerOptions {
  * Mounts the banner for one workspace-tab page load. Safe to call on every
  * tab: it no-ops when the banner element is absent, when the caller is not an
  * admin, when storage is healthy, when the notice was already dismissed for
- * this failure, and when the user is already on the storage settings page
- * (where the lane card says the same thing in more detail — a banner above it
- * would be pure repetition).
+ * this failure. On the Storage tab the banner stays visible, because the
+ * bucket section sits below the full bucket browser; its link jumps to
+ * `#bucket` on the same page instead of navigating away.
  */
 export function initStorageHealthBanner(
   apiOrigin: string,
@@ -70,9 +78,7 @@ export function initStorageHealthBanner(
   const root = opts.root ?? document;
   const banner = root.querySelector<HTMLElement>("[data-storage-health-banner]");
   if (!banner || !workspace) return;
-  const settingsPath = storageSettingsPath(workspace);
   const pathname = opts.pathname ?? location.pathname;
-  if (pathname === settingsPath) return;
 
   onSession(() => {
     void getWorkspaceStorageStatus(apiOrigin, workspace).then((result) => {
@@ -88,7 +94,7 @@ export function initStorageHealthBanner(
       if (messageEl) {
         messageEl.textContent = `${health.message}. New uploads to this workspace are failing.`;
       }
-      if (linkEl) linkEl.href = settingsPath;
+      if (linkEl) linkEl.href = storageBannerLinkHref(workspace, pathname);
       dismissEl?.addEventListener("click", () => {
         banner.hidden = true;
         markDismissed(workspace, health.since);

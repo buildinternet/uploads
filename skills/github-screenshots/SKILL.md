@@ -73,17 +73,22 @@ an existing `user-attachments` image or `art-*` URL by hand, use `uploads ingest
 Pick one transport and stay on it. This skill is the workflow. The
 **uploads-cli** skill owns flags and MCP tool contracts.
 
-| You have                                           | Use                                                                                                                                                                                                                                                                        |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No shell (ChatGPT, or any host without a checkout) | Hosted MCP `put` with (`contentBase64` + `filename`, or `contentUrl`) + `repo` + (`pr` or `branch`). Filename is optional with `contentUrl` when the URL path has a leaf. Embed the returned `markdown` / `embedUrl`. Never imply you can run `uploads attach ./shot.png`. |
-| A checkout and the `uploads` binary                | The CLI examples below. Git can fill `repo` / `branch`.                                                                                                                                                                                                                    |
-| A `localhost` page or a selector annotate          | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                                                                                                                      |
-| Neither MCP nor the CLI                            | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                                                                                                        |
+| You have                                                        | Use                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No shell (ChatGPT, or any host without a checkout)              | Hosted MCP `put` with (`contentBase64` + `filename`, or `contentUrl`) + `repo` + (`pr` or `branch`). Filename is optional with `contentUrl` when the URL path has a leaf. Embed the returned `markdown` / `embedUrl`. Never imply you can run `uploads attach ./shot.png`.                |
+| A shell and hosted MCP, but no `uploads` binary (cloud sandbox) | Hosted MCP `sign_upload_url` with `files: [{ filename }]` + `repo` + (`pr` or `branch`), then run each returned `curl` line. Each response carries `markdown`. With `pr`, call `comment` once after all uploads. On a proxy 403, ask the person to allow agents.uploads.sh, or use `put`. |
+| A checkout and the `uploads` binary                             | The CLI examples below. Git can fill `repo` / `branch`.                                                                                                                                                                                                                                   |
+| A `localhost` page or a selector annotate                       | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                                                                                                                                     |
+| Neither MCP nor the CLI                                         | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                                                                                                                       |
 
-On the hosted MCP there is no `attach` tool and no git defaults. Stage with
-`put` + `branch` + `repo`. Once the PR exists, `promote` with `repo` + `pr` +
-`branch`, or `put` with `pr` + `repo` (optional `branch` also promotes). The
-managed comment is bot-only on that server.
+On the hosted MCP there is no `attach` tool and the server has no git. If you
+have a checkout, read `repo` (`git remote get-url origin`) and `branch`
+(`git branch --show-current`) and pass both on every call. With `branch` +
+`repo`, the server attaches to the branch's open PR when the repo is linked to
+the workspace and exactly one is open; otherwise it stages. Once the PR
+exists, `promote` with `repo` + `pr` + `branch`, or `put` with `pr` + `repo`
+(optional `branch` also promotes). Without `repo`, files land under `misc/`
+with no GitHub link. The managed comment is bot-only on that server.
 
 ## Step 1 — Capture the visual
 
@@ -226,12 +231,14 @@ from, so keep its before/after distinct with separate filenames or `--key`:
 uploads screenshot https://app.example/settings --pr 123 --state before
 uploads screenshot https://app.example/settings --pr 123 --state after
 uploads put ./after.png --pr 123 --meta path=/settings --state after
+uploads put ./chat.png --pr 123 --app ios --screen "Chat" --state after   # app screen, no route
 ```
 
 (`--state` also takes `empty`, `error`, and `loading`.) When an image lands with
 no `path` meta, `attach`/`put --pr`/`put --issue` print `tip: add --meta
 path=/route so this shot is findable by page` on stderr (and a JSON `hint`
-field) — don't ignore it. Viewport is derived for you on `screenshot`. See the
+field) — don't ignore it. For a mobile or desktop app screen with no route,
+pass `--screen <name>` instead; the PR comment shows it under the image. Viewport is derived for you on `screenshot`. See the
 **uploads-cli** skill for the full canonical vocabulary.
 
 **The PR comment assembles itself — you don't drive that step.** Once the PR
@@ -303,21 +310,32 @@ uploads feed create --github owner/repo#123
 MCP: `feed_create` with `repo`, or `repo` + `pr`, or `github` alone. See
 `uploads-cli` for flags. Creating the same scope again returns the existing URL.
 
-Clicking an image in the managed PR comment opens `/c/<id>/<item>` — previous /
-next through that PR's shots — not the standalone `/f/` file page. The next
-comment sync creates the feed if it does not exist yet. `<img src>` stays on
-the embed URL.
+The managed PR comment ends with a "View on uploads.sh" button (count in the footer), linking
+the PR's feed (the web UI calls it a "live link"). Clicking an image opens
+`/c/<id>/<item>` (newer / older through that PR's files), not the standalone
+`/f/` page. The next comment sync creates the feed if it does not exist yet,
+through the bot or the local `gh` fallback alike. `<img src>` stays on the
+embed URL.
 
 **Comment briefly disappeared? Don't panic-repost.** If the App is installed
 and subscribed to the `issue_comment` event, a deleted or edited-out managed
 comment self-heals automatically on the next webhook delivery — no need to
 run `comment`/`attach` again just to bring it back.
 
-**Removed the wrong screenshots?** `delete` the object(s) and re-run
-`comment` (or the hosted `comment` tool) to re-sync. Once the last attachment
+**Removed the wrong screenshots?** `delete` the object(s). A `gh/` attachment
+delete refreshes the managed comment when it can, and otherwise tells you to
+re-run `comment` (or the hosted `comment` tool). Staged the wrong branch?
+`uploads unstage --branch <name>` keeps the file and drops it from promotion.
+Once the last attachment
 is gone the comment is rewritten in place to a neutral empty state — it stays
 on the PR (a later upload repopulates it) rather than leaving stale entries
 that point at deleted files.
+
+**Neutral `uploads.sh` check saying "UI files changed, no uploads attached"?**
+The PR touches UI files and nothing is attached. It never blocks a merge.
+Attach before/after shots and the check turns green on the next sync. A
+workspace admin picks which files count under Settings → GitHub → UI file
+paths, or a repo sets `comment.uiPaths` in `.uploads.yml` (`[]` turns it off).
 
 **Bot comment not showing up at all?** The managed comment needs a
 repo↔workspace binding (normally created implicitly by the first
@@ -377,9 +395,19 @@ handful of milestones reads better than a dumped folder.
   visibility is not an access control, and `gh/<owner>/<repo>/pull/<num>/…`
   keys are predictable. Never upload secrets, tokens, or customer PII —
   crop/redact first.
+- **A held file is not a failure.** If the managed comment shows
+  `🔒 N files are held for review`, uploads.sh thinks a shot shows a secret
+  or personal data, and that file is out of the comment and its URL until
+  approved. Run `uploads approve --pr <n>` to see which file and why. Look
+  at the file: if it shows a real credential, tell the user to rotate it,
+  then redact and re-upload. Otherwise run `uploads approve --pr <n> --all`.
+  Do not approve on the user's behalf without checking.
 - **Private repos get an unguessable URL automatically.** When the uploads
   GitHub App can see a target repo is private, attachments key under
-  `gh/private/<id>/…` instead — no flag needed. The id is durable, not
+  `gh/private/<id>/…` instead — no flag needed. A staged file's key is
+  `gh/private/<id>/branch/<filename>`: the id belongs to one branch, so the
+  branch name is not in the key. `uploads staged --branch` lists that id
+  only. A file already on a pull request is left out. The id is durable, not
   access-controlled: anyone who gets the URL can read it until you rotate it
   (`uploads github rotate-prefix`). See **docs/private-attachments.md** for
   the full model.

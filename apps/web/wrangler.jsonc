@@ -10,9 +10,21 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off. The Astro build copies this file into the
+    // generated worker config, so the flag has to live here.
+    "issues": {
+      "enabled": true,
+    },
   },
+  // Upload the SSR source maps the Astro/Vite build emits (`astro.config.mjs`
+  // sets `environments.ssr.build.sourcemap`). Client maps stay off so they
+  // are not published with the static assets.
+  "upload_source_maps": true,
   "vars": {
     "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+    // Public SSR reads through uploads-viewer: off | files | all. See docs/public-viewer.md.
+    "PUBLIC_VIEWER_ROLLOUT": "files",
     // Public origin of apps/auth (Phase 2, plan D6). Local dev default is
     // http://127.0.0.1:8788 (apps/auth's pinned wrangler dev port — see
     // apps/auth/wrangler.jsonc); override via .dev.vars for local dev, same
@@ -31,6 +43,7 @@
   "services": [
     { "binding": "AUTH", "service": "uploads-auth" },
     { "binding": "API", "service": "uploads-api" },
+    { "binding": "PUBLIC_VIEWER", "service": "uploads-viewer" },
   ],
   "assets": {
     "binding": "ASSETS",
@@ -47,6 +60,15 @@
       // use literal /_astro/ URLs even under the dev server — without this the
       // worker swallows them and serves the 404 page as their body).
       "!/_astro/*",
+      // Static images, some linked from off-site (Slack Work Objects and
+      // unfurls, social cards): served straight from the asset server.
+      // Not /reference/*, which also holds docs pages.
+      "!/apple-touch-icon.png",
+      "!/favicon.svg",
+      "!/favicon-32x32.png",
+      "!/og/*",
+      "!/brand/*",
+      "!/preview/*",
       "!/@vite/*",
       "!/@fs/*",
       "!/@id/*",
@@ -89,6 +111,8 @@
   "previews": {
     "vars": {
       "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+      // Public SSR reads through uploads-viewer: off | files | all. See docs/public-viewer.md.
+      "PUBLIC_VIEWER_ROLLOUT": "files",
       "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
     },
     // Same-origin auth proxy (#731 phase A), duplicated here because bindings
@@ -99,6 +123,7 @@
     "services": [
       { "binding": "AUTH", "service": "uploads-auth" },
       { "binding": "API", "service": "uploads-api" },
+      { "binding": "PUBLIC_VIEWER", "service": "uploads-viewer" },
     ],
     // The Astro Cloudflare adapter's generated config (dist/server/wrangler.json,
     // via the .wrangler/deploy redirect) injects an id-less SESSION KV binding.

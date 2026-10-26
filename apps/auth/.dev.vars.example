@@ -19,14 +19,10 @@ BETTER_AUTH_SECRET=
 # (browse http://127.0.0.1:4321, not localhost:4321) or the session cookie
 # becomes cross-site.
 #
-# Caveat: Better Auth derives GitHub's redirect_uri from BETTER_AUTH_URL, so
-# with this value GitHub sign-in would redirect to
-# http://127.0.0.1:4321/api/auth/callback/github — NOT the dev GitHub OAuth
-# app's actual registered callback (http://127.0.0.1:8788/api/auth/callback/
-# github, GitHub OAuth apps allow only one). Rarely exercised locally because
-# the dev-session bypass (LOCAL_STACK, set only by `pnpm dev:stack`) covers
-# most sign-in testing; to exercise real GitHub OAuth locally, temporarily
-# override this back to http://127.0.0.1:8788 (see docs/local-dev.md).
+# Better Auth derives GitHub's redirect_uri from BETTER_AUTH_URL, so GitHub
+# sign-in returns to http://127.0.0.1:4321/api/auth/callback/github. The dev
+# GitHub OAuth app registers that callback, so no override is needed. See
+# docs/local-dev.md for the full list of registered redirect URIs.
 BETTER_AUTH_URL=http://127.0.0.1:4321
 
 # Web app origin this worker trusts for CORS + magic-link emails.

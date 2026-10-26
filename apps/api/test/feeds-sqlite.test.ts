@@ -19,6 +19,7 @@ const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
+  "migrations/20261004120000_feeds_source.sql",
 ];
 
 function newSqlite(): SqliteD1 {
@@ -259,6 +260,145 @@ describe("feed persistence against SQLite", () => {
 
       const prOne = await findLatestRepoScreenshots(db, "alpha", { repo: "acme/app", number: 1 });
       expect(prOne.map((row) => row.key)).toEqual(["gh/acme/app/pull/1/one.png"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("leaves PR/issue-scoped feeds uncapped and caps repo-scoped user feeds at 50", async () => {
+    const sqlite = newSqlite();
+    try {
+      const db = database(sqlite);
+      for (let i = 0; i < MAX_FEEDS_PER_WORKSPACE; i++) {
+        const created = await createFeed(db, { workspace: "alpha", repo: `acme/app${i}` });
+        expect(created).toMatchObject({ status: "ok", value: { source: "user" } });
+      }
+      expect(await createFeed(db, { workspace: "alpha", repo: "acme/overflow" })).toEqual({
+        status: "limit",
+        limit: MAX_FEEDS_PER_WORKSPACE,
+      });
+      // The full repo-scoped quota does not block PR or issue feeds, and
+      // they have no quota of their own: 60 user-created PR feeds all succeed.
+      for (let n = 1; n <= 60; n++) {
+        expect(await createFeed(db, { workspace: "alpha", repo: "acme/web", pr: n })).toMatchObject(
+          {
+            status: "ok",
+            created: true,
+            value: { source: "user" },
+          },
+        );
+      }
+      expect(
+        await createFeed(db, { workspace: "alpha", repo: "acme/web", issue: 61 }),
+      ).toMatchObject({
+        status: "ok",
+        created: true,
+      });
+      // Comment sync stays uncapped, repo-scoped included.
+      expect(
+        await createFeed(db, { workspace: "alpha", repo: "acme/overflow", source: "comment" }),
+      ).toMatchObject({ status: "ok", created: true, value: { source: "comment" } });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reuses a comment-sync row for a user create without counting it (index review focus 4)", async () => {
+    const sqlite = newSqlite();
+    try {
+      const db = database(sqlite);
+      const comment = await createFeed(db, {
+        workspace: "alpha",
+        repo: "acme/web",
+        issue: 7,
+        source: "comment",
+      });
+      if (comment.status !== "ok") throw new Error("comment create failed");
+      for (let i = 0; i < MAX_FEEDS_PER_WORKSPACE; i++) {
+        await createFeed(db, { workspace: "alpha", repo: `acme/app${i}` });
+      }
+
+      const user = await createFeed(db, { workspace: "alpha", repo: "Acme/Web", pr: 7 });
+      expect(user).toMatchObject({
+        status: "ok",
+        created: false,
+        value: { id: comment.value.id, source: "comment", kind: "issue" },
+      });
+      const byNumber = await createFeed(db, { workspace: "alpha", repo: "acme/web", number: 7 });
+      expect(byNumber).toMatchObject({ status: "ok", value: { id: comment.value.id } });
+
+      const counted = sqlite.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM feeds
+           WHERE workspace = 'alpha' AND deleted_at IS NULL AND number = 0`,
+        )
+        .get() as { n: number };
+      expect(counted.n).toBe(MAX_FEEDS_PER_WORKSPACE);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("recreates a revoked link with the source of whoever creates the new row", async () => {
+    const sqlite = newSqlite();
+    try {
+      const db = database(sqlite);
+      const comment = await createFeed(db, {
+        workspace: "alpha",
+        repo: "acme/web",
+        pr: 1,
+        source: "comment",
+      });
+      if (comment.status !== "ok") throw new Error("create failed");
+      await softDeleteFeed(db, "alpha", comment.value.id);
+      const resynced = await createFeed(db, {
+        workspace: "alpha",
+        repo: "acme/web",
+        pr: 1,
+        source: "comment",
+      });
+      expect(resynced).toMatchObject({ status: "ok", created: true, value: { source: "comment" } });
+      if (resynced.status !== "ok") throw new Error("recreate failed");
+      expect(resynced.value.id).not.toBe(comment.value.id);
+
+      const user = await createFeed(db, { workspace: "alpha", repo: "acme/web", pr: 2 });
+      if (user.status !== "ok") throw new Error("create failed");
+      await softDeleteFeed(db, "alpha", user.value.id);
+      const synced = await createFeed(db, {
+        workspace: "alpha",
+        repo: "acme/web",
+        pr: 2,
+        source: "comment",
+      });
+      expect(synced).toMatchObject({ status: "ok", created: true, value: { source: "comment" } });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("maps legacy NULL-source rows to null and counts repo-scoped ones toward the cap", async () => {
+    const sqlite = newSqlite();
+    try {
+      const db = database(sqlite);
+      sqlite.db
+        .prepare(
+          `INSERT INTO feeds (id, workspace, repo, path, number, kind, created_at, updated_at, deleted_at)
+           VALUES ('feed_legacylegacylegacy0000', 'alpha', 'acme/old', '', 0, '', '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z', NULL),
+                  ('feed_legacylegacylegacy0001', 'alpha', 'acme/old', '', 5, 'pull', '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z', NULL)`,
+        )
+        .run();
+      expect(await getFeed(db, "alpha", "feed_legacylegacylegacy0000")).toMatchObject({
+        source: null,
+      });
+      // The legacy repo-scoped row takes one of the 50 slots; the legacy PR row does not.
+      for (let i = 0; i < MAX_FEEDS_PER_WORKSPACE - 1; i++) {
+        const created = await createFeed(db, { workspace: "alpha", repo: `acme/app${i}` });
+        expect(created.status).toBe("ok");
+      }
+      expect(await createFeed(db, { workspace: "alpha", repo: "acme/overflow" })).toEqual({
+        status: "limit",
+        limit: MAX_FEEDS_PER_WORKSPACE,
+      });
     } finally {
       sqlite.close();
     }
