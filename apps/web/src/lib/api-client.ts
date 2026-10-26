@@ -1843,7 +1843,12 @@ function toCommentSettings(body: unknown): CommentSettings | null {
   const note = typeof b.note === "string" ? b.note : null;
   const ingestGithubAttachments =
     typeof b.ingestGithubAttachments === "boolean" ? b.ingestGithubAttachments : null;
-  const noUploadsComment = typeof b.noUploadsComment === "boolean" ? b.noUploadsComment : null;
+  const noUploadsComment =
+    b.noUploadsComment === "auto" ||
+    b.noUploadsComment === "always" ||
+    b.noUploadsComment === "never"
+      ? b.noUploadsComment
+      : null;
   const requireUploads = typeof b.requireUploads === "boolean" ? b.requireUploads : null;
   const uiPaths = Array.isArray(b.uiPaths)
     ? b.uiPaths.filter((p): p is string => typeof p === "string")
@@ -2089,6 +2094,7 @@ export interface CommentPreviewResolved {
   linkToFilePage: boolean;
   note: string | null;
   uiPaths: string[];
+  noUploadsComment: "auto" | "always" | "never";
   checkRequire: string[];
 }
 

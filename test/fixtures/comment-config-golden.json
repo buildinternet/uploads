@@ -231,8 +231,19 @@
       "format": "yaml",
       "expected": {
         "config": {
-          "noUploadsComment": false,
+          "noUploadsComment": "never",
           "uiPaths": ["apps/web/**", "*.css"]
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "noUploadsComment mode",
+      "text": "comment:\n  noUploadsComment: always\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "noUploadsComment": "always"
         },
         "warnings": []
       }
@@ -245,7 +256,7 @@
         "config": {
           "uiPaths": ["src/ui/**"]
         },
-        "warnings": ["noUploadsComment: expected a boolean; dropped"]
+        "warnings": ["noUploadsComment: expected auto, always, or never; dropped"]
       }
     },
     {
@@ -355,7 +366,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -399,7 +410,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -440,7 +451,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -483,7 +494,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -526,7 +537,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -569,7 +580,7 @@
           "ingestBotAttachments": true,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -612,7 +623,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": false,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -639,7 +650,7 @@
       "name": "repo noUploadsComment beats workspace; uiPaths from repo",
       "repo": {
         "uiPaths": ["apps/web/**"],
-        "noUploadsComment": true
+        "noUploadsComment": "auto"
       },
       "workspace": {
         "noUploadsComment": false
@@ -656,7 +667,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": ["apps/web/**"],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -682,7 +693,7 @@
     {
       "name": "workspace uiPaths apply when the repo sets none",
       "repo": {
-        "noUploadsComment": true
+        "noUploadsComment": "auto"
       },
       "workspace": {
         "uiPaths": ["src/ui/**"]
@@ -699,7 +710,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": ["src/ui/**"],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -742,7 +753,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -784,7 +795,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": ["uploads"],
           "checkSkipLabels": ["no-ui"],
           "checkAi": []
@@ -825,7 +836,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": ["uploads"],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -868,7 +879,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": ["before-after"],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []
@@ -909,7 +920,7 @@
           "ingestBotAttachments": false,
           "adoptLinkedFiles": true,
           "uiPaths": [],
-          "noUploadsComment": true,
+          "noUploadsComment": "auto",
           "checkRequire": [],
           "checkSkipLabels": ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
           "checkAi": []

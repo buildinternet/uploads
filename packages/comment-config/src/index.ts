@@ -20,7 +20,7 @@ export interface RepoCommentConfig {
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
   uiPaths?: string[];
-  noUploadsComment?: boolean;
+  noUploadsComment?: NoUploadsCommentMode;
   checkRequire?: CheckRequirement[];
   checkSkipLabels?: string[];
   checkAi?: CheckAiNote[];
@@ -35,7 +35,8 @@ export interface WorkspaceCommentDefaults {
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
   uiPaths?: string[];
-  noUploadsComment?: boolean;
+  /** A boolean is the older form: true = "auto", false = "never". */
+  noUploadsComment?: NoUploadsCommentMode | boolean;
   /** Require at least one upload on UI changes (`check.require: [uploads]`). */
   requireUploads?: boolean;
 }
@@ -51,8 +52,11 @@ export interface ResolvedCommentOptions {
   adoptLinkedFiles: boolean;
   /** Globs for the files that count as UI changes. */
   uiPaths: string[];
-  /** Post a how-to comment on a PR that changes `uiPaths` but has no uploads. */
-  noUploadsComment: boolean;
+  /**
+   * When a PR with no uploads gets the how-to comment: "auto" when it changes
+   * `uiPaths`, "always" on every PR, "never" not at all.
+   */
+  noUploadsComment: NoUploadsCommentMode;
   /**
    * What a PR that changes `uiPaths` must carry for the `uploads.sh` check to
    * pass. Empty: the check never fails.
@@ -62,6 +66,19 @@ export interface ResolvedCommentOptions {
   checkSkipLabels: string[];
   /** AI notes the check adds (`check.ai`). Advisory: they never fail the check. */
   checkAi: CheckAiNote[];
+}
+
+/** When a PR with no uploads gets the how-to comment, in the order settings show them. */
+export const NO_UPLOADS_COMMENT_MODES = ["auto", "always", "never"] as const;
+export type NoUploadsCommentMode = (typeof NO_UPLOADS_COMMENT_MODES)[number];
+
+/** A mode, or the older boolean form (true = "auto", false = "never"); undefined otherwise. */
+export function toNoUploadsCommentMode(v: unknown): NoUploadsCommentMode | undefined {
+  if (v === true) return "auto";
+  if (v === false) return "never";
+  return (NO_UPLOADS_COMMENT_MODES as readonly unknown[]).includes(v)
+    ? (v as NoUploadsCommentMode)
+    : undefined;
 }
 
 /** The `check.require` items, in the order the checklist shows them. */
@@ -92,7 +109,7 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   // Empty: the API falls back to its built-in UI file list for both the check
   // and the no-uploads comment.
   uiPaths: [],
-  noUploadsComment: true,
+  noUploadsComment: "auto",
   checkRequire: [],
   checkSkipLabels: DEFAULT_CHECK_SKIP_LABELS,
   checkAi: [],
@@ -174,11 +191,11 @@ export function parseRepoCommentConfig(
     else warnings.push(`adoptLinkedFiles: expected a boolean; dropped`);
   }
 
-  // noUploadsComment: boolean
+  // noUploadsComment: "auto" | "always" | "never", or a boolean (true = auto, false = never)
   if ("noUploadsComment" in c) {
-    const v = c.noUploadsComment;
-    if (typeof v === "boolean") config.noUploadsComment = v;
-    else warnings.push(`noUploadsComment: expected a boolean; dropped`);
+    const mode = toNoUploadsCommentMode(c.noUploadsComment);
+    if (mode) config.noUploadsComment = mode;
+    else warnings.push(`noUploadsComment: expected auto, always, or never; dropped`);
   }
 
   // uiPaths: list of non-empty glob strings (a bare string is one glob)
@@ -297,6 +314,7 @@ export function resolveCommentOptions(
   repo: RepoCommentConfig | null,
   ws: WorkspaceCommentDefaults | null,
 ): { options: ResolvedCommentOptions; source: Record<keyof ResolvedCommentOptions, OptionSource> } {
+  const wsNoUploadsComment = toNoUploadsCommentMode(ws?.noUploadsComment);
   const wsAsRepo: RepoCommentConfig = {
     ...(ws?.imageWidth !== undefined ? { imageWidth: ws.imageWidth } : {}),
     ...(ws?.maxInlineImages !== undefined ? { maxInlineImages: ws.maxInlineImages } : {}),
@@ -313,7 +331,7 @@ export function resolveCommentOptions(
       : {}),
     ...(ws?.adoptLinkedFiles !== undefined ? { adoptLinkedFiles: ws.adoptLinkedFiles } : {}),
     ...(ws?.uiPaths?.length ? { uiPaths: ws.uiPaths } : {}),
-    ...(ws?.noUploadsComment !== undefined ? { noUploadsComment: ws.noUploadsComment } : {}),
+    ...(wsNoUploadsComment ? { noUploadsComment: wsNoUploadsComment } : {}),
     ...(ws?.requireUploads ? { checkRequire: ["uploads"] as CheckRequirement[] } : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };
@@ -346,7 +364,9 @@ export function resolveCommentOptions(
       source.note = from;
     }
   };
-  if (repo) apply(repo, "repo");
+  // A repo config cached before noUploadsComment took modes still holds a boolean.
+  if (repo)
+    apply({ ...repo, noUploadsComment: toNoUploadsCommentMode(repo.noUploadsComment) }, "repo");
   apply(wsAsRepo, "workspace");
   return { options, source };
 }

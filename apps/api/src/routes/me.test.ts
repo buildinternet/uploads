@@ -2510,7 +2510,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       ingestBotAttachments: false,
       adoptLinkedFiles: true,
       uiPaths: [],
-      noUploadsComment: true,
+      noUploadsComment: "auto",
       checkRequire: [],
       checkSkipLabels: ["uploads:skip-verify", "skip-uploads", "uploads-skip"],
       checkAi: [],

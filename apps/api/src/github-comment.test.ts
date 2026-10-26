@@ -300,6 +300,20 @@ describe("gatherCommentBody", () => {
       });
       expect(quiet.body).toContain("_No attachments are currently associated");
 
+      // "always" asks on a PR with no UI files, without naming any.
+      vi.stubGlobal(
+        "fetch",
+        fakeFetch({ "/pulls/12/files": () => Response.json([{ filename: "apps/api/b.ts" }]) }),
+      );
+      kv.store.delete("repocfg:acme/web");
+      setRepoConfig({ noUploadsComment: "always" });
+      const always = await gatherCommentBody(env, ws, workspaceName, target, {
+        detectUiChanges: true,
+      });
+      expect(always).toMatchObject({ noUploads: true, uiFiles: [] });
+      expect(always.body).toContain("**No uploads on this PR yet**");
+      expect(always.body).not.toContain("This PR changes UI files");
+
       // A repo's explicit empty list turns UI detection off entirely.
       kv.store.delete("repocfg:acme/web");
       setRepoConfig({ uiPaths: [] });

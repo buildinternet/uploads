@@ -236,12 +236,18 @@ uploads.sh adds to each image, so they need AI labels on for the workspace. Add 
 
 ## The how-to comment <a class="anchor" href="#no-uploads-comment" aria-label="Link to this section">#</a>
 
-A pull request that changes a UI file with nothing attached also gets a short comment. It names the changed files and the ways to add
-screenshots. It's the same managed comment the App keeps on every PR, so the first upload replaces
-it with the normal screenshots.
+A pull request that changes a UI file with nothing attached also gets a short comment. It names the
+changed files and the ways to add screenshots. It's the same managed comment the App keeps on every
+PR, so the first upload replaces it with the normal screenshots.
 
-To keep the check but skip the comment, a workspace admin can turn off **Comment when a PR has no
-uploads** under **Settings → GitHub**, or a repo can set `noUploadsComment: false`.
+**Ask for screenshots** under **Settings → GitHub** decides when the comment appears:
+
+- **When UI files change** (the default): only on PRs that change UI files.
+- **On every PR**: on any pull request with nothing attached.
+- **Never**: no comment. The check still reports UI changes.
+
+A repo can set the same thing with `noUploadsComment: auto`, `always`, or `never`. `true` and
+`false` still work and mean `auto` and `never`.
 
 </section>
 
@@ -253,7 +259,7 @@ Workspace admins can change these under **Settings → GitHub** without touching
 
 - **Require screenshots on UI changes**: fail the check on UI changes with nothing attached.
 - **UI file paths**: which files count as UI changes.
-- **Comment when a PR has no uploads**: the [how-to comment](#no-uploads-comment).
+- **Ask for screenshots**: when the [how-to comment](#no-uploads-comment) appears.
 
 Each applies to every repo in the workspace. A repo's [`.uploads.yml`](/docs/comment-config) wins
 where it sets the same thing, and the settings page shows which repo values are in effect.

@@ -2,9 +2,10 @@
  * The "no uploads yet" path: a PR that changes UI files but has nothing
  * attached. UI files are `uiPaths` from the repo's `.uploads.yml`, else the
  * workspace's UI file paths setting, else `DEFAULT_UI_PATHS`. The `uploads.sh`
- * check then says UI files changed. The managed comment carries a short how-to
- * only when paths are set, since a comment notifies everyone on the PR and the
- * check row notifies no one. A repo's `uiPaths: []` turns both off.
+ * check then says UI files changed, and the managed comment carries a short
+ * how-to unless `noUploadsComment` is "never". With "always", every PR with
+ * nothing attached gets the how-to, UI files or not. A repo's `uiPaths: []`
+ * turns the check off.
  *
  * The how-to is the same marker-owned comment: the first upload replaces it
  * in place with the normal attachments body, so a PR never gets two.
@@ -127,7 +128,8 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * The how-to body for a PR whose UI files changed with nothing attached.
+ * The how-to body for a PR with nothing attached. `uiFiles` names the UI files
+ * that changed; empty ("always" on a PR without UI changes) drops that line.
  * Images dragged in on GitHub count too; the comment mentions the import
  * only when the repo's attachment import is on, so it never promises an
  * import that won't happen.
@@ -142,7 +144,9 @@ export function noUploadsCommentBody(
     marker,
     "**No uploads on this PR yet**",
     "",
-    `This PR changes UI files (${describeUiFiles(uiFiles)}). Screenshots help reviewers see what changed.`,
+    uiFiles.length > 0
+      ? `This PR changes UI files (${describeUiFiles(uiFiles)}). Screenshots help reviewers see what changed.`
+      : "Screenshots help reviewers see what changed.",
     "",
     `- From the CLI: <code>uploads put before.png after.png --pr ${target.num}</code>`,
     "- From an agent: ask it to attach screenshots with uploads.sh",

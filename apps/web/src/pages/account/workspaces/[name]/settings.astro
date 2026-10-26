@@ -51,148 +51,172 @@ const tip = {
       <div id="cs-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
       <form class="setting-rows" id="cs-form">
-        <SettingRow
-          id="cs-row-width"
-          chipId="cs-row-width-chip"
-          label="Image width"
-          description="How wide inline screenshots render in the comment."
-        >
-          <div class="cs-seg" role="radiogroup" aria-label="Image width" id="cs-image-width">
-            <button
-              type="button"
-              class="cs-seg__btn"
-              role="radio"
-              aria-checked="true"
-              tabindex="0"
-              data-value="auto">auto</button
-            >
-            <button
-              type="button"
-              class="cs-seg__btn"
-              role="radio"
-              aria-checked="false"
-              tabindex="-1"
-              data-value="full">full</button
-            >
-            <button
-              type="button"
-              class="cs-seg__btn"
-              role="radio"
-              aria-checked="false"
-              tabindex="-1"
-              data-value="custom">custom</button
-            >
-          </div>
-          <input
-            type="number"
-            id="cs-image-width-px"
-            class="ul-input cs-image-width-px"
-            style="width: 7rem"
-            step="1"
-            min="160"
-            max="1000"
-            placeholder="160–1000"
-            hidden
-          />
-        </SettingRow>
-
-        <SettingRow
-          id="cs-row-max-inline"
-          chipId="cs-row-max-inline-chip"
-          label="Max inline images"
-          description='Attachments beyond this collapse into a "more files" link.'
-        >
-          <input
-            type="number"
-            id="cs-max-inline"
-            class="ul-input"
-            style="width: 8rem"
-            step="1"
-            min="1"
-            max="48"
-            placeholder="auto (16)"
-          />
-        </SettingRow>
-
-        <SettingRow
-          id="cs-row-meta"
-          chipId="cs-row-meta-chip"
-          label="Metadata captions"
-          description="Show extra details like filename, dimensions, and size under each image."
-        >
-          <SettingSwitch id="cs-show-metadata" label="Metadata captions" />
-        </SettingRow>
-
-        <SettingRow
-          id="cs-row-link"
-          chipId="cs-row-link-chip"
-          label="Link items to file pages"
-          description="Each item links to a hosted file page for larger previews."
-        >
-          <SettingSwitch id="cs-link-to-file-page" label="Link items to file pages" />
-        </SettingRow>
-
-        <SettingRow
-          id="cs-row-ingest"
-          label="Import GitHub attachments"
-          description="Mirror manually added images and video on pull requests and issues into this workspace and include them in the managed comment. On by default; bot-authored and tiny images are filtered out."
-        >
-          <SettingSwitch id="cs-ingest-github-attachments" label="Import GitHub attachments" />
-        </SettingRow>
-
-        <SettingRow
-          id="cs-row-require"
-          chipId="cs-row-require-chip"
-          label="Require screenshots on UI changes"
-          description="Fail the Check for visuals check on pull requests that change UI files with nothing attached. Make it a required check in GitHub to block merges. A repo's check.require in .uploads.yml replaces this."
-          docsHref="/docs/require-screenshots"
-        >
-          <SettingSwitch id="cs-require-uploads" label="Require screenshots on UI changes" />
-        </SettingRow>
-
-        <SettingRow
-          id="cs-row-no-uploads"
-          label="Comment when a PR has no uploads"
-          description="When a pull request changes UI files and nothing is attached, post a short comment on how to add screenshots. It turns into the normal comment once files arrive."
-          docsHref="/docs/require-screenshots#no-uploads-comment"
-        >
-          <SettingSwitch id="cs-no-uploads-comment" label="Comment when a PR has no uploads" />
-        </SettingRow>
-
-        <div class="setting-row setting-row--stacked" id="cs-row-ui-paths">
-          <div class="setting-row__head">
-            <label for="cs-ui-paths" class="setting-row__label">UI file paths</label>
-            <span id="cs-row-ui-paths-chip"></span>
-          </div>
-          <p class="setting-row__desc">
-            Files that count as UI changes, one pattern per line. Left empty, common UI files (.tsx,
-            .css, .astro and similar) count. A repo's own uiPaths in .uploads.yml replaces this
-            list.
-            <a href="/docs/require-screenshots#ui-files">How it works</a>
+        <div class="setting-group">
+          <h3 class="setting-group__title">PR comment</h3>
+          <p class="setting-group__note muted">
+            One comment per pull request, updated as screenshots are added.
           </p>
-          <textarea
-            id="cs-ui-paths"
-            class="ul-input mt-2 box-border w-full resize-y font-mono text-[13px] leading-[1.5]"
-            rows="3"
-            placeholder={"apps/web/**\n*.css"}></textarea>
+          <SettingRow
+            id="cs-row-width"
+            chipId="cs-row-width-chip"
+            label="Image width"
+            description="How wide screenshots show in the comment."
+          >
+            <div class="cs-seg" role="radiogroup" aria-label="Image width" id="cs-image-width">
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="true"
+                tabindex="0"
+                data-value="auto">auto</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="full">full</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="custom">custom</button
+              >
+            </div>
+            <input
+              type="number"
+              id="cs-image-width-px"
+              class="ul-input cs-image-width-px"
+              style="width: 7rem"
+              step="1"
+              min="160"
+              max="1000"
+              placeholder="160–1000"
+              hidden
+            />
+          </SettingRow>
+
+          <SettingRow
+            id="cs-row-max-inline"
+            chipId="cs-row-max-inline-chip"
+            label="Max inline images"
+            description='Attachments past this number fold into a "more files" link.'
+          >
+            <input
+              type="number"
+              id="cs-max-inline"
+              class="ul-input"
+              style="width: 8rem"
+              step="1"
+              min="1"
+              max="48"
+              placeholder="auto (16)"
+            />
+          </SettingRow>
+
+          <SettingRow
+            id="cs-row-meta"
+            chipId="cs-row-meta-chip"
+            label="Metadata captions"
+            description="Show filename, dimensions and size under each image."
+          >
+            <SettingSwitch id="cs-show-metadata" label="Metadata captions" />
+          </SettingRow>
+
+          <SettingRow
+            id="cs-row-link"
+            chipId="cs-row-link-chip"
+            label="Link items to file pages"
+            description="Each item links to its hosted page for a larger preview."
+          >
+            <SettingSwitch id="cs-link-to-file-page" label="Link items to file pages" />
+          </SettingRow>
+
+          <div class="setting-row setting-row--stacked" id="cs-row-note">
+            <div class="setting-row__head">
+              <label for="cs-note" class="setting-row__label">Note</label>
+              <span id="cs-row-note-chip"></span>
+              <span class="ml-auto text-[12px] text-muted-foreground"
+                ><span id="cs-note-count">0</span>/500</span
+              >
+            </div>
+            <p class="setting-row__desc">Optional text shown at the top of the comment.</p>
+            <textarea
+              id="cs-note"
+              class="ul-input mt-2 box-border w-full resize-y text-[13px] leading-[1.5]"
+              maxlength="500"
+              rows="2"
+              placeholder="e.g. Screenshots update on every push."></textarea>
+          </div>
         </div>
 
-        <div class="setting-row setting-row--stacked" id="cs-row-note">
-          <div class="setting-row__head">
-            <label for="cs-note" class="setting-row__label">Note (optional)</label>
-            <span id="cs-row-note-chip"></span>
-            <span class="ml-auto text-[12px] text-muted-foreground"
-              ><span id="cs-note-count">0</span>/500</span
-            >
+        <div class="setting-group">
+          <h3 class="setting-group__title">Asking for screenshots</h3>
+          <SettingRow
+            id="cs-row-no-uploads"
+            chipId="cs-row-no-uploads-chip"
+            label="Ask for screenshots"
+            description="Adds a short how-to to the comment when a PR has none yet. It's replaced by the screenshots once they're added."
+            docsHref="/docs/require-screenshots#no-uploads-comment"
+          >
+            <select id="cs-no-uploads-comment" class="ul-select" aria-label="Ask for screenshots">
+              <option value="auto">When UI files change (recommended)</option>
+              <option value="always">On every PR</option>
+              <option value="never">Never</option>
+            </select>
+          </SettingRow>
+
+          <div class="setting-row setting-row--stacked" id="cs-row-ui-paths">
+            <div class="setting-row__head">
+              <label for="cs-ui-paths" class="setting-row__label">UI file paths</label>
+              <span id="cs-row-ui-paths-chip"></span>
+            </div>
+            <p class="setting-row__desc">
+              Files that count as UI changes, one pattern per line. Left empty, common UI files
+              (.tsx, .css, .astro and similar) count. A repo's own uiPaths in .uploads.yml replaces
+              this list.
+              <a href="/docs/require-screenshots#ui-files">How it works</a>
+            </p>
+            <textarea
+              id="cs-ui-paths"
+              class="ul-input mt-2 box-border w-full resize-y font-mono text-[13px] leading-[1.5]"
+              rows="3"
+              placeholder={"apps/web/**\n*.css"}></textarea>
           </div>
-          <p class="setting-row__desc">Included with every managed comment.</p>
-          <textarea
-            id="cs-note"
-            class="ul-input mt-2 box-border w-full resize-y text-[13px] leading-[1.5]"
-            maxlength="500"
-            rows="2"
-            placeholder="e.g. Screenshots update on every push."></textarea>
         </div>
+
+        <div class="setting-group">
+          <h3 class="setting-group__title">Check for visuals</h3>
+          <SettingRow
+            id="cs-row-require"
+            chipId="cs-row-require-chip"
+            label="Require screenshots on UI changes"
+            description="Fail the check when a PR changes UI files with nothing attached. Make it a required check in GitHub to block merges."
+            docsHref="/docs/require-screenshots"
+          >
+            <SettingSwitch id="cs-require-uploads" label="Require screenshots on UI changes" />
+          </SettingRow>
+        </div>
+
+        <div class="setting-group">
+          <h3 class="setting-group__title">Importing</h3>
+          <SettingRow
+            id="cs-row-ingest"
+            label="Import GitHub attachments"
+            description="Copy images and video added by hand to PRs and issues into this workspace, and show them in the comment."
+          >
+            <SettingSwitch id="cs-ingest-github-attachments" label="Import GitHub attachments" />
+          </SettingRow>
+        </div>
+
+        <p class="settings-note muted">
+          A repo's <code>.uploads.yml</code> overrides any of these for that repo.
+        </p>
 
         {
           /* Floating save bar (issue #365 redesign): pinned to the viewport,
@@ -431,7 +455,12 @@ const tip = {
       const metaToggle = requireElement<HTMLButtonElement>("#cs-show-metadata", page);
       const linkToggle = requireElement<HTMLButtonElement>("#cs-link-to-file-page", page);
       const ingestToggle = requireElement<HTMLButtonElement>("#cs-ingest-github-attachments", page);
-      const noUploadsToggle = requireElement<HTMLButtonElement>("#cs-no-uploads-comment", page);
+      // Fetched as HTMLElement and cast: HTMLSelectElement fails requireElement's
+      // `T extends Element` constraint here (see device.astro's wsSelect).
+      const noUploadsSelect = requireElement<HTMLElement>(
+        "#cs-no-uploads-comment",
+        page,
+      ) as unknown as HTMLSelectElement;
       const requireToggle = requireElement<HTMLButtonElement>("#cs-require-uploads", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
       const uiPathsInput = requireElement<HTMLTextAreaElement>("#cs-ui-paths", page);
@@ -476,6 +505,7 @@ const tip = {
         },
         { id: "link", source: (p) => p.source.linkToFilePage ?? "auto" },
         { id: "note", source: (p) => p.source.note ?? "auto" },
+        { id: "no-uploads", source: (p) => p.source.noUploadsComment ?? "auto" },
         { id: "ui-paths", source: (p) => p.source.uiPaths ?? "auto" },
         { id: "require", source: (p) => p.source.checkRequire ?? "auto" },
       ];
@@ -615,12 +645,16 @@ const tip = {
           note: noteInput.value.trim() === "" ? null : noteInput.value,
           uiPaths: uiPathsFromInput(),
           ingestGithubAttachments: toggleOn(ingestToggle),
-          noUploadsComment: toggleOn(noUploadsToggle),
+          noUploadsComment: noUploadsModeFromSelect(),
           requireUploads: toggleOn(requireToggle),
         };
       }
 
       /** One glob per line; blank lines dropped. Empty means "no default" (null). */
+      function noUploadsModeFromSelect(): NonNullable<CommentSettings["noUploadsComment"]> {
+        const v = noUploadsSelect.value;
+        return v === "always" || v === "never" ? v : "auto";
+      }
       function uiPathsFromInput(): string[] | null {
         const paths = uiPathsInput.value
           .split("\n")
@@ -691,7 +725,7 @@ const tip = {
         // Unset means the platform default, which is ON (issue #690) — paint
         // the toggle the way ingestion will actually behave.
         paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
-        paintToggle(noUploadsToggle, settings.noUploadsComment ?? true);
+        noUploadsSelect.value = settings.noUploadsComment ?? "auto";
         paintToggle(requireToggle, settings.requireUploads ?? false);
         noteInput.value = settings.note ?? "";
         uiPathsInput.value = (settings.uiPaths ?? []).join("\n");
@@ -712,7 +746,7 @@ const tip = {
       bindToggle(metaToggle, () => markEdited());
       bindToggle(linkToggle, () => markEdited());
       bindToggle(ingestToggle, () => markEdited());
-      bindToggle(noUploadsToggle, () => markEdited());
+      noUploadsSelect.addEventListener("change", () => markEdited());
       bindToggle(requireToggle, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());
       maxInlineInput.addEventListener("input", () => markEdited());

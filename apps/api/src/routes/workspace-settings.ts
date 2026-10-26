@@ -16,6 +16,7 @@ import {
   resolveCommentOptions,
   type OptionSource,
   type ResolvedCommentOptions,
+  toNoUploadsCommentMode,
 } from "@uploads/comment-config";
 import {
   ConflictError,
@@ -293,13 +294,14 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
 
   if ("noUploadsComment" in record) {
     const value = record.noUploadsComment;
-    if (value !== null && typeof value !== "boolean") {
-      throw new ValidationError("noUploadsComment must be a boolean or null", {
+    const mode = value === null ? null : toNoUploadsCommentMode(value);
+    if (mode === undefined) {
+      throw new ValidationError("noUploadsComment must be auto, always, never, or null", {
         code: "invalid_settings",
         details: { field: "noUploadsComment" },
       });
     }
-    patch.noUploadsComment = value;
+    patch.noUploadsComment = mode;
   }
 
   if ("requireUploads" in record) {
@@ -370,7 +372,7 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     linkToFilePage: record.githubCommentLinkToFilePage ?? null,
     note: record.githubCommentNote ?? null,
     ingestGithubAttachments: record.githubIngestAttachments ?? null,
-    noUploadsComment: record.githubNoUploadsComment ?? null,
+    noUploadsComment: toNoUploadsCommentMode(record.githubNoUploadsComment) ?? null,
     uiPaths: record.githubUiPaths ?? null,
     requireUploads: record.githubRequireUploads ?? null,
   };

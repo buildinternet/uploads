@@ -1,4 +1,5 @@
 import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
+import type { NoUploadsCommentMode } from "@uploads/comment-config";
 import { insufficientScopeMessage } from "./scope-message";
 import {
   d1ExecMs,
@@ -149,11 +150,12 @@ export interface WorkspaceRecord {
    */
   githubCommentLinkToFilePage?: boolean;
   /**
-   * Whether a PR that changes the repo's `uiPaths` but has no uploads gets
-   * the how-to comment. Default (undefined/true) = post it. A repo's
+   * When a PR with no uploads gets the how-to comment ("Ask for screenshots"):
+   * "auto" (UI files changed, the default), "always", or "never". Older
+   * records hold a boolean: true = "auto", false = "never". A repo's
    * `.uploads.yml` `noUploadsComment` wins over this.
    */
-  githubNoUploadsComment?: boolean;
+  githubNoUploadsComment?: NoUploadsCommentMode | boolean;
   /**
    * Workspace default for `.uploads.yml` `uiPaths`: globs for the files that
    * count as UI changes. A repo that sets its own `uiPaths` (even `[]`)

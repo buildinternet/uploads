@@ -122,22 +122,25 @@ export async function gatherCommentBody(
     note: options.note,
   };
   // An empty PR that changes UI files gets a neutral "UI files changed" check
-  // and the how-to instead of the empty state (github-no-uploads.ts). With no
-  // paths set, the built-in list stands in. Only looked up for an empty PR, or
-  // when the repo requires uploads, so other PRs never pay for the
-  // changed-files read.
+  // and, unless noUploadsComment is "never", the how-to instead of the empty
+  // state (github-no-uploads.ts). With no paths set, the built-in list stands
+  // in. Only looked up for an empty PR, or when the repo requires uploads, so
+  // other PRs never pay for the changed-files read.
   const configured = source.uiPaths !== "auto";
   const required = options.checkRequire.length > 0 && target.kind === "pull";
   const uiFiles =
     (count === 0 || required) && opts.detectUiChanges
       ? await changedUiFiles(env, target, configured ? options.uiPaths : DEFAULT_UI_PATHS)
       : [];
+  // An empty PR the how-to and the GitHub-attachments count apply to: every
+  // empty PR under "always", else one that changed UI files.
+  const emptyPrInScope =
+    count === 0 &&
+    target.kind === "pull" &&
+    (options.noUploadsComment === "always" ? opts.detectUiChanges === true : uiFiles.length > 0);
   // Screenshots dragged into the PR on GitHub stand in for uploads, so a
   // contributor without uploads.sh isn't nudged or failed.
-  const githubAttachments =
-    count === 0 && uiFiles.length > 0 && target.kind === "pull"
-      ? await githubAttachmentCount(env, target)
-      : 0;
+  const githubAttachments = emptyPrInScope ? await githubAttachmentCount(env, target) : 0;
   const keys = items.map((item) => item.key);
   // AI notes read labels the classifier already stored, so a sync never
   // calls a model for them.
@@ -158,13 +161,7 @@ export async function gatherCommentBody(
   const skipLabel = requirement?.skipLabel ?? null;
   const checklist = requirement?.checklist ?? [];
   const satisfiedOnGithub = githubAttachments > 0 && checklist.every((c) => c.met);
-  if (
-    count === 0 &&
-    uiFiles.length > 0 &&
-    options.noUploadsComment &&
-    !skipLabel &&
-    !satisfiedOnGithub
-  ) {
+  if (emptyPrInScope && options.noUploadsComment !== "never" && !skipLabel && !satisfiedOnGithub) {
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
         importsAttachments: options.ingestGithubAttachments,

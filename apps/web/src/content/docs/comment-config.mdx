@@ -100,9 +100,10 @@ comment:
     - "apps/web/**"
     - "*.css"
 
-  # Whether that no-uploads comment is posted. On by default once uiPaths is
-  # set. Overrides the workspace setting.
-  noUploadsComment: true
+  # When that no-uploads comment is posted: auto (PRs that change uiPaths,
+  # the default), always (every PR with nothing attached), or never.
+  # true and false mean auto and never. Overrides the workspace setting.
+  noUploadsComment: auto
 
   # Make the "Check for visuals" check fail when a PR changes uiPaths without these.
   # Items: uploads (or any), before-after, desktop, mobile. Any item implies uploads.
