@@ -3,9 +3,11 @@ import {
   type StagedMediaPage,
   type StagedScopePage,
   type StagedScope,
+  type MediaContext,
+  type AttachedMediaPage,
 } from "../../src/staged-media-response";
 
-export type Scope = StagedScope;
+export type Scope = StagedScope & { pr?: number };
 export interface ToolResult {
   isError?: boolean;
   structuredContent?: unknown;
@@ -25,10 +27,16 @@ export function scopeFrom(value: unknown): Scope | null {
     candidate.repo.trim() &&
     typeof candidate.branch === "string" &&
     candidate.branch.trim()
-    ? { repo: candidate.repo.trim(), branch: candidate.branch.trim() }
+    ? {
+        repo: candidate.repo.trim(),
+        branch: candidate.branch.trim(),
+        ...(Number.isSafeInteger(candidate.pr) && Number(candidate.pr) > 0
+          ? { pr: Number(candidate.pr) }
+          : {}),
+      }
     : null;
 }
-export function scopeKey(scope: Scope): string {
+export function scopeKey(scope: StagedScope): string {
   return JSON.stringify([scope.repo.trim().toLowerCase(), scope.branch.trim().toLowerCase()]);
 }
 export function resultError(result: ToolResult): string | null {
@@ -84,6 +92,25 @@ export function scopePage(result: ToolResult): StagedScopePage {
     throw new Error("The server returned an invalid branch list.");
   }
   return data as unknown as StagedScopePage;
+}
+export function mediaContext(result: ToolResult): MediaContext {
+  const error = resultError(result);
+  if (error) throw new Error(error);
+  const data = structured(result);
+  if (
+    !scopeFrom(data) ||
+    !(data?.pr === null || (Number.isSafeInteger(data?.pr) && Number(data?.pr) > 0)) ||
+    !["explicit", "resolved", "unavailable"].includes(String(data?.prResolution))
+  )
+    throw new Error("The server returned an invalid pull-request context.");
+  return data as unknown as MediaContext;
+}
+export function attachedPage(result: ToolResult): AttachedMediaPage {
+  const page = mediaPage(result);
+  const data = structured(result);
+  if (!Number.isSafeInteger(data?.pr) || Number(data?.pr) < 1)
+    throw new Error("The server returned an invalid attached-files response.");
+  return { ...page, pr: Number(data?.pr) };
 }
 export function safePreviewUrl(value: unknown): string | null {
   return typeof value === "string" ? stagedPreviewUrl(value) : null;

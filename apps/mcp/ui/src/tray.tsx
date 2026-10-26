@@ -2,6 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@uploads/ui/components/ui/button";
 import { Input } from "@uploads/ui/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@uploads/ui/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -9,9 +16,16 @@ import {
   SelectValue,
 } from "@uploads/ui/components/ui/select";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
-import type { StagedMediaItem, StagedMediaPage } from "../../src/staged-media-response";
+import type {
+  StagedMediaItem,
+  StagedMediaPage,
+  MediaContext,
+  AttachedMediaPage,
+} from "../../src/staged-media-response";
 import {
   mediaPage,
+  mediaContext,
+  attachedPage,
   needsScope,
   safePreviewUrl,
   scopeFrom,
@@ -23,6 +37,71 @@ import {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Could not load staged media. Try again.";
+}
+
+function ImagePreview({
+  item,
+  src,
+  onError,
+}: {
+  item: StagedMediaItem;
+  src: string;
+  onError: () => void;
+}) {
+  const [actualSize, setActualSize] = useState(false);
+  const [failed, setFailed] = useState(false);
+  return (
+    <Dialog
+      onOpenChange={(open) => {
+        if (open) {
+          setActualSize(false);
+          setFailed(false);
+        }
+      }}
+    >
+      <DialogTrigger className="tray-image-button" aria-label={`Enlarge ${item.filename}`}>
+        <img
+          src={src}
+          alt={item.filename}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={onError}
+        />
+        <span className="tray-image-hint" aria-hidden="true">
+          View larger
+        </span>
+      </DialogTrigger>
+      <DialogContent className="tray-image-dialog">
+        <DialogTitle className="tray-image-title">{item.filename}</DialogTitle>
+        <DialogDescription className="sr-only">
+          Image preview. Choose Actual size to inspect details, then scroll to move around the
+          image.
+        </DialogDescription>
+        <div>
+          <Button variant="outline" onClick={() => setActualSize((value) => !value)}>
+            {actualSize ? "Fit to panel" : "Actual size"}
+          </Button>
+        </div>
+        <div
+          className={`tray-image-view${actualSize ? " tray-image-view-actual" : ""}`}
+          role="region"
+          aria-label="Image preview"
+          tabIndex={0}
+        >
+          {failed ? (
+            <p role="status">Preview unavailable</p>
+          ) : (
+            <img
+              src={src}
+              alt={item.filename}
+              referrerPolicy="no-referrer"
+              onError={() => setFailed(true)}
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function MediaCard({ item }: { item: StagedMediaItem }) {
@@ -39,13 +118,7 @@ function MediaCard({ item }: { item: StagedMediaItem }) {
     <article className="tray-card">
       <div className="tray-preview">
         {!failed && preview && item.mediaType === "image" ? (
-          <img
-            src={preview}
-            alt={item.filename}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            onError={() => setFailed(true)}
-          />
+          <ImagePreview item={item} src={preview} onError={() => setFailed(true)} />
         ) : !failed && preview && item.mediaType === "video" ? (
           <video
             src={preview}
@@ -71,15 +144,88 @@ function MediaCard({ item }: { item: StagedMediaItem }) {
   );
 }
 
+function mergePage<T extends StagedMediaPage>(previous: T | null, next: T, append: boolean): T {
+  if (!append || !previous || scopeKey(previous) !== scopeKey(next)) return next;
+  const items = new Map(previous.items.map((item) => [item.id, item]));
+  for (const item of next.items) items.set(item.id, item);
+  return { ...next, items: [...items.values()] };
+}
+
+function MediaSection({
+  title,
+  page,
+  loading,
+  error,
+  empty,
+  onMore,
+}: {
+  title: string;
+  page: StagedMediaPage | null;
+  loading: boolean;
+  error: string | null;
+  empty: string;
+  onMore: () => void;
+}) {
+  return (
+    <section className="tray-section" aria-label={title} aria-busy={loading}>
+      <div className="tray-section-title">
+        <h2>{title}</h2>
+        {page && (
+          <span className="tray-count">
+            {page.items.length}
+            {page.cursor ? "+" : ""} files
+          </span>
+        )}
+      </div>
+      {error && (
+        <div className="tray-error" role="alert">
+          {error}
+        </div>
+      )}
+      {loading && (
+        <p className="tray-loading" role="status">
+          Loading {title.toLowerCase()} files…
+        </p>
+      )}
+      {page && page.items.length > 0 && (
+        <div className="tray-grid">
+          {page.items.map((item) => (
+            <MediaCard key={`${title}:${scopeKey(page)}:${item.id}`} item={item} />
+          ))}
+        </div>
+      )}
+      {!loading && !error && page?.items.length === 0 && (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>{page.cursor ? "No files on this page" : empty}</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
+      )}
+      {page?.cursor && (
+        <div className="tray-more">
+          <Button variant="outline" disabled={loading} onClick={onMore}>
+            Load more {title.toLowerCase()}
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Tray({ client }: { client: TrayClient }) {
   const [ready, setReady] = useState(false);
+  const readyRef = useRef(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [scope, setScope] = useState<Scope | null>(null);
   const scopeRef = useRef<Scope | null>(null);
   const generation = useRef(0);
+  const stagedRequest = useRef(0);
+  const attachedRequest = useRef(0);
   const hostRequest = useRef<number | null>(null);
+  const pendingHostContext = useRef<MediaContext | null>(null);
   const [repo, setRepo] = useState("");
   const [branch, setBranch] = useState("");
+  const [pr, setPr] = useState("");
   const [manual, setManual] = useState(false);
   const [scopes, setScopes] = useState<Scope[]>([]);
   const [scopeCursor, setScopeCursor] = useState<string | null>(null);
@@ -88,6 +234,10 @@ export function Tray({ client }: { client: TrayClient }) {
   const [page, setPage] = useState<StagedMediaPage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [context, setContext] = useState<MediaContext | null>(null);
+  const [attached, setAttached] = useState<AttachedMediaPage | null>(null);
+  const [attachedLoading, setAttachedLoading] = useState(false);
+  const [attachedError, setAttachedError] = useState<string | null>(null);
 
   function chooseScope(next: Scope) {
     generation.current++;
@@ -95,38 +245,95 @@ export function Tray({ client }: { client: TrayClient }) {
     setScope(next);
     setRepo(next.repo);
     setBranch(next.branch);
+    setPr(next.pr ? String(next.pr) : "");
     setPage(null);
     setError(null);
+    setContext(null);
+    setAttached(null);
+    setAttachedError(null);
+    setAttachedLoading(false);
+    pendingHostContext.current = null;
     return generation.current;
   }
   function acceptPage(next: StagedMediaPage, append: boolean) {
-    scopeRef.current = { repo: next.repo, branch: next.branch };
-    setScope(scopeRef.current);
-    setRepo(next.repo);
-    setBranch(next.branch);
-    setPage((previous) => {
-      if (!append || !previous || scopeKey(previous) !== scopeKey(next)) return next;
-      const items = new Map(previous.items.map((item) => [item.id, item]));
-      for (const item of next.items) items.set(item.id, item);
-      return { ...next, items: [...items.values()] };
-    });
+    // Storage tags are lowercase, but GitHub resolves the original case-sensitive branch.
+    const selected =
+      scopeRef.current && scopeKey(scopeRef.current) === scopeKey(next)
+        ? scopeRef.current
+        : { repo: next.repo, branch: next.branch };
+    scopeRef.current = selected;
+    setScope(selected);
+    setRepo(selected.repo);
+    setBranch(selected.branch);
+    setPage((previous) => mergePage(previous, next, append));
+  }
+  async function loadAttached(next: MediaContext, sequence: number, cursor?: string) {
+    if (next.pr === null) return;
+    const request = ++attachedRequest.current;
+    setAttachedLoading(true);
+    setAttachedError(null);
+    try {
+      const result = attachedPage(
+        await client.callTool("list_attached_media", {
+          repo: next.repo,
+          branch: next.branch,
+          pr: next.pr,
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
+      if (sequence !== generation.current || request !== attachedRequest.current) return;
+      if (scopeKey(result) !== scopeKey(next) || result.pr !== next.pr)
+        throw new Error("The response did not match the selected pull request.");
+      setAttached((previous) => mergePage(previous, result, Boolean(cursor)));
+    } catch (failure) {
+      if (sequence === generation.current && request === attachedRequest.current)
+        setAttachedError(errorMessage(failure));
+    } finally {
+      if (sequence === generation.current && request === attachedRequest.current)
+        setAttachedLoading(false);
+    }
+  }
+  async function loadContext(next: Scope, sequence: number) {
+    setAttachedLoading(true);
+    setAttachedError(null);
+    try {
+      const result = mediaContext(await client.callTool("resolve_media_context", { ...next }));
+      if (sequence !== generation.current) return;
+      if (scopeKey(result) !== scopeKey(next) || (next.pr !== undefined && result.pr !== next.pr))
+        throw new Error("The response did not match the selected repository, branch, and PR.");
+      setContext(result);
+      if (result.pr === null) setAttachedLoading(false);
+      else await loadAttached(result, sequence);
+    } catch (failure) {
+      if (sequence === generation.current) {
+        setAttachedError(errorMessage(failure));
+        setAttachedLoading(false);
+      }
+    }
   }
   async function load(next: Scope, cursor?: string) {
-    const sequence = cursor ? ++generation.current : chooseScope(next);
+    const sequence = cursor ? generation.current : chooseScope(next);
+    const request = ++stagedRequest.current;
     setLoading(true);
     setError(null);
+    if (!cursor) void loadContext(next, sequence);
     try {
       const result = mediaPage(
-        await client.callTool("list_staged_media", { ...next, ...(cursor ? { cursor } : {}) }),
+        await client.callTool("list_staged_media", {
+          repo: next.repo,
+          branch: next.branch,
+          ...(cursor ? { cursor } : {}),
+        }),
       );
-      if (sequence !== generation.current) return;
+      if (sequence !== generation.current || request !== stagedRequest.current) return;
       if (scopeKey(result) !== scopeKey(next))
         throw new Error("The response did not match the selected repository and branch.");
       acceptPage(result, Boolean(cursor));
     } catch (failure) {
-      if (sequence === generation.current) setError(errorMessage(failure));
+      if (sequence === generation.current && request === stagedRequest.current)
+        setError(errorMessage(failure));
     } finally {
-      if (sequence === generation.current) setLoading(false);
+      if (sequence === generation.current && request === stagedRequest.current) setLoading(false);
     }
   }
   async function loadScopes(cursor?: string) {
@@ -167,11 +374,25 @@ export function Tray({ client }: { client: TrayClient }) {
       }
       try {
         const next = mediaPage(event.result);
-        // A late result from an earlier scope must not replace the selected branch.
         if (scopeRef.current && scopeKey(scopeRef.current) !== scopeKey(next)) return;
+        // The opener already resolved the PR using the original Git branch spelling.
+        // Keep that context rather than repeating its GitHub lookup with normalized tags.
+        const resolved =
+          event.result.structuredContent &&
+          typeof event.result.structuredContent === "object" &&
+          "prResolution" in event.result.structuredContent
+            ? mediaContext(event.result)
+            : null;
+        // A late opener result for a different PR must not invalidate the current request.
+        if (scopeRef.current?.pr !== undefined && resolved?.pr !== scopeRef.current.pr) return;
         generation.current++;
         acceptPage(next, false);
         setError(null);
+        if (resolved) {
+          setContext(resolved);
+          if (readyRef.current) void loadAttached(resolved, generation.current);
+          else pendingHostContext.current = resolved;
+        } else if (readyRef.current) void loadContext(scopeRef.current!, generation.current);
       } catch (failure) {
         setError(errorMessage(failure));
       }
@@ -182,18 +403,24 @@ export function Tray({ client }: { client: TrayClient }) {
       .connect()
       .then(() => {
         if (!active) return;
+        readyRef.current = true;
         setReady(true);
         void loadScopes();
+        if (pendingHostContext.current) {
+          void loadAttached(pendingHostContext.current, generation.current);
+          pendingHostContext.current = null;
+        } else if (scopeRef.current) void loadContext(scopeRef.current, generation.current);
       })
       .catch((failure) => {
         if (active) setConnectionError(errorMessage(failure));
       });
     return () => {
       active = false;
+      readyRef.current = false;
       generation.current++;
       unsubscribe();
     };
-    // The client is stable for the lifetime of this panel. Request state uses refs.
+    // The client is stable for the lifetime of the panel; requests use refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
 
@@ -204,7 +431,7 @@ export function Tray({ client }: { client: TrayClient }) {
   const selected = scope ? scopeKey(scope) : null;
   function submit(event: FormEvent) {
     event.preventDefault();
-    const next = scopeFrom({ repo, branch });
+    const next = scopeFrom({ repo, branch, ...(pr ? { pr: Number(pr) } : {}) });
     if (next && ready) {
       setManual(false);
       void load(next);
@@ -215,17 +442,11 @@ export function Tray({ client }: { client: TrayClient }) {
     <main className="tray">
       <header className="tray-header">
         <div className="tray-title">
-          <h1>Staged media</h1>
-          {page && (
-            <span className="tray-count">
-              {page.items.length}
-              {page.cursor ? "+" : ""} files
-            </span>
-          )}
+          <h1>Files</h1>
         </div>
         <Button
           variant="outline"
-          disabled={!ready || loading || scopesLoading}
+          disabled={!ready || loading || attachedLoading || scopesLoading}
           onClick={() => {
             void loadScopes();
             if (scope) void load(scope);
@@ -318,6 +539,18 @@ export function Tray({ client }: { client: TrayClient }) {
                 required
               />
             </label>
+            <label htmlFor="pr">
+              Pull request (optional)
+              <Input
+                id="pr"
+                type="number"
+                min="1"
+                step="1"
+                value={pr}
+                onChange={(event) => setPr(event.target.value)}
+                placeholder="PR number"
+              />
+            </label>
             <Button
               type="submit"
               variant="outline"
@@ -349,53 +582,48 @@ export function Tray({ client }: { client: TrayClient }) {
           {scope.repo} / {scope.branch}
         </p>
       )}
-      {error && (
-        <div className="tray-error" role="alert">
-          {error}
-        </div>
+      {scope && (
+        <>
+          <MediaSection
+            title="Staged"
+            page={page}
+            loading={loading}
+            error={error}
+            empty="No staged files on this branch"
+            onMore={() => {
+              if (page?.cursor) void load(scope, page.cursor);
+            }}
+          />
+          <MediaSection
+            title={context?.pr ? `Attached · #${context.pr}` : "Attached"}
+            page={attached}
+            loading={attachedLoading}
+            error={attachedError}
+            empty="No files attached to this PR"
+            onMore={() => {
+              if (context && attached?.cursor)
+                void loadAttached(context, generation.current, attached.cursor);
+            }}
+          />
+          {context?.pr === null && !attachedLoading && !attachedError && (
+            <div className="tray-hint">
+              Choose a pull request to see attached files.{" "}
+              <Button variant="link" onClick={() => setManual(true)}>
+                Enter PR number
+              </Button>
+            </div>
+          )}
+        </>
       )}
-      {loading && (
-        <p className="tray-loading" role="status">
-          Loading staged media…
-        </p>
-      )}
-      {page && page.items.length > 0 && (
-        <section
-          className="tray-grid"
-          aria-label={`Staged files for ${page.repo}, ${page.branch}`}
-          aria-busy={loading}
-        >
-          {page.items.map((item) => (
-            <MediaCard key={`${scopeKey(page)}:${item.id}`} item={item} />
-          ))}
-        </section>
-      )}
-      {!loading && !error && ready && (!scope || (page && page.items.length === 0)) && (
+      {!scope && ready && (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>
-              {scope
-                ? page?.cursor
-                  ? "No media on this page"
-                  : "No staged media on this branch"
-                : "Choose a repository and branch"}
-            </EmptyTitle>
-            {!scope && <EmptyDescription>Files from each branch stay separate.</EmptyDescription>}
+            <EmptyTitle>Choose a repository and branch</EmptyTitle>
+            <EmptyDescription>
+              Staged and attached files stay scoped to your selection.
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
-      )}
-      {page?.cursor && (
-        <div className="tray-more">
-          <Button
-            variant="outline"
-            disabled={loading}
-            onClick={() => {
-              if (scope) void load(scope, page.cursor!);
-            }}
-          >
-            Load more
-          </Button>
-        </div>
       )}
     </main>
   );

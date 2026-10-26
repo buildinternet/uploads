@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import app from "../src/index";
+import { STAGED_MEDIA_RESOURCE } from "../src/staged-media-ui";
 import { ROBOTS_TXT } from "../src/robots";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
@@ -859,6 +860,7 @@ describe("mcp worker", () => {
       "get_metadata",
       "list",
       "list_activity",
+      "list_attached_media",
       "list_held",
       "list_metadata_keys",
       "list_repo_files",
@@ -870,6 +872,7 @@ describe("mcp worker", () => {
       "put",
       "reconcile",
       "repo_link_status",
+      "resolve_media_context",
       "search_docs",
       "set_metadata",
       "sign_upload_url",
@@ -1524,8 +1527,13 @@ describe("mcp worker", () => {
     expect(neither.isError).toBe(true);
   });
 
-  it("gates the App opener and resource through authenticated read scope", async () => {
-    const uri = "ui://uploads/staged-media-v1.html";
+  it.each([
+    "ui://uploads/staged-media-v1.html",
+    "ui://uploads/media-v2.html",
+    "ui://uploads/media-v3.html",
+    STAGED_MEDIA_RESOURCE,
+    `ui://uploads/media/c1/${"0".repeat(64)}.html`,
+  ])("gates the App opener and resource through authenticated read scope: %s", async (uri) => {
     for (const canRead of [false, true]) {
       const token = `up_test-ws_tray-${canRead}`;
       const { env } = await makeEnv({
@@ -1541,6 +1549,12 @@ describe("mcp worker", () => {
       const resource = (await (
         await rpc(env, { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri } }, token)
       ).json()) as { result?: { contents: Array<{ uri: string }> }; error?: unknown };
+      const anonymous = await rpc(
+        env,
+        { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri } },
+        "",
+      );
+      expect(anonymous.status).toBe(401);
       if (canRead) expect(resource.result?.contents[0].uri).toBe(uri);
       else {
         expect(resource.error).toBeDefined();

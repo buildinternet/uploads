@@ -24,6 +24,13 @@ export interface StagedMediaPage extends StagedScope {
   items: StagedMediaItem[];
   cursor: string | null;
 }
+export interface MediaContext extends StagedScope {
+  pr: number | null;
+  prResolution: "explicit" | "resolved" | "unavailable";
+}
+export interface AttachedMediaPage extends StagedMediaPage {
+  pr: number;
+}
 
 /** Must stay aligned with the App resource's external asset CSP. */
 export function stagedPreviewUrl(raw: string | null): string | null {
@@ -81,6 +88,10 @@ export function stagedMediaResponse(
 
 const nullableString = { type: ["string", "null"] };
 const scopeProperties = { repo: { type: "string" }, branch: { type: "string" } };
+export const mediaContextProperties = {
+  pr: { type: ["integer", "null"], minimum: 1 },
+  prResolution: { type: "string", enum: ["explicit", "resolved", "unavailable"] },
+};
 export const stagedMediaOutputSchemas: Record<string, Record<string, unknown>> = {
   list_staged_media: {
     type: "object",
@@ -137,4 +148,19 @@ export const stagedMediaOutputSchemas: Record<string, Record<string, unknown>> =
     },
     required: ["scopes", "cursor"],
   },
+  resolve_media_context: {
+    type: "object",
+    additionalProperties: false,
+    properties: { ...scopeProperties, ...mediaContextProperties },
+    required: ["repo", "branch", "pr", "prResolution"],
+  },
+};
+
+stagedMediaOutputSchemas.list_attached_media = {
+  ...stagedMediaOutputSchemas.list_staged_media,
+  properties: {
+    ...(stagedMediaOutputSchemas.list_staged_media!.properties as Record<string, unknown>),
+    pr: { type: "integer", minimum: 1 },
+  },
+  required: ["repo", "branch", "pr", "items", "cursor"],
 };

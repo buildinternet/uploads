@@ -4,7 +4,7 @@ import { Tray } from "./tray";
 import { scopeFrom, type TrayClient, type TrayEvent } from "./client";
 import "./styles.css";
 
-const app = new App({ name: "Uploads staged media", version: "1.0.0" });
+const app = new App({ name: "Uploads", version: "1.0.0" });
 const listeners = new Set<(event: TrayEvent) => void>();
 const emit = (event: TrayEvent) => {
   for (const listener of listeners) listener(event);
@@ -26,11 +26,21 @@ app.onhostcontextchanged = applyContext;
 const client: TrayClient = {
   async connect() {
     if (window.parent === window)
-      throw new Error("Open Staged media from the Uploads plugin in your chat app.");
+      throw new Error("Open Uploads from the conversation panel in your chat app.");
     await app.connect(undefined, { timeout: 15000 });
     applyContext();
   },
-  callTool: (name, args) => app.callServerTool({ name, arguments: args }),
+  async callTool(name, args) {
+    if (
+      document.documentElement.dataset.uploadsToolCatalog === "staged-v1" &&
+      name !== "list_staged_media" &&
+      name !== "list_staged_scopes"
+    )
+      throw new Error(
+        "This chat uses an older Uploads connection. To view attached files, refresh Uploads tools in Plugins settings, then open Uploads in a new chat.",
+      );
+    return app.callServerTool({ name, arguments: args });
+  },
   subscribe(listener) {
     listeners.add(listener);
     return () => {

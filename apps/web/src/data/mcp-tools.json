@@ -711,6 +711,89 @@
     ]
   },
   {
+    "name": "resolve_media_context",
+    "title": "Resolve media context",
+    "description": "Resolve the pull request for one explicit repository and branch. Pass the current PR number when known. Otherwise look up one open same-repository PR only when the repository is linked to this workspace. An unavailable resolution requires an explicit PR number; it does not mean that the PR has no attached files.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "repo",
+      "branch",
+      "pr",
+      "prResolution"
+    ]
+  },
+  {
+    "name": "list_attached_media",
+    "title": "Attached media",
+    "description": "Read media attached to one explicit repository and PR in the connected workspace. Pass the displayed branch as context. PR membership uses repository and PR number, including direct attachments without branch tags. Private and held files remain placeholders. Continue with the returned cursor and the same repository and PR; never combine PRs.",
+    "access": "read",
+    "scopes": [
+      "files:read"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": true,
+        "description": ""
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "description": ""
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": ""
+      }
+    ],
+    "returns": [
+      "repo",
+      "branch",
+      "cursor",
+      "items",
+      "pr"
+    ]
+  },
+  {
     "name": "list_staged_scopes",
     "title": "List staged branches",
     "description": "List distinct repository/branch pairs with staged files in the connected workspace. Use an explicit pair with list_staged_media; never combine different branches. Results use repository/branch order. Pass cursor unchanged for the next page.",
@@ -1255,8 +1338,8 @@
   },
   {
     "name": "open_staged_media",
-    "title": "Staged media",
-    "description": "Open the read-only staged media tray. In a coding checkout, read its Git remote and current branch and pass repo (owner/name) and branch explicitly. Without both, show a scope picker; never assume a current checkout. Refresh keeps the displayed scope until it is changed.",
+    "title": "Uploads",
+    "description": "Open Uploads beside the conversation to review staged files and files attached to the current PR. Read the checkout's Git remote and branch and pass repo (owner/name), branch, and the current pr number when known. Without repo and branch, show a scope picker; never assume a checkout. Refresh keeps the displayed scope until it is changed.",
     "access": "read",
     "scopes": [
       "files:read"
@@ -1273,6 +1356,12 @@
         "type": "string",
         "required": false,
         "description": "Explicit Git branch for this tray."
+      },
+      {
+        "name": "pr",
+        "type": "integer",
+        "required": false,
+        "description": "Current pull-request number, when known."
       }
     ],
     "returns": []

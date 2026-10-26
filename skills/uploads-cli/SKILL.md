@@ -1245,7 +1245,7 @@ uploads --api-url http://localhost:8787 doctor
   put  { contentBase64, filename, repo: "owner/name", pr: 123, branch: "feature/x" }
   ```
 
-  **Hosted MCP: checking what's staged.** Read the current checkout's Git
+  **Hosted MCP: reviewing staged and attached media.** Read the current checkout's Git
   remote and branch, then pass both explicitly. The hosted server cannot infer
   the local checkout. Never substitute a remembered branch after a checkout change.
 
@@ -1255,7 +1255,13 @@ uploads --api-url http://localhost:8787 doctor
   list_staged_scopes {}
   ```
 
-  `open_staged_media` opens a read-only tray in compatible MCP App hosts. With no
+  `open_staged_media` opens the read-only Uploads conversation panel with separate
+  Staged and Attached sections. Pass the current `pr` number when known, alongside
+  `repo` and `branch`. Otherwise `resolve_media_context` can resolve a unique PR
+  through the authorized repository link; manual PR entry remains available.
+  `list_attached_media` reads one explicit `repo`, `branch`, and `pr` with its own
+  cursor. Both sections retain private/held placeholders and require `files:read`.
+  With no
   arguments, it opens a scope picker without listing files. `list_staged_scopes`
   lists distinct repository/branch pairs with staged files. Select one pair;
   never combine branches. `list_staged_media` excludes promoted and unstaged
