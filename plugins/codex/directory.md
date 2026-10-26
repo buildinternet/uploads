@@ -27,11 +27,19 @@ OAuth credentials are configured through the portal. The ZIP has no hooks or
 
 ## Prepare review fixtures
 
-Use the dedicated reviewer account and workspace. The user has confirmed an
-account is prepared; its login method and successful OpenAI access still need
-to be checked. Sign-in must work without email/SMS codes, magic links, MFA
-approval, or private-network access. Store credentials and sign-in instructions
-only in the portal's private Review details.
+Use a dedicated reviewer account and workspace. Sign-in must work without
+email/SMS codes, magic links, MFA approval, or private-network access, so the
+reviewer signs in with email and password. There is no password sign-up: an
+operator prepares the account once.
+
+1. Invite a reviewer mailbox you control to the review workspace.
+2. Accept the invitation with a magic link. This verifies the email.
+3. On Account → Profile, choose **set a password by email** and open the link.
+4. Sign out, then confirm **Use a password** on `/login` reaches the account,
+   and through it the OpenAI OAuth consent.
+
+Store the email, password, and these sign-in instructions only in the portal's
+private Review details.
 
 Prepare a harmless, public fixture repository and pull request. Install and
 link the Uploads GitHub App so the reviewer can post a managed attachments

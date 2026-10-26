@@ -47,6 +47,20 @@ describe("renderSignInMethodsHtml", () => {
     expect(html).toMatch(/Linked/);
     expect(html).toMatch(/data-connect-github/);
   });
+
+  it("labels a credential account as Password", () => {
+    const accounts: LinkedAccount[] = [
+      {
+        id: "a3",
+        providerId: "credential",
+        accountId: "u1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const html = renderSignInMethodsHtml(accounts, null);
+    expect(html).toMatch(/<span>Password<\/span>/);
+    expect(html).not.toMatch(/credential/);
+  });
 });
 
 describe("renderSessionsHtml", () => {

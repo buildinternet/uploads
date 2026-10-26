@@ -781,6 +781,22 @@ function buildAuth(
         allowDifferentEmails: true,
       },
     },
+    // A secondary sign-in for hosts that can't follow an email link or a
+    // GitHub prompt (directory reviewers). No password sign-up: a password is
+    // added only through the emailed reset link, which proves the address,
+    // and sign-in still requires a verified email. The reset link creates the
+    // credential account when the user has none.
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+      requireEmailVerification: true,
+      minPasswordLength: 12,
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        await sendAuthEmail(env, { to: user.email, template: "password-reset", context: { url } });
+      },
+    },
     plugins: [
       magicLink({
         expiresIn: 60 * 15,

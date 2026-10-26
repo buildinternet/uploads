@@ -144,6 +144,29 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         opacity: 0.6;
         cursor: default;
       }
+      /* Password sign-in stays a quiet fallback below the main options. */
+      .alt-link {
+        background: none;
+        border: 0;
+        padding: 0;
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
+      .alt-link:hover,
+      .alt-link:focus-visible {
+        color: var(--fg);
+        outline: none;
+      }
+      .alt-row {
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        margin-top: 14px;
+      }
       [hidden] {
         display: none !important;
       }
@@ -158,7 +181,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
 
       <div id="sent-state" hidden>
         <div class="ul-callout status" data-state="ready" role="status">
-          Check your email — we sent you a sign-in link.
+          <span id="sent-message">Check your email — we sent you a sign-in link.</span>
         </div>
       </div>
 
@@ -181,6 +204,23 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           </label>
           <button type="submit" id="magic-submit">Send sign-in link</button>
         </form>
+        <form id="password-form" hidden>
+          <label>
+            Email
+            <input id="password-email" type="email" required autocomplete="username" />
+          </label>
+          <label>
+            Password
+            <input id="password" type="password" required autocomplete="current-password" />
+          </label>
+          <button type="submit" id="password-submit">Sign in</button>
+        </form>
+        <div class="alt-row">
+          <button type="button" class="alt-link" id="password-toggle">Use a password</button>
+          <button type="button" class="alt-link" id="password-email-btn" hidden>
+            Set or reset password
+          </button>
+        </div>
         <div class="ul-callout status" id="error" data-state="error" role="alert" hidden></div>
         <LegalConsent />
         <ProductUpdatesConsent />
@@ -200,8 +240,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       import {
         BANNED_ACCOUNT_MESSAGE,
         isBannedAuthError,
+        requestPasswordEmail,
         sendMagicLink,
         signInWithGitHub,
+        signInWithPassword,
       } from "../lib/auth-client";
 
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
@@ -220,6 +262,13 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const magicForm = requireElement<HTMLFormElement>("#magic-form");
       const magicSubmit = requireElement<HTMLButtonElement>("#magic-submit");
       const emailInput = requireElement<HTMLInputElement>("#email");
+      const sentMessage = requireElement<HTMLElement>("#sent-message");
+      const passwordForm = requireElement<HTMLFormElement>("#password-form");
+      const passwordSubmit = requireElement<HTMLButtonElement>("#password-submit");
+      const passwordEmailInput = requireElement<HTMLInputElement>("#password-email");
+      const passwordInput = requireElement<HTMLInputElement>("#password");
+      const passwordToggle = requireElement<HTMLButtonElement>("#password-toggle");
+      const passwordEmailBtn = requireElement<HTMLButtonElement>("#password-email-btn");
 
       // Default: CLI setup card. Same-origin ?callbackURL= allowed (session recovery).
       // Mid-OAuth exception (#228): a signed authorize query (`sig=`) means the AS
@@ -283,6 +332,72 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           errorBox.hidden = false;
         } finally {
           magicSubmit.disabled = false;
+        }
+      });
+
+      passwordToggle.addEventListener("click", () => {
+        errorBox.hidden = true;
+        const showPassword = passwordForm.hidden;
+        passwordForm.hidden = !showPassword;
+        magicForm.hidden = showPassword;
+        passwordEmailBtn.hidden = !showPassword;
+        passwordToggle.textContent = showPassword ? "Use an email link" : "Use a password";
+        if (showPassword) {
+          passwordEmailInput.value ||= emailInput.value;
+          (passwordEmailInput.value ? passwordInput : passwordEmailInput).focus();
+        } else {
+          emailInput.value ||= passwordEmailInput.value;
+        }
+      });
+
+      passwordForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        errorBox.hidden = true;
+        passwordSubmit.disabled = true;
+        try {
+          const result = await signInWithPassword(
+            authOrigin,
+            passwordEmailInput.value.trim(),
+            passwordInput.value,
+            callbackURL,
+          );
+          if (result.ok) {
+            location.assign(result.url ?? callbackURL);
+            return;
+          }
+          errorBox.textContent =
+            result.code === "EMAIL_NOT_VERIFIED"
+              ? "Verify this email first: sign in once with an email link."
+              : isBannedAuthError({ errorCode: result.code })
+                ? BANNED_ACCOUNT_MESSAGE
+                : "That email and password didn't match.";
+          errorBox.hidden = false;
+        } catch {
+          errorBox.textContent = "Couldn't sign in. Try again.";
+          errorBox.hidden = false;
+        }
+        passwordSubmit.disabled = false;
+      });
+
+      passwordEmailBtn.addEventListener("click", async () => {
+        errorBox.hidden = true;
+        const email = passwordEmailInput.value.trim();
+        if (!passwordEmailInput.checkValidity() || !email) {
+          passwordEmailInput.reportValidity();
+          return;
+        }
+        passwordEmailBtn.disabled = true;
+        try {
+          if (!(await requestPasswordEmail(authOrigin, email))) throw new Error("send failed");
+          sentMessage.textContent =
+            "Check your email. If you have an account, we sent a link to set your password.";
+          formState.hidden = true;
+          sentState.hidden = false;
+        } catch {
+          errorBox.textContent = "Couldn't send the password email. Try again.";
+          errorBox.hidden = false;
+        } finally {
+          passwordEmailBtn.disabled = false;
         }
       });
     </script>

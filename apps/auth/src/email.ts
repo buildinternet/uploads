@@ -1,6 +1,6 @@
 /**
  * Auth outbound mail. Templates for invites/notifies live in `@uploads/email`;
- * this module only sends (and owns the magic-link template). Sender is always
+ * this module only sends (and owns the magic-link and password templates). Sender is always
  * noreply@uploads.sh (must stay in wrangler send_email allowed addresses).
  */
 
@@ -9,6 +9,7 @@ import {
   renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
+  renderPasswordResetEmail,
   renderUsageAlertEmail,
   renderWelcomeEmail,
   type RenderedEmail,
@@ -35,6 +36,7 @@ export type SendAuthEmailEnv = {
 
 export type SendAuthEmailArgs =
   | { to: string; template: "magic-link"; context: { url: string } }
+  | { to: string; template: "password-reset"; context: { url: string } }
   | {
       to: string;
       template: "invitation";
@@ -70,6 +72,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
   switch (args.template) {
     case "magic-link":
       return renderMagicLinkEmail({ ...args.context, webOrigin });
+    case "password-reset":
+      return renderPasswordResetEmail({ ...args.context, webOrigin });
     case "invitation":
       return renderOrgInvitationEmail({ ...args.context, webOrigin });
     case "member-joined":
@@ -104,11 +108,14 @@ export async function sendAuthEmail(env: SendAuthEmailEnv, args: SendAuthEmailAr
   }
   const { subject, text, html } = rendered;
   const isDev = env.ENVIRONMENT !== "production";
-  const magicLink = args.template === "magic-link" && isDev ? ` Link: ${args.context.url}` : "";
+  const magicLink =
+    (args.template === "magic-link" || args.template === "password-reset") && isDev
+      ? ` Link: ${args.context.url}`
+      : "";
 
   if (!env.EMAIL) {
     // Invitation accept URLs are always logged so self-hosted operators without
-    // Email Sending can copy them. Magic-link URLs stay dev-only (secrets).
+    // Email Sending can copy them. Magic-link and password URLs stay dev-only (secrets).
     const inviteLink =
       args.template === "invitation" && typeof args.context.url === "string"
         ? ` Link: ${args.context.url}`

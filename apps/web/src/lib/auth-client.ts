@@ -404,6 +404,63 @@ export async function sendMagicLink(
   return res.ok;
 }
 
+export type PasswordSignInResult =
+  | { ok: true; url: string | null }
+  | { ok: false; code: string | null };
+
+/**
+ * POST /api/auth/sign-in/email. On success `url` is where to go next: the
+ * resumed OAuth authorize redirect when signing in mid-OAuth, else null.
+ */
+export async function signInWithPassword(
+  origin: string,
+  email: string,
+  password: string,
+  callbackURL: string,
+): Promise<PasswordSignInResult> {
+  const res = await fetch(`${authOrigin(origin)}/api/auth/sign-in/email`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, callbackURL, ...oauthResumeBody() }),
+  });
+  const body = (await res.json().catch(() => null)) as { url?: unknown; code?: unknown } | null;
+  if (!res.ok) return { ok: false, code: typeof body?.code === "string" ? body.code : null };
+  return { ok: true, url: typeof body?.url === "string" ? body.url : null };
+}
+
+/**
+ * POST /api/auth/request-password-reset. Emails a link to /reset-password,
+ * which both sets a first password and replaces an existing one. The auth
+ * worker answers the same whether or not the email has an account.
+ */
+export async function requestPasswordEmail(origin: string, email: string): Promise<boolean> {
+  const res = await fetch(`${authOrigin(origin)}/api/auth/request-password-reset`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, redirectTo: `${location.origin}/reset-password` }),
+  });
+  return res.ok;
+}
+
+/** POST /api/auth/reset-password with the emailed token. Signs out every session on success. */
+export async function resetPassword(
+  origin: string,
+  token: string,
+  newPassword: string,
+): Promise<{ ok: boolean; code: string | null }> {
+  const res = await fetch(`${authOrigin(origin)}/api/auth/reset-password`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  if (res.ok) return { ok: true, code: null };
+  const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+  return { ok: false, code: typeof body?.code === "string" ? body.code : null };
+}
+
 /**
  * POST /api/auth/sign-out. The JSON header and body are needed: a bare POST
  * 415s and leaves the session cookie intact.
