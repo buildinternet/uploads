@@ -95,8 +95,8 @@ metadata JSON as the `client_id`; the metadata must include `client_name` and
 Dynamic client registration (RFC 7591) remains supported for older clients.
 A metadata document may list extra `grant_types` (`device_code`, `jwt-bearer`):
 the AS keeps `authorization_code` and `refresh_token` and ignores the rest.
-Authorize `scope=` may include extras (`openid`, `admin`): the AS downscopes to
-the client's registered `files:*` list instead of failing the whole request.
+Authorize `scope=` may include unsupported extras (`profile`, `admin`): the AS
+downscopes to the client's registered list instead of failing the whole request.
 Authorize `resource=` may be `https://agents.uploads.sh` or
 `https://agents.uploads.sh/mcp` (same pair for `mcp.uploads.sh`). Discovery
 (advertises `client_id_metadata_document_supported`):
@@ -105,17 +105,23 @@ Authorize `resource=` may be `https://agents.uploads.sh` or
 curl -s https://uploads.sh/.well-known/oauth-authorization-server
 ```
 
-(There is no OIDC surface — `/.well-known/openid-configuration` intentionally
-returns 404.)
+OIDC discovery is available at `/.well-known/openid-configuration`.
+Clients can request optional `openid email` identity scopes. UserInfo at
+`https://uploads.sh/api/auth/oauth2/userinfo` returns `sub` for `openid` and
+the user's email plus truthful `email_verified` for `email`. The email scope
+requires requested and permitted `openid`; it never adds `openid` implicitly.
 
 The old `auth.uploads.sh` origin still serves the same discovery document as a
 deprecated alias, and tokens minted under the old issuer are still accepted
 for a migration window. New clients should discover and mint against
 `uploads.sh`.
 
-Scopes are the same three as the workspace-token table above: `files:read`,
-`files:write`, `files:delete`. A human authorizing a client signs in and
-grants scopes at `https://uploads.sh/oauth/consent`. Each grant is scoped to
+File scopes are the same three as the workspace-token table above: `files:read`,
+`files:write`, `files:delete`. Identity scopes do not grant file access or
+reveal workspace membership. Existing clients and grants keep their original
+scope ceilings; use a fresh registration to request newly supported identity
+scopes. A human authorizing a client signs in and grants scopes at
+`https://uploads.sh/oauth/consent`. Each file grant is scoped to
 ONE workspace: accounts with several pick it on the consent screen (the
 choice sticks for that client until changed, which re-prompts consent), and
 the token's `workspace` claim carries the result. An account with no

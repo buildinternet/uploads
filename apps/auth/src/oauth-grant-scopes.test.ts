@@ -79,6 +79,18 @@ describe("restrictOAuthQueryScopes", () => {
       scope: "",
     });
   });
+
+  it.each([
+    ["openid email", ["openid", "email"], undefined],
+    ["email", ["openid", "email"], { scope: "" }],
+    ["openid email", ["email"], { scope: "" }],
+    ["files:read email", ["files:read", "openid", "email"], { scope: "files:read" }],
+  ] as const)(
+    "keeps email dependent on requested and permitted openid: %s",
+    (scope, allowed, expected) => {
+      expect(restrictOAuthQueryScopes({ scope }, allowed)).toEqual(expected);
+    },
+  );
 });
 
 describe("restrictOAuthConsentBody", () => {

@@ -143,6 +143,7 @@ describe("staged media MCP App", () => {
       expect(resource.uri).toBe(`ui://uploads/media/c1/${servedHash}.html`);
       expect(resource._meta["uploads.sh/uiBuildHash"]).toBe(servedHash);
       expect(resource.mimeType).toBe("text/html;profile=mcp-app");
+      expect(resource._meta.ui.domain).toBe("https://agents.uploads.sh");
       expect(resource.text).toContain("<html");
       expect(resource.text).not.toContain('<html data-uploads-tool-catalog="staged-v1"');
       const previous = await call(fixture().server, "resources/read", {

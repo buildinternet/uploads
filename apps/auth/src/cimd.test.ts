@@ -71,6 +71,7 @@ async function authorize(env: AuthEnv, params: Record<string, string> = {}) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   __resetJwksFetchCacheForTest();
   vi.unstubAllGlobals();
 });
@@ -136,7 +137,7 @@ describe("CIMD client resolution", () => {
     expect(res.headers.get("location")).toContain("/login");
   });
 
-  it("downscopes unknown extras (openid/admin) instead of invalid_scope", async () => {
+  it("downscopes unknown extras (profile/admin) instead of invalid_scope", async () => {
     const env = dbEnv();
     stubMetadataFetch();
 
@@ -146,6 +147,29 @@ describe("CIMD client resolution", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("/login");
     expect(res.headers.get("location")).not.toContain("invalid_scope");
+  });
+
+  it("preserves a historical client's scope ceiling through metadata refresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-25T12:00:00Z"));
+    const env = dbEnv();
+    const fetchImpl = vi.fn(async () =>
+      Response.json(metadataDocument(), { headers: { "cache-control": "no-store" } }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    expect((await authorize(env)).status).toBe(302);
+    await drizzle(env.DB, { schema })
+      .update(schema.oauthClient)
+      .set({ scopes: ["files:read", "offline_access"] })
+      .where(eq(schema.oauthClient.clientId, CLIENT_ID_URL));
+    vi.setSystemTime(new Date("2026-10-25T12:00:05Z"));
+    expect((await authorize(env)).status).toBe(302);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    // A subsequent request must see the original ceiling after the SDK's
+    // refresh update, rather than newly enabled server identity scopes.
+    const identity = await authorize(env, { scope: "openid email" });
+    expect(identity.status).toBe(400);
+    expect(await identity.json()).toMatchObject({ error: "invalid_scope" });
   });
 
   it("accepts resource= origin as well as origin/mcp", async () => {

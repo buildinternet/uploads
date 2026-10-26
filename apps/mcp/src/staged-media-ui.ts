@@ -95,6 +95,7 @@ export function registerStagedMediaResource(server: McpServer): void {
     "uploads.sh/uiBuildHash": buildHash,
     "uploads.sh/uiCompatibility": compatibility,
     ui: {
+      domain: "https://agents.uploads.sh",
       prefersBorder: false,
       csp: {
         connectDomains: [],

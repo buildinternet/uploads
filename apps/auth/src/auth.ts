@@ -114,6 +114,9 @@ export function isCliSessionUserAgent(ua?: string | null): boolean {
  */
 export const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 
+/** Optional OIDC identity claims, separate from workspace file permissions. */
+const OAUTH_IDENTITY_SCOPES = ["openid", "email"] as const;
+
 /**
  * The oauth-provider plugin only issues a refresh token when the grant
  * includes `offline_access`. Registered by default on self-registered
@@ -133,7 +136,10 @@ const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = [
  * Extra scopes a CIMD/DCR client may request (consent still required). Better
  * Auth 1.7 persists self-registered clients as default ∪ allowed.
  */
-const OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES = ["files:delete"] as const;
+const OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES = [
+  "files:delete",
+  ...OAUTH_IDENTITY_SCOPES,
+] as const;
 
 /**
  * Fallback when the oauth_client row is missing (CIMD first-use: persist
@@ -144,6 +150,22 @@ const OAUTH_SELF_REGISTERED_SCOPES = [
   ...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES,
   ...OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES,
 ] as const;
+
+type AuthAdapterUpdate = Parameters<ReturnType<ReturnType<typeof drizzleAdapter>>["update"]>[0];
+
+function preserveScopeCeiling(params: AuthAdapterUpdate) {
+  // Only the SDK's CIMD metadata refresh includes both this discovery
+  // marker and ownership predicate. Ordinary client edits keep scopes.
+  if (
+    params.model === "oauthClient" &&
+    params.update.clientDiscoveryId === "cimd" &&
+    params.where.some((clause) => clause.field === "clientDiscoveryId" && clause.value === "cimd")
+  ) {
+    const { scopes: _scopes, ...update } = params.update;
+    return { ...params, update };
+  }
+  return params;
+}
 
 /**
  * Canonical MCP resource identifiers (`origin/mcp`). Generic clients often
@@ -287,7 +309,19 @@ async function applyOAuthClientInterop(
   if (ctx.path === "/oauth2/authorize") {
     const query = ctx.query;
     const allowedScopes = await registeredScopesForClientId(oauthClientIdFromQuery(query));
-    const nextQuery = restrictOAuthQueryScopes(query, allowedScopes);
+    // Omitted scope keeps the previous file-only default. Enabling optional
+    // OIDC scopes must not make the SDK's all-supported-scopes default add identity.
+    const requestedQuery =
+      query && query.scope === undefined ? { ...query, scope: OAUTH_SCOPES.join(" ") } : query;
+    const nextQuery =
+      restrictOAuthQueryScopes(requestedQuery, allowedScopes) ??
+      (requestedQuery !== query ? requestedQuery : undefined);
+    if (nextQuery?.scope === "") {
+      throw new APIError("BAD_REQUEST", {
+        error: "invalid_scope",
+        error_description: "No requested scopes can be granted",
+      });
+    }
     if (nextQuery) return { context: { query: nextQuery } };
     return;
   }
@@ -296,6 +330,18 @@ async function applyOAuthClientInterop(
     const allowedScopes = await registeredScopesForClientId(oauthClientIdFromConsentBody(body));
     const nextBody = restrictOAuthConsentBody(body, allowedScopes);
     if (nextBody) return { context: { body: nextBody } };
+  }
+  if (ctx.path === "/oauth2/token") {
+    const body = ctx.body as Record<string, unknown> | undefined;
+    if (body?.grant_type === "refresh_token" && typeof body.scope === "string") {
+      const scopes = body.scope.split(/\s+/);
+      if (scopes.includes("email") && !scopes.includes("openid")) {
+        throw new APIError("BAD_REQUEST", {
+          error: "invalid_scope",
+          error_description: "The email scope requires openid",
+        });
+      }
+    }
   }
 }
 
@@ -645,22 +691,31 @@ function buildAuth(
   /**
    * Registered `oauth_client.scopes`, or {@link OAUTH_SELF_REGISTERED_SCOPES}
    * when the row is missing (CIMD first-use: persist can run after this
-   * hook). Never the empty list: authorize still has to downscope extras
-   * such as `openid` on the first request.
+   * hook). An existing row never inherits newly supported scopes.
    */
   const registeredScopesForClientId = async (
     clientId: string | undefined,
   ): Promise<readonly string[]> => {
-    if (!clientId) return OAUTH_SELF_REGISTERED_SCOPES;
+    if (!clientId) return [];
     try {
       const rows = await db
         .select({ scopes: schema.oauthClient.scopes })
         .from(schema.oauthClient)
         .where(eq(schema.oauthClient.clientId, clientId))
         .limit(1);
-      return Array.isArray(rows[0]?.scopes) ? rows[0].scopes : OAUTH_SELF_REGISTERED_SCOPES;
+      if (!rows[0]) return OAUTH_SELF_REGISTERED_SCOPES;
+      // CIMD stores an encoded JSON array through Better Auth's adapter;
+      // Drizzle decodes its outer JSON layer, leaving the encoded string.
+      const scopes: unknown =
+        typeof rows[0].scopes === "string" ? JSON.parse(rows[0].scopes) : rows[0].scopes;
+      return Array.isArray(scopes) && scopes.every((scope) => typeof scope === "string")
+        ? scopes
+        : [];
     } catch {
-      return OAUTH_SELF_REGISTERED_SCOPES;
+      throw new APIError("SERVICE_UNAVAILABLE", {
+        error: "temporarily_unavailable",
+        error_description: "Unable to verify client permissions",
+      });
     }
   };
 
@@ -675,10 +730,24 @@ function buildAuth(
       errorURL: `${webOrigin}/auth/error`,
     },
     // The adapter matches schema exports to plugin models by name.
-    database: drizzleAdapter(db, {
-      provider: "sqlite",
-      schema,
-    }),
+    database: (options: Parameters<ReturnType<typeof drizzleAdapter>>[0]) => {
+      const adapter = drizzleAdapter(db, { provider: "sqlite", schema })(options);
+
+      return {
+        ...adapter,
+        update: (params: Parameters<typeof adapter.update>[0]) =>
+          adapter.update(preserveScopeCeiling(params)),
+        // The registration SDK enters a transaction even when the D1 adapter
+        // implements it without a database transaction. Decorate that lane too.
+        transaction: (callback: Parameters<typeof adapter.transaction>[0]) =>
+          adapter.transaction((transaction) =>
+            callback({
+              ...transaction,
+              update: (params) => transaction.update(preserveScopeCeiling(params)),
+            }),
+          ),
+      };
+    },
     // GitHub is enabled only when both id and secret resolve.
     // `mapProfileToUser` is the only hook that sees the raw GitHub profile, so
     // it records the login (`upsertGithubLogin`) and maps nothing onto `user`.
@@ -849,12 +918,12 @@ function buildAuth(
       oauthProvider({
         loginPage: `${webOrigin}/login`,
         consentPage: `${webOrigin}/oauth/consent`,
-        scopes: [...OAUTH_SCOPES, OAUTH_OFFLINE_ACCESS_SCOPE],
+        scopes: [...OAUTH_SCOPES, ...OAUTH_IDENTITY_SCOPES, OAUTH_OFFLINE_ACCESS_SCOPE],
         clientRegistrationDefaultScopes: [...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES],
         // Self-registered clients are persisted with defaultScopes ∪
         // allowedScopes, ignoring any declared `scope`, so files:delete must
         // be listed here to be requestable. Every grant still needs consent.
-        // hooks.before downscopes unknown extras (openid, admin) instead.
+        // hooks.before downscopes unknown extras (profile, admin) instead.
         clientRegistrationAllowedScopes: [...OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES],
         resources: oauthResources(),
         // Per-client enforcement would reject standard MCP clients, which
@@ -892,8 +961,10 @@ function buildAuth(
         // A `ws:<slug>` referenceId the user still belongs to overrides the
         // oldest-membership default. Zero memberships still issue a token
         // (`workspace: null`); the MCP worker answers 403.
-        customAccessTokenClaims: async ({ user, referenceId }) =>
-          applyWorkspaceChoice(await resolveWorkspaceClaims(db, user?.id), referenceId),
+        customAccessTokenClaims: async ({ user, referenceId, scopes }) =>
+          scopes.some((scope) => (OAUTH_SCOPES as readonly string[]).includes(scope))
+            ? applyWorkspaceChoice(await resolveWorkspaceClaims(db, user?.id), referenceId)
+            : {},
       }),
       // Client ID Metadata Documents: an HTTPS-URL `client_id` pointing at a
       // metadata document. DCR stays enabled alongside. Resolved clients are
