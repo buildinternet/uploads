@@ -23,6 +23,7 @@
  * counts on the model calls.
  */
 import type { SearchResponse, SearchResult } from "./commands";
+import { RESIZABLE_HOSTS } from "./share";
 import { inSpan, type SpanAttributes } from "./tracing";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -64,9 +65,6 @@ const SCREENS = [
   "other",
 ];
 const SURFACES = ["mobile", "desktop", "tablet", "unknown"];
-
-/** Hosts on our own zone, where Cloudflare resizes images on the way out. */
-const RESIZABLE_HOSTS = new Set(["embed.uploads.sh", "storage.uploads.sh", "store.uploads.sh"]);
 
 const SYSTEM_PROMPT = `You are uploads.sh, a Slack app that finds files people have uploaded to uploads.sh (mostly screenshots of apps and websites). Someone mentioned you in Slack with a question.
 

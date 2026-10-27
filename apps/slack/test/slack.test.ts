@@ -3,7 +3,8 @@ import { database, SqliteD1 } from "../../api/test/helpers/sqlite-d1";
 import { createApp } from "../src/index";
 import type { SlackEnv } from "../src/config";
 import { saveInstall } from "../src/installs";
-import { formatBytes, parseShareUrl } from "../src/share";
+import { isSlackImage } from "../src/entities";
+import { formatBytes, parseShareUrl, slackImageUrl } from "../src/share";
 import { signSlackRequest, verifySlackSignature } from "../src/slack/signature";
 import { escapeMrkdwn, previewBlocks } from "../src/unfurl";
 
@@ -509,6 +510,26 @@ describe("parseShareUrl", () => {
     expect(parseShareUrl("https://uploads.sh/f/acme/../secret", WEB)).toBeNull();
     expect(parseShareUrl("https://uploads.sh/g/not-a-gallery", WEB)).toBeNull();
     expect(parseShareUrl("not a url", WEB)).toBeNull();
+  });
+});
+
+describe("slackImageUrl", () => {
+  it("sends an AVIF on our hosts as a PNG copy Slack will show", () => {
+    const url = slackImageUrl("https://storage.uploads.sh/default/shot.avif");
+    expect(url).toBe(
+      "https://storage.uploads.sh/cdn-cgi/image/width=1600,fit=scale-down,format=png/default/shot.avif",
+    );
+    expect(isSlackImage(url)).toBe(true);
+  });
+
+  it("leaves other types and other hosts alone", () => {
+    expect(slackImageUrl("https://storage.uploads.sh/default/shot.png")).toBe(
+      "https://storage.uploads.sh/default/shot.png",
+    );
+    expect(slackImageUrl("https://cdn.example.com/shot.avif")).toBe(
+      "https://cdn.example.com/shot.avif",
+    );
+    expect(isSlackImage("https://cdn.example.com/shot.avif")).toBe(false);
   });
 });
 

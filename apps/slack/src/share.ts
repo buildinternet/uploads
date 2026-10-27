@@ -313,6 +313,26 @@ function isImageType(contentType: string | null | undefined): boolean {
   return Boolean(contentType?.toLowerCase().startsWith("image/"));
 }
 
+/** Hosts on our own zone, where Cloudflare resizes images on the way out. */
+export const RESIZABLE_HOSTS = new Set([
+  "embed.uploads.sh",
+  "storage.uploads.sh",
+  "store.uploads.sh",
+]);
+
+/** Slack can't show AVIF, so an AVIF on our hosts goes out as a PNG copy. */
+export function slackImageUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  if (!RESIZABLE_HOSTS.has(url.hostname) || url.pathname.startsWith("/cdn-cgi/")) return value;
+  if (!url.pathname.toLowerCase().endsWith(".avif")) return value;
+  return `${url.origin}/cdn-cgi/image/width=1600,fit=scale-down,format=png${url.pathname}${url.search}`;
+}
+
 /**
  * The image to show for one object: itself when it's an image, its poster
  * when it's a video or a PDF (the API renders a PDF's first page).
@@ -322,7 +342,7 @@ function mediaImage(item: {
   contentType: string | null;
   posterUrl?: string | null;
 }): string | undefined {
-  if (isImageType(item.contentType) && item.url) return item.url;
+  if (isImageType(item.contentType) && item.url) return slackImageUrl(item.url);
   if (isVideoType(item.contentType) && item.posterUrl) return item.posterUrl;
   if (mediaKind(item.contentType) === "PDF" && item.posterUrl) return item.posterUrl;
   return undefined;

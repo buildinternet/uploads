@@ -15,11 +15,12 @@ export const ZIP_EMPTY = new Uint8Array([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
 /** gzip member header. */
 export const GZIP = new Uint8Array([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0]);
 
-/** ISO base media `ftyp` box (offset 4) with the given four-char major brand. */
-export function ftyp(brand: string): Uint8Array {
-  const bytes = new Uint8Array(12);
-  bytes.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]); // size + "ftyp"
-  for (let i = 0; i < 4; i++) bytes[8 + i] = brand.charCodeAt(i);
+/** ISO base media `ftyp` box (offset 4) with the given major brand, then any compatible brands. */
+export function ftyp(brand: string, ...compatible: string[]): Uint8Array {
+  const brands = [brand, "\0\0\0\0", ...compatible].join("");
+  const bytes = new Uint8Array(8 + brands.length);
+  bytes.set([0, 0, 0, bytes.length, 0x66, 0x74, 0x79, 0x70]); // size + "ftyp"
+  for (let i = 0; i < brands.length; i++) bytes[8 + i] = brands.charCodeAt(i);
   return bytes;
 }
 
