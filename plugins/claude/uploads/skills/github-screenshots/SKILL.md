@@ -232,13 +232,16 @@ uploads screenshot https://app.example/settings --pr 123 --state before
 uploads screenshot https://app.example/settings --pr 123 --state after
 uploads put ./after.png --pr 123 --meta path=/settings --state after
 uploads put ./chat.png --pr 123 --app ios --screen "Chat" --state after   # app screen, no route
+uploads put ./empty.png --pr 123 --meta path=/projects --caption "Empty state after deleting the last project"
 ```
 
 (`--state` also takes `empty`, `error`, and `loading`.) When an image lands with
 no `path` meta, `attach`/`put --pr`/`put --issue` print `tip: add --meta
 path=/route so this shot is findable by page` on stderr (and a JSON `hint`
 field) — don't ignore it. For a mobile or desktop app screen with no route,
-pass `--screen <name>` instead; the PR comment shows it under the image. Viewport is derived for you on `screenshot`. See the
+pass `--screen <name>` instead; the PR comment shows it under the image. When
+a shot needs a word of explanation, add `--caption "<text>"` (up to 140
+characters); the comment shows it as plain text under the image. Viewport is derived for you on `screenshot`. See the
 **uploads-cli** skill for the full canonical vocabulary.
 
 **The PR comment assembles itself — you don't drive that step.** Once the PR

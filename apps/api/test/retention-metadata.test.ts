@@ -10,6 +10,7 @@ const MIGRATIONS = [
   "migrations/20260710140000_workspace_usage.sql",
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
 ];
 
 // Prefixed shared-bucket record — the common case (see retention-sweep.test.ts).

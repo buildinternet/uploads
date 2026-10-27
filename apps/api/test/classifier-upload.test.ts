@@ -1,8 +1,11 @@
 import { encode } from "jpeg-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { recordContentHash } from "../src/content-hash";
 import { deleteObject, putObject } from "../src/files-core";
+import { contentSha256Hex } from "../src/provenance";
 import { FakeR2Bucket } from "./fake-r2";
 import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
+import { imagePhash } from "../src/phash";
 import {
   CLASSIFIER_JEV_MODEL,
   CLASSIFIER_LUNA_MODEL,
@@ -185,6 +188,20 @@ async function putFlagged(
   });
   await Promise.all(pending);
   return result;
+}
+
+/** VP8X WebP, 640×480, padded past the classifier's byte floor. `mark` changes the bytes. */
+function webpShot(mark: number): Uint8Array {
+  const bytes = atLeast(new Uint8Array(30));
+  bytes.set([0x52, 0x49, 0x46, 0x46]);
+  bytes.set([0x57, 0x45, 0x42, 0x50], 8);
+  bytes.set([0x56, 0x50, 0x38, 0x58], 12);
+  bytes[24] = 0x7f;
+  bytes[25] = 0x02;
+  bytes[27] = 0xdf;
+  bytes[28] = 0x01;
+  bytes[bytes.length - 1] = mark;
+  return bytes;
 }
 
 /** 400×280 JPEG inside Jev's window. `comment` changes the bytes, not the pixels. */
@@ -1251,6 +1268,90 @@ describe("safety flags", () => {
     const fresh = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [third.key])).get(third.key);
     expect(fresh?.["ai.secret"]).toBe("api_key");
     expect(fresh?.["ai.phash"]).not.toBe(donor?.["ai.phash"]);
+  });
+
+  it("stores a WebP fingerprint from the resized JPEG and reuses labels on that hash", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    const same = jpegFrame(4);
+    const resaved = jpegFrame(4, "re-saved");
+    const different = jpegFrame(90);
+    const copies = [same, resaved, different];
+    let n = 0;
+    const transform = recordingTransform(() => {
+      const copy = copies[n];
+      n += 1;
+      if (!copy) throw new Error("unexpected resize");
+      return copy;
+    });
+    const opts = { transform };
+    const shot = webpShot(1);
+
+    const first = await classifyAndStore(
+      harness.env,
+      harness.ws,
+      WORKSPACE,
+      "shots/before.webp",
+      shot,
+      "image/webp",
+      opts,
+    );
+    await recordContentHash(
+      harness.env.DB,
+      WORKSPACE,
+      "shots/before.webp",
+      await contentSha256Hex(shot),
+    );
+    const identical = await classifyAndStore(
+      harness.env,
+      harness.ws,
+      WORKSPACE,
+      "shots/before-again.webp",
+      shot,
+      "image/webp",
+      opts,
+    );
+    expect(harness.calls).toHaveLength(1);
+    expect(n).toBe(1);
+    expect(identical?.["ai.phash"]).toBe(first?.["ai.phash"]);
+    expect(identical?.["ai.secret"]).toBe("api_key");
+
+    const second = await classifyAndStore(
+      harness.env,
+      harness.ws,
+      WORKSPACE,
+      "shots/after.webp",
+      webpShot(2),
+      "image/webp",
+      opts,
+    );
+
+    expect(harness.calls).toHaveLength(1);
+    expect(first?.["ai.phash"]).toBe(imagePhash(same, "image/jpeg"));
+    expect(second?.["ai.phash"]).toBe(first?.["ai.phash"]);
+    expect(second?.["ai.kind"]).toBe("screenshot");
+    expect(second?.["ai.surface"]).toBe("desktop");
+    expect(second?.["ai.screen"]).toBe("settings");
+    expect(second?.["ai.secret"]).toBeUndefined();
+    expect(second?.["ai.rating"]).toBeUndefined();
+    const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, ["shots/after.webp"])).get(
+      "shots/after.webp",
+    );
+    expect(stored?.["ai.phash"]).toBe(first?.["ai.phash"]);
+    expect(stored?.["ai.secret"]).toBeUndefined();
+
+    const third = await classifyAndStore(
+      harness.env,
+      harness.ws,
+      WORKSPACE,
+      "shots/other.webp",
+      webpShot(3),
+      "image/webp",
+      opts,
+    );
+    expect(harness.calls).toHaveLength(2);
+    expect(third?.["ai.phash"]).toBe(imagePhash(different, "image/jpeg"));
+    expect(third?.["ai.phash"]).not.toBe(first?.["ai.phash"]);
+    expect(third?.["ai.secret"]).toBe("api_key");
   });
 
   it("clears old labels when new bytes fail to classify, with or without metadata headers", async () => {

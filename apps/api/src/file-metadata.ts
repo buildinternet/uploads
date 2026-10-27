@@ -62,7 +62,7 @@ export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
 );
 
-/** 63-bit DCT hash for a PNG or JPEG. Server-owned, like the other `ai.*` rows. */
+/** 63-bit DCT hash of the picture. Server-owned, like the other `ai.*` rows. */
 export const PHASH_META_KEY = "ai.phash";
 
 /**
@@ -1102,6 +1102,23 @@ export async function getMetadataForKeys(
   }
 
   return out;
+}
+
+/** Whether any object in the workspace carries `key=value`. One seek on `file_metadata_lookup_idx`. */
+export async function hasMetadataValue(
+  db: D1Queryable,
+  workspace: string,
+  key: string,
+  value: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS hit FROM file_metadata
+       WHERE workspace = ? AND meta_key = ? AND meta_value = ? LIMIT 1`,
+    )
+    .bind(workspace, key, canonicalMetaValue(key, value))
+    .first<{ hit: number }>();
+  return row !== null;
 }
 
 /**

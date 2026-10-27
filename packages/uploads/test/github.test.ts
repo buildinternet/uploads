@@ -496,4 +496,39 @@ describe("attachmentsCommentBody", () => {
     expect(body).toMatch(/one\.webp[\s\S]*<code>Chat<\/code>[\s\S]*two\.webp/);
     expect(body.match(/<td align="center">/g)?.length).toBe(2);
   });
+
+  it("shows a caption as plain text before the other labels, escaped", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/empty.webp",
+        url: "https://x.test/empty.webp",
+        embedUrl: "https://embed.test/empty.webp",
+        meta: { caption: "Empty *state* for @octocat <b>", path: "/projects", state: "after" },
+      },
+    ]);
+    expect(body).toContain(
+      "Empty &#42;state&#42; for @&#8288;octocat &lt;b&gt; · <code>/projects</code> · <code>after</code>",
+    );
+  });
+
+  it("caps a long caption and keeps it in a before/after cell", () => {
+    const long = "word ".repeat(40);
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/one.webp",
+        url: "https://x.test/one.webp",
+        embedUrl: "https://embed.test/one.webp",
+        meta: { screen: "Chat", state: "before", caption: long },
+      },
+      {
+        key: "gh/o/r/pull/1/two.webp",
+        url: "https://x.test/two.webp",
+        embedUrl: "https://embed.test/two.webp",
+        meta: { screen: "Chat", state: "after", caption: "Unread | badge" },
+      },
+    ]);
+    const cut = body.match(/<br>(word[^<]*)…/)?.[1] ?? "";
+    expect(cut.length).toBeLessThan(140);
+    expect(body).toContain("Unread &#124; badge · <code>Chat</code></td>");
+  });
 });

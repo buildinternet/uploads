@@ -41,6 +41,7 @@ export const INHERITABLE_META_KEYS = [
   "url",
   "path",
   "screen",
+  "caption",
   "env",
   "theme",
   "viewport",

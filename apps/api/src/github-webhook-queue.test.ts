@@ -489,11 +489,13 @@ describe("handleGithubWebhookBatch", () => {
   });
 
   it("dispatches adopt events to adoptLinkedFilesForWebhook and acks", async () => {
-    vi.mocked(adoptLinkedFilesForWebhook).mockResolvedValueOnce(undefined);
+    vi.mocked(adoptLinkedFilesForWebhook).mockResolvedValueOnce(null);
     const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
     const m = msg({ keys: [], adopt: ref });
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
-    expect(adoptLinkedFilesForWebhook).toHaveBeenCalledWith(expect.anything(), ref);
+    expect(adoptLinkedFilesForWebhook).toHaveBeenCalledWith(expect.anything(), ref, {
+      deferSync: true,
+    });
     expect(m.acked).toBe(true);
     expect(m.retried).toBe(false);
   });

@@ -776,6 +776,8 @@ export async function putObject(
           source: opts?.attachment?.source ?? "put",
           laneId: ws.storageLaneId ?? null,
           repo: opts?.attachment?.repo,
+          size: newSize,
+          contentType: inspection.contentType,
         })
       : Promise.resolve(),
   ]);
@@ -1058,6 +1060,25 @@ interface RawListedItem {
   metadata?: Record<string, string>;
 }
 
+/**
+ * A key's public URLs in one lane, plus its `/f/` page when the object is
+ * public and the workspace has a slug. Shared by the listing and by the
+ * managed comment's index read, so both render the same links.
+ */
+export function objectLinks(
+  env: Env,
+  ws: WorkspaceRecord,
+  cfg: Awaited<ReturnType<typeof storageConfig>>,
+  key: string,
+): { url: string | null; embedUrl: string | null; pageUrl?: string } {
+  const urls = objectPublicUrls(env, cfg, key);
+  return {
+    url: urls.url,
+    embedUrl: urls.embedUrl,
+    ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, key) } : {}),
+  };
+}
+
 /** HEAD/list projection, given which lane's config to derive URLs from. */
 function projectListedObject(
   env: Env,
@@ -1066,14 +1087,14 @@ function projectListedObject(
   item: RawListedItem,
 ): ListedObject {
   const visibility = objectVisibility(item.metadata ?? undefined);
-  const urls = objectPublicUrls(env, cfg, item.key);
+  const { url, embedUrl, pageUrl } = objectLinks(env, ws, cfg, item.key);
   return {
     key: item.key,
-    url: urls.url,
-    embedUrl: urls.embedUrl,
+    url,
+    embedUrl,
     ...storedMetaJson(item),
     ...(visibility ? { visibility } : {}),
-    ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, item.key) } : {}),
+    ...(pageUrl ? { pageUrl } : {}),
   };
 }
 

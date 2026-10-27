@@ -41,6 +41,8 @@ export interface AttachmentIndexDbRow {
   created_at: string;
   updated_at: string;
   detached_at: string | null;
+  size: number | null;
+  content_type: string | null;
 }
 
 function key(workspace: string, objectKey: string): string {
@@ -69,6 +71,8 @@ export class AttachmentIndexTable {
         source,
         createdAt,
         updatedAt,
+        size,
+        contentType,
       ] = args as [
         string,
         string,
@@ -80,6 +84,8 @@ export class AttachmentIndexTable {
         string,
         string,
         string,
+        number | null,
+        string | null,
       ];
       const k = key(workspace, objectKey);
       const existing = this.rows.get(k);
@@ -99,6 +105,8 @@ export class AttachmentIndexTable {
         // detached_at untouched (does not resurrect a deliberately detached
         // row); any other source clears it.
         detached_at: source === "put" ? (existing?.detached_at ?? null) : null,
+        size: size ?? existing?.size ?? null,
+        content_type: contentType ?? existing?.content_type ?? null,
       });
       return { success: true, meta: { changes: 1 }, results: [] };
     }

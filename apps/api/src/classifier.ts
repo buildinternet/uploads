@@ -25,7 +25,10 @@
  *
  * Before calling, a finished classification in the same workspace can stand
  * in: identical bytes reuse all rows (including safety flags and holds); an
- * exactly equal pHash reuses only the display labels.
+ * exactly equal pHash reuses only the display labels. PNG and JPEG are hashed
+ * from the upload. WebP, GIF, and AVIF are hashed from the PNG or JPEG the
+ * resize step already produced. A Luna WebP is sent as-is, so it still
+ * has no hash.
  *
  * Optional Luna path (`v4`, `CLASSIFIER_PROVIDER=luna` or Flagship
  * `llm-file-classifier-luna`) uses the same endpoint without resizing and
@@ -762,6 +765,11 @@ export interface PreparedClassifierImage {
   /** True when `image` was produced by the Images binding rather than the upload. */
   resized: boolean;
   /**
+   * PNG or JPEG from the resize. Fingerprint source when the upload itself
+   * cannot be decoded.
+   */
+  hashable?: { bytes: Uint8Array; contentType: "image/png" | "image/jpeg" };
+  /**
    * Set when `image` is absent. `resize_timeout` is applied by the caller
    * when the resize budget fires before this returns.
    */
@@ -914,6 +922,7 @@ export async function prepareClassifierImage(
       image: decision.image,
       resized: true,
       note: `image prepared for classification: ${encoded.width}x${encoded.height} ${label}`,
+      hashable: { bytes: encoded.bytes, contentType: encoded.contentType },
     };
   } catch (err) {
     if (signal?.aborted) throw err;
@@ -1387,7 +1396,9 @@ function exactReuseMeta(
 ): Record<string, string> | undefined {
   if (!hasReuseBody(donor)) return undefined;
   const meta = pickMeta(donor, EXACT_REUSE_KEYS);
-  if (phash) meta[PHASH_META_KEY] = phash;
+  // Same bytes, so the donor's hash is this picture when we cannot decode it.
+  const hash = phash ?? donor[PHASH_META_KEY];
+  if (hash) meta[PHASH_META_KEY] = hash;
   return meta;
 }
 
@@ -1401,6 +1412,48 @@ function perceptualReuseMeta(
   if (Object.keys(meta).length === 0) return undefined;
   meta["ai.classifier"] = version;
   meta[PHASH_META_KEY] = phash;
+  return meta;
+}
+
+/** Display-label reuse for an equal pHash. Does not copy safety flags. */
+async function matchPerceptualReuse(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  phash: string,
+): Promise<Record<string, string> | undefined> {
+  const hits = await findObjectsByMetadata(
+    dbFor(env),
+    workspaceName,
+    { [PHASH_META_KEY]: phash },
+    { limit: 8 },
+  );
+  for (const hit of hits) {
+    if (hit.key === key) continue;
+    const meta = perceptualReuseMeta(hit.metadata, phash);
+    if (!meta) continue;
+    console.log({ event: "classifier_reused", match: "phash", workspace: workspaceName });
+    return storeDecision(env, workspaceName, key, meta);
+  }
+  return undefined;
+}
+
+async function finishReused(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  meta: Record<string, string>,
+  hold: boolean,
+  enforceHold: boolean,
+): Promise<Record<string, string>> {
+  const { applyUploadHold, resyncCommentAfterClassification } =
+    await import("./upload-hold-service");
+  const placed = hold
+    ? await applyUploadHold(env, ws, workspaceName, key, meta, { enforce: enforceHold })
+    : false;
+  // A hold re-syncs the comment itself.
+  if (!placed) await resyncCommentAfterClassification(env, ws, workspaceName, key);
   return meta;
 }
 
@@ -1437,19 +1490,8 @@ async function tryReuseClassification(
     }
 
     if (phash) {
-      const hits = await findObjectsByMetadata(
-        db,
-        workspaceName,
-        { [PHASH_META_KEY]: phash },
-        { limit: 8 },
-      );
-      for (const hit of hits) {
-        if (hit.key === key) continue;
-        const meta = perceptualReuseMeta(hit.metadata, phash);
-        if (!meta) continue;
-        console.log({ event: "classifier_reused", match: "phash", workspace: workspaceName });
-        return { meta: await storeDecision(env, workspaceName, key, meta), hold: false };
-      }
+      const meta = await matchPerceptualReuse(env, workspaceName, key, phash);
+      if (meta) return { meta, hold: false };
     }
     return { hold: false, phash };
   } catch (err) {
@@ -1483,16 +1525,15 @@ export async function classifyAndStore(
 
     const reused = await tryReuseClassification(env, workspaceName, key, bytes, contentType);
     if (reused.meta) {
-      const { applyUploadHold, resyncCommentAfterClassification } =
-        await import("./upload-hold-service");
-      const placed = reused.hold
-        ? await applyUploadHold(env, ws, workspaceName, key, reused.meta, {
-            enforce: deps?.enforceHold === true,
-          })
-        : false;
-      // A hold re-syncs the comment itself.
-      if (!placed) await resyncCommentAfterClassification(env, ws, workspaceName, key);
-      return reused.meta;
+      return finishReused(
+        env,
+        ws,
+        workspaceName,
+        key,
+        reused.meta,
+        reused.hold,
+        deps?.enforceHold === true,
+      );
     }
 
     const transform =
@@ -1527,6 +1568,29 @@ export async function classifyAndStore(
       );
     }
 
+    let phash = reused.phash;
+    if (!phash && prepared.hashable) {
+      phash = imagePhash(prepared.hashable.bytes, prepared.hashable.contentType);
+      if (phash) {
+        try {
+          const meta = await matchPerceptualReuse(env, workspaceName, key, phash);
+          if (meta) {
+            return finishReused(
+              env,
+              ws,
+              workspaceName,
+              key,
+              meta,
+              false,
+              deps?.enforceHold === true,
+            );
+          }
+        } catch (err) {
+          console.error({ event: "classifier_reuse_failed", workspace: workspaceName, err });
+        }
+      }
+    }
+
     const run = deps?.run ?? openRouterDecisionsRun(env);
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
@@ -1552,7 +1616,7 @@ export async function classifyAndStore(
     if (!meta) {
       return await storeFailure(env, workspaceName, key, CLASSIFIER_ERROR_NO_ANSWER, provider);
     }
-    if (reused.phash) meta[PHASH_META_KEY] = reused.phash;
+    if (phash) meta[PHASH_META_KEY] = phash;
     const stored = await storeDecision(env, workspaceName, key, meta);
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.

@@ -143,6 +143,24 @@ export async function ledgerRowsForTarget(
   return (results ?? []).map(fromRow);
 }
 
+/** Whether `workspace` has a live (non-detached) import for `kind`/`num` in `repo`. */
+export async function hasLiveImport(
+  db: D1Queryable,
+  workspace: string,
+  repo: string,
+  kind: "pull" | "issues",
+  num: number,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS hit FROM github_ingested_assets
+       WHERE repo = ? AND kind = ? AND num = ? AND workspace = ? AND detached_at IS NULL LIMIT 1`,
+    )
+    .bind(normalizeRepo(repo), kind, num, workspace)
+    .first<{ hit: number }>();
+  return row !== null;
+}
+
 /**
  * Flips `detachedAt` for a ledger row — set to a timestamp when the
  * reconciler no longer finds the asset referenced, or back to null when it

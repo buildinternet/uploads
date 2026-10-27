@@ -47,6 +47,7 @@ import { loadWorkspaceRecord } from "./workspace";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { matchingSkipLabel } from "./github-check-requirements";
 import { dbFor } from "./db-session";
+import { recordAdoptionSafe } from "./adoption";
 
 const enc = new TextEncoder();
 
@@ -146,21 +147,50 @@ interface PullRequestPayload {
 }
 
 /**
+ * A comment + check re-sync one step of a delivery asked for. Steps return
+ * these instead of syncing, so `processWebhookEvent` gathers once per target
+ * after every step has run (each gather lists R2 per attachment prefix).
+ */
+interface PendingSync {
+  link: RepoLink;
+  target: GhTarget;
+  headBranch?: string;
+  headSha?: string;
+}
+
+/** Collapse syncs for the same target, keeping the first head branch/sha. */
+export function mergePendingSyncs(syncs: readonly PendingSync[]): PendingSync[] {
+  const byTarget = new Map<string, PendingSync>();
+  for (const s of syncs) {
+    const key = `${s.target.repo.toLowerCase()}#${s.target.kind}#${s.target.num}`;
+    const prev = byTarget.get(key);
+    if (!prev) {
+      byTarget.set(key, { ...s });
+      continue;
+    }
+    prev.headBranch ??= s.headBranch;
+    prev.headSha ??= s.headSha;
+  }
+  return [...byTarget.values()];
+}
+
+/**
  * Gather the bound workspace's attachments for `target` and upsert the
  * managed comment. A missing or tombstoned workspace cleans up the stale link
- * and no-ops; never creates a link. Caller catches.
+ * and no-ops; never creates a link. Caller catches. Resolves to the upsert's
+ * action, or null when nothing was attempted.
  */
 async function gatherAndUpsert(
   env: Env,
   link: RepoLink,
   target: GhTarget,
   opts: { headBranch?: string; headSha?: string } = {},
-): Promise<void> {
+): Promise<"created" | "updated" | "skipped" | null> {
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) {
     // Stale link: delete it so first-claim-wins doesn't block a future claim.
     await deleteRepoLink(dbFor(env), target.repo);
-    return;
+    return null;
   }
 
   const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, {
@@ -169,9 +199,9 @@ async function gatherAndUpsert(
   });
 
   const cfg = githubAppConfig(env);
-  if (!cfg) return;
+  if (!cfg) return null;
   const installId = link.installationId ?? (await installationForRepo(env, cfg, target.repo));
-  if (installId === null) return;
+  if (installId === null) return null;
 
   // Never create a comment just to say "empty" (this fires on every PR event
   // for a bound repo), except the no-uploads how-to a repo opts into.
@@ -200,6 +230,7 @@ async function gatherAndUpsert(
     commentUrl: "commentUrl" in result ? result.commentUrl : null,
     workspaceName: link.workspaceName,
   });
+  return "degrade" in result ? null : result.action;
 }
 
 /**
@@ -227,25 +258,24 @@ async function resolveLinkedWorkspaceOrCleanup(
 /**
  * Webhook auto-promotion for one bound repo/PR. No-ops without a valid link.
  * Downstream failures throw; the caller decides between queue retry and
- * log-and-swallow.
+ * log-and-swallow. The comment sync runs later, after the promoted copies
+ * have landed.
  */
-async function autoPromoteAndComment(
+async function autoPromote(
   env: Env,
   repo: string,
   num: number,
   branch: string,
   headSha?: string,
-): Promise<void> {
+): Promise<PendingSync | null> {
   const resolved = await resolveLinkedWorkspaceOrCleanup(env, repo);
-  if (!resolved) return;
+  if (!resolved) return null;
   const { link, ws } = resolved;
 
   await promoteBranchAttachments(env, ws, link.workspaceName, { repo, num, branch });
 
-  // Gather after promoting, so the promoted copies are included.
-  const target: GhTarget = { repo, kind: "pull", num };
   // A metadata-less private attachment resolves under the head branch.
-  await gatherAndUpsert(env, link, target, { headBranch: branch, headSha });
+  return { link, target: { repo, kind: "pull", num }, headBranch: branch, headSha };
 }
 
 /**
@@ -319,7 +349,7 @@ function isReconcilableCommentEvent(p: IssueCommentPayload): boolean {
 
 /**
  * Reconcile one gated `issue_comment`: drop the stale cached comment id and
- * re-run gather+upsert. No-ops without a binding; failures throw. Never
+ * ask for a re-sync. No-ops without a binding; failures throw. Never
  * creates a binding.
  */
 async function reconcileBotComment(
@@ -327,15 +357,15 @@ async function reconcileBotComment(
   repo: string,
   num: number,
   kind: GhTarget["kind"],
-): Promise<void> {
+): Promise<PendingSync | null> {
   const link = await findRepoLinkStrict(dbFor(env), repo);
-  if (!link) return;
+  if (!link) return null;
 
   const target: GhTarget = { repo, kind, num };
   // Force a fresh marker search; the cached id may be the deleted comment.
   await env.GITHUB_CACHE.delete(commentCacheKey(link.workspaceName, target));
 
-  await gatherAndUpsert(env, link, target);
+  return { link, target };
 }
 
 /**
@@ -343,15 +373,20 @@ async function reconcileBotComment(
  * check passes right away. Other labels, and repos that don't require
  * uploads, skip the work. Throws like reconcile.
  */
-async function recheckForLabels(env: Env, repo: string, num: number, label: string): Promise<void> {
+async function recheckForLabels(
+  env: Env,
+  repo: string,
+  num: number,
+  label: string,
+): Promise<PendingSync | null> {
   const link = await findRepoLinkStrict(dbFor(env), repo);
-  if (!link) return;
+  if (!link) return null;
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
-  if (!ws) return;
+  if (!ws) return null;
   const { options } = await resolveRepoCommentOptions(env, ws, repo);
-  if (options.checkRequire.length === 0) return;
-  if (!matchingSkipLabel([label], options.checkSkipLabels)) return;
-  await gatherAndUpsert(env, link, { repo, kind: "pull", num });
+  if (options.checkRequire.length === 0) return null;
+  if (!matchingSkipLabel([label], options.checkSkipLabels)) return null;
+  return { link, target: { repo, kind: "pull", num } };
 }
 
 /**
@@ -359,10 +394,14 @@ async function recheckForLabels(env: Env, repo: string, num: number, label: stri
  * the comment and check, so screenshots dragged in on GitHub count right
  * away, imported or not. Throws like reconcile.
  */
-async function recheckForGithubAttachments(env: Env, repo: string, num: number): Promise<void> {
+async function recheckForGithubAttachments(
+  env: Env,
+  repo: string,
+  num: number,
+): Promise<PendingSync | null> {
   const link = await findRepoLinkStrict(dbFor(env), repo);
-  if (!link) return;
-  await gatherAndUpsert(env, link, { repo, kind: "pull", num });
+  if (!link) return null;
+  return { link, target: { repo, kind: "pull", num } };
 }
 
 /**
@@ -584,7 +623,10 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
 /**
  * Run one `WebhookEvent`. KV deletes are allSettled (a failed delete
  * self-heals on TTL). Promote/reconcile failures throw: the queue retries
- * toward the DLQ; the inline path catches and logs.
+ * toward the DLQ; the inline path catches and logs. Every step that wants
+ * the comment re-synced queues a `PendingSync`; one gather+upsert per target
+ * runs after all of them, so the comment and check see promote, ingest and
+ * adoption together.
  */
 export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<void> {
   if (ev.privacy) {
@@ -617,34 +659,49 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
     await applyPrActivityWebhook(dbFor(env), ev.prActivity);
   }
 
+  const syncs: PendingSync[] = [];
+  const want = (s: PendingSync | null) => {
+    if (s) syncs.push(s);
+  };
+
   if (ev.promote) {
-    await autoPromoteAndComment(
-      env,
-      ev.promote.repo,
-      ev.promote.num,
-      ev.promote.branch,
-      ev.promote.sha,
+    want(
+      await autoPromote(env, ev.promote.repo, ev.promote.num, ev.promote.branch, ev.promote.sha),
     );
   }
   if (ev.reconcile) {
-    await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
+    want(await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind));
   }
   if (ev.labels) {
-    await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label);
+    want(await recheckForLabels(env, ev.labels.repo, ev.labels.num, ev.labels.label));
   }
-  // After ingest, so the comment and check include what it just imported.
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);
   }
-  // The PR's own promote above already re-synced the check, but ran before
-  // this delivery's ingest.
   const recheck = ev.ingest?.kind === "pull" ? ev.ingest : ev.recheck;
-  if (recheck && (!ev.promote || ev.ingest)) {
-    await recheckForGithubAttachments(env, recheck.repo, recheck.num);
+  if (recheck) {
+    want(await recheckForGithubAttachments(env, recheck.repo, recheck.num));
   }
+  let adoptKey: string | null = null;
   if (ev.adopt) {
-    await adoptLinkedFilesForWebhook(env, ev.adopt);
+    const link = await adoptLinkedFilesForWebhook(env, ev.adopt, { deferSync: true });
+    if (link) {
+      const target: GhTarget = { repo: ev.adopt.repo, kind: ev.adopt.kind, num: ev.adopt.num };
+      want({ link, target });
+      adoptKey = `${target.repo.toLowerCase()}#${target.kind}#${target.num}`;
+    }
   }
+
+  for (const s of mergePendingSyncs(syncs)) {
+    const action = await gatherAndUpsert(env, s.link, s.target, s);
+    // The adoption path used to post through postManagedComment, which
+    // counts posted comments; keep that metric now that it syncs here.
+    const key = `${s.target.repo.toLowerCase()}#${s.target.kind}#${s.target.num}`;
+    if (key === adoptKey && (action === "created" || action === "updated")) {
+      await recordAdoptionSafe(env, { metric: "comment_posted", workspace: s.link.workspaceName });
+    }
+  }
+
   if (ev.merge) {
     await stampMergedScreenshots(env, ev.merge.repo, ev.merge.num);
   }

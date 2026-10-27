@@ -29,6 +29,16 @@ describe("putObject → attachment index", () => {
     });
   });
 
+  it("records the bytes written and the stored content type", async () => {
+    const { env, db, ws } = makePosterEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await putObject(env, ws, key, PNG, WORKSPACE);
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toMatchObject({
+      size: PNG.byteLength,
+      content_type: "image/png",
+    });
+  });
+
   it("indexes a private key, taking the repo from the prefix id's owner", async () => {
     const { env, db, ws } = makePosterEnv();
     const id = await getOrMintPrefixId(env.DB, "acme/web", "feat-x");

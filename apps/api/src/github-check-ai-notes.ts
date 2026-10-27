@@ -66,7 +66,7 @@ export function readyScreenNote(files: readonly AiNoteFile[]): AiNote {
 
 /**
  * Warns when a before and an after have the same perceptual hash, which
- * means the same picture. Only PNG and JPEG files carry one. Pure.
+ * means the same picture. Pure.
  */
 export function identicalBeforeAfterNote(files: readonly AiNoteFile[]): AiNote {
   const before = files.filter((f) => f.meta?.state === "before");
