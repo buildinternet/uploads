@@ -529,6 +529,7 @@ describe("attachmentsCommentBody", () => {
     ]);
     const cut = body.match(/<br>(word[^<]*)…/)?.[1] ?? "";
     expect(cut.length).toBeLessThan(140);
-    expect(body).toContain("Unread &#124; badge · <code>Chat</code></td>");
+    // The screen heads the group, so the cell keeps only the caption.
+    expect(body).toContain("Unread &#124; badge</td>");
   });
 });
