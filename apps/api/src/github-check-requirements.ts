@@ -6,7 +6,7 @@
  * replaces the checklist with a "skipped" line in both.
  */
 import type { CheckRequirement, ResolvedCommentOptions } from "@uploads/comment-config";
-import type { ChecklistEntry, GhTarget } from "./github-comment-render";
+import { inferContentType, type ChecklistEntry, type GhTarget } from "./github-comment-render";
 import { githubFetch, githubHeaders, repoInstallationToken } from "./github-app";
 import { getMetadataForKeys } from "./file-metadata";
 import { dbFor } from "./db-session";
@@ -49,16 +49,39 @@ export function surfaceOf(meta: Record<string, string> | undefined): "mobile" | 
   return null;
 }
 
-/** Each requirement, met or not, for `count` uploads whose metadata is `metas`. Pure. */
+/** An attachment the checklist may count. `name` is the key or filename. */
+export interface RequirementFile {
+  contentType?: string | null;
+  name?: string;
+  meta?: Record<string, string>;
+}
+
+/**
+ * True for `image/*` and `video/*`. A missing or generic stored type falls
+ * back to the filename, the same way the comment picks a type.
+ */
+export function countsAsVisual(contentType: string | null | undefined, name?: string): boolean {
+  const declared = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  const type =
+    declared && declared !== "application/octet-stream" ? declared : inferContentType(name ?? "");
+  return type.startsWith("image/") || type.startsWith("video/");
+}
+
+/**
+ * Each requirement, met or not. Only images and videos in `files` count.
+ * `extraCount` is other images and videos (a gallery that holds one, a held
+ * image or video, a file attached on GitHub). Pure.
+ */
 export function requirementChecklist(
   require: readonly CheckRequirement[],
-  count: number,
-  metas: readonly (Record<string, string> | undefined)[],
+  files: readonly RequirementFile[],
+  extraCount = 0,
 ): ChecklistEntry[] {
-  const states = new Set(metas.map((m) => m?.state));
-  const surfaces = new Set(metas.map(surfaceOf));
+  const visual = files.filter((file) => countsAsVisual(file.contentType, file.name));
+  const states = new Set(visual.map((file) => file.meta?.state));
+  const surfaces = new Set(visual.map((file) => surfaceOf(file.meta)));
   const met: Record<CheckRequirement, boolean> = {
-    uploads: count > 0,
+    uploads: visual.length + extraCount > 0,
     "before-after": states.has("before") && states.has("after"),
     desktop: surfaces.has("desktop"),
     mobile: surfaces.has("mobile"),
@@ -79,29 +102,38 @@ export interface Requirement {
 }
 
 /**
- * Evaluate the requirements for a PR's shown attachment `keys` plus
- * `extraCount` galleries and held files. The label read and the metadata
- * read are independent, so they overlap.
+ * Evaluate the requirements for a PR's shown attachments plus `extraCount`
+ * images and videos that are not in that list. Only `image/*` and `video/*`
+ * count. The label read and the metadata read are independent, so they overlap.
  */
 export async function evaluateRequirement(
   env: Env,
   workspaceName: string,
   target: GhTarget,
   options: Pick<ResolvedCommentOptions, "checkRequire" | "checkSkipLabels">,
-  keys: string[],
+  files: readonly { key: string; contentType?: string | null }[],
   extraCount: number,
 ): Promise<Requirement> {
   const [skipLabel, metaByKey] = await Promise.all([
     skipLabelOnPr(env, target, options.checkSkipLabels),
-    getMetadataForKeys(dbFor(env), workspaceName, keys, { metaKeys: REQUIREMENT_META_KEYS }),
+    getMetadataForKeys(
+      dbFor(env),
+      workspaceName,
+      files.map((file) => file.key),
+      { metaKeys: REQUIREMENT_META_KEYS },
+    ),
   ]);
   return {
     checklist: skipLabel
       ? []
       : requirementChecklist(
           options.checkRequire,
-          keys.length + extraCount,
-          keys.map((k) => metaByKey.get(k)),
+          files.map((file) => ({
+            contentType: file.contentType,
+            name: file.key,
+            meta: metaByKey.get(file.key),
+          })),
+          extraCount,
         ),
     skipLabel,
     skipHint: options.checkSkipLabels[0],

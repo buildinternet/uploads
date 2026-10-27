@@ -126,7 +126,7 @@ comment:
       <td>
         <code>uploads</code> (or <code>any</code>)
       </td>
-      <td>The PR has at least one upload. Every other item implies it.</td>
+      <td>The PR has at least one image or video. Every other item implies it.</td>
     </tr>
     <tr>
       <td>
@@ -157,14 +157,15 @@ A repo's `check.require` replaces the workspace's **Require screenshots on UI ch
 
 ## What counts <a class="anchor" href="#what-counts" aria-label="Link to this section">#</a>
 
-- **Files uploaded with uploads.sh**, from the CLI, the [MCP server](/docs/mcp), or an agent,
-  including ones [staged before the PR existed](/docs/github-app#staging).
+- **Images and videos uploaded with uploads.sh**, from the CLI, the [MCP server](/docs/mcp), or an agent,
+  including ones [staged before the PR existed](/docs/github-app#staging). A PDF, a log, or a JSON file
+  still shows on the pull request. Those files do not meet this check.
 - **Images and videos dragged into the PR on GitHub**, in the description or a comment. Links to
   images committed to the same repo (`blob/…/shot.png?raw=true`) count too. These pass `uploads`,
   so contributors without uploads.sh are never stuck. The other items need files uploaded with
   uploads.sh.
-- **Held files.** A file [held for review](/docs/github-app#held-files) counts as attached, so a
-  hold never blocks a merge.
+- **Held files.** An image or video [held for review](/docs/github-app#held-files) still counts toward
+  the requirement. A hold never blocks a merge.
 
 </section>
 

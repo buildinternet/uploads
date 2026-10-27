@@ -27,10 +27,16 @@ describe("surfaceOf", () => {
 describe("requirementChecklist", () => {
   it("evaluates each requirement in order", () => {
     expect(
-      requirementChecklist(["uploads", "before-after", "desktop", "mobile"], 2, [
-        { state: "before", "image.width": "1440", "image.height": "900" },
-        { state: "after" },
-      ]),
+      requirementChecklist(
+        ["uploads", "before-after", "desktop", "mobile"],
+        [
+          {
+            contentType: "image/png",
+            meta: { state: "before", "image.width": "1440", "image.height": "900" },
+          },
+          { contentType: "video/mp4", meta: { state: "after" } },
+        ],
+      ),
     ).toEqual([
       { label: "Uploads", met: true },
       { label: "Before and after", met: true },
@@ -39,9 +45,52 @@ describe("requirementChecklist", () => {
     ]);
   });
 
-  it("counts galleries and held files as uploads", () => {
-    expect(requirementChecklist(["uploads"], 1, [])).toEqual([{ label: "Uploads", met: true }]);
-    expect(requirementChecklist(["uploads"], 0, [])).toEqual([{ label: "Uploads", met: false }]);
+  it("counts galleries and held images or videos as uploads", () => {
+    expect(requirementChecklist(["uploads"], [], 1)).toEqual([{ label: "Uploads", met: true }]);
+    expect(requirementChecklist(["uploads"], [], 0)).toEqual([{ label: "Uploads", met: false }]);
+  });
+
+  it("ignores a PDF, log, or JSON file", () => {
+    expect(
+      requirementChecklist(
+        ["uploads", "before-after", "desktop", "mobile"],
+        [
+          {
+            contentType: "application/pdf",
+            meta: { state: "before", "image.width": "1440", "image.height": "900" },
+          },
+          {
+            contentType: "text/plain",
+            name: "run.log",
+            meta: { state: "after", "ai.surface": "mobile" },
+          },
+          { contentType: "application/json", meta: { state: "before", "ai.surface": "desktop" } },
+        ],
+      ),
+    ).toEqual([
+      { label: "Uploads", met: false },
+      { label: "Before and after", met: false },
+      { label: "Desktop", met: false },
+      { label: "Mobile", met: false },
+    ]);
+    expect(
+      requirementChecklist(
+        ["uploads", "before-after"],
+        [
+          { contentType: "application/pdf", meta: { state: "before" } },
+          { contentType: "image/png", meta: { state: "after" } },
+        ],
+      ),
+    ).toEqual([
+      { label: "Uploads", met: true },
+      { label: "Before and after", met: false },
+    ]);
+    expect(
+      requirementChecklist(
+        ["uploads"],
+        [{ contentType: "application/octet-stream", name: "shot.png" }],
+      ),
+    ).toEqual([{ label: "Uploads", met: true }]);
   });
 });
 
