@@ -959,6 +959,10 @@ interface Section {
   links: AttachmentItem[];
 }
 
+function emptySection(heading: string | null): Section {
+  return { heading, hide: { screen: false, path: false }, pairs: [], media: [], links: [] };
+}
+
 /** The screen (or, without one, the path) that groups an item, or `""`. */
 function groupKeyOf(item: AttachmentItem, options: CommentRenderOptions): string {
   if (!options.metaPath) return "";
@@ -1062,7 +1066,7 @@ export function attachmentsCommentBody(
   // falls to the file table, the bullet list or the overflow list.
   const consumedByPair = new Set<number>();
   const pairs: (PairRow & { at: number })[] = [];
-  const media: { entry: MediaEntry; at: number }[] = [];
+  let media: { entry: MediaEntry; at: number }[] = [];
   const bullets: { item: AttachmentItem; at: number }[] = [];
   const fileItems: AttachmentItem[] = [];
   const overflowImages: AttachmentItem[] = [];
@@ -1133,9 +1137,7 @@ export function attachmentsCommentBody(
       lone.add(entry);
     }
     if (lone.size > 0) {
-      const kept = media.filter((m) => !lone.has(m.entry));
-      media.length = 0;
-      media.push(...kept);
+      media = media.filter((m) => !lone.has(m.entry));
       pairs.sort((a, b) => a.at - b.at);
     }
   }
@@ -1152,58 +1154,45 @@ export function attachmentsCommentBody(
     ...media.map((m) => m.entry),
   ].map((e) => groupKeyOf((e as MediaEntry).item, options));
   const sections: Section[] = [];
-  const blank = (heading: string | null, hide = { screen: false, path: false }): Section => ({
-    heading,
-    hide,
-    pairs: [],
-    media: [],
-    links: [],
-  });
   if (shouldGroup(inlineKeys)) {
-    const byKey = new Map<string, { at: number; members: AttachmentItem[]; section: Section }>();
-    const loose = blank("Other");
-    const sectionFor = (key: string, at: number, item: AttachmentItem): Section => {
+    // Groups keep the order their first shot sorts in.
+    const groups = new Map<string, Section>();
+    const loose = emptySection("Other");
+    const sectionFor = (key: string): Section => {
       if (!key) return loose;
-      let g = byKey.get(key);
-      if (!g) {
-        g = { at, members: [], section: blank(null) };
-        byKey.set(key, g);
-      }
-      g.at = Math.min(g.at, at);
-      g.members.push(item);
-      return g.section;
+      let section = groups.get(key);
+      if (!section) groups.set(key, (section = emptySection(null)));
+      return section;
     };
     for (const k of keyed.sort((a, b) => a.at - b.at)) {
-      const item = k.pair ? pairItem(k.pair).item : (k.entry as MediaEntry).item;
-      const section = sectionFor(k.key, k.at, item);
-      if (k.pair) {
-        section.pairs.push(k.pair);
-        // Both sides belong to the group, for the shared-path check below.
-        const other = k.pair.before && k.pair.after ? k.pair.before.item : null;
-        if (other && k.key) byKey.get(k.key)?.members.push(other);
-      } else section.media.push(k.entry as MediaEntry);
+      if (k.pair) sectionFor(k.key).pairs.push(k.pair);
+      else sectionFor(k.key).media.push(k.entry as MediaEntry);
     }
-    for (const b of bullets)
-      sectionFor(groupKeyOf(b.item, options), b.at, b.item).links.push(b.item);
-    for (const [key, g] of [...byKey.entries()].sort((a, b) => a[1].at - b[1].at)) {
+    for (const b of bullets) sectionFor(groupKeyOf(b.item, options)).links.push(b.item);
+    for (const [key, section] of groups) {
       const value = key.slice(key.indexOf(":") + 1);
       if (key.startsWith("screen:")) {
-        const paths = new Set(g.members.map((m) => m.meta?.path?.trim() ?? ""));
+        // The path joins the heading only when every shot in the group shares it.
+        const shots = [
+          ...section.pairs.flatMap((p) => [p.before, p.after]),
+          ...section.media,
+        ].flatMap((e) => (e ? [e.item] : []));
+        const paths = new Set([...shots, ...section.links].map((m) => m.meta?.path?.trim() ?? ""));
         const shared = paths.size === 1 ? [...paths][0] : "";
         const path = shared && shared !== "/" ? shared : "";
-        g.section.heading =
+        section.heading =
           escapeMarkdownText(escapeHtmlText(value)) +
           (path ? ` · <code>${escapeHtmlText(path)}</code>` : "");
-        g.section.hide = { screen: true, path: Boolean(path) };
+        section.hide = { screen: true, path: Boolean(path) };
       } else {
-        g.section.heading = `<code>${escapeHtmlText(value)}</code>`;
-        g.section.hide = { screen: false, path: true };
+        section.heading = `<code>${escapeHtmlText(value)}</code>`;
+        section.hide = { screen: false, path: true };
       }
-      sections.push(g.section);
+      sections.push(section);
     }
     if (loose.pairs.length + loose.media.length + loose.links.length > 0) sections.push(loose);
   } else {
-    const only = blank(null);
+    const only = emptySection(null);
     only.pairs = pairs;
     only.media = media.map((m) => m.entry);
     only.links = bullets.map((b) => b.item);
