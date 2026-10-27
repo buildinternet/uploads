@@ -43,7 +43,7 @@ export function checksDeniedKey(installationId: number | string): string {
 }
 
 export interface CheckRunContent {
-  conclusion: "success" | "neutral" | "failure";
+  conclusion: "success" | "neutral" | "skipped" | "failure";
   title: string;
   summary: string;
 }
@@ -120,9 +120,11 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
     : "";
   const commentLink = commentUrl ? ` See the [uploads.sh comment](${commentUrl}).` : "";
   const requirement = gathered.requirement;
+  // Skipped, not neutral: GitHub folds these into "skipped checks", and a
+  // required check still passes.
   if (requirement?.skipLabel) {
     return {
-      conclusion: "neutral",
+      conclusion: "skipped",
       title: `Skipped by the ${requirement.skipLabel} label`,
       summary: `The \`${requirement.skipLabel}\` label excuses this pull request.`,
     };
@@ -166,7 +168,7 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
   }
   if (gathered.required && count === 0 && uiFiles.length === 0) {
     return {
-      conclusion: "success",
+      conclusion: "skipped",
       title: "No UI changes",
       summary:
         "This pull request changes no files that count as UI changes, so no uploads are required.",
@@ -200,7 +202,7 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
   }
   if (count === 0) {
     return {
-      conclusion: "neutral",
+      conclusion: "skipped",
       title: "Nothing attached",
       summary: "Nothing is attached to this pull request any more.",
     };

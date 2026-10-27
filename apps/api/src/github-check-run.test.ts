@@ -142,13 +142,13 @@ describe("checkRunContent", () => {
       expect(content.title).toBe("4 files attached · before and after, desktop, mobile");
     });
 
-    it("goes neutral for a skip label", () => {
+    it("skips for a skip label", () => {
       const content = checkRunContent(
         { ...req, count: 0, heldCount: 0, requirement: requirement([], "Uploads:Skip-Verify") },
         null,
       );
       expect(content).toMatchObject({
-        conclusion: "neutral",
+        conclusion: "skipped",
         title: "Skipped by the Uploads:Skip-Verify label",
       });
       expect(content.summary).toContain("`Uploads:Skip-Verify`");
@@ -196,10 +196,10 @@ describe("checkRunContent", () => {
       expect(content.summary.startsWith("1 file attached on GitHub.\n\n")).toBe(true);
     });
 
-    it("passes a PR that changes no UI files", () => {
+    it("skips a PR that changes no UI files", () => {
       expect(
         checkRunContent({ required: true, count: 0, heldCount: 0, uiFiles: [] }, null),
-      ).toMatchObject({ conclusion: "success", title: "No UI changes" });
+      ).toMatchObject({ conclusion: "skipped", title: "No UI changes" });
     });
   });
 
@@ -222,9 +222,9 @@ describe("checkRunContent", () => {
     });
   });
 
-  it("goes neutral when nothing is attached", () => {
+  it("skips when nothing is attached", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
-      conclusion: "neutral",
+      conclusion: "skipped",
       title: "Nothing attached",
     });
   });
@@ -303,7 +303,7 @@ describe("syncUploadsCheck", () => {
     expect(h.calls.some((c) => c.url.endsWith("/pulls/12"))).toBe(false);
     const patch = h.calls.find((c) => c.method === "PATCH");
     expect(patch?.url).toBe("https://api.github.com/repos/acme/web/check-runs/77");
-    expect(patch?.body).toMatchObject({ conclusion: "neutral" });
+    expect(patch?.body).toMatchObject({ conclusion: "skipped" });
   });
 
   it("renames a run still carrying the old name", async () => {
@@ -384,7 +384,7 @@ describe("syncUploadsCheck", () => {
       { headSha: "abc123", fetchImpl: h.fetchImpl },
     );
     const post = h.calls.find((c) => c.method === "POST");
-    expect(post?.body).toMatchObject({ conclusion: "success" });
+    expect(post?.body).toMatchObject({ conclusion: "skipped" });
   });
 
   it("does nothing for issues", async () => {
