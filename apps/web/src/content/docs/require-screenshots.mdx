@@ -71,8 +71,8 @@ Make sure every pull request that changes your UI has at least one screenshot or
    it has run once, so open or update a pull request first. The check used to be called
    `uploads.sh`; if a rule still requires that name, swap it for the new one.
 
-With a requirement on, every pull request gets the check, and one that changes no UI files is
-skipped straight away. GitHub counts a skipped check as passing.
+Every pull request gets the check, and one that changes no UI files is skipped straight away.
+GitHub counts a skipped check as passing.
 
 </section>
 
@@ -295,9 +295,8 @@ where it sets the same thing, and the settings page shows which repo values are 
     <tr>
       <td>Skipped</td>
       <td>
-        A skip label is on, a required PR changes no UI files, or everything was removed from a PR
-        that had uploads and changes no UI files. GitHub folds these under "skipped checks" and
-        counts them as passing.
+        A skip label is on, or the PR changes no UI files and has nothing attached. GitHub folds
+        these under "skipped checks" and counts them as passing.
       </td>
     </tr>
     <tr>
@@ -307,8 +306,8 @@ where it sets the same thing, and the settings page shows which repo values are 
   </tbody>
 </table>
 
-Without a requirement, a PR that never had uploads and changes no UI files gets no check, so
-backend-only PRs stay quiet.
+Every pull request in a connected repo gets the check, so a skipped run tells you the install works.
+Backend-only PRs still get no comment by default.
 
 </section>
 
@@ -316,9 +315,9 @@ backend-only PRs stay quiet.
 
 ## Troubleshooting <a class="anchor" href="#troubleshooting" aria-label="Link to this section">#</a>
 
-- **No check on the PR.** The App isn't installed on the repo, or the PR changes no UI files and no
-  requirement is on. If your org installed the App before checks existed, an org admin has to
-  approve the new Checks permission first. See [Permissions & events](/docs/github-app#permissions).
+- **No check on the PR.** The App isn't installed on the repo, the repo isn't connected to a
+  workspace, or the PR comes from a fork and has nothing attached yet. If your org installed the App
+  before checks existed, an org admin has to approve the new Checks permission first. See [Permissions & events](/docs/github-app#permissions).
 - **`Check for visuals` isn't listed in branch protection.** GitHub lists a check only after it has run on
   the repo once. Open or update a pull request, then add it.
 - **A mobile capture reads as desktop.** Without an AI label, the shape decides. Crop a phone capture

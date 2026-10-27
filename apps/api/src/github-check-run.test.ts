@@ -74,7 +74,7 @@ describe("checkRunContent", () => {
   });
 
   describe("required uploads", () => {
-    const req = { required: true, uiFiles: ["a.astro"] };
+    const req = { uiFiles: ["a.astro"] };
     const requirement = (
       checklist: { label: string; met: boolean }[],
       skipLabel: string | null = null,
@@ -197,9 +197,10 @@ describe("checkRunContent", () => {
     });
 
     it("skips a PR that changes no UI files", () => {
-      expect(
-        checkRunContent({ required: true, count: 0, heldCount: 0, uiFiles: [] }, null),
-      ).toMatchObject({ conclusion: "skipped", title: "No UI changes" });
+      expect(checkRunContent({ count: 0, heldCount: 0, uiFiles: [] }, null)).toMatchObject({
+        conclusion: "skipped",
+        title: "No UI changes",
+      });
     });
   });
 
@@ -222,10 +223,10 @@ describe("checkRunContent", () => {
     });
   });
 
-  it("skips when nothing is attached", () => {
+  it("skips when nothing is attached and no UI changed", () => {
     expect(checkRunContent({ count: 0, heldCount: 0 }, null)).toMatchObject({
       conclusion: "skipped",
-      title: "Nothing attached",
+      title: "No UI changes",
     });
   });
 });
@@ -343,22 +344,6 @@ describe("syncUploadsCheck", () => {
     );
   });
 
-  it("never creates a run just to say empty", async () => {
-    const h = harness();
-    await syncUploadsCheck(
-      h.env,
-      CFG,
-      42,
-      TARGET,
-      { count: 0, heldCount: 0 },
-      {
-        headSha: "abc123",
-        fetchImpl: h.fetchImpl,
-      },
-    );
-    expect(h.calls.filter((c) => c.method !== "GET")).toEqual([]);
-  });
-
   it("creates a run for UI changes with nothing attached", async () => {
     const h = harness();
     await syncUploadsCheck(
@@ -373,18 +358,18 @@ describe("syncUploadsCheck", () => {
     expect(post?.body).toMatchObject({ conclusion: "neutral" });
   });
 
-  it("creates a run on every PR when uploads are required", async () => {
+  it("creates a skipped run on a PR with nothing to check", async () => {
     const h = harness();
     await syncUploadsCheck(
       h.env,
       CFG,
       42,
       TARGET,
-      { count: 0, heldCount: 0, required: true },
+      { count: 0, heldCount: 0 },
       { headSha: "abc123", fetchImpl: h.fetchImpl },
     );
     const post = h.calls.find((c) => c.method === "POST");
-    expect(post?.body).toMatchObject({ conclusion: "skipped" });
+    expect(post?.body).toMatchObject({ conclusion: "skipped", output: { title: "No UI changes" } });
   });
 
   it("does nothing for issues", async () => {
