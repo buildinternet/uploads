@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.61.0
+
+### Minor Changes
+
+- 9e8bb54: Add `--caption <text>` (and a `caption` MCP field) to say what a shot shows, e.g. `uploads put ./empty.png --pr 12 --caption "Empty state after deleting the last project"`. `caption` is a canonical metadata key of up to 140 characters; the PR comment shows it as plain text under the image, before the screen, path and state labels. `description=` warns as a near-miss of `caption`.
+
+### Patch Changes
+
+- 9453974: The managed PR comment the CLI posts through `gh` now matches the new bot layout. Phone screenshots share rows, up to three across. When most shots have a screen or path, they are grouped under a heading per screen, with that screen's before and after first. Once a comment has a before/after pair, a lone before or after gets a row with a "No before shot" or "No after shot" cell. The footer drops the file count and the "add media:" prefix.
+
 ## 0.60.2
 
 ### Patch Changes
