@@ -7,7 +7,7 @@
  * `waitUntil` queue.
  */
 import { describe, expect, it } from "vitest";
-import { handleWebhook } from "./github-webhook";
+import { handleWebhook, mergePendingSyncs, processWebhookEvent } from "./github-webhook";
 import { attachmentsMarker } from "./github-comment-render";
 import { recordRepoLink } from "./github-repo-links";
 import { replaceFileMetadata } from "./file-metadata";
@@ -321,5 +321,43 @@ describe("handleWebhook pull_request auto-promotion", () => {
     } finally {
       bucket.get = realGet;
     }
+  });
+});
+
+describe("processWebhookEvent: one comment sync per delivery", () => {
+  it("adds no R2 lists when reconcile rides along with promote on the same PR", async () => {
+    const promote = { repo: REPO, num: NUM, branch: BRANCH };
+
+    const solo = await baseEnv();
+    await recordRepoLink(solo.env.DB, REPO, WS, "promote");
+    await seedStaged(solo.env, "hero.png");
+    await withMockPost(() => processWebhookEvent(solo.env, { keys: [], promote }));
+
+    const both = await baseEnv();
+    await recordRepoLink(both.env.DB, REPO, WS, "promote");
+    await seedStaged(both.env, "hero.png");
+    await withMockPost(() =>
+      processWebhookEvent(both.env, {
+        keys: [],
+        promote,
+        reconcile: { repo: REPO, num: NUM, kind: "pull" },
+        recheck: { repo: REPO, num: NUM },
+      }),
+    );
+
+    expect(solo.bucket.listCalls).toBeGreaterThan(0);
+    expect(both.bucket.listCalls).toBe(solo.bucket.listCalls);
+    expect(both.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
+  });
+
+  it("mergePendingSyncs keeps one sync per target and the promote head", () => {
+    const link = { repo: REPO, workspaceName: WS } as never;
+    const merged = mergePendingSyncs([
+      { link, target: { repo: "Acme/Web", kind: "pull", num: NUM } },
+      { link, target: { repo: REPO, kind: "pull", num: NUM }, headBranch: BRANCH, headSha: "abc" },
+      { link, target: { repo: REPO, kind: "issues", num: 3 } },
+    ]);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ headBranch: BRANCH, headSha: "abc" });
   });
 });
