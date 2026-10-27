@@ -69,7 +69,7 @@ import {
   setAdoptLedgerDetached,
   setAdoptLedgerSource,
 } from "./github-link-adopt-ledger";
-import { findRepoLinkStrict } from "./github-repo-links";
+import { findRepoLinkStrict, type RepoLink } from "./github-repo-links";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { storageConfig } from "./storage";
 import {
@@ -107,6 +107,9 @@ export interface AdoptSummary {
   skipped: string[];
   /** Whether `postManagedComment` was actually invoked this pass. */
   synced: boolean;
+  /** Whether this pass wants the managed comment re-synced. With
+   * `deferSync` the caller does the sync instead, and `synced` stays false. */
+  syncWanted: boolean;
 }
 
 /** Cheap, I/O-free reject: no http(s) URL at all means nothing to scan for —
@@ -234,6 +237,7 @@ export async function adoptLinkedFiles(
   target: GhTarget,
   text: string,
   source = "body",
+  opts: { deferSync?: boolean } = {},
 ): Promise<AdoptSummary> {
   const { keys, skipped } = await resolveAdoptableKeys(env, workspaceName, text);
   const summary: AdoptSummary = {
@@ -242,6 +246,7 @@ export async function adoptLinkedFiles(
     detached: [],
     skipped,
     synced: false,
+    syncWanted: false,
   };
 
   const ws = await loadWorkspaceRecord(env, workspaceName);
@@ -255,7 +260,12 @@ export async function adoptLinkedFiles(
   // isn't judged against a prefix count its own copy just inflated. Legacy
   // attachments outside the ledger (manual `attach --pr`, pre-#709 adoptions)
   // still count here; ledgered adoptions feed the guard separately below.
-  const before = await gatherCommentBody(env, ws, workspaceName, target, { shadow: false });
+  // With no resolvable links nothing can be adopted, only detached, and a
+  // detach syncs regardless of the count, so skip the gather (it lists R2).
+  const before =
+    keys.length > 0
+      ? await gatherCommentBody(env, ws, workspaceName, target, { shadow: false })
+      : { count: 0 };
 
   for (const key of keys) {
     // A URL that already points at this PR/issue's attachment prefix is the
@@ -392,7 +402,8 @@ export async function adoptLinkedFiles(
     before.count,
     summary.detached.length > 0,
   );
-  if (sync) {
+  summary.syncWanted = sync;
+  if (sync && !opts.deferSync) {
     await postManagedComment(env, ws, workspaceName, mintingUserId, target, {});
     summary.synced = true;
   }
@@ -425,26 +436,27 @@ async function fetchSourceText(
  * calls) when the repo isn't linked, the workspace can't be loaded, or the
  * knob is off — mirrors `ingestForWebhook`'s contract exactly. Throws on
  * transient failure (D1 outage, token mint failure, non-404 GitHub error) so
- * the caller's queue retries the delivery.
+ * the caller's queue retries the delivery. With `deferSync` it skips its own
+ * comment sync and resolves to the repo link when the caller should sync.
  */
 export async function adoptLinkedFilesForWebhook(
   env: Env,
   ref: AdoptSourceRef,
-  deps: { fetchImpl?: typeof fetch } = {},
-): Promise<void> {
+  deps: { fetchImpl?: typeof fetch; deferSync?: boolean } = {},
+): Promise<RepoLink | null> {
   const link = await findRepoLinkStrict(dbFor(env), ref.repo);
-  if (!link) return;
+  if (!link) return null;
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
-  if (!ws) return;
+  if (!ws) return null;
 
   const { options } = await resolveRepoCommentOptions(env, ws, ref.repo);
-  if (!options.adoptLinkedFiles) return;
+  if (!options.adoptLinkedFiles) return null;
 
   const fetchImpl = deps.fetchImpl ?? fetch;
   const cfg = githubAppConfig(env);
-  if (!cfg) return;
+  if (!cfg) return null;
   const installationId = await installationForRepo(env, cfg, ref.repo, fetchImpl);
-  if (installationId === null) return;
+  if (installationId === null) return null;
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) throw new Error("github installation token mint failed");
 
@@ -456,12 +468,14 @@ export async function adoptLinkedFilesForWebhook(
   // this exact source may need to detach), so `hasLinkCandidate` is no
   // longer a valid early-return here — only a cheap presort in the caller
   // that decided `ev.adopt` was worth building at all.
-  await adoptLinkedFiles(
+  const summary = await adoptLinkedFiles(
     env,
     link.workspaceName,
     null,
     { repo: ref.repo, kind: ref.kind, num: ref.num },
     text ?? "",
     ref.source,
+    { deferSync: deps.deferSync },
   );
+  return summary.syncWanted && deps.deferSync ? link : null;
 }
