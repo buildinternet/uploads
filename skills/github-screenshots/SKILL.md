@@ -140,10 +140,20 @@ optimizer only rewrites still images (PNG/JPEG → WebP).
 
 Two tiers, pick by whether a PR already exists:
 
-- **Simple — a PR/issue already exists.** `uploads put shot.png --pr 123` (or
-  `uploads attach shot.png`, which infers the PR from the current branch) —
-  one call, stable per-PR key, embed URLs back immediately, and the managed
-  comment collects that PR's media as a side effect.
+- **Simple — a PR/issue already exists.** One `put` per shot, labeled:
+
+  ```bash
+  uploads put after.png --pr 123 --meta path=/settings --state after --caption "Saved toast"
+  uploads put chat.png --pr 123 --app ios --screen "Chat" --state after   # app, no route
+  ```
+
+  (`uploads attach shot.png` infers the PR from the current branch.) Stable
+  per-PR key, embed URLs back immediately, and the managed comment collects
+  that PR's media and shows the labels with each image. You don't need to
+  post the images yourself; one or two in the PR description is still fine.
+  Labels apply to every file in a call, so label shots one call at a time.
+  `uploads list --pr 123` shows what's attached.
+
 - **Advanced — stage pre-PR, before there's anything to target.** `uploads put shot.png` on a branch (see below) — no PR/issue needed yet; promotion
   and the comment happen automatically once the PR opens, **but only for a
   repo already bound to the workspace** (see the caveat below). Reach for the
@@ -236,8 +246,8 @@ uploads put ./empty.png --pr 123 --meta path=/projects --caption "Empty state af
 ```
 
 (`--state` also takes `empty`, `error`, and `loading`.) When an image lands with
-no `path` meta, `attach`/`put --pr`/`put --issue` print `tip: add --meta
-path=/route so this shot is findable by page` on stderr (and a JSON `hint`
+no `path` or `screen` meta, `attach`/`put --pr`/`put --issue` print `tip: add --meta
+path=/route (or --screen <name> for an app) to label this shot in the PR comment` on stderr (and a JSON `hint`
 field) — don't ignore it. For a mobile or desktop app screen with no route,
 pass `--screen <name>` instead; the PR comment shows it under the image. When
 a shot needs a word of explanation, add `--caption "<text>"` (up to 140

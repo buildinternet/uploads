@@ -7,6 +7,7 @@ import type { UploadsClient } from "../src/client.js";
 import {
   GithubCommentAuthorizationError,
   runComment,
+  commentSyncNote,
   heldNote,
   syncAttachmentsComment,
   type CliContext,
@@ -164,6 +165,13 @@ describe("runComment", () => {
       ">> 1 file is held for review: check, then run uploads approve\n",
     );
     expect(heldNote({})).toBe("");
+    expect(commentSyncNote(fromBot, target)).toBe(
+      ">> attachments comment updated on PR #5 (uploads-sh[bot]). It shows these files, no need to post them yourself\n" +
+        ">> 1 file is held for review: check, then run uploads approve\n",
+    );
+    expect(
+      commentSyncNote({ action: "skipped", count: 0, via: "gh" }, { ...target, kind: "issues" }),
+    ).toBe(">> attachments comment skipped on issue #5 (via gh)\n");
 
     const client = listClient([
       {

@@ -1595,7 +1595,9 @@ describe("runAttach path-meta tip (issue #469 lever 3)", () => {
         run,
       ),
     );
-    expect(stderr).toContain("tip: add --meta path=/route so this shot is findable by page");
+    expect(stderr).toContain(
+      "tip: add --meta path=/route (or --screen <name> for an app) to label this shot in the PR comment",
+    );
   });
 
   it("does not print the tip when --meta path= is given", async () => {

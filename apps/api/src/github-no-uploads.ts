@@ -128,6 +128,29 @@ function escapeHtml(s: string): string {
 }
 
 /**
+ * Collapsed tips for agents, which copy the CLI line above as the whole
+ * recipe: labels (applied per call, so one `put` per shot) and that this
+ * comment collects the files by itself.
+ */
+function agentTips(num: number): string[] {
+  return [
+    "<details>",
+    "<summary>Tips for agents</summary>",
+    "",
+    "Label each shot so reviewers know what they're seeing. Labels apply to every file in a call, so run one <code>put</code> per shot:",
+    "",
+    "```sh",
+    `uploads put after.png --pr ${num} --meta path=/settings --state after --caption "Saved settings toast"`,
+    `uploads put chat.png --pr ${num} --app ios --screen "Chat" --state after`,
+    "```",
+    "",
+    `This comment updates with each upload, so you don't need to post the images yourself. A shot or two in the PR description is still welcome. Check what's attached with <code>uploads list --pr ${num}</code>, and see the <code>github-screenshots</code> skill for more.`,
+    "",
+    "</details>",
+  ];
+}
+
+/**
  * The how-to body for a PR with nothing attached. `uiFiles` names the UI files
  * that changed; empty ("always" on a PR without UI changes) drops that line.
  * Images dragged in on GitHub count too; the comment mentions the import
@@ -156,6 +179,7 @@ export function noUploadsCommentBody(
       ? "- By hand: drag images into the PR description and they're imported automatically"
       : "- By hand: drag images into the PR description",
   );
+  lines.push("", ...agentTips(target.num));
   if (opts.checklist?.length) lines.push("", checklistLine(opts.checklist));
   lines.push(
     "",

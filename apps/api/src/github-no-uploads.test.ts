@@ -69,6 +69,16 @@ describe("noUploadsCommentBody", () => {
     expect(body).toContain("Settings → GitHub");
   });
 
+  it("tucks labeled examples for agents into a collapsed block", () => {
+    const body = noUploadsCommentBody("<!-- m -->", { num: 7 }, ["a.css"], {
+      importsAttachments: true,
+    });
+    expect(body).toContain("<details>\n<summary>Tips for agents</summary>");
+    expect(body).toContain('--pr 7 --meta path=/settings --state after --caption "');
+    expect(body).toContain('--pr 7 --app ios --screen "Chat" --state after');
+    expect(body).toContain("<code>uploads list --pr 7</code>");
+  });
+
   it("offers drag-and-drop without promising an import when imports are off", () => {
     const body = noUploadsCommentBody("<!-- m -->", { num: 1 }, ["a.css"], {
       importsAttachments: false,
