@@ -250,10 +250,11 @@ export interface AttachmentItem {
   pageUrl?: string | null;
   /**
    * The only metadata the comment renders. `screen` names an app view with no
-   * route. Named fields on purpose: the comment is public, and the server
-   * never fetches other keys (like EXIF `device`) for it.
+   * route; `caption` is free text saying what the shot shows. Named fields on
+   * purpose: the comment is public, and the server never fetches other keys
+   * (like EXIF `device`) for it.
    */
-  meta?: { screen?: string; path?: string; state?: string };
+  meta?: { caption?: string; screen?: string; path?: string; state?: string };
   /**
    * Poster for a video or PDF first page. Server-computed, never from
    * client-settable metadata. Absent: a video becomes a bullet link and a
@@ -402,6 +403,28 @@ function escapeMarkdownText(s: string): string {
   return s.replace(/([\\`*_[\]~])/g, "\\$1");
 }
 
+/** Longest caption the comment shows; a longer one is cut with an ellipsis. */
+export const CAPTION_MAX_LENGTH = 140;
+
+/** The free-text caption, whitespace collapsed and capped. Empty when unset. */
+function captionText(meta: AttachmentItem["meta"]): string {
+  const caption = meta?.caption?.replace(/\s+/g, " ").trim() ?? "";
+  if (caption.length <= CAPTION_MAX_LENGTH) return caption;
+  return `${caption.slice(0, CAPTION_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
+/**
+ * Escape a caption for plain text in either an HTML block or a markdown
+ * paragraph. Markdown and table metacharacters become numeric entities
+ * (a backslash would show literally inside `<td>`), and a word joiner after
+ * `@` keeps a caption from mentioning anyone.
+ */
+function escapeCaptionText(s: string): string {
+  return escapeHtmlText(s)
+    .replace(/[\\`*_[\]~|]/g, (c) => `&#${c.charCodeAt(0)};`)
+    .replace(/@/g, "@&#8288;");
+}
+
 /** Screen and path joined, for before/after pairing. Empty when neither is usable. */
 function pairLocation(item: AttachmentItem): string {
   const screen = item.meta?.screen?.trim() ?? "";
@@ -425,25 +448,22 @@ function metaCaptionValues(meta: AttachmentItem["meta"], options: CommentRenderO
 }
 
 /**
- * Format caption values as code: `<code>` in HTML, backticks in markdown.
- * `""` when there's nothing to say.
+ * The caption as plain text, then the other values as code (`<code>` in
+ * HTML, backticks in markdown). `""` when there's nothing to say.
  */
 function formatMetaCaption(
   meta: AttachmentItem["meta"],
   options: CommentRenderOptions,
   mode: "html" | "markdown",
 ): string {
-  const values = metaCaptionValues(meta, options);
-  if (values.length === 0) return "";
-  if (mode === "html") {
-    return values.map((v) => `<code>${escapeHtmlText(v)}</code>`).join(" · ");
+  const caption = captionText(meta);
+  const parts = caption ? [escapeCaptionText(caption)] : [];
+  for (const v of metaCaptionValues(meta, options)) {
+    const esc = escapeHtmlText(v);
+    if (mode === "html") parts.push(`<code>${esc}</code>`);
+    else parts.push(esc.includes("`") ? escapeMarkdownText(esc) : `\`${esc}\``);
   }
-  return values
-    .map((v) => {
-      const esc = escapeHtmlText(v);
-      return esc.includes("`") ? escapeMarkdownText(esc) : `\`${esc}\``;
-    })
-    .join(" · ");
+  return parts.join(" · ");
 }
 
 /**
@@ -619,7 +639,7 @@ function renderPairCell(
     }
   }
   const caption = formatMetaCaption(
-    { screen: item.meta?.screen, path: item.meta?.path },
+    { caption: item.meta?.caption, screen: item.meta?.screen, path: item.meta?.path },
     options,
     "html",
   );
@@ -958,7 +978,7 @@ export function attachmentsCommentBody(
         if (options.imageWidth !== "auto") return false;
         if (consumedByPair.has(i) || partnerOf.has(i)) return false;
         if (!isSmallAsset(candidate.imageMeta)) return false;
-        if (metaCaptionValues(candidate.meta, options).length > 0) return false;
+        if (formatMetaCaption(candidate.meta, options, "html")) return false;
         const n = candidate.key.slice(candidate.key.lastIndexOf("/") + 1);
         const s = candidate.embedUrl ?? candidate.url;
         return Boolean(s) && inferContentType(n).startsWith("image/");

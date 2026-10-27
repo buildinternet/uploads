@@ -205,6 +205,7 @@ Options:
   --state <s>               before|after|empty|error|loading — the UI state shown
   --app <name>              Surface shown: web, ios, android, cli
   --screen <name>           App screen shown when there's no route, e.g. "Chat"
+  --caption <text>          What the shot shows, up to 140 characters (PR comment caption)
   --workspace, -w <name>    Override workspace
   --replace                 Allow overwriting an existing object on a strict (--key/default) key
                             (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue/--branch keys,

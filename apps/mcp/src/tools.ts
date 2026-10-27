@@ -33,6 +33,7 @@ import {
 import {
   appProp,
   screenProp,
+  captionProp,
   METADATA_DESCRIPTION,
   METADATA_PATH_CUE,
   MCP_EXAMPLE_PNG_BASE64,
@@ -299,6 +300,7 @@ const putFormatProps = {
   state: stateProp,
   app: appProp,
   screen: screenProp,
+  caption: captionProp,
   replace: {
     type: "boolean",
     description:

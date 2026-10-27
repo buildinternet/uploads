@@ -32,6 +32,7 @@ import { ToolBatchError } from "./batch-error.js";
 export {
   appProp,
   screenProp,
+  captionProp,
   canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
   METADATA_PATH_CUE,

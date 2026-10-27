@@ -2600,6 +2600,22 @@ describe("runPut path-meta tip (issue #469 lever 3)", () => {
     expect(JSON.stringify(puts)).toContain('"screen":"Chat"');
   });
 
+  it("sends --caption as caption metadata and rejects one over 140 characters", async () => {
+    const { client, puts } = fakeClient();
+    await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r", "--caption", "  Empty projects list  "],
+        false,
+        noRun,
+      ),
+    );
+    expect(JSON.stringify(puts)).toContain('"caption":"Empty projects list"');
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--caption", "x".repeat(141)], false, noRun),
+    ).rejects.toThrow(/140 or fewer/);
+  });
+
   it("suggests --screen for a non-web app shot", async () => {
     const { client } = fakeClient();
     const stderr = await captureStderr(() =>

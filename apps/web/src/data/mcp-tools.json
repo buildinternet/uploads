@@ -376,7 +376,7 @@
         "name": "metadata",
         "type": "object",
         "required": false,
-        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app`, `screen` and `caption` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
       },
       {
         "name": "state",
@@ -395,6 +395,12 @@
         "type": "string",
         "required": false,
         "description": "The app screen shown, for views with no route (a mobile or desktop screen), e.g. \"Chat\". Shown under the image in the PR comment. Use `path` in metadata for web routes."
+      },
+      {
+        "name": "caption",
+        "type": "string",
+        "required": false,
+        "description": "What the shot shows, in plain words (up to 140 printable ASCII characters), e.g. \"Empty state after deleting the last project\". Shown under the image in the PR comment."
       },
       {
         "name": "replace",
@@ -496,7 +502,7 @@
         "name": "metadata",
         "type": "object",
         "required": false,
-        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
+        "description": "Queryable tags for later search (key→value). Use `path` for the route (e.g. /settings), not route/page. Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app`, `screen` and `caption` have their own fields. On `pr`/`issue`/`branch`, `gh.*` is set for you."
       },
       {
         "name": "state",
@@ -515,6 +521,12 @@
         "type": "string",
         "required": false,
         "description": "The app screen shown, for views with no route (a mobile or desktop screen), e.g. \"Chat\". Shown under the image in the PR comment. Use `path` in metadata for web routes."
+      },
+      {
+        "name": "caption",
+        "type": "string",
+        "required": false,
+        "description": "What the shot shows, in plain words (up to 140 printable ASCII characters), e.g. \"Empty state after deleting the last project\". Shown under the image in the PR comment."
       },
       {
         "name": "replace",
