@@ -43,6 +43,8 @@ describe("detectContentType", () => {
     expect(detectContentType(WEBP)).toBe("image/webp");
     expect(detectContentType(WEBM)).toBe("video/webm");
     expect(detectContentType(AVIF)).toBe("image/avif");
+    expect(detectContentType(ftyp("mif1", "miaf", "avif"))).toBe("image/avif");
+    expect(detectContentType(ftyp("mif1", "heic"))).toBe("video/mp4");
     expect(detectContentType(ftyp("isom"))).toBe("video/mp4");
     expect(detectContentType(ftyp("mp42"))).toBe("video/mp4");
   });

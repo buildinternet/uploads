@@ -44,11 +44,12 @@ const FIELD_MAX = 300;
 
 type Json = Record<string, unknown>;
 
-/** Slack's image blocks take PNG, JPEG, GIF, and WebP; an SVG or other type fails the whole chat.unfurl call. */
+/** Slack's image blocks take PNG, JPEG, GIF, and WebP; an SVG or other type fails the whole chat.unfurl call. A PNG or JPEG transform of anything passes. */
 export function isSlackImage(value: string): boolean {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:") return false;
+    if (/^\/cdn-cgi\/image\/[^/]*\bformat=(png|jpeg)\b/.test(url.pathname)) return true;
     return !/\.(svg|svgz|avif|heic|heif|tiff?|bmp|ico)$/.test(url.pathname.toLowerCase());
   } catch {
     return false;

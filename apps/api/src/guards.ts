@@ -291,10 +291,21 @@ export function detectContentType(bytes: Uint8Array): string | null {
   // WebM / Matroska (EBML header); an .mkv is labeled webm, close enough.
   if (matches(bytes, [0x1a, 0x45, 0xdf, 0xa3])) return "video/webm";
   // ISO base media (ftyp box at offset 4) — AVIF and MP4 share the container,
-  // so split on the major brand at offset 8.
+  // so split on the brand: the major one at offset 8, or a compatible one
+  // after offset 16 when an encoder leads with the generic `mif1`/`msf1`.
   if (matches(bytes, [0x66, 0x74, 0x79, 0x70], 4)) {
     const brand = asciiAt(bytes, 8, 4);
     if (brand === "avif" || brand === "avis") return "image/avif";
+    if (brand === "mif1" || brand === "msf1") {
+      const boxEnd = Math.min(
+        bytes.length,
+        ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0,
+      );
+      for (let at = 16; at + 4 <= boxEnd; at += 4) {
+        const compatible = asciiAt(bytes, at, 4);
+        if (compatible === "avif" || compatible === "avis") return "image/avif";
+      }
+    }
     if (brand === "qt  ") return "video/quicktime";
     return "video/mp4";
   }

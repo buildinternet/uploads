@@ -19,7 +19,7 @@
 import { botTokenFor, type SlackEnv } from "./config";
 import { isSlackImage } from "./entities";
 import { shareDeps } from "./events";
-import { resolvePreview } from "./share";
+import { resolvePreview, slackImageUrl } from "./share";
 import { previewBlocks } from "./unfurl";
 import { respondToAction, SLACK_API_ORIGIN, type Block } from "./slack/api";
 
@@ -235,7 +235,8 @@ function fileParts(r: SearchResult, webOrigin: string, showWorkspace: boolean) {
     showWorkspace ? escapeMrkdwn(r.workspace) : null,
     r.uploaded ? slackDate(r.uploaded) : null,
   ].filter((d): d is string => Boolean(d));
-  const image = r.imageUrl && isSlackImage(r.imageUrl) ? r.imageUrl : null;
+  const imageUrl = r.imageUrl ? slackImageUrl(r.imageUrl) : null;
+  const image = imageUrl && isSlackImage(imageUrl) ? imageUrl : null;
   return { name, link: `<${url}|*${escapeMrkdwn(name)}*>`, details, image };
 }
 
