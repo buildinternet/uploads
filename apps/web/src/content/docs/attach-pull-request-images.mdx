@@ -119,7 +119,14 @@ uploads put ./hero-after.webp --state after
 
 If one comment has several pairs, give each pair the same `--meta path=<page>` or `--screen <name>`
 value so they match up. Without either, files pair by name, so `hero-before.webp` matches `hero-after.webp`.
-Several pairs share one table, a row each. A file with no before shows on its own, as usual.
+Several pairs share one table, a row each. Once a comment has a pair, a shot marked `after` with no
+`before` at its page or screen still gets a row, with a dashed "No before shot" in the empty cell (and
+the same for a lone `before`). Without any pair, files with a state show on their own, as usual.
+
+Phone screenshots share rows, up to three across, so a set of mobile screens reads at a glance. When
+most shots in a comment have a `--screen` or `--meta path`, the comment groups them under a heading
+per screen or page: that screen's before and after first, then its other shots. Shots without either
+go last, under **Other**.
 
 A repo can [require a before and after](/docs/require-screenshots#more) on every pull request that
 changes UI files.

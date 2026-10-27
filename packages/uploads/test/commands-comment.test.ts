@@ -819,7 +819,7 @@ describe("syncAttachmentsComment gh fallback live link", () => {
     expect(result.via).toBe("gh");
     const body = created(calls);
     expect(body).toContain(
-      `<a href="${feed.url}"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>2 files · `,
+      `<a href="${feed.url}"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub><code>uploads put &lt;file&gt; --pr 5</code> · `,
     );
     expect(body).toContain(`${feed.url}/${await feedItemIdFor(key)}`);
     expect(body).toContain(`https://x.test/f/test/${movedKey}`);

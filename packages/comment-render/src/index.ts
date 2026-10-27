@@ -331,16 +331,20 @@ export function attachmentImageWidth(
   filename: string,
   density: AttachmentDensity = "dense",
 ): number {
-  const table = WIDTH_BY_DENSITY[density];
+  return WIDTH_BY_DENSITY[density][filenameShape(filename)];
+}
+
+/** Shape hint from the filename, for media without stored dimensions. */
+function filenameShape(filename: string): "wide" | "portrait" | "default" {
   const n = filename.toLowerCase();
-  if (/(?:^|[-_.])(browser|desktop|dashboard|wide)(?:[-_.]|$)/.test(n)) return table.wide;
+  if (/(?:^|[-_.])(browser|desktop|dashboard|wide)(?:[-_.]|$)/.test(n)) return "wide";
   if (
     /(?:^|[-_.])(phone|iphone|ipad|pixel|android|mobile|device)(?:[-_.]|$)/.test(n) ||
     /iphone|pixel-?\d/.test(n)
   ) {
-    return table.portrait;
+    return "portrait";
   }
-  return table.default;
+  return "default";
 }
 
 /** `m:ss` under an hour, `h:mm:ss` at or above one. */
@@ -609,54 +613,162 @@ function pairAttachments(
   return { partnerOf, roleOf };
 }
 
+/** Before/after cell placeholders: one SVG per side that stretches to any box. */
+export const NO_BEFORE_SRC = "https://uploads.sh/brand/comment/no-before.svg";
+export const NO_AFTER_SRC = "https://uploads.sh/brand/comment/no-after.svg";
+
+/** An inline image, video poster or PDF poster, with its resolved URLs. */
+interface MediaEntry {
+  item: AttachmentItem;
+  name: string;
+  kind: "image" | "video" | "pdf";
+  /** `<img src>`, already chosen (embed host, or the poster). */
+  src: string;
+  /** Click-through: file page when known, else the stored URL. */
+  href: string;
+}
+
+function mediaDims(entry: MediaEntry): { width?: number; height?: number } | undefined {
+  if (entry.kind === "video") return entry.item.videoMeta;
+  if (entry.kind === "pdf") return entry.item.pdfMeta;
+  return entry.item.imageMeta;
+}
+
+/**
+ * The caption under one media entry: the video or PDF facts, then whatever
+ * metadata `meta` still carries (a group heading may already name the rest).
+ */
+function mediaCaption(
+  entry: MediaEntry,
+  meta: AttachmentItem["meta"],
+  options: CommentRenderOptions,
+): string {
+  if (entry.kind === "pdf") return pdfPosterCaption(entry.item, meta, options);
+  const parts: string[] = [];
+  if (entry.kind === "video") {
+    // GitHub strips <video>. The poster JPEG already carries a baked-in
+    // play button (Camo-visible); this caption still carries duration.
+    parts.push("▶ Play video");
+    const seconds = entry.item.videoMeta?.durationSeconds;
+    if (seconds != null) parts.push(formatDuration(seconds));
+  }
+  const metaCap = formatMetaCaption(meta, options, "html");
+  if (metaCap) parts.push(metaCap);
+  return parts.join(" · ");
+}
+
+function mediaLink(entry: MediaEntry, w: number | null): string {
+  return `<a href="${escapeHtmlAttr(entry.href)}">${imgTag(w, escapeHtmlAttr(entry.name), escapeHtmlAttr(entry.src))}</a>`;
+}
+
 function renderPairCell(
-  item: AttachmentItem,
+  entry: MediaEntry,
+  meta: AttachmentItem["meta"],
   options: CommentRenderOptions,
   density: AttachmentDensity,
 ): string {
-  const name = item.key.slice(item.key.lastIndexOf("/") + 1);
-  const isVideo = inlinePosterKind(item) === "video";
-  // A video shows its poster still (GitHub strips <video>).
-  const src = isVideo ? item.posterUrl : (item.embedUrl ?? item.url);
-  const link = item.pageUrl ?? item.url;
-  const autoPx = Math.min(
-    naturalMediaWidth(isVideo ? item.videoMeta : item.imageMeta, name, density),
+  const w = resolvedWidth(pairCellWidth(entry, density), options);
+  // The column header already says Before/After, so the state value is
+  // dropped from the caption; screen and path stay unless a heading has them.
+  const caption = mediaCaption(
+    entry,
+    { caption: meta?.caption, screen: meta?.screen, path: meta?.path },
+    options,
+  );
+  return `<td align="center">${mediaLink(entry, w)}${caption ? `<br>${caption}` : ""}</td>`;
+}
+
+function pairCellWidth(entry: MediaEntry, density: AttachmentDensity): number {
+  return Math.min(
+    naturalMediaWidth(mediaDims(entry), entry.name, density),
     attachmentPairWidth(density),
   );
-  const w = resolvedWidth(autoPx, options);
-  const alt = escapeHtmlAttr(name);
-  const href = escapeHtmlAttr((link ?? src) as string);
-  const imgSrc = escapeHtmlAttr(src as string);
-  // The column header already says Before/After, so the state value is
-  // dropped from the caption; path and the rest stay.
-  const parts: string[] = [];
-  if (isVideo) {
-    parts.push("▶ Play video");
-    if (item.videoMeta?.durationSeconds != null) {
-      parts.push(formatDuration(item.videoMeta.durationSeconds));
-    }
-  }
-  const caption = formatMetaCaption(
-    { caption: item.meta?.caption, screen: item.meta?.screen, path: item.meta?.path },
-    options,
-    "html",
-  );
-  if (caption) parts.push(caption);
-  const captionHtml = parts.length > 0 ? `<br>${parts.join(" · ")}` : "";
-  return `<td align="center"><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
 }
+
+/**
+ * The empty side of a lone before or after. A dashed placeholder sized like
+ * its partner when the partner's dimensions are known, else a quiet line.
+ */
+function renderMissingCell(
+  side: "before" | "after",
+  partner: MediaEntry,
+  options: CommentRenderOptions,
+  density: AttachmentDensity,
+): string {
+  const label = `No ${side} shot`;
+  const w = resolvedWidth(pairCellWidth(partner, density), options);
+  const dims = mediaDims(partner);
+  if (w !== null && dims?.width && dims.height && dims.width > 0 && dims.height > 0) {
+    const h = Math.round((w * dims.height) / dims.width);
+    const src = side === "before" ? NO_BEFORE_SRC : NO_AFTER_SRC;
+    return `<td align="center"><img width="${w}" height="${h}" alt="${label}" src="${src}"></td>`;
+  }
+  return `<td align="center"><sub>${label}</sub></td>`;
+}
+
+type PairRow = { before: MediaEntry | null; after: MediaEntry | null };
 
 /** The before/after table: one header row, one row per pair. */
 function renderPairTable(
-  pairs: [AttachmentItem, AttachmentItem][],
+  pairs: PairRow[],
+  metaFor: (item: AttachmentItem) => AttachmentItem["meta"],
   options: CommentRenderOptions,
   density: AttachmentDensity,
 ): string {
-  const rows = pairs.map(
-    ([before, after]) =>
-      `<tr>${renderPairCell(before, options, density)}${renderPairCell(after, options, density)}</tr>`,
-  );
+  const rows = pairs.map(({ before, after }) => {
+    const cell = (entry: MediaEntry | null, side: "before" | "after", partner: MediaEntry | null) =>
+      entry
+        ? renderPairCell(entry, metaFor(entry.item), options, density)
+        : renderMissingCell(side, partner as MediaEntry, options, density);
+    return `<tr>${cell(before, "before", after)}${cell(after, "after", before)}</tr>`;
+  });
   return `<table><tr><th>Before</th><th>After</th></tr>${rows.join("")}</table>`;
+}
+
+/**
+ * Portrait shots (phones) share grid rows, up to three at 240 px or two at
+ * 280. Landscape shots keep a row each: two desktop screenshots side by side
+ * are too small to read without clicking through.
+ */
+const GRID_COLUMNS = 3;
+const GRID_CELL_WIDTH = { three: 240, two: 280 } as const;
+
+type GridShape = "portrait" | "landscape";
+
+function gridShape(entry: MediaEntry): GridShape {
+  const dims = mediaDims(entry);
+  const w = dims?.width ?? 0;
+  const h = dims?.height ?? 0;
+  if (w > 0 && h > 0) return h > w ? "portrait" : "landscape";
+  return filenameShape(entry.name) === "portrait" ? "portrait" : "landscape";
+}
+
+/**
+ * Columns for `n` portrait shots: the fewest rows of three, then spread
+ * evenly so no shot sits alone (4 phones → 2 + 2, 5 → 3 + 2).
+ */
+function gridColumns(n: number): number {
+  return Math.ceil(n / Math.ceil(n / GRID_COLUMNS));
+}
+
+function renderGridTable(
+  entries: MediaEntry[],
+  metaFor: (item: AttachmentItem) => AttachmentItem["meta"],
+  options: CommentRenderOptions,
+): string {
+  const cols = gridColumns(entries.length);
+  const cellW = cols < GRID_COLUMNS ? GRID_CELL_WIDTH.two : GRID_CELL_WIDTH.three;
+  const rows: string[] = [];
+  for (let i = 0; i < entries.length; i += cols) {
+    const cells = entries.slice(i, i + cols).map((entry) => {
+      // Never upscale past the real width.
+      const w = Math.min(cellW, mediaDims(entry)?.width || cellW);
+      const caption = mediaCaption(entry, metaFor(entry.item), options);
+      return `<td align="center">${mediaLink(entry, w)}${caption ? `<br>${caption}` : ""}</td>`;
+    });
+    rows.push(`<tr>${cells.join("")}</tr>`);
+  }
+  return `<table>${rows.join("")}</table>`;
 }
 
 /** How many image/poster items will fit under `maxInlineImages` (for density). */
@@ -687,14 +799,26 @@ function effectiveAttachmentType(item: AttachmentItem): string {
   return inferContentType(name);
 }
 
-function pdfPosterCaption(item: AttachmentItem, options: CommentRenderOptions): string {
+function pdfPosterCaption(
+  item: AttachmentItem,
+  meta: AttachmentItem["meta"],
+  options: CommentRenderOptions,
+): string {
   const pages = item.pdfMeta?.pageCount;
   const parts = ["Open PDF"];
   if (pages === 1) parts.push("1 page");
   else if (pages != null && Number.isInteger(pages) && pages > 1) parts.push(`${pages} pages`);
-  const metaCap = formatMetaCaption(item.meta, options, "html");
+  const metaCap = formatMetaCaption(meta, options, "html");
   if (metaCap) parts.push(metaCap);
   return parts.join(" · ");
+}
+
+/** One `<code>uploads put …</code>` hint plus the docs link, for the footer. */
+function addMediaHint(target?: Pick<GhTarget, "kind" | "num">): string {
+  const flag = target?.kind === "issues" ? "--issue" : "--pr";
+  const n =
+    target && Number.isInteger(target.num) && target.num > 0 ? String(target.num) : "&lt;N&gt;";
+  return `<code>uploads put &lt;file&gt; ${flag} ${n}</code> · <a href="https://uploads.sh/docs/github-app">docs</a>`;
 }
 
 /**
@@ -704,13 +828,6 @@ function pdfPosterCaption(item: AttachmentItem, options: CommentRenderOptions): 
  */
 function addMediaFooter(target?: Pick<GhTarget, "kind" | "num">): string {
   return `<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · ${addMediaHint(target)}</sub>`;
-}
-
-function addMediaHint(target?: Pick<GhTarget, "kind" | "num">): string {
-  const flag = target?.kind === "issues" ? "--issue" : "--pr";
-  const n =
-    target && Number.isInteger(target.num) && target.num > 0 ? String(target.num) : "&lt;N&gt;";
-  return `add media: <code>uploads put &lt;file&gt; ${flag} ${n}</code> · <a href="https://uploads.sh/docs/github-app">docs</a>`;
 }
 
 /** Links the managed comment renders around its attachments. */
@@ -800,21 +917,18 @@ export const VIEW_BUTTON_SRC = "https://uploads.sh/brand/comment/view-on-uploads
 export const VIEW_BUTTON_HELD_SRC = "https://uploads.sh/brand/comment/view-on-uploads-held.svg";
 
 /**
- * The reviewer's way into the live link: the button, then the quiet footer
- * led by the file count. The count is the comment's own attachments
- * (galleries excluded), so it can never disagree with what the comment lists.
- * `held` turns the button golden; the live link is where members approve.
+ * The reviewer's way into the live link: the button, then the quiet
+ * add-media footer. `held` turns the button golden; the live link is where
+ * members approve.
  */
 function liveLinkBlock(
-  count: number,
   url: string,
   target: Pick<GhTarget, "kind" | "num"> | undefined,
   held: boolean,
 ): string {
-  const noun = count === 1 ? "file" : "files";
   const src = held ? VIEW_BUTTON_HELD_SRC : VIEW_BUTTON_SRC;
   const button = `<a href="${escapeHtmlAttr(url)}"><img height="36" alt="View on uploads.sh" src="${src}"></a>`;
-  return `${button}\n\n<sub>${count} ${noun} · ${addMediaHint(target)}</sub>`;
+  return `${button}\n\n<sub>${addMediaHint(target)}</sub>`;
 }
 
 /**
@@ -831,14 +945,53 @@ function heldLine(count: number, target?: Pick<GhTarget, "kind" | "num">): strin
 }
 
 /**
- * Render the one marker-owned GitHub comment. When there are no galleries this
- * intentionally preserves the legacy attachment-only body byte-for-byte.
+ * One stretch of the comment: an optional `###` heading, its before/after
+ * pairs, its inline media and its bullet links. `hide` drops the metadata the
+ * heading already names from every caption below it.
+ */
+interface Section {
+  heading: string | null;
+  hide: { screen: boolean; path: boolean };
+  pairs: (PairRow & { at: number })[];
+  media: MediaEntry[];
+  links: AttachmentItem[];
+}
+
+/** The screen (or, without one, the path) that groups an item, or `""`. */
+function groupKeyOf(item: AttachmentItem, options: CommentRenderOptions): string {
+  if (!options.metaPath) return "";
+  const screen = item.meta?.screen?.trim();
+  if (screen) return `screen:${screen}`;
+  const path = item.meta?.path?.trim();
+  return path && path !== "/" ? `path:${path}` : "";
+}
+
+/**
+ * Group by screen or path only when it reads as a map of the PR: at least
+ * half the inline shots carry one, and at least one is shared by two shots.
+ */
+function shouldGroup(keys: string[]): boolean {
+  if (keys.length < 2) return false;
+  const counts = new Map<string, number>();
+  let located = 0;
+  for (const key of keys) {
+    if (!key) continue;
+    located++;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  if (located * 2 < keys.length) return false;
+  for (const n of counts.values()) if (n >= 2) return true;
+  return false;
+}
+
+/**
+ * Render the one marker-owned GitHub comment.
  *
  * `target` is optional so goldens, the settings preview, and other callers
  * without a PR/issue stay on the generic `--pr <N>` hint.
  *
  * `links.liveLinkUrl` swaps the footer for the "View on uploads.sh" button
- * plus a count-led footer (absent: byte-identical to before).
+ * plus the add-media hint.
  */
 export function attachmentsCommentBody(
   items: AttachmentItem[],
@@ -879,160 +1032,184 @@ export function attachmentsCommentBody(
     return inlinePosterKind(item) === "video" ? "video" : null;
   });
   const { partnerOf, roleOf } = pairAttachments(sorted, kindAt);
-  // One screenshot → large; a wall of shots → compact historical sizes.
+  // One screenshot → large; a wall of shots → compact sizes.
   const density =
     options.imageWidth === "auto"
       ? attachmentDensityForCount(countInlinableMedia(sorted, options.maxInlineImages))
       : "dense";
-  const consumedByPair = new Set<number>();
-  // All pairs share one table, placed where the first pair sorts.
-  const pairs: [AttachmentItem, AttachmentItem][] = [];
-  let pairTableAt = -1;
 
-  let inlinedImages = 0;
-  const overflowImages: AttachmentItem[] = [];
-  // Non-media attachments render as one table after the media section, never
-  // inline or in the overflow list.
+  const toEntry = (item: AttachmentItem): MediaEntry | null => {
+    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+    const href = (item.pageUrl ?? item.url) as string | null;
+    const poster = inlinePosterKind(item);
+    if (poster && item.posterUrl) {
+      return { item, name, kind: poster, src: item.posterUrl, href: href ?? item.posterUrl };
+    }
+    const src = item.embedUrl ?? item.url;
+    // Either signal: pairing goes by the filename, the rest by content type.
+    const isImage =
+      effectiveAttachmentType(item).startsWith("image/") ||
+      inferContentType(name).startsWith("image/");
+    if (src && isImage) {
+      return { item, name, kind: "image", src, href: href ?? src };
+    }
+    return null;
+  };
+
+  // Pass 1, in sorted order: what inlines (under the cap), what pairs, what
+  // falls to the file table, the bullet list or the overflow list.
+  const consumedByPair = new Set<number>();
+  const pairs: (PairRow & { at: number })[] = [];
+  const media: { entry: MediaEntry; at: number }[] = [];
+  const bullets: { item: AttachmentItem; at: number }[] = [];
   const fileItems: AttachmentItem[] = [];
+  const overflowImages: AttachmentItem[] = [];
+  let inlinedImages = 0;
   for (let idx = 0; idx < sorted.length; idx++) {
     if (consumedByPair.has(idx)) continue;
     const item = sorted[idx];
     const partnerIdx = partnerOf.get(idx);
     if (partnerIdx !== undefined) {
       const partner = sorted[partnerIdx];
+      consumedByPair.add(partnerIdx);
       if (inlinedImages + 2 <= options.maxInlineImages) {
         inlinedImages += 2;
-        consumedByPair.add(partnerIdx);
         const beforeItem = roleOf.get(idx) === "before" ? item : partner;
         const afterItem = roleOf.get(idx) === "before" ? partner : item;
-        if (pairTableAt < 0) {
-          pairTableAt = lines.length;
-          lines.push("", "");
-        }
-        pairs.push([beforeItem, afterItem]);
+        pairs.push({ before: toEntry(beforeItem), after: toEntry(afterItem), at: idx });
         continue;
       }
       // Cap already full for a two-image row — degrade this pair to two
       // ordinary overflow entries rather than only half-rendering the row.
       overflowImages.push(item, partner);
-      consumedByPair.add(partnerIdx);
       continue;
     }
-    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
-    const stable = item.url;
-    const src = item.embedUrl ?? item.url;
-    const link = item.pageUrl ?? stable; // click-through: file page when known, else raw
     const effectiveType = effectiveAttachmentType(item);
-    const isImage = Boolean(src) && effectiveType.startsWith("image/");
-    const poster = inlinePosterKind(item);
+    const entry = toEntry(item);
     if (
       !effectiveType.startsWith("image/") &&
       !effectiveType.startsWith("video/") &&
-      poster !== "pdf"
+      entry?.kind !== "pdf"
     ) {
       // Not media and not a PDF with a still: goes in the file table.
       fileItems.push(item);
       continue;
     }
-    const inlines = isImage || poster !== null;
-    if (inlines && inlinedImages >= options.maxInlineImages) {
+    if (!entry) {
+      bullets.push({ item, at: idx });
+      continue;
+    }
+    if (inlinedImages >= options.maxInlineImages) {
       // Cap hit — defer to the collapsed overflow list below rather than
       // embedding every remaining image inline.
       overflowImages.push(item);
       continue;
     }
-    if (poster === "video") {
-      inlinedImages++;
-      const autoPx = naturalMediaWidth(item.videoMeta, name, density);
-      const w = resolvedWidth(autoPx, options);
-      const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
-      lines.push(
-        `<a href="${href}">${imgTag(w, escapeHtmlAttr(name), escapeHtmlAttr(item.posterUrl as string))}</a>`,
+    inlinedImages++;
+    media.push({ entry, at: idx });
+  }
+
+  // Once the comment compares anything, a shot marked before or after with
+  // no partner at its screen/path gets its own row with an empty side.
+  if (pairs.length > 0) {
+    const sides = new Map<string, { entry: MediaEntry; at: number }[]>();
+    for (const m of media) {
+      const where = pairLocation(m.entry.item);
+      const state = m.entry.item.meta?.state?.trim().toLowerCase();
+      if (!where || m.entry.kind === "pdf" || (state !== "before" && state !== "after")) continue;
+      const key = `${m.entry.kind}:${where}`;
+      sides.set(key, [...(sides.get(key) ?? []), m]);
+    }
+    const lone = new Set<MediaEntry>();
+    for (const group of sides.values()) {
+      if (group.length !== 1) continue;
+      const { entry, at } = group[0];
+      const isBefore = entry.item.meta?.state?.trim().toLowerCase() === "before";
+      pairs.push(
+        isBefore ? { before: entry, after: null, at } : { before: null, after: entry, at },
       );
-      // GitHub strips <video>. The poster JPEG already carries a baked-in
-      // play button (Camo-visible); this caption still carries duration.
-      const parts = ["▶ Play video"];
-      if (item.videoMeta?.durationSeconds != null) {
-        parts.push(formatDuration(item.videoMeta.durationSeconds));
-      }
-      const metaCap = formatMetaCaption(item.meta, options, "html");
-      if (metaCap) parts.push(metaCap);
-      lines.push(parts.join(" · "), "");
-    } else if (poster === "pdf") {
-      inlinedImages++;
-      const autoPx = naturalMediaWidth(item.pdfMeta, name, density);
-      const w = resolvedWidth(autoPx, options);
-      const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
-      lines.push(
-        `<a href="${href}">${imgTag(w, escapeHtmlAttr(name), escapeHtmlAttr(item.posterUrl as string))}</a>`,
-      );
-      // The JPEG carries a document badge. The caption says it is a PDF,
-      // with the page count when the server measured one.
-      lines.push(pdfPosterCaption(item, options), "");
-    } else if (isImage) {
-      // Consecutive captionless small images share a line so GitHub flows
-      // them at natural size. Auto width only.
-      const smallGroupable = (candidate: AttachmentItem, i: number): boolean => {
-        if (options.imageWidth !== "auto") return false;
-        if (consumedByPair.has(i) || partnerOf.has(i)) return false;
-        if (!isSmallAsset(candidate.imageMeta)) return false;
-        if (formatMetaCaption(candidate.meta, options, "html")) return false;
-        const n = candidate.key.slice(candidate.key.lastIndexOf("/") + 1);
-        const s = candidate.embedUrl ?? candidate.url;
-        return Boolean(s) && inferContentType(n).startsWith("image/");
-      };
-      if (smallGroupable(item, idx)) {
-        const group = [item];
-        let j = idx + 1;
-        // Each grouped image still counts toward maxInlineImages.
-        while (
-          j < sorted.length &&
-          inlinedImages + group.length < options.maxInlineImages &&
-          smallGroupable(sorted[j], j)
-        ) {
-          group.push(sorted[j]);
-          j++;
-        }
-        if (group.length > 1) {
-          inlinedImages += group.length;
-          lines.push(
-            group
-              .map((g) => {
-                const gName = g.key.slice(g.key.lastIndexOf("/") + 1);
-                const gSrc = (g.embedUrl ?? g.url) as string;
-                const gHref = escapeHtmlAttr((g.pageUrl ?? g.url ?? gSrc) as string);
-                // Natural width — a small asset is never upscaled.
-                const gW = g.imageMeta?.width as number;
-                return `<a href="${gHref}">${imgTag(gW, escapeHtmlAttr(gName), escapeHtmlAttr(gSrc))}</a>`;
-              })
-              .join(" "),
-            "",
-          );
-          idx = j - 1;
-          continue;
-        }
-      }
-      inlinedImages++;
-      // Markdown images have no width control. src prefers the embed host;
-      // the click-through prefers the file page.
-      const autoPx = naturalMediaWidth(item.imageMeta, name, density);
-      const w = resolvedWidth(autoPx, options);
-      const alt = escapeHtmlAttr(name);
-      const href = escapeHtmlAttr(link ?? (src as string));
-      const imgSrc = escapeHtmlAttr(src as string);
-      lines.push(`<a href="${href}">${imgTag(w, alt, imgSrc)}</a>`);
-      const caption = formatMetaCaption(item.meta, options, "html");
-      if (caption) lines.push(caption);
-      lines.push("");
-    } else if (link) {
-      const cap = formatMetaCaption(item.meta, options, "markdown");
-      lines.push(`- [${name}](${link})${cap ? ` · ${cap}` : ""}`);
-    } else {
-      const cap = formatMetaCaption(item.meta, options, "markdown");
-      lines.push(`- ${name}${cap ? ` · ${cap}` : ""}`);
+      lone.add(entry);
+    }
+    if (lone.size > 0) {
+      const kept = media.filter((m) => !lone.has(m.entry));
+      media.length = 0;
+      media.push(...kept);
+      pairs.sort((a, b) => a.at - b.at);
     }
   }
-  if (pairTableAt >= 0) lines[pairTableAt] = renderPairTable(pairs, options, density);
+
+  // Pass 2: sections. Grouped by screen/path when most shots carry one.
+  const pairItem = (p: PairRow) => (p.after ?? p.before) as MediaEntry;
+  const keyed: { key: string; at: number; pair?: PairRow & { at: number }; entry?: MediaEntry }[] =
+    [
+      ...pairs.map((p) => ({ key: groupKeyOf(pairItem(p).item, options), at: p.at, pair: p })),
+      ...media.map((m) => ({ key: groupKeyOf(m.entry.item, options), at: m.at, entry: m.entry })),
+    ];
+  const inlineKeys = [
+    ...pairs.flatMap((p) => [p.before, p.after].filter(Boolean)),
+    ...media.map((m) => m.entry),
+  ].map((e) => groupKeyOf((e as MediaEntry).item, options));
+  const sections: Section[] = [];
+  const blank = (heading: string | null, hide = { screen: false, path: false }): Section => ({
+    heading,
+    hide,
+    pairs: [],
+    media: [],
+    links: [],
+  });
+  if (shouldGroup(inlineKeys)) {
+    const byKey = new Map<string, { at: number; members: AttachmentItem[]; section: Section }>();
+    const loose = blank("Other");
+    const sectionFor = (key: string, at: number, item: AttachmentItem): Section => {
+      if (!key) return loose;
+      let g = byKey.get(key);
+      if (!g) {
+        g = { at, members: [], section: blank(null) };
+        byKey.set(key, g);
+      }
+      g.at = Math.min(g.at, at);
+      g.members.push(item);
+      return g.section;
+    };
+    for (const k of keyed.sort((a, b) => a.at - b.at)) {
+      const item = k.pair ? pairItem(k.pair).item : (k.entry as MediaEntry).item;
+      const section = sectionFor(k.key, k.at, item);
+      if (k.pair) {
+        section.pairs.push(k.pair);
+        // Both sides belong to the group, for the shared-path check below.
+        const other = k.pair.before && k.pair.after ? k.pair.before.item : null;
+        if (other && k.key) byKey.get(k.key)?.members.push(other);
+      } else section.media.push(k.entry as MediaEntry);
+    }
+    for (const b of bullets)
+      sectionFor(groupKeyOf(b.item, options), b.at, b.item).links.push(b.item);
+    for (const [key, g] of [...byKey.entries()].sort((a, b) => a[1].at - b[1].at)) {
+      const value = key.slice(key.indexOf(":") + 1);
+      if (key.startsWith("screen:")) {
+        const paths = new Set(g.members.map((m) => m.meta?.path?.trim() ?? ""));
+        const shared = paths.size === 1 ? [...paths][0] : "";
+        const path = shared && shared !== "/" ? shared : "";
+        g.section.heading =
+          escapeMarkdownText(escapeHtmlText(value)) +
+          (path ? ` · <code>${escapeHtmlText(path)}</code>` : "");
+        g.section.hide = { screen: true, path: Boolean(path) };
+      } else {
+        g.section.heading = `<code>${escapeHtmlText(value)}</code>`;
+        g.section.hide = { screen: false, path: true };
+      }
+      sections.push(g.section);
+    }
+    if (loose.pairs.length + loose.media.length + loose.links.length > 0) sections.push(loose);
+  } else {
+    const only = blank(null);
+    only.pairs = pairs;
+    only.media = media.map((m) => m.entry);
+    only.links = bullets.map((b) => b.item);
+    sections.push(only);
+  }
+
+  for (const section of sections) renderSection(lines, section, options, density);
+
   if (fileItems.length > 0) {
     lines.push("| File | Type | Size |", "| --- | --- | --- |");
     for (const item of fileItems) {
@@ -1074,8 +1251,72 @@ export function attachmentsCommentBody(
   // never on the empty state.
   lines.push(
     links.liveLinkUrl && sorted.length > 0
-      ? liveLinkBlock(sorted.length, links.liveLinkUrl, target, heldCount > 0)
+      ? liveLinkBlock(links.liveLinkUrl, target, heldCount > 0)
       : addMediaFooter(target),
   );
   return lines.join("\n");
+}
+
+/**
+ * Heading, then before/after pairs, then media: portrait shots share a grid
+ * table (auto width only), anything else keeps its own paragraph, captionless
+ * icons flow on one line. Bullet links last.
+ */
+function renderSection(
+  lines: string[],
+  section: Section,
+  options: CommentRenderOptions,
+  density: AttachmentDensity,
+): void {
+  const metaFor = (item: AttachmentItem): AttachmentItem["meta"] => ({
+    ...item.meta,
+    screen: section.hide.screen ? undefined : item.meta?.screen,
+    path: section.hide.path ? undefined : item.meta?.path,
+  });
+  if (section.heading) lines.push(`### ${section.heading}`, "");
+  if (section.pairs.length > 0) {
+    lines.push(renderPairTable(section.pairs, metaFor, options, density), "");
+  }
+  const single = (entry: MediaEntry) => {
+    const autoPx = naturalMediaWidth(mediaDims(entry), entry.name, density);
+    lines.push(mediaLink(entry, resolvedWidth(autoPx, options)));
+    const caption = mediaCaption(entry, metaFor(entry.item), options);
+    if (caption) lines.push(caption);
+    lines.push("");
+  };
+  if (options.imageWidth !== "auto") {
+    for (const entry of section.media) single(entry);
+  } else {
+    // Buckets in order of first appearance: small icons, then each shape.
+    const buckets = new Map<"small" | GridShape, MediaEntry[]>();
+    for (const entry of section.media) {
+      const small =
+        entry.kind === "image" &&
+        isSmallAsset(entry.item.imageMeta) &&
+        !formatMetaCaption(metaFor(entry.item), options, "html");
+      const bucket = small ? "small" : gridShape(entry);
+      buckets.set(bucket, [...(buckets.get(bucket) ?? []), entry]);
+    }
+    for (const [bucket, entries] of buckets) {
+      if (entries.length === 1 || bucket === "landscape") entries.forEach(single);
+      else if (bucket === "small") {
+        // GitHub flows these at natural size; a small asset is never upscaled.
+        lines.push(
+          entries.map((e) => mediaLink(e, e.item.imageMeta?.width as number)).join(" "),
+          "",
+        );
+      } else {
+        lines.push(renderGridTable(entries, metaFor, options), "");
+      }
+    }
+  }
+  for (const item of section.links) {
+    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+    const link = item.pageUrl ?? item.url;
+    const cap = formatMetaCaption(metaFor(item), options, "markdown");
+    lines.push(
+      link ? `- [${name}](${link})${cap ? ` · ${cap}` : ""}` : `- ${name}${cap ? ` · ${cap}` : ""}`,
+    );
+  }
+  if (section.links.length > 0) lines.push("");
 }

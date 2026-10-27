@@ -492,8 +492,8 @@ describe("attachmentsCommentBody", () => {
         meta: { screen: "Chat", state: "after" },
       },
     ]);
-    expect(body).toContain("Before");
-    expect(body).toMatch(/one\.webp[\s\S]*<code>Chat<\/code>[\s\S]*two\.webp/);
+    expect(body).toContain("### Chat\n\n<table><tr><th>Before</th>");
+    expect(body).toMatch(/one\.webp[\s\S]*two\.webp/);
     expect(body.match(/<td align="center">/g)?.length).toBe(2);
   });
 
