@@ -208,6 +208,7 @@ export async function gatherCommentBody(
  * narrowness rationale still holds for a surface that posts publicly.
  */
 const COMMENT_META_KEYS = [
+  "caption",
   "screen",
   "path",
   "state",
@@ -411,7 +412,7 @@ async function gatherAttachments(
 }
 
 /**
- * Captions (screen/path/state), posters and image dimensions for the items the
+ * Captions (caption/screen/path/state), posters and image dimensions for the items the
  * comment renders. Shared with the settings preview (`commentPreviewHandler`)
  * so a video or PDF previews as the poster it will get on GitHub.
  */
@@ -438,9 +439,10 @@ export async function addCommentMetadata(
   for (const item of items) {
     const meta = metaByKey.get(item.key);
     if (!meta) continue;
-    const { screen, path, state } = meta;
-    if (screen || path || state) {
+    const { caption, screen, path, state } = meta;
+    if (caption || screen || path || state) {
       item.meta = {
+        ...(caption ? { caption } : {}),
         ...(screen ? { screen } : {}),
         ...(path ? { path } : {}),
         ...(state ? { state } : {}),

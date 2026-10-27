@@ -47,6 +47,13 @@ describe("nearMissMetaWarnings", () => {
     ]);
   });
 
+  it("treats caption as canonical and description as its near-miss", () => {
+    expect(nearMissMetaWarnings(["caption"])).toEqual([]);
+    expect(nearMissMetaWarnings(["description"])).toEqual([
+      'metadata key "description" is not canonical — did you mean "caption"?',
+    ]);
+  });
+
   it("is silent for unrecognized custom keys", () => {
     expect(nearMissMetaWarnings(["commit", "ticket"])).toEqual([]);
   });

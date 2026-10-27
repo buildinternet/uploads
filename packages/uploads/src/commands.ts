@@ -42,7 +42,12 @@ import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import { isHeldUpload } from "./upload-hold.js";
-import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
+import {
+  mergeDerivedMeta,
+  nearMissMetaWarnings,
+  validateCaptionValue,
+  validateStateValue,
+} from "./metadata-vocab.js";
 import { mergeSidecarMeta } from "./sidecar.js";
 import {
   ghAttachmentKeyForMode,
@@ -270,6 +275,8 @@ Options:
   --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
   --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
   --screen <name>       App screen shown when there's no route, e.g. "Chat" (sets meta screen=)
+  --caption <text>      What the shot shows, up to 140 characters; shown under the image in
+                        the PR comment (sets meta caption=)
   --replace             Allow overwriting an existing object on a strict (--key/default) key
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
@@ -469,7 +476,7 @@ export function warnNearMissMeta(
 }
 
 /**
- * Canonical `state`/`app`/`screen` pairs from their dedicated flags (sugar for
+ * Canonical `state`/`app`/`screen`/`caption` pairs from their dedicated flags (sugar for
  * `--meta`, mainly for `--help` discoverability and `--state` validation).
  */
 export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<string, string> {
@@ -486,6 +493,10 @@ export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<stri
   if (screen !== undefined) {
     if (screen.trim().length === 0) throw new UsageError("--screen requires a value");
     meta.screen = screen.trim();
+  }
+  const caption = flagString(flags, "--caption")?.trim();
+  if (caption !== undefined) {
+    meta.caption = validateCaptionValue(caption, "--caption");
   }
   return meta;
 }
@@ -1103,6 +1114,8 @@ Options:
   --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
   --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
   --screen <name>       App screen shown when there's no route, e.g. "Chat" (sets meta screen=)
+  --caption <text>      What the shot shows, up to 140 characters; shown under the image in
+                        the PR comment (sets meta caption=)
 
 Examples:
   uploads attach ./before.png ./after.png
@@ -4118,7 +4131,7 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
 }
 
 /** The metadata keys the managed comment renders. */
-const COMMENT_RENDERED_META_KEYS = ["screen", "path", "state"];
+const COMMENT_RENDERED_META_KEYS = ["caption", "screen", "path", "state"];
 
 /**
  * Resolve the `{repo, kind, num}` target for a plain or private-prefixed gh

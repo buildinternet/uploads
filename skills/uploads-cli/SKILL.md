@@ -635,6 +635,7 @@ to fight them by inventing a different spelling.
 | `state`    | **you** — `--state`        | `before` \| `after`            |
 | `app`      | **you** — `--app`          | `web` \| `ios`                 |
 | `screen`   | **you** — `--screen`       | `Chat`                         |
+| `caption`  | **you** — `--caption`      | `Empty state, no projects`     |
 
 **`path` and `state` are the two highest-value keys — pass both, every time,
 as a habit.** `path` is the key most worth getting right (the one agents most
@@ -651,6 +652,12 @@ it, e.g. `--app ios --screen "Chat"`. If the app has real routes (Expo
 Router, a deep link path), pass `path` as well. The PR comment shows
 `screen` and `path` under the image whenever they are set (both when both
 are), and before/after shots pair on them.
+
+**Say what a shot shows with `--caption`** (sets `caption=`) when the
+screen, path and state don't explain it, e.g. `--caption "Empty state after
+deleting the last project"`. It is plain text up to 140 printable ASCII
+characters, shown under the image in the PR comment before the other labels.
+`description=` warns as a near-miss.
 
 `uploads screenshot` derives `path` automatically from the captured URL, so
 you only need to add `--state`. `uploads put`/`uploads attach` of an
@@ -696,7 +703,7 @@ lens serial numbers, `Artist`/`Copyright`/`OwnerName`, and free-form user
 comments. Note the flip side: `device` and `software` were previously discarded
 and now become queryable metadata that renders on the public `/f/` page.
 
-**Precedence:** explicit `--meta`/`--state`/`--app`/`--screen` > screenshot capture facts >
+**Precedence:** explicit `--meta`/`--state`/`--app`/`--screen`/`--caption` > screenshot capture facts >
 sidecar manifest > EXIF > unset. Derived keys are also dropped first if the
 24-key cap is reached — your own keys are never dropped, and a full key
 budget never fails an upload.
