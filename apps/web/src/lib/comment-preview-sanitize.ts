@@ -22,6 +22,7 @@ const ALLOWED_TAGS = new Set([
   "summary",
   "table",
   "tr",
+  "th",
   "td",
   "br",
   "h3",
@@ -47,7 +48,7 @@ const STRIP_CONTENT_TAGS = new Set([
 /** Attributes kept per tag — everything else is dropped, never passed through. */
 const ALLOWED_ATTRS_BY_TAG: Record<string, ReadonlySet<string>> = {
   a: new Set(["href"]),
-  img: new Set(["src", "alt", "width", "align"]),
+  img: new Set(["src", "alt", "width", "height", "align"]),
   details: new Set(["open"]),
 };
 
@@ -113,7 +114,7 @@ function filterAttributes(tagName: string, attrsRaw: string): string {
     const value = stripUrlNoise(rawValue);
 
     if ((name === "href" || name === "src") && !isSafeUrl(value)) continue;
-    if (name === "width" && !WIDTH_RE.test(value)) continue;
+    if ((name === "width" || name === "height") && !WIDTH_RE.test(value)) continue;
     if (name === "align" && !ALIGN_RE.test(value)) continue;
 
     out += ` ${name}="${escapeAttrValue(value)}"`;

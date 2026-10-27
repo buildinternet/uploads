@@ -1,0 +1,152 @@
+{
+  "items": [
+    {
+      "key": "gh/acme/app/pull/7/admin-catalog-after.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/admin-catalog-after.png",
+      "embedUrl": "https://embed.uploads.sh/f/admin-catalog-after.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/admin-catalog-after.png",
+      "imageMeta": {
+        "width": 1440,
+        "height": 900
+      },
+      "meta": {
+        "path": "/admin/catalog",
+        "state": "after"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/admin-catalog-before.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/admin-catalog-before.png",
+      "embedUrl": "https://embed.uploads.sh/f/admin-catalog-before.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/admin-catalog-before.png",
+      "imageMeta": {
+        "width": 1440,
+        "height": 900
+      },
+      "meta": {
+        "path": "/admin/catalog",
+        "state": "before"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/catalog-after.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/catalog-after.png",
+      "embedUrl": "https://embed.uploads.sh/f/catalog-after.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-after.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Catalog",
+        "path": "/catalog",
+        "state": "after"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/catalog-before.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/catalog-before.png",
+      "embedUrl": "https://embed.uploads.sh/f/catalog-before.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-before.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Catalog",
+        "path": "/catalog",
+        "state": "before"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/catalog-empty.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/catalog-empty.png",
+      "embedUrl": "https://embed.uploads.sh/f/catalog-empty.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-empty.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Catalog",
+        "path": "/catalog",
+        "state": "empty"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/catalog-loading.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/catalog-loading.png",
+      "embedUrl": "https://embed.uploads.sh/f/catalog-loading.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-loading.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Catalog",
+        "path": "/catalog",
+        "state": "loading"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/catalog-error.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/catalog-error.png",
+      "embedUrl": "https://embed.uploads.sh/f/catalog-error.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-error.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Catalog",
+        "path": "/catalog",
+        "state": "error"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/collections.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/collections.png",
+      "embedUrl": "https://embed.uploads.sh/f/collections.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/collections.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Collections",
+        "state": "after"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/detail-empty.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/detail-empty.png",
+      "embedUrl": "https://embed.uploads.sh/f/detail-empty.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/detail-empty.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      },
+      "meta": {
+        "screen": "Product detail",
+        "state": "empty"
+      }
+    },
+    {
+      "key": "gh/acme/app/pull/7/splash.png",
+      "url": "https://uploads.sh/f/gh/acme/app/pull/7/splash.png",
+      "embedUrl": "https://embed.uploads.sh/f/splash.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/app/pull/7/splash.png",
+      "imageMeta": {
+        "width": 1179,
+        "height": 2556
+      }
+    }
+  ],
+  "galleries": [],
+  "target": {
+    "kind": "pull",
+    "num": 7
+  },
+  "liveLinkUrl": "https://uploads.sh/c/feed_layout",
+  "expected": "<!-- uploads.sh:attachments -->\n### <code>/admin/catalog</code>\n\n<table><tr><th>Before</th><th>After</th></tr><tr><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/admin-catalog-before.png\"><img width=\"320\" alt=\"admin-catalog-before.png\" src=\"https://embed.uploads.sh/f/admin-catalog-before.png\"></a></td><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/admin-catalog-after.png\"><img width=\"320\" alt=\"admin-catalog-after.png\" src=\"https://embed.uploads.sh/f/admin-catalog-after.png\"></a></td></tr></table>\n\n### Catalog · <code>/catalog</code>\n\n<table><tr><th>Before</th><th>After</th></tr><tr><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-before.png\"><img width=\"280\" alt=\"catalog-before.png\" src=\"https://embed.uploads.sh/f/catalog-before.png\"></a></td><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-after.png\"><img width=\"280\" alt=\"catalog-after.png\" src=\"https://embed.uploads.sh/f/catalog-after.png\"></a></td></tr></table>\n\n<table><tr><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-empty.png\"><img width=\"240\" alt=\"catalog-empty.png\" src=\"https://embed.uploads.sh/f/catalog-empty.png\"></a><br><code>empty</code></td><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-error.png\"><img width=\"240\" alt=\"catalog-error.png\" src=\"https://embed.uploads.sh/f/catalog-error.png\"></a><br><code>error</code></td><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/catalog-loading.png\"><img width=\"240\" alt=\"catalog-loading.png\" src=\"https://embed.uploads.sh/f/catalog-loading.png\"></a><br><code>loading</code></td></tr></table>\n\n### Collections\n\n<table><tr><th>Before</th><th>After</th></tr><tr><td align=\"center\"><img width=\"280\" height=\"607\" alt=\"No before shot\" src=\"https://uploads.sh/brand/comment/no-before.svg\"></td><td align=\"center\"><a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/collections.png\"><img width=\"280\" alt=\"collections.png\" src=\"https://embed.uploads.sh/f/collections.png\"></a></td></tr></table>\n\n### Product detail\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/detail-empty.png\"><img width=\"280\" alt=\"detail-empty.png\" src=\"https://embed.uploads.sh/f/detail-empty.png\"></a>\n<code>empty</code>\n\n### Other\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/app/pull/7/splash.png\"><img width=\"280\" alt=\"splash.png\" src=\"https://embed.uploads.sh/f/splash.png\"></a>\n\n<a href=\"https://uploads.sh/c/feed_layout\"><img height=\"36\" alt=\"View on uploads.sh\" src=\"https://uploads.sh/brand/comment/view-on-uploads.svg\"></a>\n\n<sub><code>uploads put &lt;file&gt; --pr 7</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+}

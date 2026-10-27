@@ -173,7 +173,10 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       "- [shot-17.png](https://uploads.sh/f/acme/shot-17.png) · `/a_b[c]*d~e~` · `after`",
     );
     // HTML context: <code> needs no markdown escaping, so the value is verbatim.
-    expect(body).toContain("<code>/a_b[c]*d~e~</code> · <code>after</code>");
+    // Every inline shot shares the path, so it heads the group and the
+    // captions keep only the state.
+    expect(body).toContain("### <code>/a_b[c]*d~e~</code>");
+    expect(body).toContain('.png"></a>\n<code>after</code>');
   });
 
   describe("before/after pairing (issue #419)", () => {
@@ -196,8 +199,10 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       const afterIdx = body.indexOf("a.webp");
       expect(beforeIdx).toBeGreaterThan(-1);
       expect(beforeIdx).toBeLessThan(afterIdx);
-      // Each side keeps its path caption; the header carries the state.
-      expect(body).toContain('.webp"></a><br><code>/settings</code></td>');
+      // The shared path heads the group; the column header carries the state.
+      expect(body).toContain("### <code>/settings</code>\n\n<table>");
+      expect(body).toContain('.webp"></a></td>');
+      expect(body).not.toContain("<br><code>/settings</code>");
       expect(body).not.toContain("<code>before</code>");
       // Only one table row — no leftover standalone <img> rendering for these two.
       expect(body.match(/<table>/g)).toHaveLength(1);
@@ -269,7 +274,7 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       expect(body).not.toContain("<table>");
     });
 
-    it("mixes a pair with other unrelated attachments, keeping sorted-key order", () => {
+    it("mixes a pair with other unrelated attachments, pairs first", () => {
       const body = attachmentsCommentBody([
         img("gh/acme/web/pull/12/aaa-solo.webp"),
         img("gh/acme/web/pull/12/mid-after.webp"),
@@ -279,8 +284,9 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       const soloIdx = body.indexOf("aaa-solo.webp");
       const tableIdx = body.indexOf("<table>");
       const zzzIdx = body.indexOf("zzz-solo.webp");
-      expect(soloIdx).toBeLessThan(tableIdx);
-      expect(tableIdx).toBeLessThan(zzzIdx);
+      // The pair table leads; the rest keep sorted-key order after it.
+      expect(tableIdx).toBeLessThan(soloIdx);
+      expect(soloIdx).toBeLessThan(zzzIdx);
       expect(body.match(/<table>/g)).toHaveLength(1);
     });
 
@@ -526,6 +532,30 @@ const goldenLiveLink = JSON.parse(
   expected: string;
 };
 
+const goldenLayout = JSON.parse(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../../test/fixtures/github-comment-golden-layout.json", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as typeof goldenLiveLink;
+
+describe("grouped layout (CLI copy)", () => {
+  it("renders the layout golden: headings, pairs, a phone grid, a missing before", () => {
+    expect(
+      attachmentsCommentBody(
+        goldenLayout.items,
+        goldenLayout.galleries,
+        ATTACHMENTS_MARKER,
+        AUTO_RENDER_OPTIONS,
+        goldenLayout.target,
+        { liveLinkUrl: goldenLayout.liveLinkUrl },
+      ),
+    ).toBe(goldenLayout.expected);
+  });
+});
+
 describe("live link line (CLI copy)", () => {
   const one: AttachmentItem[] = [
     {
@@ -547,7 +577,7 @@ describe("live link line (CLI copy)", () => {
     ).toBe(goldenLiveLink.expected);
   });
 
-  it("uses the singular for one file", () => {
+  it("drops the file count from the footer", () => {
     const body = attachmentsCommentBody(
       one,
       [],
@@ -559,7 +589,7 @@ describe("live link line (CLI copy)", () => {
       },
     );
     expect(body).toContain(
-      `<a href="https://uploads.sh/c/feed_x"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub>1 file · `,
+      `<a href="https://uploads.sh/c/feed_x"><img height="36" alt="View on uploads.sh" src="https://uploads.sh/brand/comment/view-on-uploads.svg"></a>\n\n<sub><code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · `,
     );
   });
 

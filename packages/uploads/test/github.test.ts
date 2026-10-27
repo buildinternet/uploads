@@ -492,8 +492,8 @@ describe("attachmentsCommentBody", () => {
         meta: { screen: "Chat", state: "after" },
       },
     ]);
-    expect(body).toContain("Before");
-    expect(body).toMatch(/one\.webp[\s\S]*<code>Chat<\/code>[\s\S]*two\.webp/);
+    expect(body).toContain("### Chat\n\n<table><tr><th>Before</th>");
+    expect(body).toMatch(/one\.webp[\s\S]*two\.webp/);
     expect(body.match(/<td align="center">/g)?.length).toBe(2);
   });
 
@@ -529,6 +529,7 @@ describe("attachmentsCommentBody", () => {
     ]);
     const cut = body.match(/<br>(word[^<]*)…/)?.[1] ?? "";
     expect(cut.length).toBeLessThan(140);
-    expect(body).toContain("Unread &#124; badge · <code>Chat</code></td>");
+    // The screen heads the group, so the cell keeps only the caption.
+    expect(body).toContain("Unread &#124; badge</td>");
   });
 });
