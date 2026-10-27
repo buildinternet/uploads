@@ -1576,6 +1576,14 @@ keys over a window:
 CLOUDFLARE_API_TOKEN=… node scripts/attachment-index-shadow-report.mjs --hours 24
 ```
 
+Totals come from Workers Logs `calculations` counts. Over a busy window the
+backend samples, so they print with "≈" and are its extrapolated estimate.
+Mismatched lines are fetched as events filtered on `missingCount > 0` /
+`extraCount > 0` and paged to the end, so the mismatch count and key lists
+are exact rows, not estimates. Do not total shadow lines from an events
+query: one page holds 50 rows unless `limit` is sent at the top level of
+the request, not inside `parameters`.
+
 Under the hood: one Workers Logs line per real sync while the flag is on
 (link adoption's pre-write baseline gather opts out), `component:
 "attachment-index"`, `event: "shadow"`. The line has no `message` field, so
