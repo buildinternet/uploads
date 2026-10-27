@@ -4,7 +4,12 @@
  * Workers as well as Node.
  */
 import { UploadsError } from "../errors.js";
-import { META_STATE_VALUES, validateStateValue } from "../metadata-vocab.js";
+import {
+  META_CAPTION_MAX,
+  META_STATE_VALUES,
+  validateCaptionValue,
+  validateStateValue,
+} from "../metadata-vocab.js";
 
 export type ToolArgs = Record<string, unknown>;
 
@@ -78,7 +83,7 @@ export const METADATA_PATH_CUE = "Use `path` for the route (e.g. /settings), not
 export const METADATA_DESCRIPTION =
   "Queryable tags for later search (key→value). " +
   METADATA_PATH_CUE +
-  " Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app` and `screen` have their own fields.";
+  " Omit to leave existing tags; pass an object (even {}) to replace them. `state`, `app`, `screen` and `caption` have their own fields.";
 
 export const metadataProp = {
   type: "object",
@@ -109,8 +114,15 @@ export const screenProp = {
     'The app screen shown, for views with no route (a mobile or desktop screen), e.g. "Chat". Shown under the image in the PR comment. Use `path` in metadata for web routes.',
 };
 
+export const captionProp = {
+  type: "string",
+  maxLength: META_CAPTION_MAX,
+  description:
+    'What the shot shows, in plain words (up to 140 printable ASCII characters), e.g. "Empty state after deleting the last project". Shown under the image in the PR comment.',
+};
+
 /**
- * Canonical `state`/`app`/`screen` pairs from their dedicated tool params. The schema
+ * Canonical `state`/`app`/`screen`/`caption` pairs from their dedicated tool params. The schema
  * enum already constrains `state` for well-behaved clients; re-validate here
  * because a schema is a hint, not an enforcement boundary.
  */
@@ -138,13 +150,21 @@ export function canonicalMetaFromArgs(args: ToolArgs): Record<string, string> {
   }
   const screen = optString(args, "screen")?.trim();
   if (screen) meta.screen = screen;
+  const caption = optString(args, "caption")?.trim();
+  if (caption) {
+    try {
+      meta.caption = validateCaptionValue(caption, "caption");
+    } catch (err) {
+      usage(err instanceof Error ? err.message : String(err));
+    }
+  }
   return meta;
 }
 
 /**
- * The `metadata` tool arg merged with the canonical `state`/`app`/`screen` params.
+ * The `metadata` tool arg merged with the canonical `state`/`app`/`screen`/`caption` params.
  * `undefined` (leave stored metadata untouched) is preserved only when the
- * caller supplied none of the three.
+ * caller supplied none of them.
  */
 export function metadataArgWithCanonical(args: ToolArgs): Record<string, string> | undefined {
   const canonical = canonicalMetaFromArgs(args);

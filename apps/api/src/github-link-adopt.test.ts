@@ -264,6 +264,7 @@ describe("adoptLinkedFiles", () => {
       detached: [],
       skipped: [],
       synced: false,
+      syncWanted: false,
     });
   });
 
@@ -458,7 +459,7 @@ describe("adoptLinkedFilesForWebhook", () => {
         num: NUM,
         source: "body",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
   });
 
   it("no-ops when adoptLinkedFiles resolves off via repo config", async () => {
@@ -478,7 +479,7 @@ describe("adoptLinkedFilesForWebhook", () => {
         { repo: REPO, kind: "pull", num: NUM, source: "body" },
         { fetchImpl },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
   });
 });
 

@@ -415,6 +415,16 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         <div class="ul-callout status" data-state="ready" role="status">Redirecting…</div>
       </div>
 
+      <div id="handed-off" hidden>
+        <div class="ul-callout status" data-state="ready" role="status" id="handed-off-message">
+        </div>
+        <p class="muted" style="margin:14px 0 0;font-size:var(--text-meta)">
+          Didn't switch back? <a class="linklike" id="handed-off-retry" href="#"
+            >Open the app again</a
+          >.
+        </p>
+      </div>
+
       <Footer compact />
     </main>
     <script define:vars={{ authOrigin }}>
@@ -435,6 +445,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       } from "../../lib/auth-client";
       import {
         consentTrust,
+        handoffMessage,
         redirectDestinationFromQuery,
         type RedirectDestination,
       } from "../../lib/oauth-redirect-destination";
@@ -479,6 +490,9 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const denyBtn = requireElement<HTMLButtonElement>("#deny-btn");
       const confirmError = requireElement<HTMLElement>("#confirm-error");
       const redirecting = requireElement<HTMLElement>("#redirecting");
+      const handedOff = requireElement<HTMLElement>("#handed-off");
+      const handedOffMessage = requireElement<HTMLElement>("#handed-off-message");
+      const handedOffRetry = requireElement<HTMLAnchorElement>("#handed-off-retry");
 
       // Human copy + iconography for the scopes this AS issues (see
       // docs/superpowers/specs/2026-07-17-oauth-authorization-server-design.md —
@@ -542,6 +556,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           noWorkspace,
           confirmBox,
           redirecting,
+          handedOff,
         ];
         for (const el of panels) {
           el.hidden = true;
@@ -786,6 +801,18 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         hideAll();
         redirecting.hidden = false;
         location.href = result.redirectUri;
+
+        // An app-scheme redirect opens the app and leaves this tab here, so
+        // swap "Redirecting…" for a done state once the handoff has fired.
+        const done = handoffMessage(result.redirectUri, accept, clientName.textContent ?? "");
+        if (done) {
+          window.setTimeout(() => {
+            hideAll();
+            handedOffMessage.textContent = done;
+            handedOffRetry.href = result.redirectUri;
+            handedOff.hidden = false;
+          }, 1200);
+        }
       }
 
       requireElement<HTMLButtonElement>("#session-retry").addEventListener("click", () => {

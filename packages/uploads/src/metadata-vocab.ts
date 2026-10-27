@@ -1,8 +1,9 @@
 /**
  * The canonical upload metadata vocabulary: a small closed set of keys that
  * `uploads find` can rely on being spelled consistently. Most are derived (see
- * capture-facts.ts / image-facts.ts); only `state`, `app` and `screen` are
- * typed by hand. `screen` names an app view with no route (mobile, desktop).
+ * capture-facts.ts / image-facts.ts); only `state`, `app`, `screen` and
+ * `caption` are typed by hand. `screen` names an app view with no route
+ * (mobile, desktop); `caption` is free text saying what the shot shows.
  *
  * Design: .context/2026-07-21-upload-metadata-vocabulary-design.md
  */
@@ -13,6 +14,7 @@ export const CANONICAL_META_KEYS = [
   "url",
   "path",
   "screen",
+  "caption",
   "env",
   "theme",
   "viewport",
@@ -75,11 +77,29 @@ export function validateStateValue(raw: string): MetaStateValue {
   );
 }
 
+/** Longest `caption` accepted; the PR comment shows it in full under the image. */
+export const META_CAPTION_MAX = 140;
+
+/** Validate a trimmed caption value. `label` names the flag or field in errors. */
+export function validateCaptionValue(value: string, label: string): string {
+  if (value.length === 0) throw new UsageError(`${label} requires a value`);
+  if (value.length > META_CAPTION_MAX) {
+    throw new UsageError(
+      `${label} is ${value.length} characters; keep it to ${META_CAPTION_MAX} or fewer`,
+    );
+  }
+  if (!/^[\x20-\x7E]+$/.test(value)) {
+    throw new UsageError(`${label} must be printable ASCII (no emoji or curly quotes)`);
+  }
+  return value;
+}
+
 /** Common misspellings of canonical keys, mapped to the canonical spelling. */
 const META_KEY_ALIASES: Readonly<Record<string, CanonicalMetaKey>> = {
   route: "path",
   page: "path",
   view: "screen",
+  description: "caption",
   pathname: "path",
   mode: "theme",
   appearance: "theme",
