@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   consentTrust,
   describeRedirectDestination,
+  handoffMessage,
   redirectDestinationFromQuery,
 } from "./oauth-redirect-destination";
 
@@ -74,5 +75,24 @@ describe("consentTrust", () => {
       "unverified-web",
     );
     expect(consentTrust(undefined, null)).toBe("unverified-web");
+  });
+});
+
+describe("handoffMessage", () => {
+  it("says the flow is done after handing off to an app scheme", () => {
+    expect(handoffMessage("claude://claude.ai/mcp-auth-callback?code=x", true, "Claude")).toBe(
+      "You're connected to Claude. You can close this window.",
+    );
+  });
+
+  it("covers a denied request and a blank client name", () => {
+    expect(handoffMessage("cursor://anysphere/cb", false, "  ")).toBe(
+      "You denied access to the app. You can close this window.",
+    );
+  });
+
+  it("stays null for web and loopback redirects, which navigate away", () => {
+    expect(handoffMessage("https://claude.ai/api/mcp/auth_callback", true, "Claude")).toBeNull();
+    expect(handoffMessage("http://127.0.0.1:8123/callback", true, "uploads CLI")).toBeNull();
   });
 });

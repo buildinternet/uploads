@@ -59,3 +59,21 @@ export function consentTrust(
   if (destination && destination.kind !== "web") return "unverified-local";
   return "unverified-web";
 }
+
+/**
+ * What the consent page says once it has handed a redirect to another app,
+ * or null when the browser will navigate away on its own. A private-use
+ * scheme (`claude://`, `cursor://`) opens the app and leaves this tab on
+ * "Redirecting…" forever, so the page says the flow is done instead.
+ */
+export function handoffMessage(
+  redirectUri: string,
+  accepted: boolean,
+  clientName: string,
+): string | null {
+  if (describeRedirectDestination(redirectUri)?.kind !== "app") return null;
+  const name = clientName.trim() || "the app";
+  return accepted
+    ? `You're connected to ${name}. You can close this window.`
+    : `You denied access to ${name}. You can close this window.`;
+}
