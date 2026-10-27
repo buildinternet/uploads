@@ -1600,6 +1600,40 @@ it exceeded one second. Either way the sync completed from the fan-out.
 Fails closed like the other flags: a missing `FLAGS` binding, a disabled
 flag, or a thrown evaluation all mean no shadow.
 
+## Attachment index read (issue #955)
+
+Phase 3: behind Flagship `attachment-index-read` (same app), the managed
+comment renders its attachments from `github_attachments` instead of listing
+R2. Off by default; fails closed like the other flags. Create it once
+(boolean, served off), then flip it:
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-read --description "#955 phase 3: render the managed comment from the index"
+```
+
+```bash
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-read --default on
+```
+
+With it on, a sync makes no R2 `ListObjects` call unless one of these holds:
+
+- **List-on-miss.** The index has no rows for the target but `file_metadata`
+  has a `gh.ref` row for it: objects that predate #938. The sync lists R2
+  as before and logs `component: "attachment-index"`, `event:
+"list-on-miss"`. That count is the backfill's sizing number; it drops to
+  zero once the backfill lands.
+- **Imports.** The ingest ledger has a live row for the target, so the
+  import folders are listed (imports have no index rows).
+- **Read failure.** The index read threw (`"attachment index: read
+failed"`); the sync lists R2.
+
+Object and poster URLs come from the row's `lane_id` (NULL or a removed
+lane means the active lane). The poster is no longer probed with `exists()`,
+so a poster deleted out of band renders as a broken image. Turning the flag
+off reverts both.
+
 ## Deploys
 
 Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.

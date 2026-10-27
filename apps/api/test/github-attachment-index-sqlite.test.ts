@@ -24,10 +24,14 @@ import {
 import { getOrMintPrefixId } from "../src/github-private-prefixes";
 import { database, SqliteD1 } from "./helpers/sqlite-d1";
 
-const MIGRATIONS = ["migrations/20260903120000_github_attachments.sql"];
+const MIGRATIONS = [
+  "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
+];
 
 const MIGRATIONS_WITH_PREFIXES = [
   "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
   "migrations/20260811210000_github_private_prefixes.sql",
 ];
 
@@ -122,6 +126,27 @@ describe("recordAttachment", () => {
         createdAt: "2026-09-03T00:00:00.000Z",
         updatedAt: "2026-09-03T00:00:00.000Z",
         detachedAt: null,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("stores size and content type, and keeps them when a later write omits them", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row({ size: 2048, contentType: "image/png" }));
+      await recordAttachment(db, row({ source: "attach" }));
+      expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/hero.png")).toMatchObject({
+        size: 2048,
+        contentType: "image/png",
+        source: "attach",
+      });
+      await recordAttachment(db, row({ size: 10, contentType: "image/jpeg" }));
+      expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/hero.png")).toMatchObject({
+        size: 10,
+        contentType: "image/jpeg",
       });
     } finally {
       sqlite.close();

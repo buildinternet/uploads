@@ -18,6 +18,7 @@ const MIGRATIONS = [
   "migrations/20260829120000_auth_user_notify_member_join.sql",
   "migrations/20260829130000_auth_user_notify_usage_limits.sql",
   "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20261004120100_pr_activity_title_state.sql",
   "migrations/20261007120000_client_activity.sql",

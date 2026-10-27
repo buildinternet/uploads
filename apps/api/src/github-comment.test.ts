@@ -12,6 +12,7 @@ import { posterKeyFor } from "./poster";
 import { getOrMintPrefixId } from "./github-private-prefixes";
 import { detachAttachment, recordAttachment } from "./github-attachment-index";
 import { SHADOW_TIMEOUT_MS } from "./github-attachment-shadow";
+import { recordIngestedAsset } from "./github-ingest-ledger";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
 import { PASSWORD_PROTECTED_PDF } from "../test/pdf-fixture";
@@ -21,8 +22,10 @@ import { SqliteD1, database } from "../test/helpers/sqlite-d1";
 const MIGRATION = [
   "migrations/20260711180000_galleries.sql",
   "migrations/20260713210559_file_metadata.sql",
+  "migrations/20260811120000_github_ingested_assets.sql",
   "migrations/20260811210000_github_private_prefixes.sql",
   "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
   "migrations/20261004120000_feeds_source.sql",
@@ -803,7 +806,8 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
 });
 
 describe("gatherCommentBody attachment index shadow compare (#934 phase 2)", () => {
-  const FLAG_ON = { getBooleanValue: async () => true };
+  // The shadow flag only: the read flag (#955) would make the index the render.
+  const FLAG_ON = { getBooleanValue: async (k: string) => k === "attachment-index-shadow" };
   const FLAG_OFF = { getBooleanValue: async (_k: string, def: boolean) => def };
   const target = { repo: "acme/web", num: 12, kind: "pull" as const };
   const indexRow = (objectKey: string) => ({
@@ -1035,6 +1039,228 @@ describe("gatherCommentBody attachment index shadow compare (#934 phase 2)", () 
     expect((await gatherCommentBody(env, ws, workspaceName, target)).count).toBe(1);
     expect(shadowLogs(log)).toEqual([]);
     expect(error.mock.calls.some((c) => String(c[0]).includes("shadow"))).toBe(true);
+  });
+});
+
+describe("gatherCommentBody attachment index read (#955 phase 3)", () => {
+  const FLAGS_ON = { getBooleanValue: async () => true };
+  const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+  const indexRow = (
+    objectKey: string,
+    extra: Partial<Parameters<typeof recordAttachment>[1]> = {},
+  ) => ({
+    workspace: "acme",
+    repo: "acme/web",
+    kind: "pull" as const,
+    num: 12,
+    objectKey,
+    prefixId: null,
+    laneId: null,
+    source: "put" as const,
+    ...extra,
+  });
+
+  function readEnv() {
+    const t = makeTestEnv();
+    (t.env as { FLAGS?: unknown }).FLAGS = FLAGS_ON;
+    const list = vi.spyOn(t.bucket, "list");
+    const head = vi.spyOn(t.bucket, "head");
+    return { ...t, list, head };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders a plain-prefix attachment from the index with zero listObjects calls", async () => {
+    const { env, ws, workspaceName, bucket, list } = readEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await recordAttachment(env.DB, indexRow(key, { size: 8, contentType: "image/png" }));
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(result.count).toBe(1);
+    const urls = objectPublicUrls(env, await storageConfig(env, ws), key);
+    expect(result.body).toContain((urls.embedUrl ?? urls.url) as string);
+  });
+
+  it("renders a private-prefix attachment from the index with zero listObjects calls", async () => {
+    const { env, ws, workspaceName, bucket, list } = readEnv();
+    const id = await getOrMintPrefixId(env.DB, "acme/web", "feat");
+    const key = `${ghPrivateKeyPrefix(id, target)}shot.png`;
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await recordAttachment(env.DB, indexRow(key, { prefixId: id }));
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target, { headBranch: "feat" });
+
+    expect(list).not.toHaveBeenCalled();
+    expect(result.count).toBe(1);
+    expect(result.body).toContain("shot.png");
+  });
+
+  it("takes size and content type from the row for the non-media file table", async () => {
+    const { env, ws, workspaceName, list } = readEnv();
+    await recordAttachment(
+      env.DB,
+      indexRow("gh/acme/web/pull/12/notes.txt", { size: 2048, contentType: "text/plain" }),
+    );
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(result.body).toContain("notes.txt");
+    expect(result.body).toContain("2.0 KB");
+  });
+
+  it("never renders a detached row or one stamped gh.detached", async () => {
+    const { env, ws, workspaceName, list } = readEnv();
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/kept.png"));
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/gone.png"));
+    await detachAttachment(env.DB, "acme", "gh/acme/web/pull/12/gone.png");
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/meta-gone.png"));
+    await replaceFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/meta-gone.png", {
+      "gh.detached": "true",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(result.count).toBe(1);
+    expect(result.body).toContain("kept.png");
+    expect(result.body).not.toContain("gone.png");
+  });
+
+  it("derives the poster from the row's lane without probing storage", async () => {
+    const { env, ws, workspaceName, list, head } = readEnv();
+    const key = "gh/acme/web/pull/12/clip.mp4";
+    await recordAttachment(env.DB, indexRow(key, { contentType: "video/mp4" }));
+    await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(head).not.toHaveBeenCalled();
+    const urls = objectPublicUrls(env, await storageConfig(env, ws), posterKeyFor(key));
+    expect(result.body).toContain((urls.embedUrl ?? urls.url) as string);
+  });
+
+  it("builds object and poster URLs from a fallback lane named by lane_id", async () => {
+    const { env, ws, workspaceName, list } = readEnv();
+    (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = new FakeR2Bucket();
+    const wsWithFallback: WorkspaceRecord = {
+      ...ws,
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          publicBaseUrl: "https://storage.customer.example.com",
+        },
+      ],
+    };
+    const key = "gh/acme/web/pull/12/clip.mp4";
+    await recordAttachment(env.DB, indexRow(key, { laneId: "lane_fallback1" }));
+    await recordAttachment(
+      env.DB,
+      indexRow("gh/acme/web/pull/12/gone-lane.png", { laneId: "lane_removed" }),
+    );
+    await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
+
+    const result = await gatherCommentBody(env, wsWithFallback, workspaceName, target);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(result.body).toContain(`https://storage.customer.example.com/${posterKeyFor(key)}`);
+    // An id no longer among the lanes falls back to the active lane.
+    const activeUrls = objectPublicUrls(
+      env,
+      await storageConfig(env, wsWithFallback),
+      "gh/acme/web/pull/12/gone-lane.png",
+    );
+    expect(result.body).toContain((activeUrls.embedUrl ?? activeUrls.url) as string);
+  });
+
+  it("trusts an empty index when the target has no gh.ref metadata", async () => {
+    const { env, ws, workspaceName, list } = readEnv();
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(result.count).toBe(0);
+    expect(result.body).toContain("_No attachments are currently associated");
+  });
+
+  it("falls back to listing R2 when the index is empty but gh.ref metadata exists", async () => {
+    const { env, ws, workspaceName, bucket, list } = readEnv();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const key = "gh/acme/web/pull/12/legacy.png";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, workspaceName, key, { "gh.ref": "acme/web#12" });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).toHaveBeenCalled();
+    expect(result.count).toBe(1);
+    expect(result.body).toContain("legacy.png");
+    const lines = log.mock.calls
+      .map((c) => {
+        try {
+          return JSON.parse(String(c[0])) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((l) => l?.component === "attachment-index");
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "list-on-miss", repo: "acme/web", num: 12 }),
+    );
+  });
+
+  it("lists only the import folders, and only when the ingest ledger has a live row", async () => {
+    const { env, ws, workspaceName, bucket, list } = readEnv();
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/hero.png"));
+    const ingestKey = "gh/acme-web/pull-12/asset.png";
+    await bucket.put(`acme/${ingestKey}`, PNG, { httpMetadata: { contentType: "image/png" } });
+
+    // No ledger row yet: the import folder is not listed and does not render.
+    let result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(list).not.toHaveBeenCalled();
+    expect(result.count).toBe(1);
+
+    await recordIngestedAsset(env.DB, {
+      repo: "acme/web",
+      assetId: "assets/abc",
+      workspace: "acme",
+      objectKey: ingestKey,
+      kind: "pull",
+      num: 12,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+    result = await gatherCommentBody(env, ws, workspaceName, target);
+    const prefixes = list.mock.calls.map((c) => c[0]?.prefix);
+    expect(prefixes).toEqual(["acme/gh/acme-web/pull-12/"]);
+    expect(result.count).toBe(2);
+    expect(result.body).toContain("asset.png");
+  });
+
+  it("lists R2 as before with the flag off", async () => {
+    const { env, ws, workspaceName, bucket, list } = readEnv();
+    (env as { FLAGS?: unknown }).FLAGS = {
+      getBooleanValue: async (_k: string, def: boolean) => def,
+    };
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+
+    expect(list).toHaveBeenCalled();
+    expect(result.count).toBe(1);
   });
 });
 

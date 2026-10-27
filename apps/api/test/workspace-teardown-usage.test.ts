@@ -12,6 +12,7 @@ const MIGRATIONS = [
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260730170533_delete_usage_claims.sql",
   "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
 ];

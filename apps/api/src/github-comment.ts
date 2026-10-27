@@ -27,6 +27,9 @@ import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listPrefixIdsForTarget } from "./github-private-prefixes";
 import { ingestKeyPrefixes } from "./github-ingest";
+import { ledgerRowsForTarget } from "./github-ingest-ledger";
+import { attachmentIndexReadEnabled, readIndexedAttachments } from "./github-attachment-index-read";
+import type { StorageConfig } from "@uploads/storage";
 import {
   reportAttachmentIndexShadow,
   startAttachmentIndexShadow,
@@ -301,13 +304,20 @@ async function gatherAttachments(
     target,
     gatherOpts,
   );
+  // #955 phase 3: render managed attachments from the D1 index instead of
+  // listing R2 (flag-gated; null means list as before, see
+  // github-attachment-index-read.ts for list-on-miss).
+  const indexed = (await attachmentIndexReadEnabled(env))
+    ? await readIndexedAttachments(env, ws, workspaceName, target, linkToFilePage)
+    : null;
+
   // #934 phase 2: read the attachment index in the shadow of the R2 listing
   // below (flag-gated, never renders, never throws or outlives its
   // timeout); compared once the detach filter has settled what actually
   // renders. Started after the prefix lookup so it is never the request's
-  // first D1 query.
+  // first D1 query. Skipped when the index IS the render.
   const indexShadow =
-    gatherOpts.shadow === false
+    gatherOpts.shadow === false || indexed
       ? Promise.resolve(null)
       : startAttachmentIndexShadow(env, workspaceName, target);
 
@@ -315,21 +325,32 @@ async function gatherAttachments(
   // in their own folders; the detach filter below drops removed ones.
   const ingestPrefixes = ingestKeyPrefixes(target, activePrefixIds);
 
-  const prefixes = [
+  const managedPrefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
-    ...ingestPrefixes,
   ];
+  const prefixes = [...managedPrefixes, ...ingestPrefixes];
 
   // Independent of the listing below, so it overlaps it. A moved hold
   // (`held-storage.ts`) has no public object to list.
   const heldKeysPromise = listHeldKeysSafe(env, workspaceName);
 
+  // Imports have no index rows (the index tracks managed attachments only).
+  // With the index serving the render, their folders are still listed, but
+  // only when the ingest ledger holds an active row for this workspace, so
+  // a target with no imports lists nothing. The listing, not the ledger,
+  // decides what renders: a ledger row can outlive a deleted object.
+  const listed = indexed
+    ? (await hasActiveImports(env, workspaceName, target))
+      ? ingestPrefixes
+      : []
+    : prefixes;
+
   // Paginated per-prefix, but the prefixes themselves are independent — run
   // them concurrently and concatenate in prefix order, so output ordering is
   // unchanged (plain first, then ids in listActivePrefixIds order).
   const perPrefixItems = await Promise.all(
-    prefixes.map(async (prefix) => {
+    listed.map(async (prefix) => {
       const prefixItems: AttachmentItem[] = [];
       let cursor: string | undefined;
       do {
@@ -352,7 +373,7 @@ async function gatherAttachments(
       return prefixItems;
     }),
   );
-  let items: AttachmentItem[] = perPrefixItems.flat();
+  let items: AttachmentItem[] = [...(indexed?.items ?? []), ...perPrefixItems.flat()];
 
   // Detach filter (issue #709) runs unconditionally — D1 rows are
   // tenant-scoped by `workspaceName` (the caller's own slug), not by
@@ -406,20 +427,43 @@ async function gatherAttachments(
 
   if (!showMetadata || items.length === 0) return { items, liveLinkUrl, heldCount };
 
-  await addCommentMetadata(env, ws, workspaceName, items);
+  await addCommentMetadata(env, ws, workspaceName, items, indexed?.laneConfigByKey);
   return { items, liveLinkUrl, heldCount };
+}
+
+/**
+ * Whether the ingest ledger has a live import for this target in this
+ * workspace. A failed read counts as yes, so the folders are listed.
+ */
+async function hasActiveImports(
+  env: Env,
+  workspaceName: string,
+  target: GhTarget,
+): Promise<boolean> {
+  try {
+    const rows = await ledgerRowsForTarget(dbFor(env), target.repo, target.kind, target.num);
+    return rows.some((row) => row.workspace === workspaceName && row.detachedAt === null);
+  } catch (err) {
+    console.error({ event: "ingest_ledger_lookup_failed", workspace: workspaceName, err });
+    return true;
+  }
 }
 
 /**
  * Captions (screen/path/state), posters and image dimensions for the items the
  * comment renders. Shared with the settings preview (`commentPreviewHandler`)
  * so a video or PDF previews as the poster it will get on GitHub.
+ *
+ * @param laneConfigByKey Set when the items came from the attachment index
+ *   (#955 phase 3): a listed key's poster takes its object's lane from here
+ *   with no `exists()` probe. Keys not in the map resolve as before.
  */
 export async function addCommentMetadata(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   items: AttachmentItem[],
+  laneConfigByKey?: Map<string, StorageConfig>,
 ): Promise<void> {
   if (items.length === 0) return;
   const metaByKey = await getMetadataForKeys(
@@ -457,7 +501,7 @@ export async function addCommentMetadata(
         ? item.contentType
         : inferContentType(name);
     if (effectiveType === "application/pdf" && meta["pdf.poster"] === "1") {
-      item.posterUrl = await resolvePosterUrl(env, resolver, item.key);
+      item.posterUrl = await resolvePosterUrl(env, resolver, item.key, laneConfigByKey);
       const pages = Number(meta["pdf.pages"]);
       const width = Number(meta["pdf.width"]);
       const height = Number(meta["pdf.height"]);
@@ -467,7 +511,7 @@ export async function addCommentMetadata(
         ...(Number.isFinite(height) && height > 0 ? { height } : {}),
       };
     } else if (effectiveType.startsWith("video/") && meta["video.poster"] === "1") {
-      item.posterUrl = await resolvePosterUrl(env, resolver, item.key);
+      item.posterUrl = await resolvePosterUrl(env, resolver, item.key, laneConfigByKey);
       const duration = Number(meta["video.duration"]);
       const width = Number(meta["video.width"]);
       const height = Number(meta["video.height"]);
@@ -510,11 +554,15 @@ async function resolvePosterUrl(
   env: Env,
   resolver: ReturnType<typeof createLaneResolver>,
   key: string,
+  laneConfigByKey?: Map<string, StorageConfig>,
 ): Promise<string | null> {
   const posterKey = posterKeyFor(key);
-  const posterLane = await resolver.resolve(posterKey);
-  if (!posterLane) return null;
-  const posterUrls = objectPublicUrls(env, posterLane.config, posterKey);
+  // From the index row's lane (#955): posters are written with their object
+  // and deleted with it, so no probe. A poster removed out of band renders
+  // as a broken image instead of being omitted; the read flag reverts this.
+  const config = laneConfigByKey?.get(key) ?? (await resolver.resolve(posterKey))?.config;
+  if (!config) return null;
+  const posterUrls = objectPublicUrls(env, config, posterKey);
   return posterUrls.embedUrl ?? posterUrls.url;
 }
 

@@ -776,6 +776,8 @@ export async function putObject(
           source: opts?.attachment?.source ?? "put",
           laneId: ws.storageLaneId ?? null,
           repo: opts?.attachment?.repo,
+          size: newSize,
+          contentType: inspection.contentType,
         })
       : Promise.resolve(),
   ]);
