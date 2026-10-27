@@ -77,6 +77,7 @@ describe("noUploadsCommentBody", () => {
     expect(body).toContain('--pr 7 --meta path=/settings --state after --caption "');
     expect(body).toContain('--pr 7 --app ios --screen "Chat" --state after');
     expect(body).toContain("<code>uploads list --pr 7</code>");
+    expect(body).toContain("<code>sign_upload_url</code> for files on disk");
   });
 
   it("offers drag-and-drop without promising an import when imports are off", () => {

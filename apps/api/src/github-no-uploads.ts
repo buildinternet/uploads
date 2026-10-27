@@ -129,8 +129,9 @@ function escapeHtml(s: string): string {
 
 /**
  * Collapsed tips for agents, which copy the CLI line above as the whole
- * recipe: labels (applied per call, so one `put` per shot) and that this
- * comment collects the files by itself.
+ * recipe: labels (applied per call, so one `put` per shot), the MCP route
+ * for agents without the CLI, and that this comment collects the files by
+ * itself.
  */
 function agentTips(num: number): string[] {
   return [
@@ -144,7 +145,10 @@ function agentTips(num: number): string[] {
     `uploads put chat.png --pr ${num} --app ios --screen "Chat" --state after`,
     "```",
     "",
-    `This comment updates with each upload, so you don't need to post the images yourself. A shot or two in the PR description is still welcome. Check what's attached with <code>uploads list --pr ${num}</code>, and see the <code>github-screenshots</code> skill for more.`,
+    "",
+    `No CLI? With the Uploads MCP, call <code>sign_upload_url</code> for files on disk (or <code>put</code>) with <code>repo</code>, <code>pr: ${num}</code> and the same <code>screen</code>, <code>state</code> and <code>caption</code> fields.`,
+    "",
+    `This comment updates with each upload, so you don't need to post the images yourself. A shot or two in the PR description is still welcome. Check what's attached with <code>uploads list --pr ${num}</code>. More in the <code>github-screenshots</code> skill or the <a href="https://uploads.sh/docs/agents">agent docs</a>.`,
     "",
     "</details>",
   ];
