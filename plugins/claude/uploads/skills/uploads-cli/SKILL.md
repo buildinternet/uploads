@@ -663,7 +663,8 @@ characters, shown under the image in the PR comment before the other labels.
 you only need to add `--state`. `uploads put`/`uploads attach` of an
 already-existing file have nothing to derive `path` from, so pass it
 explicitly with `--meta path=/route` — and `attach`/`put --pr`/`put --issue`
-print a `tip: add --meta path=/route so this shot is findable by page` on
+print a `tip: add --meta path=/route (or --screen <name> for an app) to label
+this shot in the PR comment` on
 stderr (plus a JSON `hint` field) when an image lands with no `path` meta, as
 a reminder (respects `--quiet`). A `screen` counts too, and when the image
 is from a non-web `--app` the tip suggests `--screen <name>` instead.

@@ -195,6 +195,15 @@ Pass --url (repeatable) to fetch a file instead of a local path. Public HTTPS,
 or http://localhost / 127.0.0.1 / *.localhost on this machine. Other private
 hosts are rejected. The filename comes from the URL path, or --name.
 
+With --pr/--issue, the files land in that PR's attachments comment, created or
+updated for you, so there's nothing to paste. Label each shot; the comment
+shows these with the image:
+  --meta path=/route   the page shown (web)
+  --screen <name>      the app screen, when there's no route
+  --state <s>          before|after|empty|error|loading
+  --caption <text>     what the shot shows, up to 140 characters
+Labels apply to every file in the call, so run one put per shot.
+
 Multiple files upload in parallel (bounded concurrency). One bad file does not
 block the rest; multi-file JSON is { uploads, failures } (exit 1 when any failed).
 Single-file JSON stays a flat object (back-compat).
@@ -306,6 +315,8 @@ Examples:
   uploads put ./capture-….webp --pr 128 --name hero.webp
   uploads put ./shot.png --pr 128 --name hero.webp --dry-run --format url
   uploads put ./after.png --gallery gal_example
+  uploads put ./after.png --pr 128 --meta path=/settings --state after --caption "Saved toast"
+  uploads put ./chat.png --pr 128 --app ios --screen "Chat" --state after
   uploads put ./shot.png --meta path=/settings --state after --app web
   uploads put --url https://cdn.example/shot.png --pr 128 --name hero.png
   uploads put --url http://localhost:4321/shot.png
@@ -765,6 +776,18 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
 }
 
 /**
+ * Human-mode line after a comment sync (plus any held note). Says outright
+ * that the comment already shows the files, so an agent doesn't paste the
+ * MARKDOWN lines into a comment of its own.
+ */
+export function commentSyncNote(comment: AttachmentsCommentResult, target: GhTarget): string {
+  const where = `${target.kind === "pull" ? "PR" : "issue"} #${target.num}`;
+  const shown =
+    comment.action === "skipped" ? "" : ". It shows these files, no need to post them yourself";
+  return `>> attachments comment ${comment.action} on ${where}${commentViaSuffix(comment.via)}${shown}\n${heldNote(comment)}`;
+}
+
+/**
  * Thrown when the server declines with `not_authorized` (repo bound to
  * another workspace) or `actor_not_authorized` (caller isn't on the thread).
  * Never falls back to gh: the user's own credentials would bypass the gate.
@@ -1150,8 +1173,8 @@ export function pathMetaHintFor(
   // A non-web app has screens, not routes.
   const appScreen = missing.every((meta) => meta?.app && meta.app !== "web");
   return appScreen
-    ? "tip: add --screen <name> so this shot is findable by screen"
-    : "tip: add --meta path=/route so this shot is findable by page";
+    ? "tip: add --screen <name> to label this shot in the PR comment"
+    : "tip: add --meta path=/route (or --screen <name> for an app) to label this shot in the PR comment";
 }
 
 export type AttachUploadItem = PutResult & {
@@ -1917,15 +1940,12 @@ export async function runAttach(
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, promotedBranch));
     }
-    if (!ctx.quiet && comment)
-      process.stderr.write(
-        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
-      );
     if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
     }
     if (pathHint) process.stderr.write(`${pathHint}\n`);
+    if (!ctx.quiet && comment) process.stderr.write(commentSyncNote(comment, target));
   }
   return failures.length === 0 ? 0 : 1;
 }
@@ -2119,10 +2139,7 @@ async function runAttachPromoteOnly(
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, branch));
     }
-    if (!ctx.quiet && comment)
-      process.stderr.write(
-        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
-      );
+    if (!ctx.quiet && comment) process.stderr.write(commentSyncNote(comment, target));
   }
   return 0;
 }
@@ -3404,10 +3421,6 @@ export async function runPut(
         run,
         ctx.config.workspace,
       );
-      if (logHuman)
-        process.stderr.write(
-          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n${heldNote(comment)}`,
-        );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -3471,6 +3484,9 @@ export async function runPut(
       if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
       if (pathHint) process.stderr.write(`${pathHint}\n`);
       if (contextNudge) process.stderr.write(`${contextNudge}\n`);
+      // Last, so it's the line an agent reads before deciding what to post.
+      if (logHuman && comment && effectiveGhTarget)
+        process.stderr.write(commentSyncNote(comment, effectiveGhTarget));
     }
     return failures.length === 0 && !galleryHadError ? 0 : 1;
   }
@@ -3536,6 +3552,8 @@ export async function runPut(
   if (bindingWarning && format !== "json") process.stderr.write(`${bindingWarning}\n`);
   if (pathHint && format !== "json") process.stderr.write(`${pathHint}\n`);
   if (contextNudge && format !== "json") process.stderr.write(`${contextNudge}\n`);
+  if (logHuman && comment && effectiveGhTarget)
+    process.stderr.write(commentSyncNote(comment, effectiveGhTarget));
 
   return gallery?.error ? 1 : 0;
 }
