@@ -148,8 +148,9 @@ Two filters keep low-value files out:
 
 The App adds an **Uploads.sh / Check for visuals** row to a pull request's checks, next to your tests and builds. It says
 what's attached and whether anything is held for review, and notes when a PR changes UI files with
-nothing attached. It can also fail until a UI change has screenshots, so you can require it before
-merging. See [Require screenshots on pull requests](/docs/require-screenshots).
+nothing attached. A PR with no UI changes and nothing attached still gets the row, marked skipped,
+so you can see the App is working. It can also fail until a UI change has screenshots, so you can
+require it before merging. See [Require screenshots on pull requests](/docs/require-screenshots).
 
 A held file never fails the check, so a hold can't block a merge: a hold is about the uploaded file,
 not the PR's code.

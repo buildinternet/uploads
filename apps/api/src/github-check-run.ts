@@ -59,8 +59,6 @@ export interface CheckFacts {
   heldCount: number;
   /** The repo's `uiPaths` matches; only looked up when empty or required. */
   uiFiles?: readonly string[];
-  /** The repo requires uploads (`check.require`): the check can fail. */
-  required?: boolean;
   /** Where the PR stands on the requirements; absent unless required and UI files changed. */
   requirement?: Requirement | null;
   /** Images and videos attached on GitHub itself; counted only when `count` is 0. */
@@ -166,12 +164,12 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
       summary: `Screenshots and recordings for this pull request are published.${commentLink}\n\n${line}`,
     };
   }
-  if (gathered.required && count === 0 && uiFiles.length === 0) {
+  if (count === 0 && uiFiles.length === 0) {
     return {
       conclusion: "skipped",
       title: "No UI changes",
       summary:
-        "This pull request changes no files that count as UI changes, so no uploads are required.",
+        "This pull request changes no files that count as UI changes, so there is nothing to check.",
     };
   }
   if (onGithub > 0 && uiFiles.length > 0) {
@@ -181,7 +179,7 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
       summary: onGithubLine,
     };
   }
-  if (count === 0 && uiFiles.length > 0) {
+  if (count === 0) {
     // Without a comment (the how-to is turned off), link the how-to docs.
     const howTo =
       commentLink ||
@@ -198,13 +196,6 @@ function factsContent(gathered: CheckFacts, commentUrl: string | null): CheckRun
         howTo +
         "\n\n" +
         shown.join("\n"),
-    };
-  }
-  if (count === 0) {
-    return {
-      conclusion: "skipped",
-      title: "Nothing attached",
-      summary: "Nothing is attached to this pull request any more.",
     };
   }
   // Neutral, not action_required: a hold is about the uploaded file, not the
@@ -260,7 +251,8 @@ async function prHeadSha(
 /**
  * Create or update the "Check for visuals" check run for `target` (pull requests
  * only) to match the comment just synced. `headSha` skips a PR lookup when
- * the caller already has it (the webhook payload carries it).
+ * the caller already has it (the webhook payload carries it). Every PR gets a
+ * run, skipped when there is nothing to check, so an install visibly works.
  */
 export async function syncUploadsCheck(
   env: Env,
@@ -306,16 +298,6 @@ export async function syncUploadsCheck(
     const existingId = listed?.check_runs?.find((r) => typeof r.id === "number" && ours(r))?.id as
       | number
       | undefined;
-
-    // A repo that requires uploads gets a run on every PR: a required check
-    // that never reports blocks the merge.
-    if (
-      existingId === undefined &&
-      gathered.count === 0 &&
-      !gathered.uiFiles?.length &&
-      !gathered.required
-    )
-      return;
 
     const content = checkRunContent(gathered, opts.commentUrl ?? null);
     const payload = {
