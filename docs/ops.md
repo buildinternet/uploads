@@ -1576,6 +1576,14 @@ keys over a window:
 CLOUDFLARE_API_TOKEN=… node scripts/attachment-index-shadow-report.mjs --hours 24
 ```
 
+Totals come from Workers Logs `calculations` counts. Over a busy window the
+backend samples, so they print with "≈" and are its extrapolated estimate.
+Mismatched lines are fetched as events filtered on `missingCount > 0` /
+`extraCount > 0` and paged to the end, so the mismatch count and key lists
+are exact rows, not estimates. Do not total shadow lines from an events
+query: one page holds 50 rows unless `limit` is sent at the top level of
+the request, not inside `parameters`.
+
 Under the hood: one Workers Logs line per real sync while the flag is on
 (link adoption's pre-write baseline gather opts out), `component:
 "attachment-index"`, `event: "shadow"`. The line has no `message` field, so
@@ -1599,6 +1607,40 @@ it exceeded one second. Either way the sync completed from the fan-out.
 
 Fails closed like the other flags: a missing `FLAGS` binding, a disabled
 flag, or a thrown evaluation all mean no shadow.
+
+## Attachment index read (issue #955)
+
+Phase 3: behind Flagship `attachment-index-read` (same app), the managed
+comment renders its attachments from `github_attachments` instead of listing
+R2. Off by default; fails closed like the other flags. Create it once
+(boolean, served off), then flip it:
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-read --description "#955 phase 3: render the managed comment from the index"
+```
+
+```bash
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-read --default on
+```
+
+With it on, a sync makes no R2 `ListObjects` call unless one of these holds:
+
+- **List-on-miss.** The index has no rows for the target but `file_metadata`
+  has a `gh.ref` row for it: objects that predate #938. The sync lists R2
+  as before and logs `component: "attachment-index"`, `event:
+"list-on-miss"`. That count is the backfill's sizing number; it drops to
+  zero once the backfill lands.
+- **Imports.** The ingest ledger has a live row for the target, so the
+  import folders are listed (imports have no index rows).
+- **Read failure.** The index read threw (`"attachment index: read
+failed"`); the sync lists R2.
+
+Object and poster URLs come from the row's `lane_id` (NULL or a removed
+lane means the active lane). The poster is no longer probed with `exists()`,
+so a poster deleted out of band renders as a broken image. Turning the flag
+off reverts both.
 
 ## Deploys
 

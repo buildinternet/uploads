@@ -13,7 +13,9 @@
  * a prefix id is minted server-side for exactly one repo, so that lookup is
  * authoritative.
  *
- * Phase 1 is write-only: nothing reads this table yet.
+ * Read by the managed comment behind the `attachment-index-read` flag
+ * (#955 phase 3, see `gatherAttachments` in github-comment.ts) and by the
+ * phase-2 shadow compare (github-attachment-shadow.ts).
  */
 import { GH_PRIVATE_ROOT, parseGhPrivateKey } from "@uploads/comment-render";
 import { reportHandledError } from "@uploads/observability";
@@ -87,7 +89,18 @@ export interface AttachmentIndexRow {
   createdAt: string;
   updatedAt: string;
   detachedAt: string | null;
+  /** Object size in bytes at the last write; null for rows that predate the column. */
+  size: number | null;
+  /** Stored content type at the last write; null for rows that predate the column. */
+  contentType: string | null;
 }
+
+/** What a writer supplies. Only `putObject` knows size and content type. */
+export type AttachmentIndexWrite = Omit<
+  AttachmentIndexRow,
+  "createdAt" | "updatedAt" | "detachedAt" | "size" | "contentType"
+> &
+  Partial<Pick<AttachmentIndexRow, "size" | "contentType">>;
 
 interface AttachmentDbRow {
   workspace: string;
@@ -101,10 +114,12 @@ interface AttachmentDbRow {
   created_at: string;
   updated_at: string;
   detached_at: string | null;
+  size: number | null;
+  content_type: string | null;
 }
 
 const SELECT_COLUMNS =
-  "workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at";
+  "workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at, size, content_type";
 
 /**
  * Every `github_attachments` statement this module issues, in one place.
@@ -115,8 +130,8 @@ const SELECT_COLUMNS =
  */
 export const ATTACHMENT_INDEX_SQL = {
   upsert: `INSERT INTO github_attachments
-         (workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         (workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at, size, content_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
        ON CONFLICT(workspace, object_key) DO UPDATE SET
          repo = excluded.repo,
          kind = excluded.kind,
@@ -125,6 +140,8 @@ export const ATTACHMENT_INDEX_SQL = {
          lane_id = excluded.lane_id,
          source = excluded.source,
          updated_at = excluded.updated_at,
+         size = COALESCE(excluded.size, github_attachments.size),
+         content_type = COALESCE(excluded.content_type, github_attachments.content_type),
          detached_at = CASE WHEN excluded.source = 'put' THEN github_attachments.detached_at ELSE NULL END`,
   listForTarget: `SELECT ${SELECT_COLUMNS} FROM github_attachments
        WHERE workspace = ? AND repo = ? AND kind = ? AND num = ? AND detached_at IS NULL
@@ -159,6 +176,8 @@ function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     detachedAt: row.detached_at,
+    size: row.size,
+    contentType: row.content_type,
   };
 }
 
@@ -172,11 +191,12 @@ function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
  * fires on every object write — including a plain re-upload of bytes at an
  * already-detached key (e.g. `gh.detached` metadata never round-trips
  * through `putObject`) — so a `"put"` alone must never resurrect a row the
- * caller deliberately detached.
+ * caller deliberately detached. A null/absent `size` or `contentType`
+ * keeps the stored value (only `putObject` knows them).
  */
 export async function recordAttachment(
   db: D1Queryable,
-  row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
+  row: AttachmentIndexWrite,
   now = new Date(),
 ): Promise<void> {
   const nowIso = now.toISOString();
@@ -193,14 +213,16 @@ export async function recordAttachment(
       row.source,
       nowIso,
       nowIso,
+      row.size ?? null,
+      row.contentType ?? null,
     )
     .run();
 }
 
 /**
- * The active (non-detached) rows for one PR/issue target, sorted by key —
- * the read the phase-3 render will switch to, served by
- * `github_attachments_target_idx`. Phase 2 runs it in the shadow of the R2
+ * The active (non-detached) rows for one PR/issue target, sorted by key,
+ * served by `github_attachments_target_idx`. The phase-3 render reads it
+ * behind `attachment-index-read`; phase 2 runs it in the shadow of the R2
  * fan-out (see github-attachment-shadow.ts). `repo` is normalized the same
  * way the writers store it.
  */
@@ -364,11 +386,7 @@ function safeWriter<A extends unknown[]>(
 
 export const recordAttachmentSafe = safeWriter(
   "attachment index: record failed",
-  (
-    db: D1Queryable,
-    row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
-    now?: Date,
-  ) => recordAttachment(db, row, now),
+  (db: D1Queryable, row: AttachmentIndexWrite, now?: Date) => recordAttachment(db, row, now),
 );
 
 export const detachAttachmentSafe = safeWriter("attachment index: detach failed", detachAttachment);
@@ -420,6 +438,9 @@ export async function recordAttachmentForKeySafe(
     laneId: string | null;
     /** Server-resolved repo, when the caller already knows it. */
     repo?: string;
+    /** Bytes written and the stored content type, when the caller wrote the object. */
+    size?: number;
+    contentType?: string;
   },
   now = new Date(),
 ): Promise<void> {
@@ -445,6 +466,8 @@ export async function recordAttachmentForKeySafe(
           prefixId: parsed.prefixId,
           laneId: args.laneId,
           source: args.source,
+          size: args.size ?? null,
+          contentType: args.contentType ?? null,
         },
         now,
       );
