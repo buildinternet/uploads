@@ -90,10 +90,17 @@ export interface AttachmentIndexRow {
   updatedAt: string;
   detachedAt: string | null;
   /** Object size in bytes at the last write; null for rows that predate the column. */
-  size?: number | null;
+  size: number | null;
   /** Stored content type at the last write; null for rows that predate the column. */
-  contentType?: string | null;
+  contentType: string | null;
 }
+
+/** What a writer supplies. Only `putObject` knows size and content type. */
+export type AttachmentIndexWrite = Omit<
+  AttachmentIndexRow,
+  "createdAt" | "updatedAt" | "detachedAt" | "size" | "contentType"
+> &
+  Partial<Pick<AttachmentIndexRow, "size" | "contentType">>;
 
 interface AttachmentDbRow {
   workspace: string;
@@ -169,8 +176,8 @@ function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     detachedAt: row.detached_at,
-    size: row.size ?? null,
-    contentType: row.content_type ?? null,
+    size: row.size,
+    contentType: row.content_type,
   };
 }
 
@@ -189,7 +196,7 @@ function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
  */
 export async function recordAttachment(
   db: D1Queryable,
-  row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
+  row: AttachmentIndexWrite,
   now = new Date(),
 ): Promise<void> {
   const nowIso = now.toISOString();
@@ -379,11 +386,7 @@ function safeWriter<A extends unknown[]>(
 
 export const recordAttachmentSafe = safeWriter(
   "attachment index: record failed",
-  (
-    db: D1Queryable,
-    row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
-    now?: Date,
-  ) => recordAttachment(db, row, now),
+  (db: D1Queryable, row: AttachmentIndexWrite, now?: Date) => recordAttachment(db, row, now),
 );
 
 export const detachAttachmentSafe = safeWriter("attachment index: detach failed", detachAttachment);

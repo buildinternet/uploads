@@ -1104,6 +1104,23 @@ export async function getMetadataForKeys(
   return out;
 }
 
+/** Whether any object in the workspace carries `key=value`. One seek on `file_metadata_lookup_idx`. */
+export async function hasMetadataValue(
+  db: D1Queryable,
+  workspace: string,
+  key: string,
+  value: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS hit FROM file_metadata
+       WHERE workspace = ? AND meta_key = ? AND meta_value = ? LIMIT 1`,
+    )
+    .bind(workspace, key, canonicalMetaValue(key, value))
+    .first<{ hit: number }>();
+  return row !== null;
+}
+
 /**
  * Newest `updated_at` per object key, a stand-in for when the object was
  * last written (screenshots write all metadata at once). Keys with no rows

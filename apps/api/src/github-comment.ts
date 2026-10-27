@@ -27,7 +27,7 @@ import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listPrefixIdsForTarget } from "./github-private-prefixes";
 import { ingestKeyPrefixes } from "./github-ingest";
-import { ledgerRowsForTarget } from "./github-ingest-ledger";
+import { hasLiveImport } from "./github-ingest-ledger";
 import { attachmentIndexReadEnabled, readIndexedAttachments } from "./github-attachment-index-read";
 import type { StorageConfig } from "@uploads/storage";
 import {
@@ -297,6 +297,7 @@ async function gatherAttachments(
   // target's objects are listed (issue #934) — never every active prefix in
   // the repo, which grew one list per branch that ever ran `put --pr`. Plain
   // prefix listed first so ordering stays stable regardless of id order.
+  const readFlag = attachmentIndexReadEnabled(env);
   const activePrefixIds = await listPrefixIdsForTarget(
     dbFor(env),
     workspaceName,
@@ -306,10 +307,15 @@ async function gatherAttachments(
   );
   // #955 phase 3: render managed attachments from the D1 index instead of
   // listing R2 (flag-gated; null means list as before, see
-  // github-attachment-index-read.ts for list-on-miss).
-  const indexed = (await attachmentIndexReadEnabled(env))
-    ? await readIndexedAttachments(env, ws, workspaceName, target, linkToFilePage)
-    : null;
+  // github-attachment-index-read.ts for list-on-miss). The import check
+  // only matters on the index path, so it overlaps the index read there.
+  const indexRead = await readFlag;
+  const [indexed, liveImports] = indexRead
+    ? await Promise.all([
+        readIndexedAttachments(env, ws, workspaceName, target, linkToFilePage),
+        hasActiveImports(env, workspaceName, target),
+      ])
+    : [null, false];
 
   // #934 phase 2: read the attachment index in the shadow of the R2 listing
   // below (flag-gated, never renders, never throws or outlives its
@@ -325,11 +331,11 @@ async function gatherAttachments(
   // in their own folders; the detach filter below drops removed ones.
   const ingestPrefixes = ingestKeyPrefixes(target, activePrefixIds);
 
-  const managedPrefixes = [
+  const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
+    ...ingestPrefixes,
   ];
-  const prefixes = [...managedPrefixes, ...ingestPrefixes];
 
   // Independent of the listing below, so it overlaps it. A moved hold
   // (`held-storage.ts`) has no public object to list.
@@ -340,11 +346,8 @@ async function gatherAttachments(
   // only when the ingest ledger holds an active row for this workspace, so
   // a target with no imports lists nothing. The listing, not the ledger,
   // decides what renders: a ledger row can outlive a deleted object.
-  const listed = indexed
-    ? (await hasActiveImports(env, workspaceName, target))
-      ? ingestPrefixes
-      : []
-    : prefixes;
+  let listed = prefixes;
+  if (indexed) listed = liveImports ? ingestPrefixes : [];
 
   // Paginated per-prefix, but the prefixes themselves are independent — run
   // them concurrently and concatenate in prefix order, so output ordering is
@@ -441,8 +444,7 @@ async function hasActiveImports(
   target: GhTarget,
 ): Promise<boolean> {
   try {
-    const rows = await ledgerRowsForTarget(dbFor(env), target.repo, target.kind, target.num);
-    return rows.some((row) => row.workspace === workspaceName && row.detachedAt === null);
+    return await hasLiveImport(dbFor(env), workspaceName, target.repo, target.kind, target.num);
   } catch (err) {
     console.error({ event: "ingest_ledger_lookup_failed", workspace: workspaceName, err });
     return true;

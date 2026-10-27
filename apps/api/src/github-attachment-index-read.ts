@@ -7,7 +7,8 @@
  * all mean "list R2 as before".
  *
  * List-on-miss: an empty index is trusted only when the target has no
- * `gh.ref` metadata row either. Every attach, promote, and CLI/MCP
+ * `gh.ref` metadata row either (`owner/name#num`, lowercased, as
+ * github-attach.ts writes it). Every attach, promote, and CLI/MCP
  * `put --pr` stamps `gh.ref`, so a hit with no index rows means objects
  * that predate the index (#938) and need the backfill. Those targets fall
  * back to the R2 listing and log one `list-on-miss` line. `gh.ref` is
@@ -18,11 +19,12 @@
 
 import { reportHandledError } from "@uploads/observability";
 import { dbFor } from "./db-session";
-import { filePageUrl } from "./files-core";
+import type { StorageConfig } from "@uploads/storage";
+import { hasMetadataValue } from "./file-metadata";
+import { objectLinks } from "./files-core";
 import { listAttachmentsForTarget } from "./github-attachment-index";
 import { normalizeRepo } from "./github-private-prefixes";
-import type { StorageConfig } from "@uploads/storage";
-import { objectPublicUrls, storageConfigs } from "./storage";
+import { storageConfigs } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 import type { AttachmentItem, GhTarget } from "./github-comment-render";
 
@@ -61,10 +63,11 @@ export async function readIndexedAttachments(
   target: GhTarget,
   linkToFilePage: boolean,
 ): Promise<IndexedAttachments | null> {
+  const ref = `${normalizeRepo(target.repo)}#${target.num}`;
   let rows;
   try {
     rows = await listAttachmentsForTarget(dbFor(env), workspaceName, target.repo, target);
-    if (rows.length === 0 && (await hasAttachmentRef(env, workspaceName, target))) {
+    if (rows.length === 0 && (await hasMetadataValue(dbFor(env), workspaceName, "gh.ref", ref))) {
       console.log(
         JSON.stringify({
           component: "attachment-index",
@@ -94,34 +97,15 @@ export async function readIndexedAttachments(
   const items = rows.map((row): AttachmentItem => {
     const cfg = (row.laneId !== null ? byLane.get(row.laneId) : undefined) ?? active;
     laneConfigByKey.set(row.objectKey, cfg);
-    const urls = objectPublicUrls(env, cfg, row.objectKey);
-    // Same projection as `listObjects`, so a render from the index matches
-    // a render from the listing.
-    const pageUrl = urls.url && ws.name ? filePageUrl(env, ws.name, row.objectKey) : undefined;
+    const { url, embedUrl, pageUrl } = objectLinks(env, ws, cfg, row.objectKey);
     return {
       key: row.objectKey,
-      url: urls.url,
-      embedUrl: urls.embedUrl,
+      url,
+      embedUrl,
       pageUrl: linkToFilePage ? pageUrl : null,
       ...(row.size != null ? { size: row.size } : {}),
       ...(row.contentType ? { contentType: row.contentType } : {}),
     };
   });
   return { items, laneConfigByKey };
-}
-
-/** One indexed seek on `file_metadata_lookup_idx`. `gh.ref` is `owner/name#num`, lowercased. */
-async function hasAttachmentRef(
-  env: Env,
-  workspaceName: string,
-  target: GhTarget,
-): Promise<boolean> {
-  const row = await dbFor(env)
-    .prepare(
-      `SELECT 1 AS hit FROM file_metadata
-       WHERE workspace = ? AND meta_key = 'gh.ref' AND meta_value = ? LIMIT 1`,
-    )
-    .bind(workspaceName, `${normalizeRepo(target.repo)}#${target.num}`)
-    .first<{ hit: number }>();
-  return row !== null;
 }

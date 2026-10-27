@@ -53,6 +53,25 @@ function makeTestEnv() {
   return { env, ws, workspaceName: "acme", bucket, kv, sqlite };
 }
 
+/** `ws` with an active lane plus one fallback lane (`lane_fallback1`) backed by `bucket`. */
+function withFallbackLane(env: Env, ws: WorkspaceRecord, bucket: FakeR2Bucket): WorkspaceRecord {
+  (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = bucket;
+  return {
+    ...ws,
+    storageLaneId: "lane_active1",
+    storageLanes: [
+      {
+        id: "lane_fallback1",
+        provider: "r2",
+        bucket: "customer-bucket",
+        binding: "UPLOADS_FALLBACK",
+        lastActiveAt: "2026-08-01T00:00:00.000Z",
+        publicBaseUrl: "https://storage.customer.example.com",
+      },
+    ],
+  };
+}
+
 /** Generate a throwaway RSA key and return its PKCS#8 PEM (mirrors github-app.test.ts's testKeyPair). */
 async function testPem(): Promise<string> {
   const pair = (await crypto.subtle.generateKey(
@@ -1148,21 +1167,7 @@ describe("gatherCommentBody attachment index read (#955 phase 3)", () => {
 
   it("builds object and poster URLs from a fallback lane named by lane_id", async () => {
     const { env, ws, workspaceName, list } = readEnv();
-    (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = new FakeR2Bucket();
-    const wsWithFallback: WorkspaceRecord = {
-      ...ws,
-      storageLaneId: "lane_active1",
-      storageLanes: [
-        {
-          id: "lane_fallback1",
-          provider: "r2",
-          bucket: "customer-bucket",
-          binding: "UPLOADS_FALLBACK",
-          lastActiveAt: "2026-08-01T00:00:00.000Z",
-          publicBaseUrl: "https://storage.customer.example.com",
-        },
-      ],
-    };
+    const wsWithFallback = withFallbackLane(env, ws, new FakeR2Bucket());
     const key = "gh/acme/web/pull/12/clip.mp4";
     await recordAttachment(env.DB, indexRow(key, { laneId: "lane_fallback1" }));
     await recordAttachment(
@@ -1504,21 +1509,7 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     await fallbackBucket.put(posterKeyFor(key), PNG, {
       httpMetadata: { contentType: "image/jpeg" },
     });
-    (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = fallbackBucket;
-    const wsWithFallback: WorkspaceRecord = {
-      ...ws,
-      storageLaneId: "lane_active1",
-      storageLanes: [
-        {
-          id: "lane_fallback1",
-          provider: "r2",
-          bucket: "customer-bucket",
-          binding: "UPLOADS_FALLBACK",
-          lastActiveAt: "2026-08-01T00:00:00.000Z",
-          publicBaseUrl: "https://storage.customer.example.com",
-        },
-      ],
-    };
+    const wsWithFallback = withFallbackLane(env, ws, fallbackBucket);
     await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
 
     const result = await gatherCommentBody(env, wsWithFallback, workspaceName, {
