@@ -9,6 +9,7 @@
 
 import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
 import {
+  countsAsVisual,
   evaluateRequirement,
   githubAttachmentCount,
   type Requirement,
@@ -108,10 +109,13 @@ export async function gatherCommentBody(
 
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
-  const [{ items, liveLinkUrl, heldCount }, galleries] = await Promise.all([
-    gatherAttachments(env, ws, workspaceName, target, options, opts),
-    gatherGalleries(env, ws, workspaceName, target),
-  ]);
+  const [{ items, liveLinkUrl, heldCount, visualHeldCount }, gatheredGalleries] = await Promise.all(
+    [
+      gatherAttachments(env, ws, workspaceName, target, options, opts),
+      gatherGalleries(env, ws, workspaceName, target),
+    ],
+  );
+  const { galleries, visualCount: visualGalleries } = gatheredGalleries;
 
   // Held files count so a PR whose only attachment is held still gets a
   // comment carrying the approve line.
@@ -154,8 +158,8 @@ export async function gatherCommentBody(
           workspaceName,
           target,
           options,
-          keys,
-          galleries.length + heldCount + githubAttachments,
+          items.map((item) => ({ key: item.key, contentType: item.contentType })),
+          visualGalleries + visualHeldCount + githubAttachments,
         )
       : null,
     evaluateAiNotes(env, workspaceName, target, options.checkAi, keys),
@@ -282,7 +286,12 @@ async function gatherAttachments(
   target: GhTarget,
   options: ResolvedCommentOptions,
   gatherOpts: { headBranch?: string; shadow?: boolean },
-): Promise<{ items: AttachmentItem[]; liveLinkUrl: string | null; heldCount: number }> {
+): Promise<{
+  items: AttachmentItem[];
+  liveLinkUrl: string | null;
+  heldCount: number;
+  visualHeldCount: number;
+}> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to a share page — the PR/issue feed
   // item when that object is in the feed, otherwise `/f/`. `false` links to
@@ -414,6 +423,10 @@ async function gatherAttachments(
     (key) => !listedKeys.has(key) && prefixes.some((prefix) => key.startsWith(prefix)),
   );
   const heldCount = items.length - shown.length + movedHeld.length;
+  const visualHeldCount =
+    items.filter(
+      (item) => isHeld(scopeMetaByKey.get(item.key)) && countsAsVisual(item.contentType, item.key),
+    ).length + movedHeld.filter((key) => countsAsVisual(undefined, key)).length;
   items = shown;
 
   const liveLinkUrl =
@@ -429,10 +442,11 @@ async function gatherAttachments(
         )
       : null;
 
-  if (!showMetadata || items.length === 0) return { items, liveLinkUrl, heldCount };
+  if (!showMetadata || items.length === 0)
+    return { items, liveLinkUrl, heldCount, visualHeldCount };
 
   await addCommentMetadata(env, ws, workspaceName, items, indexed?.laneConfigByKey);
-  return { items, liveLinkUrl, heldCount };
+  return { items, liveLinkUrl, heldCount, visualHeldCount };
 }
 
 /**
@@ -633,10 +647,11 @@ async function gatherGalleries(
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
-): Promise<GalleryCommentItem[]> {
+): Promise<{ galleries: GalleryCommentItem[]; visualCount: number }> {
   const ref = parseExternalReference("github", `${target.repo.toLowerCase()}#${target.num}`);
-  if (!ref.ok) return [];
+  if (!ref.ok) return { galleries: [], visualCount: 0 };
   const galleries: GalleryCommentItem[] = [];
+  let visualCount = 0;
   let gCursor: GalleryCursor | undefined;
   do {
     const page = await findGalleriesByReference(
@@ -665,13 +680,19 @@ async function gatherGalleries(
             alt: i.altText ?? i.objectKey,
             itemUrl: i.pageUrl,
           }));
-        return { title: rec.title, url: galleryUrl(env, rec.id), previews };
+        return {
+          gallery: { title: rec.title, url: galleryUrl(env, rec.id), previews },
+          visual: dto.items.some((item) => countsAsVisual(item.contentType, item.objectKey)),
+        };
       }),
     );
-    galleries.push(...pageItems);
+    for (const pageItem of pageItems) {
+      galleries.push(pageItem.gallery);
+      if (pageItem.visual) visualCount++;
+    }
     gCursor = page.nextCursor ?? undefined;
   } while (gCursor);
-  return galleries;
+  return { galleries, visualCount };
 }
 
 interface GhComment {
