@@ -62,7 +62,7 @@ export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
 );
 
-/** 63-bit DCT hash for a PNG or JPEG. Server-owned, like the other `ai.*` rows. */
+/** 63-bit DCT hash of the picture. Server-owned, like the other `ai.*` rows. */
 export const PHASH_META_KEY = "ai.phash";
 
 /**
