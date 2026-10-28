@@ -11,6 +11,7 @@
     "./storage": "./src/storage.ts",
     "./files": "./src/files-core.ts",
     "./file-metadata": "./src/file-metadata.ts",
+    "./content-hash": "./src/content-hash.ts",
     "./file-search": "./src/file-search.ts",
     "./file-type-sql": "./src/file-type-sql.ts",
     "./github-pr-activity": "./src/github-pr-activity.ts",

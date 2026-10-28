@@ -8,13 +8,13 @@
  * with `POST /v1/workspaces/:workspace/files/approve`, which moves the
  * bytes back to the same key.
  *
- * State for the current bytes is one server-owned row, `ai.hold`:
- * `pending` or `approved`. It is in `CLASSIFIER_ROW_KEYS`, so it shares
- * the classifier's lifetime: identical bytes keep it (an approval sticks),
- * and new bytes clear it. A release also appends an override event
- * (`file-events.ts`) with who released it and the safety flags in force.
- * That event does not change `ai.secret`, `ai.pii`, `ai.rating`, or
- * `ai.content`, and it stays after new bytes clear the row.
+ * The classifier writes `ai.hold=pending` and a `blob_hold` row for the
+ * content hash. A key is held only when it has that row and the blob is not
+ * released. A release applies to every key with a hold row and those bytes.
+ * Approve and hold do not write `ai.hold`. New bytes are a new hash and can
+ * be held again. `ai.hold` is in `CLASSIFIER_ROW_KEYS`: identical bytes keep
+ * the row, and new bytes clear it. The event does not change `ai.secret`,
+ * `ai.pii`, `ai.rating`, or `ai.content`.
  *
  * Env-free, so the CLI's local-gh comment path can share the predicate.
  */
@@ -40,10 +40,10 @@ export const HOLD_MOVED_KEY = "ai.hold.moved";
 export const HOLD_AREA_KEY = "ai.hold.area";
 
 /**
- * Who released a hold and when, for the members-only Reviewed note on the
- * file page. `by` is a display label captured at approval (a member's
- * name, or a service token's label); `at` is an ISO timestamp. Cleared
- * when a file is held again.
+ * Who released a hold and when, on a release stored before the event log.
+ * A release now records this on the override event. `by` is a display
+ * label (a member's name, or a service token's label); `at` is an ISO
+ * timestamp.
  */
 export const HOLD_BY_KEY = "ai.hold.by";
 export const HOLD_AT_KEY = "ai.hold.at";
@@ -143,9 +143,54 @@ export function storedHoldReason(meta: Record<string, string> | undefined): stri
  */
 export const HELD_FILENAME = "held for review";
 
-/** A file is held while its `ai.hold` row is `pending`. */
-export function isHeld(meta: Record<string, string> | undefined): boolean {
-  return meta?.[HOLD_META_KEY] === HOLD_PENDING;
+export interface EffectiveHold {
+  hold: "pending" | "approved" | null;
+  by: string | null;
+  at: string | null;
+}
+
+export interface BlobHoldView {
+  state: "held" | "released";
+  actor: string | null;
+  at: string | null;
+}
+
+/**
+ * Held only with this key's own `ai.hold=pending` row, and only when the
+ * blob is not released. A `blob_hold=held` row does not hide a key that has
+ * no hold row. A release covers every key that has a hold row for these bytes.
+ */
+export function deriveHoldState(
+  meta: Record<string, string> | undefined,
+  blob: BlobHoldView | null,
+): EffectiveHold {
+  const row = meta?.[HOLD_META_KEY];
+  if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
+  if (blob?.state === "released") return { hold: "approved", by: blob.actor, at: blob.at };
+  if (row === HOLD_PENDING) return { hold: "pending", by: null, at: null };
+  return { hold: null, by: null, at: null };
+}
+
+/**
+ * The metadata a client should read. `ai.hold` is the effective state, so
+ * `uploads meta get` and the CLI's held check agree with the gates.
+ */
+export function projectHold(
+  meta: Record<string, string>,
+  view: EffectiveHold,
+): Record<string, string> {
+  if (view.hold === null) return meta;
+  const next = { ...meta };
+  delete next[HOLD_BY_KEY];
+  delete next[HOLD_AT_KEY];
+  if (view.hold === "pending") {
+    next[HOLD_META_KEY] = HOLD_PENDING;
+    return next;
+  }
+  next[HOLD_META_KEY] = HOLD_APPROVED;
+  if (view.by) next[HOLD_BY_KEY] = view.by;
+  if (view.at) next[HOLD_AT_KEY] = view.at;
+  return next;
 }
 
 /**

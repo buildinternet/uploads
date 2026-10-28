@@ -155,8 +155,14 @@ import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
 import { purgeExpiredObjects } from "@uploads/api/retention";
 import { getWorkspaceUsage } from "@uploads/api/usage";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
-import { HOLD_AREA_KEY, isHeld, parseHoldArea, storedHoldReason } from "@uploads/api/upload-hold";
-import { listHeldKeys } from "@uploads/api/upload-hold-read";
+import {
+  HOLD_AREA_KEY,
+  parseHoldArea,
+  projectHold,
+  storedHoldReason,
+} from "@uploads/api/upload-hold";
+import { contentHashesForKeys } from "@uploads/api/content-hash";
+import { effectiveHold, listHeldKeys } from "@uploads/api/upload-hold-read";
 import {
   approveUpload,
   approverLabel,
@@ -550,9 +556,12 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
   /** Held files, optionally on one PR/issue or under one prefix (`list_held`, `approve`). */
   async function heldFiles(target?: GhTarget, prefix = "") {
     const keys = (await listHeldKeys(env, workspaceName)).filter((key) => key.startsWith(prefix));
-    const meta = await getMetadataForKeys(env.DB, workspaceName, keys, {
-      metaKeys: [HOLD_AREA_KEY, "ai.secret", "ai.pii", "gh.repo"],
-    });
+    const [meta, hashes] = await Promise.all([
+      getMetadataForKeys(env.DB, workspaceName, keys, {
+        metaKeys: [HOLD_AREA_KEY, "ai.secret", "ai.pii", "gh.repo"],
+      }),
+      contentHashesForKeys(env.DB, workspaceName, keys),
+    ]);
     return keys.flatMap((key) => {
       const row = meta.get(key) ?? {};
       if (target) {
@@ -572,6 +581,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           key,
           reason: storedHoldReason(row) ?? "flagged",
           area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
+          sha: hashes.get(key) ?? null,
         },
       ];
     });
@@ -1897,11 +1907,12 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         const key = requiredString(args, "key");
         if (badKey(key)) usage("invalid key");
         const metadata = await getFileMetadata(env.DB, workspaceName, key);
+        const view = await effectiveHold(env, workspaceName, key, metadata);
         // A held file's bytes may have left the bucket; its rows still answer.
-        if (!isHeld(metadata) && !(await (await storage(env, workspace)).exists(key))) {
+        if (view.hold !== "pending" && !(await (await storage(env, workspace)).exists(key))) {
           throw new NotFoundError("object not found");
         }
-        return { metadata };
+        return { metadata: projectHold(metadata, view) };
       },
     },
     {
@@ -1910,7 +1921,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`) and `area`, an approximate box around the flagged content as fractions of the image (null when unknown).",
+        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`), `area` (an approximate box around the flagged content as fractions of the image, null when unknown), and `sha` (the content hash, null when unknown). `approve` with `pr` or `issue` sends that hash.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1953,13 +1964,18 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         if (keys.length === 0 && !target) usage("approve requires keys or pr/issue");
         for (const key of keys) if (badKey(key)) usage(`invalid key: ${key}`);
         await requireWriteBudget();
+        const listed = await heldFiles(target);
+        const byKey = new Map(listed.map((file) => [file.key, file]));
         const toApprove = target
-          ? await heldFiles(target)
-          : keys.map((key) => ({ key, reason: undefined }));
+          ? listed
+          : keys.map((key) => {
+              const sha = byKey.get(key)?.sha;
+              return { key, reason: undefined, sha: typeof sha === "string" ? sha : undefined };
+            });
         const by = await approverLabel(env, ctx.uploaderIdentity);
         const files = [];
-        for (const { key, reason } of toApprove) {
-          const result = await approveUpload(env, workspace, workspaceName, key, by);
+        for (const { key, reason, sha } of toApprove) {
+          const result = await approveUpload(env, workspace, workspaceName, key, by, sha);
           files.push({
             key,
             action: result.approved ? "approved" : "not_held",

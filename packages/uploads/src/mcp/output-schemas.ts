@@ -244,7 +244,12 @@ export const listHeldResultSchema: JsonSchema = objectSchema(
     items: {
       type: "array",
       items: objectSchema(
-        { key: { type: "string" }, reason: { type: "string" }, area: holdAreaSchema },
+        {
+          key: { type: "string" },
+          reason: { type: "string" },
+          area: holdAreaSchema,
+          sha: nullableString,
+        },
         ["key", "reason"],
       ),
     },

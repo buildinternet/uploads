@@ -230,8 +230,12 @@ export function createUploadsClient(config: UploadsConfig, clientOpts: UploadsCl
     },
 
     /** Release a file held for review (a likely secret or personal data). */
-    async approve(key: string): Promise<ApproveResult> {
-      return request<ApproveResult>("POST", `${filesBase}/approve?key=${encodeURIComponent(key)}`);
+    async approve(key: string, opts?: { expectedSha?: string }): Promise<ApproveResult> {
+      const sha = opts?.expectedSha ? `&expected_sha=${encodeURIComponent(opts.expectedSha)}` : "";
+      return request<ApproveResult>(
+        "POST",
+        `${filesBase}/approve?key=${encodeURIComponent(key)}${sha}`,
+      );
     },
 
     /** The file's queryable metadata. */

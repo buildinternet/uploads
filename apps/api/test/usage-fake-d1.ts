@@ -163,6 +163,7 @@ export class UsageFakeD1 {
             meta: {},
           };
         }
+        if (normalized.includes("blob_hold")) throw new Error("no such table: blob_hold");
         throw new Error(`unsupported all: ${normalized}`);
       },
       run: async () => {
@@ -184,6 +185,12 @@ export class UsageFakeD1 {
         if (claimResult) return claimResult;
         const attachmentRunResult = this.attachmentIndexTable.tryRun(normalized, values);
         if (attachmentRunResult) return attachmentRunResult;
+        if (normalized.startsWith("DELETE FROM file_content_hash")) {
+          const [workspace, ...objectKeys] = values as string[];
+          for (const objectKey of objectKeys)
+            this.contentHashes.delete(`${workspace} ${objectKey}`);
+          return { success: true as const, meta: { changes: objectKeys.length }, results: [] };
+        }
         if (normalized.startsWith("INSERT INTO file_content_hash")) {
           const [workspace, objectKey, hash, updatedAt] = values as [
             string,
@@ -390,6 +397,15 @@ export class UsageFakeD1 {
         }
         if (normalized.startsWith("UPDATE auth_tokens SET last_used_at")) {
           return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (
+          normalized.startsWith("INSERT INTO file_events") ||
+          normalized.startsWith("INSERT INTO blob_hold")
+        ) {
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (normalized.includes("blob_hold")) {
+          throw new Error("no such table: blob_hold");
         }
         throw new Error(`unsupported run: ${normalized}`);
       },

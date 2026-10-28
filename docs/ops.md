@@ -1401,9 +1401,10 @@ deletes the public copy, and writes `ai.hold.moved=1`. Never give that
 bucket a custom domain or an r2.dev URL. The edge may serve its cached copy
 for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's Camo can keep its own
 copy longer. A BYO key is not moved: the customer's domain serves it.
-Approval copies the bytes back to the same key before it writes
-`approved`, so links work again. An identical re-upload of a held key is
-moved straight back out. New bytes drop the held copy. Delete removes the
+Approval copies the bytes back to the same key before it records the
+release, so links work again. An identical re-upload of a held key is
+moved straight back out. An identical re-upload of a released key stays
+in the public bucket. New bytes drop the held copy. Delete removes the
 held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
 lists held keys (a moved one is absent from `list`), and
 `…/files/held/download?key=` streams the held copy to a member. Private
@@ -1421,23 +1422,26 @@ boxes can be off or miss part of the content. A failed or empty box call
 logs `classifier_hold_area` or `classifier_hold_area_failed` and leaves
 the hold as it is.
 
-`POST /v1/workspaces/:workspace/files/approve?key=` writes
-`ai.hold=approved` and re-syncs the comment (`upload_approved`). It does
-not change `ai.secret`, `ai.pii`, `ai.rating`, or `ai.content`. The same
-call appends a `file_events` row: who released the hold, when, the content
-hash, and the flags in force. The hash is the object's `content-sha256`,
-or the hash of the body copied back from the held bucket. A file with
-neither fails the approve. Classification appends `classified`,
+`POST /v1/workspaces/:workspace/files/approve?key=` appends a release
+override and a `blob_hold` row for the content hash (`upload_approved`).
+It does not write `ai.hold`. The hash is the object's `content-sha256`, or
+the hash of the body copied back from the held bucket. A file with neither
+fails the approve. `expected_sha` must match that hash or the call answers 409. A later hold override sets the same hash back to `held` and moves
+every key that has its own hold row. Gates and the held list count a key
+only when it has an `ai.hold` row and the blob is `held`. Deleting the file,
+or the retention sweep, drops its content hash, so it leaves that list.
+Classification appends `classified`,
 `reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
-New bytes still clear the current `ai.*` rows. The log keeps the earlier
-row. Deleting the file, or the retention sweep, does not delete the log.
-Workspace teardown does. `content_sha256` is those bytes, for a later blob
-id. The table is on the existing D1 database. A missing migration skips
-the append. `ai.hold`
-is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
-bytes start over. Promote and attach copy every classifier row onto the
-new key, since the copy is not classified again. `ai.rating`,
-`ai.content`, and `ai.pii=contact` never hold a file.
+New bytes still clear the current `ai.*` rows and can be held again. The
+log keeps the earlier row. Deleting the file, or the retention sweep, does
+not delete the log. Workspace teardown does. A migration turns each
+`ai.hold=approved` row that has a content hash into a release, then sets
+the row back to `pending`. A hash that still has a pending file in the
+held bucket is left held. Approved rows with no hash stay `approved`
+and are not held. Count them with `SELECT COUNT(*) FROM file_metadata
+WHERE meta_key = 'ai.hold' AND meta_value = 'approved'`. A pending row
+with no hash stays pending and is still held. `ai.rating`, `ai.content`, and
+`ai.pii=contact` never hold a file.
 
 ### Allowlist (Flagship is the control plane)
 

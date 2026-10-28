@@ -83,6 +83,34 @@ export async function contentHashForKey(
   }
 }
 
+/** Current hashes for `keys`, omitting keys with no row. Empty when the read fails. */
+export async function contentHashesForKeys(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  if (keys.length === 0) return found;
+  try {
+    const chunkSize = 80;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+      const result = await db
+        .prepare(
+          `SELECT object_key, content_sha256 FROM file_content_hash
+           WHERE workspace = ? AND object_key IN (${placeholders})`,
+        )
+        .bind(workspace, ...chunk)
+        .all<{ object_key: string; content_sha256: string }>();
+      for (const row of result.results ?? []) found.set(row.object_key, row.content_sha256);
+    }
+  } catch {
+    return found;
+  }
+  return found;
+}
+
 /**
  * Record this object's stored-body hash, replacing any prior hash for the same
  * key (an overwrite changes the bytes a key points at).
@@ -90,6 +118,31 @@ export async function contentHashForKey(
  * Never throws: the object is already durably stored by the time this runs, and
  * a missing index row costs a future inheritance, not correctness.
  */
+export async function deleteContentHashes(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const chunkSize = 80;
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    try {
+      await db
+        .prepare(
+          `DELETE FROM file_content_hash WHERE workspace = ? AND object_key IN (${placeholders})`,
+        )
+        .bind(workspace, ...chunk)
+        .run();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("no such table")) return;
+      throw err;
+    }
+  }
+}
+
 export async function recordContentHash(
   db: D1Queryable,
   workspace: string,

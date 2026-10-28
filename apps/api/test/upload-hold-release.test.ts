@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { recordContentHash } from "../src/content-hash";
 import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { releaseHolds } from "../src/upload-hold-service";
 import { countHeldByWorkspace, listHeldAcrossWorkspaces } from "../src/upload-hold-read";
@@ -9,7 +10,10 @@ import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
+  "migrations/20260724140000_file_content_hash.sql",
   "migrations/20261018000000_file_metadata_ai_idx.sql",
+  "migrations/20261028120000_file_events.sql",
+  "migrations/20261028140000_blob_hold.sql",
 ];
 
 function makeEnv() {
@@ -32,6 +36,14 @@ function makeEnv() {
 }
 
 async function hold(env: Env, workspace: string, key: string) {
+  const sha = "ab".repeat(32);
+  await recordContentHash(env.DB, workspace, key, sha);
+  await env.DB.prepare(
+    `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)
+     ON CONFLICT(workspace, content_sha256) DO NOTHING`,
+  )
+    .bind(workspace, sha, "2026-10-28T00:00:00.000Z")
+    .run();
   await setServerFileMetadata(env.DB, workspace, key, { "ai.hold": "pending" });
 }
 
@@ -70,7 +82,7 @@ describe("operator hold release", () => {
     expect((await getFileMetadata(env.DB, "acme", "a.png"))["ai.hold"]).toBe("pending");
 
     expect(await releaseHolds(env)).toEqual({ released: 1, failed: 0, remaining: 0 });
-    expect((await getFileMetadata(env.DB, "acme", "a.png"))["ai.hold"]).toBe("approved");
+    expect((await getFileMetadata(env.DB, "acme", "a.png"))["ai.hold"]).toBe("pending");
   });
 
   it("counts a hold it cannot release and leaves it held", async () => {

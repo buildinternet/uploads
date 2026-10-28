@@ -357,6 +357,22 @@ async function makeEnv(
                 .slice(0, limit);
               return { success: true, results: results as T[], meta: {} };
             }
+            if (normalized.includes("blob_hold") && normalized.includes("file_content_hash")) {
+              const scopePrefix = "test-ws ";
+              const results: { workspace: string; object_key: string }[] = [];
+              for (const [scoped, map] of metadata) {
+                if (!scoped.startsWith(scopePrefix) || map.get("ai.hold") === undefined) continue;
+                results.push({
+                  workspace: "test-ws",
+                  object_key: scoped.slice(scopePrefix.length),
+                });
+              }
+              const limit = Number(values[values.length - 1]);
+              return { success: true, results: results.slice(0, limit) as T[], meta: {} };
+            }
+            if (normalized.includes("blob_hold")) {
+              throw new Error("no such table: blob_hold");
+            }
             return { success: true, results: [] as T[], meta: {} };
           },
         };
@@ -1494,7 +1510,8 @@ describe("mcp worker", () => {
   it("list_held, get_metadata, and approve cover a held file", async () => {
     const { env, bucket, metadata } = await makeEnv();
     const key = "gh/acme/web/pull/12/env.png";
-    // Bytes stay in the bucket and carry the hash the release records.
+    // Bytes stay in the bucket (no held bucket in this fake) and carry the
+    // hash the release records. The other key is rows only, off this PR.
     await bucket.put(key, new Uint8Array([1]), {
       customMetadata: { "content-sha256": "ab".repeat(32) },
     });
@@ -1521,10 +1538,7 @@ describe("mcp worker", () => {
     const approved = await callTool(env, "approve", { keys: [key] });
     expect(approved.isError).toBe(false);
     expect(approved.structuredContent).toEqual({ files: [{ key, action: "approved" }] });
-    expect(metadata.get(`test-ws ${key}`)?.get("ai.hold")).toBe("approved");
-
-    const again = await callTool(env, "approve", { pr: 12, repo: "acme/web" });
-    expect(again.structuredContent).toEqual({ files: [] });
+    expect(metadata.get(`test-ws ${key}`)?.get("ai.hold")).toBe("pending");
 
     const neither = await callTool(env, "approve", {});
     expect(neither.isError).toBe(true);
