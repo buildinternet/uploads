@@ -125,12 +125,8 @@ export type ApproveUploadResult = { approved: true } | { approved: false; reason
 /**
  * Release a held file. A file that is not held (never flagged, already
  * approved, or no row for this key) is `not_held`, which the route reports
- * as a 200 so a retried approve is harmless.
- *
- * Safety flags (`ai.secret`, `ai.pii`, `ai.rating`, `ai.content`) stay as
- * the classifier wrote them. The release is an override event (who, when,
- * the flags in force, the content hash) plus `ai.hold=approved`, which is
- * the effective hold every existing reader already checks.
+ * as a 200 so a retried approve is harmless. Safety flags stay as
+ * classified. The release also appends an override event.
  */
 export async function approveUpload(
   env: Env,

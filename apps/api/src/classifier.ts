@@ -1166,7 +1166,6 @@ function classifierModel(provider: ClassifierProvider): string {
   return provider === "luna" ? CLASSIFIER_LUNA_MODEL : CLASSIFIER_JEV_MODEL;
 }
 
-/** History of this attempt. Never throws, and never writes `ai.*`. */
 async function recordClassificationEvent(
   env: Env,
   workspaceName: string,
@@ -1249,8 +1248,6 @@ async function storeFailure(
   const model = classifierModel(provider);
   const db = dbFor(env);
   const existing = (await getFileMetadata(db, workspaceName, key))["ai.classifier"];
-  // A retry that fails on bytes we already labeled must not erase them.
-  // The attempt is still an event, with no safety snapshot of its own.
   if (existing !== undefined && existing !== CLASSIFIER_FAILED) {
     await recordClassificationEvent(
       env,

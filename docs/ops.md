@@ -1424,30 +1424,16 @@ the hold as it is.
 `POST /v1/workspaces/:workspace/files/approve?key=` writes
 `ai.hold=approved` and re-syncs the comment (`upload_approved`). It does
 not change `ai.secret`, `ai.pii`, `ai.rating`, or `ai.content`. The same
-call appends an override row to `file_events` (`apps/api/src/file-events.ts`):
-who released the hold, when, the content hash, and the safety flags in
-force. CLI, MCP, Slack, the file page, and `/admin/classifier` release all
-go through `approveUpload`, so they all append that row. A client cannot
-write the log, and cannot set or delete `ai.*`.
-
-`ai.hold` is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval
-and new bytes start over. The event log keeps the earlier attempt either
-way. Each classification appends
-another row: `classified`, `reused_exact`, `reused_perceptual`, `skipped`
-(with the reason), or `failed`, plus the model, the classifier version,
-and the safety answers. New bytes still clear the current `ai.*` rows
-before the next classification. The earlier events stay. `content_sha256`
-on each row is the bytes that event describes, so a later content-addressed
-blob can use the same column. An override applies only while the key's
-current hash equals that column. Promote and attach copy every classifier
-row onto the new key, since the copy is not classified again. They do not
-copy events. The bytes' earlier classification is still findable by hash.
-`ai.rating`, `ai.content`, and `ai.pii=contact` never hold a file.
-
-The table is on the existing D1 database. No new binding. A database that
-has not applied the migration still classifies and still approves; the
-append is skipped. Object delete, retention, and workspace teardown remove
-the rows for keys that are gone. An overwrite does not.
+call appends a `file_events` row: who released the hold, when, the content
+hash, and the flags in force. Classification appends `classified`,
+`reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
+New bytes still clear the current `ai.*` rows. The log keeps the earlier
+row. `content_sha256` is those bytes, for a later blob id. The table is on
+the existing D1 database. A missing migration skips the append. `ai.hold`
+is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
+bytes start over. Promote and attach copy every classifier row onto the
+new key, since the copy is not classified again. `ai.rating`,
+`ai.content`, and `ai.pii=contact` never hold a file.
 
 ### Allowlist (Flagship is the control plane)
 

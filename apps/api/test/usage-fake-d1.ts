@@ -86,9 +86,6 @@ export class UsageFakeD1 {
   }
   /** `${workspace} ${objectKey}` → stored-body hash. Backs `file_content_hash`. */
   private contentHashes = new Map<string, { hash: string; updatedAt: string }>();
-  /** Append-only `file_events`. */
-  private fileEvents: Array<Record<string, unknown>> = [];
-  private fileEventSeq = 1;
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -123,16 +120,6 @@ export class UsageFakeD1 {
           const row = this.contentHashes.get(`${workspace} ${objectKey}`);
           return row === undefined ? null : { content_sha256: row.hash };
         }
-        if (normalized.includes("FROM file_events") && normalized.includes("kind = 'override'")) {
-          const [workspace, objectKey] = values as [string, string];
-          const hits = this.fileEvents.filter(
-            (row) =>
-              row.workspace === workspace &&
-              row.object_key === objectKey &&
-              row.kind === "override",
-          );
-          return hits.length === 0 ? null : hits[hits.length - 1];
-        }
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -156,13 +143,6 @@ export class UsageFakeD1 {
         // only care that "no galleries" doesn't blow up.
         if (normalized.includes("FROM galleries") || normalized.includes("gallery_")) {
           return { success: true as const, results: [] as T[], meta: {} };
-        }
-        if (normalized.includes("FROM file_events")) {
-          const [workspace, objectKey] = values as [string, string];
-          const hits = this.fileEvents.filter(
-            (row) => row.workspace === workspace && row.object_key === objectKey,
-          );
-          return { success: true as const, results: hits as T[], meta: {} };
         }
         if (normalized.includes("FROM file_content_hash h")) {
           const [workspace, hash, selfKey] = values as [string, string, string];
@@ -204,67 +184,6 @@ export class UsageFakeD1 {
         if (claimResult) return claimResult;
         const attachmentRunResult = this.attachmentIndexTable.tryRun(normalized, values);
         if (attachmentRunResult) return attachmentRunResult;
-        if (normalized.startsWith("INSERT INTO file_events")) {
-          const [
-            workspace,
-            objectKey,
-            contentSha256,
-            kind,
-            classifierVersion,
-            model,
-            reason,
-            action,
-            actor,
-            rating,
-            ratingConfidence,
-            contentFlag,
-            contentConfidence,
-            secret,
-            secretConfidence,
-            pii,
-            piiConfidence,
-            createdAt,
-          ] = values as Array<string | null>;
-          this.fileEvents.push({
-            id: this.fileEventSeq++,
-            workspace,
-            object_key: objectKey,
-            content_sha256: contentSha256,
-            kind,
-            classifier_version: classifierVersion,
-            model,
-            reason,
-            action,
-            actor,
-            rating,
-            rating_confidence: ratingConfidence,
-            content_flag: contentFlag,
-            content_confidence: contentConfidence,
-            secret,
-            secret_confidence: secretConfidence,
-            pii,
-            pii_confidence: piiConfidence,
-            created_at: createdAt,
-          });
-          return { success: true as const, meta: { changes: 1 }, results: [] };
-        }
-        if (normalized.startsWith("DELETE FROM file_events")) {
-          const workspace = values[0] as string;
-          if (normalized.includes("object_key IN")) {
-            const keys = new Set(values.slice(1) as string[]);
-            this.fileEvents = this.fileEvents.filter(
-              (row) => row.workspace !== workspace || !keys.has(row.object_key as string),
-            );
-          } else if (normalized.includes("object_key = ?")) {
-            const objectKey = values[1] as string;
-            this.fileEvents = this.fileEvents.filter(
-              (row) => row.workspace !== workspace || row.object_key !== objectKey,
-            );
-          } else {
-            this.fileEvents = this.fileEvents.filter((row) => row.workspace !== workspace);
-          }
-          return { success: true as const, meta: { changes: 1 }, results: [] };
-        }
         if (normalized.startsWith("INSERT INTO file_content_hash")) {
           const [workspace, objectKey, hash, updatedAt] = values as [
             string,
