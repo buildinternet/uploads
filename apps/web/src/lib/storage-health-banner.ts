@@ -11,6 +11,7 @@
  * response — `getWorkspaceStorageStatus` already fails healthy.
  */
 import { getWorkspaceStorageStatus } from "./api-client";
+import { recentRead } from "./recent-read";
 import { onSession } from "./account-shell";
 import { workspaceStorageBucketHref, workspaceStoragePath } from "./workspace-browse-url";
 
@@ -81,7 +82,12 @@ export function initStorageHealthBanner(
   const pathname = opts.pathname ?? location.pathname;
 
   onSession(() => {
-    void getWorkspaceStorageStatus(apiOrigin, workspace).then((result) => {
+    void recentRead(
+      `storage-status:${workspace}`,
+      () => getWorkspaceStorageStatus(apiOrigin, workspace),
+      // A member's 403 is a stable answer too; only transient failures retry.
+      (result) => result.kind === "ok" || result.reason === "forbidden",
+    ).then((result) => {
       if (result.kind !== "ok") return;
       const { health } = result.status;
       if (health.ok || !health.message) return;

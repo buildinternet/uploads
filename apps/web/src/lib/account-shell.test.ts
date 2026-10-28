@@ -13,6 +13,7 @@ vi.mock("./auth-client", async (importOriginal) => ({
 
 import { resolveSessionGate, SESSION_CACHE_KEY, type SessionGateOptions } from "./account-shell";
 import { markPageLoad, resetPageVisitForTests } from "./page-visit";
+import { clearRecentReads } from "./recent-read";
 
 function element(): HTMLElement {
   return { hidden: false, textContent: "" } as HTMLElement;
@@ -65,6 +66,7 @@ afterEach(() => {
   auth.signOut.mockReset();
   auth.startLocalDemoSession.mockReset();
   resetPageVisitForTests();
+  clearRecentReads();
   vi.unstubAllGlobals();
 });
 

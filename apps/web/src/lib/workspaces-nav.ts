@@ -14,6 +14,7 @@ import {
   type WorkspaceCreateQuota,
   type WorkspacesResult,
 } from "./api-client";
+import { recentRead } from "./recent-read";
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
 
 /** Storage keys — UX only; membership is still enforced server-side. */
@@ -73,9 +74,6 @@ export function canCreateWorkspace(quota?: WorkspaceCreateQuota): boolean {
   return quota ? quota.allowed : true;
 }
 
-/** In-flight `/me/workspaces` request, shared by everything on the page. */
-let inFlightWorkspaces: Promise<WorkspacesResult> | null = null;
-
 /**
  * Fetch `/me/workspaces` once per page load, however many surfaces ask.
  *
@@ -83,23 +81,22 @@ let inFlightWorkspaces: Promise<WorkspacesResult> | null = null;
  * individual pages (the index, the create form) need the same payload for
  * their own rendering. Without this, each surface fired its own request for
  * a response the others had just received. Concurrent callers share one
- * promise; the slot clears on settle so a later navigation or an explicit
- * retry still revalidates.
+ * promise, and a successful answer is reused for a few seconds
+ * (`recentRead`) so quick tab switches don't refetch it; a failure clears
+ * right away so a retry revalidates.
  *
  * Writes the cache on success so callers don't each have to remember to.
  */
 export function loadWorkspaces(apiOrigin: string): Promise<WorkspacesResult> {
-  if (!inFlightWorkspaces) {
-    inFlightWorkspaces = getMyWorkspaces(apiOrigin)
-      .then((result) => {
+  return recentRead(
+    "workspaces",
+    () =>
+      getMyWorkspaces(apiOrigin).then((result) => {
         if (result.kind === "success") writeCachedWorkspaces(result.workspaces, result.quota);
         return result;
-      })
-      .finally(() => {
-        inFlightWorkspaces = null;
-      });
-  }
-  return inFlightWorkspaces;
+      }),
+    (result) => result.kind === "success",
+  );
 }
 
 type CachePayload = { workspaces: MyWorkspace[]; quota?: WorkspaceCreateQuota };

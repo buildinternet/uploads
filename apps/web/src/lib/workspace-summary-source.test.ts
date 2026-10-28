@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadWorkspaceSummary, resetInFlightSummaries } from "./workspace-summary-source";
 import type { WorkspaceSummaryResult } from "./api-client";
+import { RECENT_READ_TTL_MS } from "./recent-read";
 
 function successResult(workspace = "buildinternet"): WorkspaceSummaryResult {
   return {
@@ -59,7 +60,8 @@ describe("loadWorkspaceSummary", () => {
     expect(calls).toBe(2);
   });
 
-  it("refetches once the previous request has settled", async () => {
+  it("reuses a recent success, then refetches once it ages out", async () => {
+    vi.useFakeTimers();
     let calls = 0;
     const fetcher = async () => {
       calls += 1;
@@ -67,7 +69,11 @@ describe("loadWorkspaceSummary", () => {
     };
     await loadWorkspaceSummary("https://api.test", "buildinternet", fetcher);
     await loadWorkspaceSummary("https://api.test", "buildinternet", fetcher);
+    expect(calls).toBe(1);
+    vi.advanceTimersByTime(RECENT_READ_TTL_MS);
+    await loadWorkspaceSummary("https://api.test", "buildinternet", fetcher);
     expect(calls).toBe(2);
+    vi.useRealTimers();
   });
 
   it("clears the in-flight entry when the request rejects, so a retry can run", async () => {

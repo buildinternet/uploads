@@ -15,9 +15,11 @@ import {
   signOut,
   startLocalDemoSession,
   type SessionResponse,
+  type SessionResult,
   type SessionUser,
 } from "./auth-client";
 import { getPageVisit, isCurrentPageVisit, markPageLoad } from "./page-visit";
+import { clearRecentReads, recentRead } from "./recent-read";
 import { loginHref } from "./signed-in-page";
 import { clearWorkspaceSnapshots } from "./workspace-cache";
 
@@ -66,6 +68,20 @@ export function clearCachedSessionUser(): void {
     // ignore
   }
   delete (window as SessionWindow).__uploadsSessionUser;
+  clearRecentReads();
+}
+
+/**
+ * Session check for the shell gate and the header avatar, shared between
+ * them and reused for a few seconds across tab switches (`recentRead`). Only
+ * a signed-in answer is kept; anything else is checked again next time.
+ */
+export function recentSession(authOrigin: string): Promise<SessionResult> {
+  return recentRead(
+    "session",
+    () => getSession(authOrigin),
+    (result) => result.kind === "signed_in",
+  );
 }
 
 function publishSession(user: SessionUser, force = false): void {
@@ -220,7 +236,7 @@ export async function resolveSessionGate(
     publishSession(cached);
   }
 
-  let result = await getSession(options.authOrigin);
+  let result = await recentSession(options.authOrigin);
   if (result.kind === "signed_out") {
     const demo = await startLocalDemoSession(options.authOrigin, location.origin);
     if (demo.kind === "unavailable") {

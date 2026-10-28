@@ -21,6 +21,7 @@
  * stays hidden by construction.
  */
 import { getGithubInstalled, type GithubTitleMap } from "./api-client";
+import { recentRead } from "./recent-read";
 import { onSession } from "./account-shell";
 import { escapeHtml } from "./workspace-ui";
 import { filesPrHrefForWorkItem } from "./files-view-state";
@@ -208,7 +209,9 @@ export function initWorkspaceRail(
     // One-way: the CTA ships visible and is only ever hidden, so an outage or
     // a slow response leaves the markup as server-rendered.
     if (githubCtaEl) {
-      void getGithubInstalled(apiOrigin, workspace).then((installed) => {
+      void recentRead(`github-installed:${workspace}`, () =>
+        getGithubInstalled(apiOrigin, workspace),
+      ).then((installed) => {
         if (installed) githubCtaEl.hidden = true;
       });
     }
