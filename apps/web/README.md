@@ -97,8 +97,8 @@ Read by [integrations.sh](https://integrations.sh/uploads.sh/), which silently
 ignores the file if it fails to parse or match the schema — so
 `src/integrations-manifest.test.ts` asserts the shape (v3, credential ids
 resolve, every `basis.source` is this origin's canonical URL). Only declare
-surfaces that exist: no GraphQL, no agent card, and `storage.uploads.sh` is
-raw hosted bytes rather than an API.
+surfaces that exist: no GraphQL, no agent card, and `storage.uploads.sh`
+serves hosted files. It is not an API.
 
 ### Agent skills — always track GitHub `main`
 

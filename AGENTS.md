@@ -175,6 +175,13 @@ The same keys are also served on `https://embed.uploads.sh/<name>/<key>` with
 freshness-oriented Cache-Control (zone Transform Rule) for GitHub Camo; API/CLI
 return `embedUrl` alongside `url` — prefer embed for PR/issue markdown. See
 [docs/ops.md](docs/ops.md#dual-public-hosts-stable-vs-embed--github-camo).
+
+Those hosted hosts are R2 custom domains. `uploads-read-gate`
+(`apps/read-gate`) sits in front of the lane as a pass-through and 404s safety
+holds only. Private-repo images stay cookie-less public reads. A
+bring-your-own bucket is not on this Worker. Cutover is one host at a time.
+See [docs/ops.md](docs/ops.md#hosted-read-gate).
+
 Bring-your-own-bucket is the advanced case: register with `--bucket` and the
 record points at a dedicated bucket (own binding or S3 credentials, own
 `publicBaseUrl`, no prefix) — `buildinternet` on `buildinternet-dev` is the

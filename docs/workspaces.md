@@ -145,6 +145,12 @@ The prefix is applied in exactly one place — `createStorage()` in
 | --------- | ----------------- | ---------------------------------------------- |
 | `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
 
+Public reads on those hosted hosts go through `uploads-read-gate`
+(`apps/read-gate`) once that host's zone route is attached. The Worker 404s
+a safety hold. It does not hide a private file, and it does not run on a
+bring-your-own-bucket domain. The cutover order and the D1 rows are in
+[ops.md](ops.md#hosted-read-gate).
+
 ## Self-serve workspaces
 
 Signed-in users with a **GitHub-linked account** can create their own
