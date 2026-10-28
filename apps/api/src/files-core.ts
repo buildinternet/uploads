@@ -110,7 +110,7 @@ import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibi
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
-import { fixedLengthStream, openStreamedBody, type StreamedBody } from "./streamed-body";
+import { openStreamedBody, type StreamedBody } from "./streamed-body";
 import { notifySlackHoldResolved } from "./slack-hold-notify";
 
 export type { StreamedBody };
@@ -496,33 +496,6 @@ export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "t
 }
 
 /**
- * Write `content-sha256` onto an object whose digest was computed while the
- * body streamed in. R2 custom metadata is fixed at the start of a put, and
- * the Workers binding has no metadata patch, so this copies that one key
- * onto itself. The copy streams; it does not buffer the body or hash it again.
- */
-async function stampStreamedContentHash(
-  store: Files,
-  key: string,
-  size: number,
-  contentType: string,
-  metadata: Record<string, string>,
-): Promise<boolean> {
-  try {
-    const current = await store.download(key, { as: "stream" });
-    await store.upload(key, fixedLengthStream(current.stream(), size), {
-      contentType,
-      cacheControl: UPLOAD_CACHE_CONTROL,
-      metadata,
-    });
-    return true;
-  } catch (err) {
-    console.error({ event: "streamed_content_hash_stamp_failed", key, err });
-    return false;
-  }
-}
-
-/**
  * Upload with the workspace's guardrails (size cap, content-type allowlist,
  * content type sniffed from the bytes; see guards.ts), then update the usage
  * ledger. Metering is best-effort and never fails the upload.
@@ -717,8 +690,8 @@ export async function putObject(
   const reservedBytes = storageReservation.reservedBytes;
 
   // Always hash the final stored body; never trust a client hash.
-  // A streamed digest exists only after `upload` consumes the stream. R2
-  // custom metadata is fixed at put time, so that hash is stamped afterward.
+  // `uploaded-at` is server-only. A streamed body's hash is known only after
+  // the write, so its `content-sha256` lives in the D1 hash index alone.
   let contentSha256 = bytes ? (opts?.contentSha256 ?? (await contentSha256Hex(bytes))) : undefined;
   // Started early so the D1 read overlaps the R2 write. Never rejects, so
   // it's safe to leave in flight if the upload throws.
@@ -760,17 +733,7 @@ export async function putObject(
     throw err;
   }
 
-  if (contentSha256 === undefined) {
-    contentSha256 = streamed!.sha256();
-    const stamped = await stampStreamedContentHash(
-      store,
-      finalKey,
-      newSize,
-      inspection.contentType,
-      { ...storageMetadata, "content-sha256": contentSha256 },
-    );
-    if (stamped) provenance["content-sha256"] = contentSha256;
-  }
+  contentSha256 ??= streamed!.sha256();
 
   // The write landed, so clear any unhealthy flag (no KV write when unset).
   await noteStorageSuccess(env, workspaceName, ws);
