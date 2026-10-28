@@ -81,6 +81,7 @@ import {
 export type { ClassifierHandoff };
 import { holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
+import { deleteHostedReadGate } from "./read-gate";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -842,7 +843,12 @@ export async function putObject(
     console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
   if (sameBytes) {
     await reholdIfHeld(env, ws, workspaceName, finalKey).catch(logHeldError);
-  } else if (heldBucket(env)) {
+  } else {
+    // New bytes are not the held object. Drop a gate row before classification
+    // decides whether these bytes should be held.
+    await deleteHostedReadGate(dbFor(env), ws, workspaceName, [finalKey]).catch(logHeldError);
+  }
+  if (!sameBytes && heldBucket(env)) {
     const cleanup = deleteHeldCopy(env, workspaceName, finalKey).catch(logHeldError);
     let deferred = false;
     try {
@@ -1318,6 +1324,7 @@ export async function deleteObject(
   if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
   await deleteContentHashes(dbFor(env), workspaceName, [key]);
+  await deleteHostedReadGate(dbFor(env), ws, workspaceName, [key]);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
   if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 

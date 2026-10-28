@@ -33,7 +33,8 @@ instant auth).
 Pushing a branch does not create a preview deploy for `uploads-web`,
 `uploads-auth`, or `uploads-api`. Non-production branch builds are off for
 those workers. Production builds on `main` are unchanged. `uploads-mcp`,
-`uploads-viewer`, and `uploads-slack` are unchanged.
+`uploads-viewer`, and `uploads-slack` are unchanged. `uploads-read-gate` is
+not in Workers Builds until the hosted read-gate cutover.
 
 Do not upload a preview by default. Upload one only when the change needs a
 live worker to verify. Local `pnpm dev:web` is the usual check for UI.

@@ -24,6 +24,7 @@ describe("file_events", () => {
       "migrations/20260724140000_file_content_hash.sql",
       "migrations/20261028120000_file_events.sql",
       "migrations/20261028140000_blob_hold.sql",
+      "migrations/20261028160000_read_gate.sql",
     ]);
     const db = database(sqlite);
     const bucket = new FakeR2Bucket();

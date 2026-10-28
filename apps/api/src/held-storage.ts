@@ -1,8 +1,7 @@
 /**
- * Where a held upload's bytes wait (`upload-hold.ts`). The storage hosts are
- * R2 custom domains with no Worker in the read path, so the only way to stop
- * a public URL serving a held file is to take the object out of the public
- * bucket. A hold copies it into `UPLOADS_HELD`, a bucket with no public
+ * Where a held upload's bytes wait (`upload-hold.ts`). The hosted read-gate
+ * Worker can 404 a held key, but its routes are not attached yet, so a hold
+ * still copies the object into `UPLOADS_HELD`, a bucket with no public
  * domain, at `<workspace>/<key>`, then deletes the public key. Approval
  * copies it back to the same key, so links work again.
  *
@@ -21,6 +20,7 @@ import { contentSha256Hex } from "./provenance";
 import { HOLD_MOVED_KEY } from "./upload-hold";
 import { isKeyHeld } from "./upload-hold-read";
 import { posterKeyFor } from "./poster";
+import { insertHostedReadGate } from "./read-gate";
 import {
   isSharedLane,
   resolveObjectLane,
@@ -138,8 +138,11 @@ export async function reholdIfHeld(
   key: string,
   held?: boolean,
 ): Promise<void> {
-  if (!heldBucket(env)) return;
   if (!(held ?? (await isKeyHeld(env, workspaceName, key)))) return;
+  await insertHostedReadGate(dbFor(env), ws, workspaceName, [key]).catch((err: unknown) => {
+    console.error({ event: "read_gate_insert_failed", workspace: workspaceName, err });
+  });
+  if (!heldBucket(env)) return;
   await moveToHeld(env, ws, workspaceName, key);
 }
 

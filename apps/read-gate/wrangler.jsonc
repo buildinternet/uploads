@@ -1,0 +1,37 @@
+// Hosted read gate. Deploy does not attach routes: this file has no `routes`
+// array, and wrangler only publishes routes when that list is non-empty, so a
+// deploy neither adds nor deletes them. Ops adds one zone route at a time
+// (store.uploads.sh/*, then storage.uploads.sh/*, then embed.uploads.sh/*).
+// Not custom domains — those hosts are already R2 custom domains.
+//
+// Workers Builds watch paths, if the project is created: apps/read-gate/**,
+// pnpm-lock.yaml, pnpm-workspace.yaml. Root `/`, no build command, deploy
+// `pnpm run deploy:read-gate`, non-production branch builds off.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-read-gate",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+    },
+  ],
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
+      },
+    ],
+  },
+}

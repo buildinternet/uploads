@@ -404,6 +404,9 @@ export class UsageFakeD1 {
         ) {
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
+        if (normalized.includes("read_gate")) {
+          return { success: true as const, meta: { changes: 0 }, results: [] };
+        }
         if (normalized.includes("blob_hold")) {
           throw new Error("no such table: blob_hold");
         }
