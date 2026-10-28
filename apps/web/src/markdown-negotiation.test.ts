@@ -79,6 +79,17 @@ describe("withMarkdownNegotiation", () => {
     expect(body).not.toContain("<h1>");
   });
 
+  it("leaves signed-in shell pages alone", async () => {
+    const res = await withMarkdownNegotiation(
+      new Request("https://uploads.sh/account/profile", {
+        headers: { Accept: "text/markdown" },
+      }),
+      htmlHandler,
+    );
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("vary")).toBeNull();
+  });
+
   it("does not convert non-HTML responses", async () => {
     const json = `${JSON.stringify({ ok: true })}\n`;
     const res = await withMarkdownNegotiation(

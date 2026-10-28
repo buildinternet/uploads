@@ -7,8 +7,10 @@
  * signed-in loads do not pay an extra getSession here (the layout already
  * resolves the session for first paint).
  */
+import { env } from "cloudflare:workers";
 import { defineMiddleware } from "astro:middleware";
 import { isLocalDemoStack } from "./lib/auth-client";
+import { lookupServerSession } from "./lib/auth-proxy";
 import { signedInShellLoginRedirect } from "./lib/signed-in-page";
 
 export const onRequest = defineMiddleware(async (context, next) => {
@@ -28,6 +30,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
       status: 302,
       headers: { Location: target, "Cache-Control": "no-store" },
     });
+  }
+  // AccountLayout needs the session, but it renders after the page's own
+  // frontmatter has awaited its data. Starting the lookup here runs the two
+  // in parallel; the layout awaits this promise instead of starting its own.
+  if (
+    pathname.startsWith("/account") &&
+    context.request.method === "GET" &&
+    context.request.headers.get("cookie")?.trim()
+  ) {
+    context.locals.sessionLookup = lookupServerSession(env, context.request);
   }
   return next();
 });

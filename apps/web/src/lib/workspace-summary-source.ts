@@ -8,14 +8,15 @@
  * pure duplication — the summary endpoint answers "am I a member of this
  * workspace" in one round trip — and the rail's copy of it can be shared.
  *
- * Callers that arrive while a request is still in flight join it. Once it
- * settles the entry is dropped, so a later navigation revalidates rather than
- * serving a stale promise for the life of the tab.
+ * Callers that arrive while a request is still in flight join it, and a
+ * successful answer is reused for a few seconds (`recentRead`) so quick tab
+ * switches don't refetch it. Failures are dropped so the next caller retries.
  *
  * A successful response also refreshes the workspace snapshot, which is what
  * makes the *next* visit paint without waiting on the network at all.
  */
 import { getWorkspaceSummary, type WorkspaceSummaryResult } from "./api-client";
+import { clearRecentReads, recentRead } from "./recent-read";
 import { toWorkspaceSnapshot, writeWorkspaceSnapshot } from "./workspace-cache";
 
 export type SummaryFetcher = (
@@ -23,32 +24,25 @@ export type SummaryFetcher = (
   workspace: string,
 ) => Promise<WorkspaceSummaryResult>;
 
-const inFlight = new Map<string, Promise<WorkspaceSummaryResult>>();
-
 export function loadWorkspaceSummary(
   apiOrigin: string,
   workspace: string,
   fetcher: SummaryFetcher = getWorkspaceSummary,
 ): Promise<WorkspaceSummaryResult> {
-  const existing = inFlight.get(workspace);
-  if (existing) return existing;
-
-  const request = fetcher(apiOrigin, workspace)
-    .then((result) => {
-      if (result.kind === "success") {
-        writeWorkspaceSnapshot(workspace, toWorkspaceSnapshot(result.workspace, result.usage));
-      }
-      return result;
-    })
-    .finally(() => {
-      inFlight.delete(workspace);
-    });
-
-  inFlight.set(workspace, request);
-  return request;
+  return recentRead(
+    `summary:${workspace}`,
+    () =>
+      fetcher(apiOrigin, workspace).then((result) => {
+        if (result.kind === "success") {
+          writeWorkspaceSnapshot(workspace, toWorkspaceSnapshot(result.workspace, result.usage));
+        }
+        return result;
+      }),
+    (result) => result.kind === "success",
+  );
 }
 
 /** Drop memoized requests. Tests use this; production never needs it. */
 export function resetInFlightSummaries(): void {
-  inFlight.clear();
+  clearRecentReads();
 }

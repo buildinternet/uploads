@@ -38,11 +38,12 @@ const MENU_ITEMS = [
   set:html={`window.__UPLOADS_AUTH_ORIGIN__=window.__UPLOADS_AUTH_ORIGIN__||${JSON.stringify(authOrigin)};window.__UPLOADS_AUTH_MENU_ITEMS__=${JSON.stringify(MENU_ITEMS)};`}
 />
 <script>
-  import { getSession, signOut, type SessionUser } from "../lib/auth-client";
+  import { signOut, type SessionUser } from "../lib/auth-client";
   import {
     clearCachedSessionUser,
     onAstroPageLoad,
     readCachedSessionUser,
+    recentSession,
     writeCachedSessionUser,
   } from "../lib/account-shell";
   import { readCachedActiveWorkspace, workspaceHomePath } from "../lib/workspaces-nav";
@@ -236,7 +237,8 @@ const MENU_ITEMS = [
     const cached = readCachedSessionUser();
     if (cached) paintUser(cached);
 
-    void getSession(origin).then((result) => {
+    // Shared with the shell gate, so a signed-in page checks once, not twice.
+    void recentSession(origin).then((result) => {
       // Ignore if this indicator was swapped out mid-flight.
       if (root.dataset.booted !== "1" || !document.contains(root)) return;
       if (result.kind === "unavailable") {

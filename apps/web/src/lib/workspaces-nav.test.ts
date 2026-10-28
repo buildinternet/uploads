@@ -21,6 +21,7 @@ import {
   WORKSPACES_CACHE_KEY,
 } from "./workspaces-nav";
 import type { MyWorkspace } from "./api-client";
+import { clearRecentReads, RECENT_READ_TTL_MS } from "./recent-read";
 
 function mapStorage() {
   const values = new Map<string, string>();
@@ -47,6 +48,8 @@ function installStorage() {
 }
 
 afterEach(() => {
+  clearRecentReads();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -233,14 +236,18 @@ describe("loadWorkspaces", () => {
     expect(readCachedQuota()).toEqual({ used: 3, cap: 3, allowed: false });
   });
 
-  it("revalidates on a later call once the first has settled", async () => {
+  it("reuses a recent answer, then revalidates once it ages out", async () => {
+    vi.useFakeTimers();
     installStorage();
     const fetchMock = vi.fn(async () => Response.json({ workspaces: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
     await loadWorkspaces("http://127.0.0.1:8787");
     await loadWorkspaces("http://127.0.0.1:8787");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    vi.advanceTimersByTime(RECENT_READ_TTL_MS);
+    await loadWorkspaces("http://127.0.0.1:8787");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

@@ -64,6 +64,13 @@ export async function withMarkdownNegotiation(
   request: Request,
   next: (request: Request) => Response | Promise<Response>,
 ): Promise<Response> {
+  // Signed-in shells have nothing for agents, and `Vary: Accept` would stop
+  // the browser reusing a hover prefetch: the prefetch and ClientRouter's
+  // fetch send different Accept headers.
+  // Same prefixes as `isSignedInShellPath`, which this worker-only module
+  // can't import (it pulls DOM code into the worker typecheck).
+  const { pathname } = new URL(request.url);
+  if (pathname.startsWith("/account") || pathname.startsWith("/admin")) return next(request);
   const response = await next(request);
   const contentType = response.headers.get("Content-Type");
   const html = isHtmlContentType(contentType);
