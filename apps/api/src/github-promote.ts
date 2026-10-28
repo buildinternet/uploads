@@ -19,9 +19,15 @@
 
 import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import { UnsupportedMediaTypeError } from "@uploads/errors";
-import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
-import { carryHoldToCopy } from "./hold-copy";
+import {
+  classifierRowsOf,
+  copyLineageMeta,
+  getMetadataForKeys,
+  setFileMetadata,
+  setServerFileMetadata,
+} from "./file-metadata";
 import { putObject, putOptsFromStoredObject } from "./files-core";
+import { isKeyHeld } from "./upload-hold-read";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
 import { getActivePrefixId } from "./github-private-prefixes";
@@ -398,6 +404,13 @@ export async function promoteBranchAttachments(
           )
         : destinationKey(owner, name, target.num, filename);
 
+    // A held source used to be absent from the public bucket, so it could
+    // not be copied. Skip it the same way, before any write.
+    if (await isKeyHeld(env, workspaceName, key)) {
+      skipped.push({ key, reason: "held" });
+      continue;
+    }
+
     try {
       const source = await store.download(key);
       const bytes = new Uint8Array(await source.arrayBuffer());
@@ -471,9 +484,12 @@ export async function promoteBranchAttachments(
     promoted.push(destKey);
 
     try {
-      // The copy is not classified again. Labels, a hold, and the source
-      // pointer (`hold-copy.ts`) come from the staged original.
-      await carryHoldToCopy(env, ws, workspaceName, key, destKey, stagedMeta);
+      // The copy is not classified again. Labels come from the staged
+      // original. `ai.copied-from` lets a later hold find this key.
+      await setServerFileMetadata(dbFor(env), workspaceName, destKey, {
+        ...classifierRowsOf(stagedMeta),
+        ...copyLineageMeta(key),
+      });
     } catch (err) {
       console.error(
         JSON.stringify({

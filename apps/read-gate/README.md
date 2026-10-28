@@ -3,7 +3,8 @@
 Pass-through Worker (`uploads-read-gate`) in front of the hosted R2 custom
 domains: `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`.
 A safety hold returns 404. The API records the hold in D1 `read_gate`.
-This Worker reads that table and fails open when D1 errors. Every other
+This Worker reads that table. A D1 error serves the object, by choice, the
+same as the classifier's fail-open. Every other
 request is `fetch(request)`, so R2 keeps Range, validators, content type,
 and CORS. The pass-through adds `must-revalidate` so a cached image
 transform follows the object's max-age instead of Cloudflare Images'

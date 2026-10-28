@@ -810,4 +810,40 @@ describe("rotatePrivatePrefix", () => {
         .first(),
     ).toEqual({ object_key: `${PREFIX}${newKey}` });
   });
+
+  it("does not store a rotated hold when the gate write fails", async () => {
+    const seeded = await seededEnv();
+    const { db, bucket, ws } = seeded;
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(oldId, { repo: REPO, kind: "pull", num: NUM }, "a.png");
+    await putObject(seeded.env, ws, pullKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+    await setServerFileMetadata(db, WS, pullKey, { "ai.hold": "pending" });
+    const hash = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(WS, pullKey)
+      .first<{ content_sha256: string }>();
+    if (!hash) throw new Error("expected a content hash");
+    await db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .bind(WS, hash.content_sha256, new Date().toISOString())
+      .run();
+    await db.prepare(`DROP TABLE read_gate`).run();
+
+    await expect(
+      withFetch(commentFlowFetch({ bodies: [] }), () =>
+        rotatePrivatePrefix(seeded.env, ws, WS, "user-1", REPO, BRANCH),
+      ),
+    ).rejects.toThrow();
+    const stored = [...bucket.store.keys()];
+    expect(
+      stored.some((key) => key.startsWith(`${PREFIX}gh/private/`) && key.endsWith("/a.png")),
+    ).toBe(true);
+    expect(stored.filter((key) => key.endsWith("/a.png"))).toEqual([`${PREFIX}${pullKey}`]);
+  });
 });

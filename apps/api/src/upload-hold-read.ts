@@ -160,7 +160,16 @@ export async function keysCopiedFrom(
     )
     .bind(workspace, COPIED_FROM_META_KEY, sourceKey, contentSha256, COPY_HOLD_FANOUT_LIMIT)
     .all<{ object_key: string }>();
-  return (result.results ?? []).map((row) => row.object_key);
+  const keys = (result.results ?? []).map((row) => row.object_key);
+  if (keys.length === COPY_HOLD_FANOUT_LIMIT) {
+    console.warn({
+      event: "upload_hold_copy_cap",
+      workspace,
+      sourceKey,
+      limit: COPY_HOLD_FANOUT_LIMIT,
+    });
+  }
+  return keys;
 }
 
 function noBlob(): Map<string, BlobHoldView> {

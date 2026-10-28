@@ -1451,15 +1451,18 @@ when one exists. `GET /v1/workspaces/:workspace/files/held` lists held keys
 the held-bucket copy when one exists, and otherwise the public object of a
 hosted hold. The file page uses that download for the preview. Private
 prefix rotation re-keys a legacy object inside the held bucket. A hold
-whose bytes stayed public is copied to the new key and gated there.
+whose bytes stayed public gets `ai.hold` and `read_gate` rows on the new
+key before that object is stored. A failed write stops that key's rotation.
+`surface: "rotate"` does not place a hold.
 
 Promote and attach store `ai.copied-from` on the new key (the source object
-key). The hold gates those copies when they still have the same content
-hash, and writes `ai.hold=pending` on them, up to 32 keys. A copy made
-after the hold copies the hold row and the gate rows. An unrelated upload
-with the same hash and no `ai.copied-from` row is not held. A copy of a
-copy is gated when its source is the held key, or when the second copy is
-made after its source is already held.
+key) when the source is not held. A held source is not copied. Promote
+reports it as skipped with reason `held`. Attach answers 400 `held`. The
+hold gates copies that already exist, when they still have the same content
+hash, and writes `ai.hold=pending` on them, up to 32 keys. Hitting that cap
+logs `upload_hold_copy_cap`. An unrelated upload with the same hash and no
+`ai.copied-from` row is not held. A copy of a copy is gated only when its
+direct source is the key being held.
 
 ### Hosted read gate
 

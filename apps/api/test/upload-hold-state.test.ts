@@ -1,13 +1,18 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { recordContentHash } from "../src/content-hash";
 import { deleteObject } from "../src/files-core";
 import { readPublicHold, reholdIfHeld } from "../src/held-storage";
 import { COPIED_FROM_META_KEY, getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { contentSha256Hex } from "../src/provenance";
-import { isKeyHeld, listHeldKeys } from "../src/upload-hold-read";
+import {
+  COPY_HOLD_FANOUT_LIMIT,
+  isKeyHeld,
+  keysCopiedFrom,
+  listHeldKeys,
+} from "../src/upload-hold-read";
 import { applyUploadHold, approveUpload, holdAgain } from "../src/upload-hold-service";
 import type { WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
@@ -543,6 +548,24 @@ describe("blob hold", () => {
     expect(
       await db.prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted'`).all(),
     ).toMatchObject({ results: [] });
+    sqlite.close();
+  });
+
+  it("logs when a hold's copy fan-out hits the cap", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    for (let i = 0; i < COPY_HOLD_FANOUT_LIMIT; i++) {
+      const key = `c${String(i).padStart(2, "0")}.png`;
+      await recordContentHash(db, "acme", key, SHA);
+      await setServerFileMetadata(db, "acme", key, { [COPIED_FROM_META_KEY]: "shot.png" });
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const found = await keysCopiedFrom(database(sqlite), "acme", "shot.png", SHA);
+    expect(found).toHaveLength(COPY_HOLD_FANOUT_LIMIT);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "upload_hold_copy_cap", limit: COPY_HOLD_FANOUT_LIMIT }),
+    );
+    warn.mockRestore();
     sqlite.close();
   });
 

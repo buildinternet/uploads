@@ -1,8 +1,8 @@
 /**
- * Promote and attach copies of a hosted upload, before and after a hold.
- * The copy records `ai.copied-from`. A later hold gates that key. A copy
- * made after the hold is gated as it is written. Bytes stay in the public
- * bucket.
+ * Promote and attach copies of a hosted upload. The copy records
+ * `ai.copied-from` when the source is not held, so a later hold gates that
+ * key. A source that is already held is not copied. Bytes stay in the
+ * public bucket.
  */
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -123,8 +123,8 @@ describe("promote and attach copies follow a hosted hold", () => {
     sqlite.close();
   });
 
-  it("gates a promote that lands after the hold", async () => {
-    const { sqlite, db, bucket, held, env } = await envFor();
+  it("does not copy a promote that lands after the hold", async () => {
+    const { sqlite, db, bucket, env } = await envFor();
     const source = await seedStaged(bucket, db, "hero.png");
     const dest = pullKey("hero.png");
     const sha = await contentSha256Hex(PNG);
@@ -145,16 +145,12 @@ describe("promote and attach copies follow a hosted hold", () => {
       num: NUM,
       branch: BRANCH,
     });
-    expect(promoted.promoted).toEqual([dest]);
-    const copy = await getFileMetadata(db, WS, dest);
-    expect(copy["ai.copied-from"]).toBe(source);
-    expect(copy["ai.hold"]).toBe("pending");
-    expect(await gateRows(db)).toEqual(
-      expect.arrayContaining([`${PREFIX}${source}`, `${PREFIX}${dest}`]),
-    );
-    expect(bucket.store.has(`${PREFIX}${dest}`)).toBe(true);
-    expect(held.store.has(`${WS}/${dest}`)).toBe(false);
-    expect(held.store.size).toBe(0);
+    expect(promoted.promoted).toEqual([]);
+    expect(promoted.skipped).toEqual([{ key: source, reason: "held" }]);
+    expect(bucket.store.has(`${PREFIX}${dest}`)).toBe(false);
+    const rows = await gateRows(db);
+    expect(rows).toContain(`${PREFIX}${source}`);
+    expect(rows).not.toContain(`${PREFIX}${dest}`);
     sqlite.close();
   });
 
@@ -192,8 +188,8 @@ describe("promote and attach copies follow a hosted hold", () => {
     sqlite.close();
   });
 
-  it("gates an attach that lands after the hold", async () => {
-    const { sqlite, db, bucket, held, env } = await envFor();
+  it("does not copy an attach that lands after the hold", async () => {
+    const { sqlite, db, bucket, env } = await envFor();
     const source = "f/abc/shot.png";
     const dest = pullKey("shot.png");
     const sha = await contentSha256Hex(PNG);
@@ -210,18 +206,13 @@ describe("promote and attach copies follow a hosted hold", () => {
       ),
     ).toBe(true);
 
-    const attached = await attachExistingObject(env, ws, WS, {
-      source,
-      target: { repo: REPO, kind: "pull", num: NUM },
-    });
-    expect(attached.key).toBe(dest);
-    const copy = await getFileMetadata(db, WS, dest);
-    expect(copy["ai.copied-from"]).toBe(source);
-    expect(copy["ai.hold"]).toBe("pending");
-    expect(await gateRows(db)).toEqual(
-      expect.arrayContaining([`${PREFIX}${source}`, `${PREFIX}${dest}`]),
-    );
-    expect(held.store.size).toBe(0);
+    await expect(
+      attachExistingObject(env, ws, WS, {
+        source,
+        target: { repo: REPO, kind: "pull", num: NUM },
+      }),
+    ).rejects.toMatchObject({ code: "held" });
+    expect(bucket.store.has(`${PREFIX}${dest}`)).toBe(false);
     sqlite.close();
   });
 });
