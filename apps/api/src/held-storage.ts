@@ -143,6 +143,33 @@ export async function reholdIfHeld(
   await moveToHeld(env, ws, workspaceName, key);
 }
 
+/**
+ * Copy a held object and its poster from `fromKey` to `toKey`. The source
+ * keys stay in place so the caller can re-key D1 before deleting them.
+ * `false` when the held bucket is missing or the source object is not there.
+ */
+export async function copyHeldObject(
+  env: Env,
+  workspaceName: string,
+  fromKey: string,
+  toKey: string,
+): Promise<boolean> {
+  const held = heldBucket(env);
+  if (!held) return false;
+  const copied = await copyHeld(
+    held,
+    heldObjectKey(workspaceName, fromKey),
+    heldObjectKey(workspaceName, toKey),
+  );
+  if (!copied) return false;
+  await copyHeld(
+    held,
+    heldObjectKey(workspaceName, posterKeyFor(fromKey)),
+    heldObjectKey(workspaceName, posterKeyFor(toKey)),
+  );
+  return true;
+}
+
 /** A held object's body for a member review, or `null`. */
 export async function readHeld(
   env: Env,
@@ -158,6 +185,17 @@ async function sharedLaneStore(env: Env, ws: WorkspaceRecord): Promise<Files | n
   const configs = await storageConfigs(env, ws);
   const shared = configs.find((lane) => isSharedLane(lane.config));
   return shared ? createStorage(shared.config) : null;
+}
+
+async function copyHeld(held: R2Bucket, fromKey: string, toKey: string): Promise<boolean> {
+  const source = await held.get(fromKey);
+  if (!source) return false;
+  const bytes = new Uint8Array(await source.arrayBuffer());
+  await held.put(toKey, bytes, {
+    httpMetadata: source.httpMetadata,
+    customMetadata: source.customMetadata,
+  });
+  return true;
 }
 
 async function copyOut(store: Files, held: R2Bucket, heldKey: string, key: string): Promise<void> {

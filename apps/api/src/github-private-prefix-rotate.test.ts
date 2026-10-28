@@ -8,11 +8,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { attachmentRow, recordAttachment } from "./github-attachment-index";
-import { getFileMetadata } from "./file-metadata";
+import { getFileMetadata, setServerFileMetadata } from "./file-metadata";
 import { putObject } from "./files-core";
+import { moveToHeld } from "./held-storage";
 import { ghPrivateAttachmentKey, ghPrivateBranchAttachmentKey } from "./github-comment-render";
 import { attachmentsMarker } from "./github-comment-render";
 import { rotatePrivatePrefix } from "./github-private-prefix-service";
+import { approveUpload } from "./upload-hold-service";
 import { getActivePrefixId, getOrMintPrefixId, retirePrefixId } from "./github-private-prefixes";
 import { ledgerRow, recordIngestedAsset } from "./github-ingest-ledger";
 import { recordRepoLink } from "./github-repo-links";
@@ -37,6 +39,8 @@ const MIGRATIONS = [
   "migrations/20260811210000_github_private_prefixes.sql",
   "migrations/20260903120000_github_attachments.sql",
   "migrations/20261027120000_github_attachments_size.sql",
+  "migrations/20261028120000_file_events.sql",
+  "migrations/20261028140000_blob_hold.sql",
 ];
 
 const WS = "acme";
@@ -635,5 +639,113 @@ describe("rotatePrivatePrefix", () => {
     );
     expect(await attachmentRow(db, WS, pullKey)).toBeNull();
     expect(await attachmentRow(db, WS, newKey)).not.toBeNull();
+  });
+
+  it("moves a held file onto the new prefix, and approve restores it there", async () => {
+    const seeded = await seededEnv();
+    const held = new FakeR2Bucket();
+    const env = {
+      ...(seeded.env as unknown as Record<string, unknown>),
+      UPLOADS_HELD: held,
+    } as unknown as Env;
+    const { db, bucket, ws } = seeded;
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(oldId, { repo: REPO, kind: "pull", num: NUM }, "a.png");
+    const keptKey = ghPrivateAttachmentKey(
+      "f".repeat(32),
+      { repo: REPO, kind: "pull", num: NUM },
+      "kept.png",
+    );
+
+    await putObject(env, ws, pullKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+    await setServerFileMetadata(db, WS, pullKey, { "ai.hold": "pending" });
+    const hash = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(WS, pullKey)
+      .first<{ content_sha256: string }>();
+    if (!hash) throw new Error("expected a content hash");
+    const now = new Date().toISOString();
+    await db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .bind(WS, hash.content_sha256, now)
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO file_events (workspace, object_key, content_sha256, kind, created_at)
+         VALUES (?, ?, ?, 'classified', ?)`,
+      )
+      .bind(WS, pullKey, hash.content_sha256, now)
+      .run();
+    expect(await moveToHeld(env, ws, WS, pullKey)).toBe(true);
+
+    // A moved hold outside this prefix. A workspace-wide or whole-bucket sweep would take it.
+    await setServerFileMetadata(db, WS, keptKey, { "ai.hold": "pending", "ai.hold.moved": "1" });
+    await held.put(`${WS}/${keptKey}`, PNG, { httpMetadata: { contentType: "image/png" } });
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    expect(result.moved).toBe(1);
+    expect(held.listCalls).toBe(0);
+
+    const newKey = ghPrivateAttachmentKey(
+      result.prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "a.png",
+    );
+    expect(held.store.has(`${WS}/${newKey}`)).toBe(true);
+    expect(held.store.has(`${WS}/${pullKey}`)).toBe(false);
+    expect(held.store.has(`${WS}/${keptKey}`)).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${newKey}`)).toBe(false);
+    expect(bucket.store.has(`${PREFIX}${pullKey}`)).toBe(false);
+
+    expect(await getFileMetadata(db, WS, newKey)).toMatchObject({
+      "ai.hold": "pending",
+      "ai.hold.moved": "1",
+      "gh.repo": REPO,
+    });
+    expect(await getFileMetadata(db, WS, pullKey)).toEqual({});
+    expect(await getFileMetadata(db, WS, keptKey)).toMatchObject({ "ai.hold.moved": "1" });
+
+    const movedHash = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(WS, newKey)
+      .first<{ content_sha256: string }>();
+    expect(movedHash?.content_sha256).toBe(hash.content_sha256);
+    const oldHash = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(WS, pullKey)
+      .first<{ content_sha256: string }>();
+    expect(oldHash).toBeNull();
+
+    const event = await db
+      .prepare(`SELECT object_key FROM file_events WHERE workspace = ? AND kind = 'classified'`)
+      .bind(WS)
+      .first<{ object_key: string }>();
+    expect(event?.object_key).toBe(newKey);
+    expect(await attachmentRow(db, WS, pullKey)).toBeNull();
+    expect(await attachmentRow(db, WS, newKey)).not.toBeNull();
+
+    const approved = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      approveUpload(env, ws, WS, newKey, "Member"),
+    );
+    expect(approved).toEqual({ approved: true });
+    expect([...(bucket.store.get(`${PREFIX}${newKey}`)?.data ?? [])]).toEqual([...PNG]);
+    expect(bucket.store.has(`${PREFIX}${pullKey}`)).toBe(false);
+    expect(held.store.has(`${WS}/${newKey}`)).toBe(false);
+    expect(held.store.has(`${WS}/${keptKey}`)).toBe(true);
   });
 });
