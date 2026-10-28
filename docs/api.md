@@ -366,15 +366,17 @@ held bucket and the raw URL returns 404 until approval, which moves them
 back to the same key (a BYO bucket's domain keeps serving). A moved file is
 absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held copy.
-`POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) writes
-`ai.hold=approved`, `ai.hold.at`, and `ai.hold.by` (the member's name or
-the service token's label), then re-syncs the comment.
-`POST …/files/hold?key=` puts an approved file back under review and clears
-`ai.hold.by` and `ai.hold.at`. `GET …/files/review?key=` returns the hold
-state for members; the file page uses it for its Reviewed note. `ai.hold` follows the same
-lifetime as the other `ai.*` rows, and promote and attach copy it onto the
-new key. A workspace record with `holdFlaggedUploads: false` writes no
-holds.
+`POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) records
+a release for the current bytes and re-syncs the comment. It does not write
+`ai.hold=approved`. `uploads meta get` and `GET …/files/:key?metadata=1`
+still show `ai.hold=approved`, plus who released it and when, from that
+record. `POST …/files/hold?key=` puts a released file back under review.
+`GET …/files/review?key=` returns the hold state for members; the file page
+uses it for its Reviewed note. A release applies only while the bytes are
+unchanged. An older `ai.hold=approved` row still counts as released.
+`ai.hold` follows the same lifetime as the other `ai.*` rows, and promote
+and attach copy it, and the matching release, onto the new key. A workspace
+record with `holdFlaggedUploads: false` writes no holds.
 
 ### Usage ledger and budgets
 

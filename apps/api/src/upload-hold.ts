@@ -8,13 +8,17 @@
  * with `POST /v1/workspaces/:workspace/files/approve`, which moves the
  * bytes back to the same key.
  *
- * State for the current bytes is one server-owned row, `ai.hold`:
- * `pending` or `approved`. It is in `CLASSIFIER_ROW_KEYS`, so it shares
- * the classifier's lifetime: identical bytes keep it (an approval sticks),
- * and new bytes clear it. A release also appends an override event
- * (`file-events.ts`) with who released it and the safety flags in force.
- * That event does not change `ai.secret`, `ai.pii`, `ai.rating`, or
- * `ai.content`, and it stays after new bytes clear the row.
+ * The classifier writes `ai.hold=pending` for the bytes it holds. A release
+ * or a re-hold does not change that row. The effective state is
+ * `deriveHoldState`: the pending row (its reason is `holdReason`), then the
+ * latest override event whose content hash still matches these bytes.
+ * `release` means released and `hold` means held. An override for other
+ * bytes is ignored, so a new upload starts over. A row left at
+ * `ai.hold=approved` is a release from before the event log and still
+ * counts as released until the bytes change. `ai.hold` is in
+ * `CLASSIFIER_ROW_KEYS`: identical bytes keep the row, and new bytes clear
+ * it. The event does not change `ai.secret`, `ai.pii`, `ai.rating`, or
+ * `ai.content`.
  *
  * Env-free, so the CLI's local-gh comment path can share the predicate.
  */
@@ -40,10 +44,10 @@ export const HOLD_MOVED_KEY = "ai.hold.moved";
 export const HOLD_AREA_KEY = "ai.hold.area";
 
 /**
- * Who released a hold and when, for the members-only Reviewed note on the
- * file page. `by` is a display label captured at approval (a member's
- * name, or a service token's label); `at` is an ISO timestamp. Cleared
- * when a file is held again.
+ * Who released a hold and when, on a release stored before the event log.
+ * A release now records this on the override event. `by` is a display
+ * label (a member's name, or a service token's label); `at` is an ISO
+ * timestamp.
  */
 export const HOLD_BY_KEY = "ai.hold.by";
 export const HOLD_AT_KEY = "ai.hold.at";
@@ -143,9 +147,75 @@ export function storedHoldReason(meta: Record<string, string> | undefined): stri
  */
 export const HELD_FILENAME = "held for review";
 
-/** A file is held while its `ai.hold` row is `pending`. */
-export function isHeld(meta: Record<string, string> | undefined): boolean {
-  return meta?.[HOLD_META_KEY] === HOLD_PENDING;
+export interface HoldOverride {
+  action: string;
+  actor: string | null;
+  contentSha256: string | null;
+  createdAt: string;
+}
+
+export interface EffectiveHold {
+  hold: "pending" | "approved" | null;
+  by: string | null;
+  at: string | null;
+}
+
+/**
+ * Effective hold for the current bytes. A matching override wins (`release`
+ * is released, `hold` is held). With no matching override, `ai.hold=pending`
+ * is held and a legacy `ai.hold=approved` is released. Anything else was
+ * never held. `holdReason` is why a pending row exists; it is not a hold
+ * by itself (a skipped hold keeps the flags and stays public).
+ */
+export function deriveHoldState(
+  meta: Record<string, string> | undefined,
+  override: HoldOverride | null,
+  currentSha: string | null,
+): EffectiveHold {
+  const row = meta?.[HOLD_META_KEY];
+  if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
+  const matching =
+    override && overrideApplies(override.contentSha256, currentSha) ? override : null;
+  if (matching?.action === "hold") return { hold: "pending", by: null, at: null };
+  if (matching?.action === "release") {
+    return { hold: "approved", by: matching.actor, at: matching.createdAt };
+  }
+  if (row === HOLD_APPROVED) {
+    return {
+      hold: "approved",
+      by: meta?.[HOLD_BY_KEY] ?? null,
+      at: meta?.[HOLD_AT_KEY] ?? null,
+    };
+  }
+  return { hold: "pending", by: null, at: null };
+}
+
+/** An override applies only while the key's current bytes are the ones it named. */
+export function overrideApplies(eventSha: string | null, currentSha: string | null): boolean {
+  if (eventSha === null) return currentSha === null;
+  return eventSha === currentSha;
+}
+
+/**
+ * The metadata a client should read. `ai.hold` is the effective state, so
+ * `uploads meta get` and the CLI's held check agree with the gates.
+ */
+export function projectHold(
+  meta: Record<string, string>,
+  view: EffectiveHold,
+): Record<string, string> {
+  if (view.hold === null) return meta;
+  const next = { ...meta };
+  delete next[HOLD_BY_KEY];
+  delete next[HOLD_AT_KEY];
+  if (view.hold === "pending") {
+    next[HOLD_META_KEY] = HOLD_PENDING;
+    return next;
+  }
+  next[HOLD_META_KEY] = HOLD_APPROVED;
+  if (view.by) next[HOLD_BY_KEY] = view.by;
+  if (view.at) next[HOLD_AT_KEY] = view.at;
+  return next;
 }
 
 /**

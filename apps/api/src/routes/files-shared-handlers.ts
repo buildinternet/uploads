@@ -32,7 +32,8 @@ import { withUploaderTags } from "../uploader-identity";
 import { putObjectIdempotently } from "../upload-idempotency";
 import { sanitizeVisibility } from "../visibility";
 import { parseCliUserAgent } from "../client-activity";
-import { clientCanApprove, isHeld } from "../upload-hold";
+import { clientCanApprove, projectHold } from "../upload-hold";
+import { effectiveHold } from "../upload-hold-read";
 import type { WorkspaceVars } from "../workspace";
 import { dbFor, primaryDbFor } from "../db-session";
 
@@ -334,10 +335,12 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   const metadataParam = c.req.query("metadata");
   if (metadataParam === "1" || metadataParam === "true") {
     const metadata = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
-    // A held file's bytes may have left the public bucket; its rows (and
-    // `ai.hold`) still answer, so an agent can see why it is missing.
-    if (!lane && !isHeld(metadata)) throw new NotFoundError();
-    return c.json({ metadata });
+    const view = await effectiveHold(c.env, c.get("workspaceName"), key, metadata);
+    // A held file's bytes may have left the public bucket; its rows still
+    // answer, so an agent can see why it is missing. `ai.hold` here is the
+    // effective state, including a release recorded only in the event log.
+    if (!lane && view.hold !== "pending") throw new NotFoundError();
+    return c.json({ metadata: projectHold(metadata, view) });
   }
   if (!lane) throw new NotFoundError();
 

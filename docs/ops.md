@@ -1401,9 +1401,10 @@ deletes the public copy, and writes `ai.hold.moved=1`. Never give that
 bucket a custom domain or an r2.dev URL. The edge may serve its cached copy
 for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's Camo can keep its own
 copy longer. A BYO key is not moved: the customer's domain serves it.
-Approval copies the bytes back to the same key before it writes
-`approved`, so links work again. An identical re-upload of a held key is
-moved straight back out. New bytes drop the held copy. Delete removes the
+Approval copies the bytes back to the same key before it records the
+release, so links work again. An identical re-upload of a held key is
+moved straight back out. An identical re-upload of a released key stays
+in the public bucket. New bytes drop the held copy. Delete removes the
 held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
 lists held keys (a moved one is absent from `list`), and
 `…/files/held/download?key=` streams the held copy to a member. Private
@@ -1421,19 +1422,25 @@ boxes can be off or miss part of the content. A failed or empty box call
 logs `classifier_hold_area` or `classifier_hold_area_failed` and leaves
 the hold as it is.
 
-`POST /v1/workspaces/:workspace/files/approve?key=` writes
-`ai.hold=approved` and re-syncs the comment (`upload_approved`). It does
-not change `ai.secret`, `ai.pii`, `ai.rating`, or `ai.content`. The same
-call appends a `file_events` row: who released the hold, when, the content
-hash, and the flags in force. Classification appends `classified`,
+`POST /v1/workspaces/:workspace/files/approve?key=` appends a `file_events`
+override (`action=release`) and re-syncs the comment (`upload_approved`).
+It does not change `ai.secret`, `ai.pii`, `ai.rating`, `ai.content`, or
+`ai.hold`. The row records who released the hold, when, the content hash,
+and the flags in force. A later `hold` override puts the file back under
+review. The latest override counts only while `content_sha256` matches the
+key's current `file_content_hash`. Readers use that, not a stored
+`approved` value. A row that already says `ai.hold=approved` stays released
+until the bytes change. Classification appends `classified`,
 `reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
 New bytes still clear the current `ai.*` rows. The log keeps the earlier
 row. `content_sha256` is those bytes, for a later blob id. The table is on
-the existing D1 database. A missing migration skips the append. `ai.hold`
-is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
-bytes start over. Promote and attach copy every classifier row onto the
-new key, since the copy is not classified again. `ai.rating`,
-`ai.content`, and `ai.pii=contact` never hold a file.
+the existing D1 database. A missing migration skips the append and the
+release falls back to writing `ai.hold=approved`. `ai.hold` is in
+`CLASSIFIER_ROW_KEYS`, so identical bytes keep the pending row and the
+matching release, and new bytes start over. Promote and attach copy every
+classifier row onto the new key and copy the matching override, since the
+copy is not classified again. `ai.rating`, `ai.content`, and
+`ai.pii=contact` never hold a file.
 
 ### Allowlist (Flagship is the control plane)
 

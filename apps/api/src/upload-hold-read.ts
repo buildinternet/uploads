@@ -6,31 +6,31 @@
  */
 
 import { dbFor } from "./db-session";
-import { contentHashForKey } from "./content-hash";
+import { contentHashesForKeys, contentHashForKey } from "./content-hash";
 import { getMetadataForKeys } from "./file-metadata";
-import { latestOverrideEvent, overrideApplies } from "./file-events";
+import { latestOverrideEvent, latestOverridesForKeys } from "./file-events";
 import { aiRows } from "./classifier-admin";
 import {
+  deriveHoldState,
   HOLD_APPROVED,
-  HOLD_AT_KEY,
-  HOLD_BY_KEY,
   HOLD_META_KEY,
   HOLD_PENDING,
-  isHeld,
+  projectHold,
+  type EffectiveHold,
 } from "./upload-hold";
 
-/** The subset of `keys` held for approval. One batched D1 read. */
+export type { EffectiveHold };
+
+/** The subset of `keys` held for approval. One batched read of rows, hashes, and overrides. */
 export async function heldKeysAmong(
   env: Env,
   workspaceName: string,
   keys: string[],
+  preloaded?: Map<string, Record<string, string>>,
 ): Promise<Set<string>> {
   const held = new Set<string>();
-  if (keys.length === 0) return held;
-  const rows = await getMetadataForKeys(dbFor(env), workspaceName, keys, {
-    metaKeys: [HOLD_META_KEY],
-  });
-  for (const [key, meta] of rows) if (isHeld(meta)) held.add(key);
+  const views = await holdViews(env, workspaceName, keys, preloaded);
+  for (const [key, view] of views) if (view.hold === "pending") held.add(key);
   return held;
 }
 
@@ -39,18 +39,9 @@ export async function isKeyHeld(env: Env, workspaceName: string, key: string): P
   return (await heldKeysAmong(env, workspaceName, [key])).has(key);
 }
 
-export interface EffectiveHold {
-  hold: "pending" | "approved" | null;
-  by: string | null;
-  at: string | null;
-}
-
 /**
- * Hold state for a member view. `ai.hold` is the effective state for the
- * current bytes (pending, approved, or absent). A release override for
- * those same bytes supplies who released it and when. An override for a
- * different hash is an earlier set of bytes and is ignored. A pending row
- * stays pending: that is what comments and the public gate already read.
+ * Hold state for these bytes. No event read when the file was never held.
+ * A matching override supplies who released it and when.
  */
 export async function effectiveHold(
   env: Env,
@@ -59,29 +50,69 @@ export async function effectiveHold(
   meta: Record<string, string>,
 ): Promise<EffectiveHold> {
   const row = meta[HOLD_META_KEY];
-  const fromRow = (): EffectiveHold => {
-    if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
-    const released = row === HOLD_APPROVED;
-    return {
-      hold: row,
-      by: released ? (meta[HOLD_BY_KEY] ?? null) : null,
-      at: released ? (meta[HOLD_AT_KEY] ?? null) : null,
-    };
-  };
-  if (row !== HOLD_APPROVED) return fromRow();
+  if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
   const db = dbFor(env);
   const [override, currentSha] = await Promise.all([
     latestOverrideEvent(db, workspace, objectKey),
     contentHashForKey(db, workspace, objectKey),
   ]);
-  if (
-    !override ||
-    override.action !== "release" ||
-    !overrideApplies(override.contentSha256, currentSha ?? null)
-  ) {
-    return fromRow();
+  return deriveHoldState(meta, override, currentSha ?? null);
+}
+
+/** Replace `ai.hold` on held or released keys with the effective state. */
+export async function presentHoldMetadata(
+  env: Env,
+  workspace: string,
+  metaByKey: Map<string, Record<string, string>>,
+): Promise<Map<string, Record<string, string>>> {
+  const keys = [...metaByKey.entries()]
+    .filter(([, meta]) => {
+      const row = meta[HOLD_META_KEY];
+      return row === HOLD_PENDING || row === HOLD_APPROVED;
+    })
+    .map(([key]) => key);
+  if (keys.length === 0) return metaByKey;
+  const views = await holdViews(env, workspace, keys, metaByKey);
+  for (const key of keys) {
+    const meta = metaByKey.get(key);
+    const view = views.get(key);
+    if (meta && view) metaByKey.set(key, projectHold(meta, view));
   }
-  return { hold: "approved", by: override.actor, at: override.createdAt };
+  return metaByKey;
+}
+
+async function holdViews(
+  env: Env,
+  workspace: string,
+  keys: string[],
+  preloaded?: Map<string, Record<string, string>>,
+): Promise<Map<string, EffectiveHold>> {
+  const out = new Map<string, EffectiveHold>();
+  if (keys.length === 0) return out;
+  const db = dbFor(env);
+  const rows =
+    preloaded ??
+    (await getMetadataForKeys(db, workspace, keys, {
+      metaKeys: [HOLD_META_KEY],
+    }));
+  const candidates = keys.filter((key) => {
+    const row = rows.get(key)?.[HOLD_META_KEY];
+    return row === HOLD_PENDING || row === HOLD_APPROVED;
+  });
+  const [overrides, hashes] =
+    candidates.length === 0
+      ? [new Map(), new Map<string, string>()]
+      : await Promise.all([
+          latestOverridesForKeys(db, workspace, candidates),
+          contentHashesForKeys(db, workspace, candidates),
+        ]);
+  for (const key of keys) {
+    out.set(
+      key,
+      deriveHoldState(rows.get(key), overrides.get(key) ?? null, hashes.get(key) ?? null),
+    );
+  }
+  return out;
 }
 
 /**
@@ -91,17 +122,8 @@ export async function effectiveHold(
  * the result is small.
  */
 export async function listHeldKeys(env: Env, workspaceName: string): Promise<string[]> {
-  const result = await dbFor(env)
-    .prepare(
-      `SELECT object_key FROM file_metadata
-       WHERE workspace = ? AND meta_key = ? AND meta_value = ?
-         AND ${aiRows("")}
-       ORDER BY object_key
-       LIMIT 1000`,
-    )
-    .bind(workspaceName, HOLD_META_KEY, HOLD_PENDING)
-    .all<{ object_key: string }>();
-  return (result.results ?? []).map((row) => row.object_key);
+  const rows = await loadHeld(env, { workspace: workspaceName });
+  return rows.slice(0, 1000).map((row) => row.objectKey);
 }
 
 /** One held file, across workspaces, for the operator view. */
@@ -119,40 +141,84 @@ export async function listHeldAcrossWorkspaces(
   env: Env,
   opts: { workspace?: string; limit: number },
 ): Promise<HeldFileRow[]> {
-  const workspaceClause = opts.workspace ? "AND workspace = ?" : "";
-  const binds: unknown[] = [HOLD_META_KEY, HOLD_PENDING];
-  if (opts.workspace) binds.push(opts.workspace);
-  binds.push(opts.limit);
-  const result = await dbFor(env)
-    .prepare(
-      `SELECT workspace, object_key FROM file_metadata
-       WHERE meta_key = ? AND meta_value = ? AND ${aiRows("")} ${workspaceClause}
-       ORDER BY workspace, object_key
-       LIMIT ?`,
-    )
-    .bind(...binds)
-    .all<{ workspace: string; object_key: string }>();
-  return (result.results ?? []).map((row) => ({
-    workspace: row.workspace,
-    objectKey: row.object_key,
-  }));
+  const rows = await loadHeld(env, { workspace: opts.workspace });
+  return rows.slice(0, opts.limit);
 }
 
 /** How many files are held, per workspace, for the operator view. */
 export async function countHeldByWorkspace(
   env: Env,
 ): Promise<{ workspace: string; count: number }[]> {
+  const rows = await loadHeld(env, {});
+  const counts = new Map<string, number>();
+  for (const row of rows) counts.set(row.workspace, (counts.get(row.workspace) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([workspace, count]) => ({ workspace, count }))
+    .sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace));
+}
+
+/**
+ * Keys whose effective state is held. Candidates are the `ai.hold` rows
+ * (`pending`, and legacy `approved` that a later hold override can re-hold).
+ * `deriveHoldState` drops a pending row whose latest matching override is a
+ * release. One index seek per value, the same shape `file_metadata_ai_idx`
+ * already serves.
+ */
+async function loadHeld(env: Env, opts: { workspace?: string }): Promise<HeldFileRow[]> {
+  const candidates = [
+    ...(await holdRows(env, opts.workspace, HOLD_PENDING)),
+    ...(await holdRows(env, opts.workspace, HOLD_APPROVED)),
+  ];
+  const byWorkspace = new Map<string, HeldFileRow[]>();
+  for (const row of candidates) {
+    const list = byWorkspace.get(row.workspace) ?? [];
+    list.push(row);
+    byWorkspace.set(row.workspace, list);
+  }
+  const held: HeldFileRow[] = [];
+  for (const [workspace, rows] of byWorkspace) {
+    const views = await holdViews(
+      env,
+      workspace,
+      rows.map((row) => row.objectKey),
+    );
+    for (const row of rows) {
+      if (views.get(row.objectKey)?.hold === "pending") held.push(row);
+    }
+  }
+  held.sort(
+    (a, b) => a.workspace.localeCompare(b.workspace) || a.objectKey.localeCompare(b.objectKey),
+  );
+  return held;
+}
+
+async function holdRows(
+  env: Env,
+  workspace: string | undefined,
+  value: string,
+): Promise<HeldFileRow[]> {
+  if (workspace) {
+    const result = await dbFor(env)
+      .prepare(
+        `SELECT object_key FROM file_metadata
+         WHERE workspace = ? AND meta_key = ? AND meta_value = ?
+           AND ${aiRows("")}
+         ORDER BY object_key`,
+      )
+      .bind(workspace, HOLD_META_KEY, value)
+      .all<{ object_key: string }>();
+    return (result.results ?? []).map((row) => ({ workspace, objectKey: row.object_key }));
+  }
   const result = await dbFor(env)
     .prepare(
-      `SELECT workspace, COUNT(*) AS count FROM file_metadata
+      `SELECT workspace, object_key FROM file_metadata
        WHERE meta_key = ? AND meta_value = ? AND ${aiRows("")}
-       GROUP BY workspace
-       ORDER BY count DESC, workspace`,
+       ORDER BY workspace, object_key`,
     )
-    .bind(HOLD_META_KEY, HOLD_PENDING)
-    .all<{ workspace: string; count: number }>();
+    .bind(HOLD_META_KEY, value)
+    .all<{ workspace: string; object_key: string }>();
   return (result.results ?? []).map((row) => ({
     workspace: row.workspace,
-    count: Number(row.count),
+    objectKey: row.object_key,
   }));
 }

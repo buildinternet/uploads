@@ -155,8 +155,13 @@ import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
 import { purgeExpiredObjects } from "@uploads/api/retention";
 import { getWorkspaceUsage } from "@uploads/api/usage";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
-import { HOLD_AREA_KEY, isHeld, parseHoldArea, storedHoldReason } from "@uploads/api/upload-hold";
-import { listHeldKeys } from "@uploads/api/upload-hold-read";
+import {
+  HOLD_AREA_KEY,
+  parseHoldArea,
+  projectHold,
+  storedHoldReason,
+} from "@uploads/api/upload-hold";
+import { effectiveHold, listHeldKeys } from "@uploads/api/upload-hold-read";
 import {
   approveUpload,
   approverLabel,
@@ -1897,11 +1902,12 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         const key = requiredString(args, "key");
         if (badKey(key)) usage("invalid key");
         const metadata = await getFileMetadata(env.DB, workspaceName, key);
+        const view = await effectiveHold(env, workspaceName, key, metadata);
         // A held file's bytes may have left the bucket; its rows still answer.
-        if (!isHeld(metadata) && !(await (await storage(env, workspace)).exists(key))) {
+        if (view.hold !== "pending" && !(await (await storage(env, workspace)).exists(key))) {
           throw new NotFoundError("object not found");
         }
-        return { metadata };
+        return { metadata: projectHold(metadata, view) };
       },
     },
     {

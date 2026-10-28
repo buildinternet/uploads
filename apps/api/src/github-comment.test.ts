@@ -1343,11 +1343,11 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // Three queries: the private-prefix discovery scan (issue #934), the
-    // unconditional gh.detached + feed-scope read, and the moved-hold lookup
-    // (`listHeldKeys`). The path/state fetch is skipped, and the comment path
-    // no longer queries the PR scope.
-    expect(metadataQueries).toBe(3);
+    // The private-prefix discovery scan (issue #934), the unconditional
+    // gh.detached + feed-scope read, and the held-key lookup (pending rows,
+    // then legacy approved rows). The path/state fetch is skipped, and the
+    // comment path no longer queries the PR scope.
+    expect(metadataQueries).toBe(4);
     expect(result.body).not.toContain("<code>/settings");
   });
 

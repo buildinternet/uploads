@@ -48,7 +48,7 @@ import {
   setObjectVisibility,
 } from "../files-core";
 import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service";
-import { effectiveHold, listHeldKeys } from "../upload-hold-read";
+import { effectiveHold, listHeldKeys, presentHoldMetadata } from "../upload-hold-read";
 import { HOLD_AREA_KEY, HOLD_MOVED_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
 import { readHeld } from "../held-storage";
 import {
@@ -152,12 +152,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       : await (async () => {
           const metaByKey = await boundedDataRead(
             c,
-            () =>
-              getMetadataForKeys(
+            async () => {
+              const rows = await getMetadataForKeys(
                 dbFor(c.env),
                 name,
                 items.map((item) => item.key),
-              ),
+              );
+              return presentHoldMetadata(c.env, name, rows);
+            },
             { name: "d1_files_meta" },
           );
           return items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));

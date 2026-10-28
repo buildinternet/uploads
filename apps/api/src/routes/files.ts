@@ -20,6 +20,7 @@ import {
 } from "./files-shared-handlers";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
+import { presentHoldMetadata } from "../upload-hold-read";
 
 export const files = new Hono<WorkspaceVars>()
 
@@ -95,12 +96,14 @@ export const files = new Hono<WorkspaceVars>()
 
     const metaByKey = await boundedDataRead(
       c,
-      () =>
-        getMetadataForKeys(
+      async () => {
+        const rows = await getMetadataForKeys(
           dbFor(c.env),
           c.get("workspaceName"),
           page.items.map((item) => item.key),
-        ),
+        );
+        return presentHoldMetadata(c.env, c.get("workspaceName"), rows);
+      },
       { name: "d1_files_meta" },
     );
     return c.json({

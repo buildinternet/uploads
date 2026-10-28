@@ -1,6 +1,7 @@
 import { contentHashForKey } from "./content-hash";
 import { dbFor, type D1Queryable } from "./db-session";
 import { contentSha256Hex } from "./provenance";
+import { overrideApplies, type HoldOverride } from "./upload-hold";
 
 const INSERT_SQL = `INSERT INTO file_events (
   workspace, object_key, content_sha256, kind, classifier_version, model,
@@ -127,16 +128,56 @@ export async function appendOverrideEvent(
   });
 }
 
+export async function latestOverridesForKeys(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<Map<string, HoldOverride>> {
+  const found = new Map<string, HoldOverride>();
+  if (keys.length === 0) return found;
+  try {
+    const chunkSize = 80;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+      const result = await db
+        .prepare(
+          `SELECT object_key, action, actor, content_sha256, created_at
+           FROM file_events
+           WHERE workspace = ? AND kind = 'override' AND object_key IN (${placeholders})
+           ORDER BY id DESC`,
+        )
+        .bind(workspace, ...chunk)
+        .all<{
+          object_key: string;
+          action: string;
+          actor: string | null;
+          content_sha256: string | null;
+          created_at: string;
+        }>();
+      for (const row of result.results ?? []) {
+        if (found.has(row.object_key)) continue;
+        found.set(row.object_key, {
+          action: row.action,
+          actor: row.actor,
+          contentSha256: row.content_sha256,
+          createdAt: row.created_at,
+        });
+      }
+    }
+  } catch (err) {
+    if (ignorable(err)) return found;
+    console.error({ event: "file_event_read_failed", workspace, err });
+    return found;
+  }
+  return found;
+}
+
 export async function latestOverrideEvent(
   db: D1Queryable,
   workspace: string,
   objectKey: string,
-): Promise<{
-  action: string;
-  actor: string | null;
-  contentSha256: string | null;
-  createdAt: string;
-} | null> {
+): Promise<HoldOverride | null> {
   try {
     const row = await db
       .prepare(
@@ -167,9 +208,36 @@ export async function latestOverrideEvent(
   }
 }
 
-export function overrideApplies(eventSha: string | null, currentSha: string | null): boolean {
-  if (eventSha === null) return currentSha === null;
-  return eventSha === currentSha;
+/**
+ * Copy the source key's latest matching override onto `destKey`. Promote
+ * and attach copy the `ai.hold` row but not the log; without this, a
+ * released file's copy would look held.
+ */
+export async function copyApplicableOverride(
+  env: Env,
+  workspace: string,
+  sourceKey: string,
+  destKey: string,
+): Promise<void> {
+  const db = dbFor(env);
+  const [override, sourceSha, destSha] = await Promise.all([
+    latestOverrideEvent(db, workspace, sourceKey),
+    contentHashForKey(db, workspace, sourceKey),
+    contentHashForKey(db, workspace, destKey),
+  ]);
+  if (!override) return;
+  const action =
+    override.action === "hold" || override.action === "release" ? override.action : null;
+  if (!action) return;
+  if (!overrideApplies(override.contentSha256, sourceSha ?? null)) return;
+  if ((sourceSha ?? null) !== (destSha ?? null)) return;
+  await appendOverrideEvent(env, {
+    workspace,
+    objectKey: destKey,
+    action,
+    actor: override.actor,
+    at: override.createdAt,
+  });
 }
 
 async function runDelete(

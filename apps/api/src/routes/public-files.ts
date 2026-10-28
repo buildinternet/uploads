@@ -18,8 +18,7 @@ import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster-presentation";
 import { objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
-import { isHeld } from "../upload-hold";
-import { isKeyHeld } from "../upload-hold-read";
+import { effectiveHold, isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
@@ -162,7 +161,7 @@ async function resolvePublicObject(
     getFileMetadata(dbFor(env), workspace, key),
   );
   // A held upload (`upload-hold.ts`) gets the same answer as a private one.
-  if (isHeld(metadata)) {
+  if ((await effectiveHold(env, workspace, key, metadata)).hold === "pending") {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
 
