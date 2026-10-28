@@ -49,8 +49,8 @@ describe("identicalBeforeAfterNote", () => {
   it("warns when a before and an after share a pHash", () => {
     expect(
       identicalBeforeAfterNote([
-        { name: "before.png", meta: { state: "before", "ai.phash": "abc" } },
-        { name: "after.png", meta: { state: "after", "ai.phash": "abc" } },
+        { name: "before.png", meta: { state: "before", "ai.phash": "0123456789abcdef" } },
+        { name: "after.png", meta: { state: "after", "ai.phash": "0123456789abcdef" } },
       ]),
     ).toEqual({
       label: "Before and after look the same",
@@ -59,11 +59,33 @@ describe("identicalBeforeAfterNote", () => {
     });
   });
 
+  it("treats a pHash within 4 bits as the same picture", () => {
+    const before = {
+      name: "before.png",
+      meta: { state: "before", "ai.phash": "0000000000000000" },
+    };
+    expect(
+      identicalBeforeAfterNote([
+        before,
+        { name: "after.png", meta: { state: "after", "ai.phash": "000000000000000f" } },
+      ]),
+    ).toMatchObject({
+      outcome: "warning",
+      details: ["`before.png` and `after.png` look the same"],
+    });
+    expect(
+      identicalBeforeAfterNote([
+        before,
+        { name: "after.png", meta: { state: "after", "ai.phash": "000000000000001f" } },
+      ]),
+    ).toMatchObject({ outcome: "ok" });
+  });
+
   it("passes different pictures", () => {
     expect(
       identicalBeforeAfterNote([
-        { name: "before.png", meta: { state: "before", "ai.phash": "abc" } },
-        { name: "after.png", meta: { state: "after", "ai.phash": "def" } },
+        { name: "before.png", meta: { state: "before", "ai.phash": "0123456789abcdef" } },
+        { name: "after.png", meta: { state: "after", "ai.phash": "fedcba9876543210" } },
       ]),
     ).toMatchObject({ outcome: "ok" });
   });
@@ -76,6 +98,12 @@ describe("identicalBeforeAfterNote", () => {
       identicalBeforeAfterNote([
         { name: "before.mp4", meta: { state: "before" } },
         { name: "after.mp4", meta: { state: "after" } },
+      ]),
+    ).toMatchObject({ outcome: "skipped" });
+    expect(
+      identicalBeforeAfterNote([
+        { name: "before.png", meta: { state: "before", "ai.phash": "not-a-hash" } },
+        { name: "after.png", meta: { state: "after", "ai.phash": "0123456789abcdef" } },
       ]),
     ).toMatchObject({ outcome: "skipped" });
   });

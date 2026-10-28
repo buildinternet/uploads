@@ -96,7 +96,7 @@ function githubAttachmentsLine(n: number, imports: boolean): string {
  */
 export function checkRunContent(gathered: CheckFacts, commentUrl: string | null): CheckRunContent {
   const content = factsContent(gathered, commentUrl);
-  const notes = gathered.aiNotes ?? [];
+  const notes = (gathered.aiNotes ?? []).filter((note) => note.outcome !== "skipped");
   if (notes.length === 0) return content;
   const headline = aiNotesHeadline(notes);
   const warns = notes.some((note) => note.outcome === "warning");

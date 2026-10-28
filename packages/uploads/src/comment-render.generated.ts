@@ -886,13 +886,18 @@ export function aiNotesList(notes: readonly AiNote[]): string {
   return lines.join("\n");
 }
 
-/** The comment's collapsible AI notes block, open when a note warns. */
+/**
+ * The comment's collapsible AI notes block, open when a note warns. Empty
+ * when every note was skipped, so the caller leaves the section out.
+ */
 export function aiNotesBlock(notes: readonly AiNote[]): string {
-  const open = notes.some((note) => note.outcome === "warning") ? " open" : "";
+  const shown = notes.filter((note) => note.outcome !== "skipped");
+  if (shown.length === 0) return "";
+  const open = shown.some((note) => note.outcome === "warning") ? " open" : "";
   return [
-    `<details${open}><summary>AI notes · ${aiNotesHeadline(notes)}</summary>`,
+    `<details${open}><summary>AI notes · ${aiNotesHeadline(shown)}</summary>`,
     "",
-    aiNotesList(notes),
+    aiNotesList(shown),
     "",
     "</details>",
   ].join("\n");
@@ -1236,7 +1241,8 @@ export function attachmentsCommentBody(
   }
   if (links.skipLabel) lines.push(skippedLine(links.skipLabel), "");
   else if (links.checklist?.length) lines.push(checklistLine(links.checklist), "");
-  if (links.aiNotes?.length) lines.push(aiNotesBlock(links.aiNotes), "");
+  const aiBlock = links.aiNotes ? aiNotesBlock(links.aiNotes) : "";
+  if (aiBlock) lines.push(aiBlock, "");
   if (heldCount > 0) lines.push(heldLine(heldCount, target), "");
   // One quiet footer line; the live-link button replaces it when present,
   // never on the empty state.
