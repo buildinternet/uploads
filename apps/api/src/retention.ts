@@ -18,8 +18,10 @@ import { positiveLimit } from "./budget";
 import { deleteContentHashes } from "./content-hash";
 import { deleteFileMetadataForKeys } from "./file-metadata";
 import { deleteAttachmentsForKeysSafe, parseAttachmentKey } from "./github-attachment-index";
+import { posterKeyFor } from "./poster-presentation";
+import { readGateDeletes } from "./read-gate";
 import { reconcileWorkspaceUsage, type ReconcileResult } from "./reconcile";
-import { storage } from "./storage";
+import { isSharedLane, storage, storageConfig } from "./storage";
 import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
 
@@ -85,22 +87,63 @@ export async function purgeExpiredObjects(
   let keysTruncated = false;
   let batch: string[] = [];
 
+  const cfg = await storageConfig(env, ws);
+  const gatePrefix = isSharedLane(cfg) ? (cfg.prefix ?? "") : null;
+
   async function flush() {
     if (batch.length === 0) return;
+    const keys = batch;
+    batch = [];
     // Bulk form: native multi-delete on R2/S3 when available.
-    await store.delete(batch);
-    await deleteFileMetadataForKeys(dbFor(env), workspaceName, batch);
-    await deleteContentHashes(dbFor(env), workspaceName, batch);
+    await store.delete(keys);
+    await dropIndexRows(keys);
     // Attachment index rows follow their objects (issue #934); chunked the
     // same way and best-effort, so a D1 hiccup never strands the sweep.
     // Filtered to keys that can actually hold a row — a retention sweep is
     // mostly ordinary uploads, and an all-non-attachment batch (the common
     // case) should cost no D1 round trip at all.
-    const attachmentKeys = batch.filter((key) => parseAttachmentKey(key));
+    const attachmentKeys = keys.filter((key) => parseAttachmentKey(key));
     if (attachmentKeys.length > 0) {
       await deleteAttachmentsForKeysSafe(dbFor(env), workspaceName, attachmentKeys);
     }
-    batch = [];
+  }
+
+  async function dropIndexRows(keys: string[]): Promise<void> {
+    const db = dbFor(env);
+    // Stay under D1's bind cap (the IN lists) and its batch size (two gate
+    // deletes per key, each a primary-key lookup).
+    const chunkSize = 40;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+      const gateKeys =
+        gatePrefix === null
+          ? []
+          : chunk.flatMap((key) => [`${gatePrefix}${key}`, `${gatePrefix}${posterKeyFor(key)}`]);
+      const statements = [
+        db
+          .prepare(
+            `DELETE FROM file_metadata WHERE workspace = ? AND object_key IN (${placeholders})`,
+          )
+          .bind(workspaceName, ...chunk),
+        db
+          .prepare(
+            `DELETE FROM file_content_hash WHERE workspace = ? AND object_key IN (${placeholders})`,
+          )
+          .bind(workspaceName, ...chunk),
+        ...readGateDeletes(db, gateKeys),
+      ];
+      try {
+        await db.batch(statements);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("no such table")) throw err;
+        // A database that has not applied every migration yet. The metadata
+        // delete is the one this sweep has always done.
+        await deleteFileMetadataForKeys(db, workspaceName, chunk);
+        await deleteContentHashes(db, workspaceName, chunk);
+      }
+    }
   }
 
   for await (const item of store.listAll()) {

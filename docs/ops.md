@@ -1452,12 +1452,17 @@ and `accept-ranges: bytes`. `Range: bytes=0-0` returns 206. An unknown key
 returns R2's own 404, not the JSON `not_found` envelope. `OPTIONS` returns
 the same CORS headers as before the route.
 
-To see whether `/cdn-cgi/image/` variants pass through the route, tail the
-Worker and request `/cdn-cgi/image/width=64,format=png/<workspace>/<key>`.
-A request in the tail means the route saw the variant. No request means
-image resizing handled it before the Worker. Check the bare object URL in
-that case, including a held key, which should return the JSON 404. Rollback
-is deleting that host's route. Leave the Worker and the D1 rows in place.
+Before attaching `embed.uploads.sh`, shadow one lower-traffic host and check
+three things:
+
+- Gate a test key, then request `/cdn-cgi/image/format=png/<key>`. Tail the
+  Worker. Note whether that request runs there, and whether the transform's
+  own fetch of `/<key>` does too.
+- Request the bare object twice. The second request should be a Cache API
+  hit (`__read-gate` on that host), not a second D1 read.
+- Measure the TTFB the Worker adds on that shadow host before attaching embed.
+
+Rollback is deleting that host's route. Leave the Worker and the D1 rows in place.
 
 Workers Builds, when the project is created: root directory `/`, no build
 command, deploy command `pnpm run deploy:read-gate`, non-production branch
