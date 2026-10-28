@@ -381,6 +381,28 @@ describe("adoptLinkedFiles", () => {
     expect(aMetaAfter["gh.detached"]).toBe("false");
   });
 
+  it.each([
+    ["plain", `gh/acme-web/pull-${NUM}/c6641d1c.png`],
+    ["private", `gh/private/${"a".repeat(32)}/ingest/pull-${NUM}/c6641d1c.png`],
+  ])("does not re-adopt this PR's own %s ingested attachment", async (_label, ingestKey) => {
+    // The managed comment embeds ingested GitHub attachments; scanning that
+    // comment must not copy them into `pull/<n>/` (double images).
+    const seeded = await seededEnv();
+    await seedSource(seeded, ingestKey);
+    seeded.kv.store.set("ghinst:acme/web", { value: "1" });
+
+    const summary = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      `![shot](https://embed.uploads.sh/acme/${ingestKey})`,
+    );
+    expect(summary.adopted).toEqual([]);
+    const copies = await seeded.bucket.list({ prefix: `${PREFIX}gh/` });
+    expect(copies.objects.map((o) => o.key)).toEqual([`${PREFIX}${ingestKey}`]);
+  });
+
   it("PIN (#865): rewriting a staged URL to the pull dest URL does not detach", async () => {
     const seeded = await seededEnv();
     const branchKey = "gh/acme/web/branch/feat-x/shot.png";

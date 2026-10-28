@@ -60,6 +60,7 @@ import { detachAttachmentSafe, reattachAttachmentSafe } from "./github-attachmen
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
 import { GH_PRIVATE_ROOT, ghKeyPrefix, type GhTarget } from "./github-comment-render";
 import { postManagedComment } from "./github-comment-service";
+import { ingestKeyPrefixes } from "./github-ingest";
 import { setFileMetadata } from "./file-metadata";
 import {
   adoptLedgerRow,
@@ -121,13 +122,20 @@ export function hasLinkCandidate(text: string): boolean {
 
 /**
  * True when `key` already lives under this target's attachment prefix — a
- * promoted / `--pr` object, or a dest URL pasted after adoption. Not a
- * source to copy onto itself (issue #865).
+ * promoted / `--pr` object, or a dest URL pasted after adoption — or is one
+ * of this target's own ingested GitHub attachments. Not a source to copy
+ * onto itself (issue #865). The ingest case matters because the managed
+ * comment embeds ingested files: adopting its own links copied each import
+ * into `pull/<n>/` and the comment then rendered it twice.
  */
 function isTargetAttachmentKey(key: string, target: GhTarget): boolean {
   if (key.startsWith(ghKeyPrefix(target))) return true;
+  if (ingestKeyPrefixes(target, []).some((p) => key.startsWith(p))) return true;
   if (!key.startsWith(GH_PRIVATE_ROOT)) return false;
-  return key.includes(`/${target.kind}/${target.num}/`);
+  return (
+    key.includes(`/${target.kind}/${target.num}/`) ||
+    key.includes(`/ingest/${target.kind}-${target.num}/`)
+  );
 }
 
 const URL_RE = /https?:\/\/[^\s)"'<>\]]+/gi;
