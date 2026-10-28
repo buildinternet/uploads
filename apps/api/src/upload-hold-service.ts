@@ -9,7 +9,7 @@
  * (`hold-email-notify.ts`).
  */
 
-import { ServiceUnavailableError } from "@uploads/errors";
+import { ServiceUnavailableError, ValidationError } from "@uploads/errors";
 import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
 import { appendOverrideEvent } from "./file-events";
@@ -19,7 +19,7 @@ import {
   setServerFileMetadata,
 } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
-import { moveToHeld, restoreFromHeld } from "./held-storage";
+import { moveToHeld, objectContentSha256, restoreFromHeld } from "./held-storage";
 import { emailHold } from "./hold-email-notify";
 import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
@@ -141,20 +141,33 @@ export async function approveUpload(
   const existing = await getFileMetadata(db, workspaceName, key);
   const before = await effectiveHold(env, workspaceName, key, existing);
   if (before.hold !== "pending") return { approved: false, reason: "not_held" };
+  let contentSha256: string | undefined;
   if (existing[HOLD_MOVED_KEY] === "1") {
     // Bytes first: approving a file whose bytes cannot come back would
-    // leave its links broken with no hold left to explain why.
-    if (!(await restoreFromHeld(env, ws, workspaceName, key))) {
+    // leave its links broken with no hold left to explain why. The hash is
+    // of that body, not the best-effort D1 index.
+    const restored = await restoreFromHeld(env, ws, workspaceName, key);
+    if (!restored) {
       throw new ServiceUnavailableError("the held copy of this file could not be restored", {
         code: "held_restore_failed",
       });
     }
+    contentSha256 = restored;
     await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_MOVED_KEY]);
+  } else {
+    contentSha256 = await objectContentSha256(env, ws, key);
+  }
+  if (!contentSha256) {
+    throw new ValidationError(
+      "this file has no content hash, so the hold change cannot be recorded",
+      { code: "content_hash_unknown" },
+    );
   }
   const at = new Date().toISOString();
   await appendOverrideEvent(env, {
     workspace: workspaceName,
     objectKey: key,
+    contentSha256,
     action: "release",
     actor: by ?? null,
     safety: existing,
@@ -198,9 +211,17 @@ export async function holdAgain(
   const existing = await getFileMetadata(db, workspaceName, key);
   const before = await effectiveHold(env, workspaceName, key, existing);
   if (before.hold !== "approved") return { held: false, reason: "not_approved" };
+  const contentSha256 = await objectContentSha256(env, ws, key);
+  if (!contentSha256) {
+    throw new ValidationError(
+      "this file has no content hash, so the hold change cannot be recorded",
+      { code: "content_hash_unknown" },
+    );
+  }
   await appendOverrideEvent(env, {
     workspace: workspaceName,
     objectKey: key,
+    contentSha256,
     action: "hold",
     actor: by ?? null,
     safety: existing,

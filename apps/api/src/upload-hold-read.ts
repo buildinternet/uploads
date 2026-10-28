@@ -8,7 +8,7 @@
 import { dbFor } from "./db-session";
 import { contentHashesForKeys, contentHashForKey } from "./content-hash";
 import { getMetadataForKeys } from "./file-metadata";
-import { latestOverrideEvent, latestOverridesForKeys } from "./file-events";
+import { latestOverridesForKeys } from "./file-events";
 import { aiRows } from "./classifier-admin";
 import {
   deriveHoldState,
@@ -52,11 +52,11 @@ export async function effectiveHold(
   const row = meta[HOLD_META_KEY];
   if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
   const db = dbFor(env);
-  const [override, currentSha] = await Promise.all([
-    latestOverrideEvent(db, workspace, objectKey),
+  const [overrides, currentSha] = await Promise.all([
+    latestOverridesForKeys(db, workspace, [objectKey]),
     contentHashForKey(db, workspace, objectKey),
   ]);
-  return deriveHoldState(meta, override, currentSha ?? null);
+  return deriveHoldState(meta, overrides.get(objectKey) ?? null, currentSha ?? null);
 }
 
 /** Replace `ai.hold` on held or released keys with the effective state. */

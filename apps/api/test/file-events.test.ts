@@ -4,7 +4,10 @@ import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { effectiveHold, isKeyHeld, listHeldKeys } from "../src/upload-hold-read";
 import { approveUpload, holdAgain } from "../src/upload-hold-service";
 import type { WorkspaceRecord } from "../src/workspace";
+import { FakeR2Bucket } from "./fake-r2";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
+
+const SHA = "ab".repeat(32);
 
 const ws: WorkspaceRecord = {
   provider: "r2",
@@ -22,7 +25,11 @@ describe("file_events", () => {
       "migrations/20261028120000_file_events.sql",
     ]);
     const db = database(sqlite);
-    const env = { DB: db } as Env;
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/shots/a.png", new Uint8Array([1, 2, 3]), {
+      customMetadata: { "content-sha256": SHA },
+    });
+    const env = { DB: db, UPLOADS_DEFAULT: bucket } as unknown as Env;
     await setServerFileMetadata(db, "acme", "shots/a.png", {
       "ai.hold": "pending",
       "ai.secret": "api_key",
@@ -30,7 +37,6 @@ describe("file_events", () => {
       "ai.rating": "explicit",
       "ai.content": "sexual",
     });
-    await recordContentHash(db, "acme", "shots/a.png", "ab".repeat(32));
     expect(await approveUpload(env, ws, "acme", "shots/a.png", "Member")).toEqual({
       approved: true,
     });
@@ -76,14 +82,14 @@ describe("file_events", () => {
         action: "release",
         actor: "Member",
         secret: "api_key",
-        content_sha256: "ab".repeat(32),
+        content_sha256: SHA,
       },
       {
         kind: "override",
         action: "hold",
         actor: "Member",
         secret: "api_key",
-        content_sha256: "ab".repeat(32),
+        content_sha256: SHA,
       },
     ]);
     sqlite.close();
@@ -92,7 +98,11 @@ describe("file_events", () => {
   it("still approves when the event table is missing", async () => {
     const sqlite = new SqliteD1(["migrations/20260713210559_file_metadata.sql"]);
     const db = database(sqlite);
-    const env = { DB: db } as Env;
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]), {
+      customMetadata: { "content-sha256": SHA },
+    });
+    const env = { DB: db, UPLOADS_DEFAULT: bucket } as unknown as Env;
     await setServerFileMetadata(db, "acme", "a.png", {
       "ai.hold": "pending",
       "ai.secret": "api_key",

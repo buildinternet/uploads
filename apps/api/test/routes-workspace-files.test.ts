@@ -151,6 +151,7 @@ async function makeEnv(
 async function seed(bucket: FakeR2Bucket) {
   await bucket.put("acme/shots/a.png", new Uint8Array([1, 2, 3]).buffer, {
     httpMetadata: { contentType: "image/png" },
+    customMetadata: { "content-sha256": "ab".repeat(32) },
   });
 }
 

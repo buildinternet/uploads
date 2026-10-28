@@ -3,15 +3,16 @@
 --
 -- Rows are inserted and never updated. An overwrite clears the current
 -- `ai.*` rows and then appends another event; it does not delete the
--- earlier ones. Object delete, retention, and workspace teardown remove
--- the rows for keys that no longer exist.
+-- earlier ones. Object delete and retention leave the log in place, so a
+-- release cannot be erased by deleting the file. Workspace teardown
+-- removes the workspace's rows.
 --
 -- `content_sha256` is the bytes this event describes. It is the future
 -- blob id for content-addressed storage and is not a foreign key. An
--- override applies to a key only while that key's current
--- `file_content_hash` equals `content_sha256`. A null hash applies only
--- while the key has no hash. A different hash is a different set of bytes
--- and the override is ignored.
+-- override's hash is never null: it is the object's `content-sha256`, or
+-- the hash of the body restored from the held bucket. An override applies
+-- to a key only while that key's current bytes hash to `content_sha256`.
+-- A different hash is a different set of bytes and the override is ignored.
 --
 -- `kind` is classified, reused_exact, reused_perceptual, skipped, failed,
 -- or override. `action` is release or hold, and only on an override.
