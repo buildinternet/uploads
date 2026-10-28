@@ -1,9 +1,9 @@
 /**
- * Route in front of the hosted bucket (embed, storage, and store). A held
- * key 404s with the API's not-found envelope. Everything else is the
- * original request, so R2 keeps Range, validators, content type, and CORS.
- * OPTIONS skips the gate. D1 errors fail open: the held bucket is still
- * the backstop, and this Worker does not bind it.
+ * Route in front of the hosted bucket (embed, storage, store, and any
+ * EXTRA_HOSTED_HOSTS). A held key 404s with the API's not-found envelope.
+ * Everything else is the original request, so R2 keeps Range, validators,
+ * content type, and CORS. OPTIONS skips the gate. D1 errors fail open: the
+ * held bucket is still the backstop, and this Worker does not bind it.
  */
 
 /** Same lane string as `HOSTED_READ_LANE` in apps/api/src/read-gate.ts. */
@@ -19,21 +19,32 @@ const NOT_FOUND_BODY = JSON.stringify({
 
 export interface ReadGateEnv {
   DB: D1Database;
+  EXTRA_HOSTED_HOSTS?: string;
 }
 
 interface GateContext {
   waitUntil(promise: Promise<unknown>): void;
 }
 
+function isHostedHost(hostname: string, extra: string | undefined): boolean {
+  const host = hostname.toLowerCase();
+  if (HOSTED_HOSTS.has(host)) return true;
+  if (!extra) return false;
+  return extra.split(",").some((part) => part.trim().toLowerCase() === host);
+}
+
 /** Public object key for a hosted URL, or null when there is nothing to gate. */
-export function objectKeyFromUrl(raw: string): string | null {
+export function objectKeyFromUrl(
+  raw: string,
+  env: Pick<ReadGateEnv, "EXTRA_HOSTED_HOSTS"> = {},
+): string | null {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return null;
   }
-  if (!HOSTED_HOSTS.has(url.hostname.toLowerCase())) return null;
+  if (!isHostedHost(url.hostname, env.EXTRA_HOSTED_HOSTS)) return null;
   let path: string;
   try {
     path = url.pathname
@@ -148,7 +159,7 @@ export async function handleReadGate(
   const url = new URL(request.url);
   if (isReservedGatePath(url.pathname)) return heldNotFound();
   if (request.method === "OPTIONS") return fetch(request);
-  const objectKey = objectKeyFromUrl(request.url);
+  const objectKey = objectKeyFromUrl(request.url, env);
   if (!objectKey) return fetch(request);
   if (await isBlocked(env, ctx, url.hostname, objectKey)) return heldNotFound();
   return fetch(request);
