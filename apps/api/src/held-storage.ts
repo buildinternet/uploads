@@ -17,10 +17,16 @@ import { createStorage, type Files } from "@uploads/storage";
 import { dbFor } from "./db-session";
 import { setServerFileMetadata } from "./file-metadata";
 import { UPLOAD_CACHE_CONTROL } from "./files-core";
+import { contentSha256Hex } from "./provenance";
 import { HOLD_MOVED_KEY } from "./upload-hold";
 import { isKeyHeld } from "./upload-hold-read";
 import { posterKeyFor } from "./poster";
-import { isSharedLane, resolveObjectLane, storageConfigs } from "./storage";
+import {
+  isSharedLane,
+  resolveObjectLane,
+  resolveObjectLaneWithHead,
+  storageConfigs,
+} from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 
 /** The held bucket, or `undefined` where it is not bound (tests, older deploys). */
@@ -67,24 +73,38 @@ export async function moveToHeld(
 
 /**
  * Copy a held object (and its poster) back to its key on the hosted lane,
- * then drop the held copy. `false` when the held bucket has no copy.
+ * then drop the held copy. The return is the SHA-256 of the restored body,
+ * or `null` when the held bucket has no copy.
  */
 export async function restoreFromHeld(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
-): Promise<boolean> {
+): Promise<string | null> {
   const held = heldBucket(env);
-  if (!held) return false;
+  if (!held) return null;
   const store = await sharedLaneStore(env, ws);
-  if (!store) return false;
-  const restored = await copyIn(held, store, heldObjectKey(workspaceName, key), key);
-  if (!restored) return false;
+  if (!store) return null;
+  const sha = await copyIn(held, store, heldObjectKey(workspaceName, key), key);
+  if (!sha) return null;
   const posterKey = posterKeyFor(key);
   await copyIn(held, store, heldObjectKey(workspaceName, posterKey), posterKey);
   await held.delete(heldKeysFor(workspaceName, key));
-  return true;
+  return sha;
+}
+
+const SHA256_RE = /^[a-f0-9]{64}$/;
+
+/** `content-sha256` on the object, for a hold that never left the public bucket. */
+export async function objectContentSha256(
+  env: Env,
+  ws: WorkspaceRecord,
+  key: string,
+): Promise<string | undefined> {
+  const lane = await resolveObjectLaneWithHead(env, ws, key);
+  const value = lane?.head.metadata?.["content-sha256"];
+  return typeof value === "string" && SHA256_RE.test(value) ? value : undefined;
 }
 
 /**
@@ -154,14 +174,14 @@ async function copyIn(
   store: Files,
   heldKey: string,
   key: string,
-): Promise<boolean> {
+): Promise<string | null> {
   const source = await held.get(heldKey);
-  if (!source) return false;
+  if (!source) return null;
   const bytes = new Uint8Array(await source.arrayBuffer());
   await store.upload(key, bytes, {
     contentType: source.httpMetadata?.contentType ?? "application/octet-stream",
     cacheControl: UPLOAD_CACHE_CONTROL,
     metadata: { ...source.customMetadata },
   });
-  return true;
+  return contentSha256Hex(bytes);
 }

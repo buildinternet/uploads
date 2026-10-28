@@ -1425,11 +1425,15 @@ the hold as it is.
 `ai.hold=approved` and re-syncs the comment (`upload_approved`). It does
 not change `ai.secret`, `ai.pii`, `ai.rating`, or `ai.content`. The same
 call appends a `file_events` row: who released the hold, when, the content
-hash, and the flags in force. Classification appends `classified`,
+hash, and the flags in force. The hash is the object's `content-sha256`,
+or the hash of the body copied back from the held bucket. A file with
+neither fails the approve. Classification appends `classified`,
 `reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
 New bytes still clear the current `ai.*` rows. The log keeps the earlier
-row. `content_sha256` is those bytes, for a later blob id. The table is on
-the existing D1 database. A missing migration skips the append. `ai.hold`
+row. Deleting the file, or the retention sweep, does not delete the log.
+Workspace teardown does. `content_sha256` is those bytes, for a later blob
+id. The table is on the existing D1 database. A missing migration skips
+the append. `ai.hold`
 is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
 bytes start over. Promote and attach copy every classifier row onto the
 new key, since the copy is not classified again. `ai.rating`,

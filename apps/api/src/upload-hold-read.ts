@@ -8,7 +8,7 @@
 import { dbFor } from "./db-session";
 import { contentHashForKey } from "./content-hash";
 import { getMetadataForKeys } from "./file-metadata";
-import { latestOverrideEvent, overrideApplies } from "./file-events";
+import { latestOverridesForKeys, overrideApplies } from "./file-events";
 import { aiRows } from "./classifier-admin";
 import {
   HOLD_APPROVED,
@@ -70,10 +70,11 @@ export async function effectiveHold(
   };
   if (row !== HOLD_APPROVED) return fromRow();
   const db = dbFor(env);
-  const [override, currentSha] = await Promise.all([
-    latestOverrideEvent(db, workspace, objectKey),
+  const [overrides, currentSha] = await Promise.all([
+    latestOverridesForKeys(db, workspace, [objectKey]),
     contentHashForKey(db, workspace, objectKey),
   ]);
+  const override = overrides.get(objectKey) ?? null;
   if (
     !override ||
     override.action !== "release" ||

@@ -16,7 +16,6 @@
  */
 import { positiveLimit } from "./budget";
 import { deleteFileMetadataForKeys } from "./file-metadata";
-import { deleteFileEventsForKeys } from "./file-events";
 import { deleteAttachmentsForKeysSafe, parseAttachmentKey } from "./github-attachment-index";
 import { reconcileWorkspaceUsage, type ReconcileResult } from "./reconcile";
 import { storage } from "./storage";
@@ -90,7 +89,6 @@ export async function purgeExpiredObjects(
     // Bulk form: native multi-delete on R2/S3 when available.
     await store.delete(batch);
     await deleteFileMetadataForKeys(dbFor(env), workspaceName, batch);
-    await deleteFileEventsForKeys(dbFor(env), workspaceName, batch);
     // Attachment index rows follow their objects (issue #934); chunked the
     // same way and best-effort, so a D1 hiccup never strands the sweep.
     // Filtered to keys that can actually hold a row — a retention sweep is
