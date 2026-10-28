@@ -19,13 +19,8 @@
 
 import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import { UnsupportedMediaTypeError } from "@uploads/errors";
-import {
-  classifierRowsOf,
-  getMetadataForKeys,
-  setFileMetadata,
-  setServerFileMetadata,
-} from "./file-metadata";
-import { reholdIfHeld } from "./held-storage";
+import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
+import { carryHoldToCopy } from "./hold-copy";
 import { putObject, putOptsFromStoredObject } from "./files-core";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
@@ -476,10 +471,9 @@ export async function promoteBranchAttachments(
     promoted.push(destKey);
 
     try {
-      // The copy is not classified again, so its labels and any hold
-      // (`upload-hold.ts`) come from the staged original.
-      await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(stagedMeta));
-      await reholdIfHeld(env, ws, workspaceName, destKey);
+      // The copy is not classified again. Labels, a hold, and the source
+      // pointer (`hold-copy.ts`) come from the staged original.
+      await carryHoldToCopy(env, ws, workspaceName, key, destKey, stagedMeta);
     } catch (err) {
       console.error(
         JSON.stringify({

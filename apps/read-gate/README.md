@@ -2,14 +2,16 @@
 
 Pass-through Worker (`uploads-read-gate`) in front of the hosted R2 custom
 domains: `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`.
-A safety hold returns 404. Every other request is `fetch(request)`, so R2
-keeps Range, validators, content type, and CORS. The pass-through adds
-`must-revalidate` so a cached image transform follows the object's max-age
-instead of Cloudflare Images' one-hour minimum.
+A safety hold returns 404. The API records the hold in D1 `read_gate`.
+This Worker reads that table and fails open when D1 errors. Every other
+request is `fetch(request)`, so R2 keeps Range, validators, content type,
+and CORS. The pass-through adds `must-revalidate` so a cached image
+transform follows the object's max-age instead of Cloudflare Images'
+one-hour minimum.
 
 It does not gate private files. Private-repo images stay cookie-less public
 reads. It does not run on a bring-your-own-bucket domain. It does not bind
-the held bucket.
+the held bucket, and it does not read objects that still sit there.
 
 `EXTRA_HOSTED_HOSTS` is an optional comma-separated var. Hostnames in it
 join the same hosted lane, for example a staging host. An unknown host

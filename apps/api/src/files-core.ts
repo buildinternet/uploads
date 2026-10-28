@@ -81,6 +81,7 @@ import {
 export type { ClassifierHandoff };
 import { holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
+import { isKeyHeld } from "./upload-hold-read";
 import { deleteReadGateKeys, gateObjectKeysOnLane, hostedGateObjectKeys } from "./read-gate";
 import {
   contentSha256Hex,
@@ -836,9 +837,9 @@ export async function putObject(
     );
   }
 
-  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so this
-  // object goes straight back out of the public bucket. New bytes end the
-  // hold, so the old held copy is deleted, after the response when possible.
+  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so the
+  // gate rows go back on. New bytes end the hold: drop the gate row now, and
+  // delete a legacy held-bucket copy after the response when possible.
   const logHeldError = (err: unknown) =>
     console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
   if (sameBytes) {
@@ -1315,7 +1316,12 @@ export async function deleteObject(
   const gateKeys = await hostedGateObjectKeys(env, ws, [key]);
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
-  // A held upload's bytes may be in the held bucket. Its size still counts.
+  // A held upload's bytes may be in the held bucket. Its size still counts
+  // when the public lanes had nothing to measure.
+  const wasHeld = await isKeyHeld(env, workspaceName, key).catch((err: unknown) => {
+    console.error({ event: "held_delete_check_failed", workspace: workspaceName, err });
+    return false;
+  });
   const heldSize = await deleteHeldCopy(env, workspaceName, key, {
     measure: hits.length === 0,
   }).catch((err: unknown) => {
@@ -1327,7 +1333,7 @@ export async function deleteObject(
   await deleteContentHashes(dbFor(env), workspaceName, [key]);
   await deleteReadGateKeys(dbFor(env), gateKeys);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
-  if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
+  if (wasHeld) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 
   if (hits.length > 0) {
     // Concurrent DELETEs can both get here; only the first claimer debits the

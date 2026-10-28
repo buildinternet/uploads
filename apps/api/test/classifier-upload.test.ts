@@ -1824,7 +1824,7 @@ describe("held uploads", () => {
   });
 });
 
-describe("held uploads move out of the public bucket", () => {
+describe("held uploads stay in the public bucket", () => {
   const key = "images/flagged.png";
   const publicKey = `default/${key}`;
   const heldKey = `${WORKSPACE}/${key}`;
@@ -1839,13 +1839,13 @@ describe("held uploads move out of the public bucket", () => {
   }
   const rows = async (env: Env) => (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
 
-  it("moves a held file into the held bucket and back on approval", async () => {
+  it("leaves a held file in the public bucket and drops the gate on approval", async () => {
     const harness = heldHarness();
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });
 
-    expect(await harness.publicBucket.head(publicKey)).toBeNull();
-    expect(await harness.held.head(heldKey)).not.toBeNull();
-    expect((await rows(harness.env))?.["ai.hold.moved"]).toBe("1");
+    expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
+    expect(await harness.held.head(heldKey)).toBeNull();
+    expect((await rows(harness.env))?.["ai.hold.moved"]).toBeUndefined();
 
     expect(await approveUpload(harness.env, harness.ws, WORKSPACE, key)).toEqual({
       approved: true,
@@ -1858,12 +1858,13 @@ describe("held uploads move out of the public bucket", () => {
     expect(after?.["ai.hold.moved"]).toBeUndefined();
   });
 
-  it("moves identical bytes straight back out when a held key is re-uploaded", async () => {
+  it("keeps identical bytes in the public bucket when a held key is re-uploaded", async () => {
     const harness = heldHarness();
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     await putFlagged(harness, FITTING_PNG, { replace: true, enforceHold: true });
-    expect(await harness.publicBucket.head(publicKey)).toBeNull();
-    expect(await harness.held.head(heldKey)).not.toBeNull();
+    expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
+    expect(await harness.held.head(heldKey)).toBeNull();
+    expect((await rows(harness.env))?.["ai.hold"]).toBe("pending");
   });
 
   it("drops the held copy when new bytes replace a held file", async () => {

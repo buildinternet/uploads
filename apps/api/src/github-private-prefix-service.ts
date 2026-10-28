@@ -18,8 +18,8 @@ import { githubAppConfig, installationForRepo, prHeadBranch, repoIsPrivate } fro
 import { checkRepoAuthorization, postManagedComment } from "./github-comment-service";
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
 import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
-import { deleteFileMetadata } from "./file-metadata";
-import { copyHeldObject, deleteHeldCopy, heldBucket } from "./held-storage";
+import { COPIED_FROM_META_KEY, deleteFileMetadata } from "./file-metadata";
+import { copyHeldObject, deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
 import { HOLD_MOVED_KEY } from "./upload-hold";
 import { parseAttachmentKey, rekeyAttachmentSafe } from "./github-attachment-index";
 import {
@@ -463,6 +463,18 @@ async function rekeyRotatedObject(
     .prepare(`UPDATE file_events SET object_key = ? WHERE workspace = ? AND object_key = ?`)
     .bind(newKey, workspaceName, oldKey)
     .run();
+  // Indexed by file_metadata_lookup_idx (workspace, meta_key, meta_value).
+  // Copies that named the old key follow it to the new key.
+  await db
+    .prepare(
+      `UPDATE file_metadata SET meta_value = ?
+       WHERE workspace = ? AND meta_key = ? AND meta_value = ?`,
+    )
+    .bind(newKey, workspaceName, COPIED_FROM_META_KEY, oldKey)
+    .run();
+  await reholdIfHeld(env, ws, workspaceName, newKey).catch((err: unknown) => {
+    console.error({ event: "read_gate_insert_failed", workspace: workspaceName, err });
+  });
 
   // Only keys that can hold a row. A branch-staged or ingest key never has
   // one, so the batch would be a no-op DELETE + UPDATE on most objects.

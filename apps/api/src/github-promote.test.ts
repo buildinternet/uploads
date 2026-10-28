@@ -170,6 +170,7 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
     expect(copyMeta["ai.hold"]).toBe("pending");
     expect(copyMeta["ai.secret"]).toBe("token");
     expect(copyMeta["ai.classifier"]).toBe("v5");
+    expect(copyMeta["ai.copied-from"]).toBe(stagedKey("token.png"));
   });
 
   it("skips a file marked unstaged and does not copy it (issue #1124)", async () => {

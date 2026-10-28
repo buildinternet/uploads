@@ -34,6 +34,7 @@ import {
   countHeldByWorkspace,
   effectiveHold,
   holdKeysForHash,
+  keysCopiedFrom,
   listHeldAcrossWorkspaces,
 } from "./upload-hold-read";
 
@@ -48,6 +49,22 @@ import {
  * Returns `true` when this call placed the hold. Never throws; a hold is
  * best-effort like the rest of the classifier.
  */
+function upsertHoldPending(
+  db: ReturnType<typeof dbFor>,
+  workspace: string,
+  objectKey: string,
+  now: string,
+) {
+  return db
+    .prepare(
+      `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(workspace, object_key, meta_key)
+       DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+    )
+    .bind(workspace, objectKey, HOLD_META_KEY, HOLD_PENDING, now);
+}
+
 export async function applyUploadHold(
   env: Env,
   ws: WorkspaceRecord,
@@ -88,38 +105,25 @@ export async function applyUploadHold(
           ? await hostedGateObjectKeys(env, ws, [key])
           : [];
       const statements = [
-        ...(markingPending
-          ? [
-              db
-                .prepare(
-                  `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(workspace, object_key, meta_key)
-                   DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
-                )
-                .bind(workspaceName, key, HOLD_META_KEY, HOLD_PENDING, now),
-            ]
-          : []),
+        ...(markingPending ? [upsertHoldPending(db, workspaceName, key, now)] : []),
         ...readGateInserts(db, gateKeys),
       ];
       if (statements.length > 0) await db.batch(statements);
-      await moveToHeld(env, ws, workspaceName, key).catch((err: unknown) => {
-        console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
-      });
       return false;
     }
     const now = new Date().toISOString();
     const siblings = await holdKeysForHash(db, workspaceName, sha);
-    const gateKeys = await hostedGateObjectKeys(env, ws, [key, ...siblings]);
+    // A lookup failure must not drop the hold on the key just classified.
+    const copies = await keysCopiedFrom(db, workspaceName, key, sha).catch((err: unknown) => {
+      console.error({ event: "upload_hold_copies_failed", workspace: workspaceName, err });
+      return [];
+    });
+    const covered = [...new Set([key, ...siblings, ...copies])];
+    const gateKeys = await hostedGateObjectKeys(env, ws, covered);
+    const already = new Set(siblings);
+    const toMark = [key, ...copies.filter((copy) => !already.has(copy))];
     await db.batch([
-      db
-        .prepare(
-          `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(workspace, object_key, meta_key)
-           DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
-        )
-        .bind(workspaceName, key, HOLD_META_KEY, HOLD_PENDING, now),
+      ...toMark.map((objectKey) => upsertHoldPending(db, workspaceName, objectKey, now)),
       db
         .prepare(
           `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
@@ -130,13 +134,21 @@ export async function applyUploadHold(
         .bind(workspaceName, sha, now),
       ...readGateInserts(db, gateKeys),
     ]);
-    const moved = await moveToHeld(env, ws, workspaceName, key).catch((err: unknown) => {
-      console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
-      return false;
+    console.log({
+      event: "upload_held",
+      workspace: workspaceName,
+      reason,
+      copies: copies.length,
     });
-    console.log({ event: "upload_held", workspace: workspaceName, reason, moved });
+    const copyMeta =
+      copies.length > 0
+        ? await getMetadataForKeys(db, workspaceName, copies, { metaKeys: ["gh.repo"] })
+        : new Map<string, Record<string, string>>();
     await Promise.all([
       resyncAttachmentComment(env, ws, workspaceName, key, existing),
+      ...copies.map((copy) =>
+        resyncAttachmentComment(env, ws, workspaceName, copy, copyMeta.get(copy) ?? {}),
+      ),
       notifySlackOfHold(env, workspaceName, key, reason, existing),
       emailHold(env, workspaceName, key, reason, existing),
     ]);
@@ -323,10 +335,10 @@ export type HoldAgainResult = { held: true } | { held: false; reason: "not_appro
  * Hold a released file again, for a member who approved by mistake. Only
  * a released file: a pending one is already held, and one the classifier
  * never flagged has no reason to show. The re-hold is an override event.
- * Bytes move back to the held bucket and the PR comment drops the file,
- * as for a new hold, without the Slack and email alerts (the member asked
- * for it). The public URL may already be cached or copied, so this is no
- * substitute for rotating a credential.
+ * The gate rows go back on and the PR comment drops the file, as for a
+ * new hold, without the Slack and email alerts (the member asked for it).
+ * The public URL may already be cached or copied, so this is no substitute
+ * for rotating a credential.
  */
 export async function holdAgain(
   env: Env,
@@ -366,15 +378,7 @@ export async function holdAgain(
     },
     readGateInserts(db, await hostedGateObjectKeys(env, ws, keys)),
   );
-  const moved: boolean[] = [];
-  for (const heldKey of keys) {
-    moved.push(await moveToHeld(env, ws, workspaceName, heldKey));
-  }
-  console.log({
-    event: "upload_held_again",
-    workspace: workspaceName,
-    moved: moved.some(Boolean),
-  });
+  console.log({ event: "upload_held_again", workspace: workspaceName });
   const metas = await getMetadataForKeys(db, workspaceName, keys, { metaKeys: ["gh.repo"] });
   await Promise.all(
     keys.map((heldKey) =>
@@ -485,10 +489,10 @@ export interface ReleaseHoldsResult {
 
 /**
  * Operator release of pending holds, every workspace or one, in batches of
- * `RELEASE_HOLDS_BATCH`. Each file goes through `approveUpload`, so bytes
- * move back and comments re-sync exactly as a member approval would. A
- * file that fails (its workspace is gone, its held copy cannot be
- * restored) is counted and stays held, so a caller looping until
+ * `RELEASE_HOLDS_BATCH`. Each file goes through `approveUpload`, so a
+ * legacy held copy is restored and comments re-sync exactly as a member
+ * approval would. A file that fails (its workspace is gone, its held copy
+ * cannot be restored) is counted and stays held, so a caller looping until
  * `remaining` is 0 must also stop when a batch releases nothing.
  */
 export async function releaseHolds(

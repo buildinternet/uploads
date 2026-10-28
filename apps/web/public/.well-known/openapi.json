@@ -379,7 +379,7 @@
         "operationId": "downloadHeldFile",
         "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Download a held file for review",
-        "description": "Streams the held copy as an attachment. 404 when the file has no held copy.",
+        "description": "Streams a held file as an attachment. A legacy hold comes from the held bucket. A hosted hold that never moved comes from the public object. 404 when neither is available.",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
         ],

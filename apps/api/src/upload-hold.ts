@@ -3,10 +3,11 @@
  * personal data, with high confidence, is held for approval. A held file
  * works like a staged file: no surface this service publishes shows it (the
  * managed PR comment, a public feed or gallery, the public `/f/` page). On
- * hosted storage its bytes also leave the public bucket for the held bucket
- * (`held-storage.ts`), so its raw URL 404s. A workspace member approves it
- * with `POST /v1/workspaces/:workspace/files/approve`, which moves the
- * bytes back to the same key.
+ * hosted storage the read-gate Worker 404s the raw URL from a `read_gate`
+ * row. The bytes stay in the public bucket. A hold that already moved its
+ * bytes (`ai.hold.moved`) is copied back from the held bucket on release.
+ * A workspace member approves it with
+ * `POST /v1/workspaces/:workspace/files/approve`.
  *
  * The classifier writes `ai.hold=pending` and a `blob_hold` row for the
  * content hash. A key is held only when it has that row and the blob is not
@@ -25,8 +26,9 @@ export const HOLD_META_KEY = "ai.hold";
 export const HOLD_PENDING = "pending";
 export const HOLD_APPROVED = "approved";
 /**
- * `1` while the bytes sit in the held bucket (`held-storage.ts`) instead of
- * at the public key. Absent for a BYO file, whose bytes never move.
+ * `1` while a legacy hold's bytes sit in the held bucket (`held-storage.ts`)
+ * instead of at the public key. Absent for a new hosted hold and for a BYO
+ * file. Neither moves bytes.
  */
 export const HOLD_MOVED_KEY = "ai.hold.moved";
 

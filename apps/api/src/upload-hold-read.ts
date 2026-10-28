@@ -7,7 +7,7 @@
 
 import { dbFor, type D1Queryable } from "./db-session";
 import { contentHashesForKeys, contentHashForKey } from "./content-hash";
-import { getMetadataForKeys } from "./file-metadata";
+import { COPIED_FROM_META_KEY, getMetadataForKeys } from "./file-metadata";
 import { blobHoldsFor } from "./file-events";
 import {
   deriveHoldState,
@@ -126,6 +126,39 @@ export async function holdKeysForHash(
        WHERE h.workspace = ? AND h.content_sha256 = ?`,
     )
     .bind(HOLD_META_KEY, workspace, contentSha256)
+    .all<{ object_key: string }>();
+  return (result.results ?? []).map((row) => row.object_key);
+}
+
+/**
+ * How many promote/attach copies one hold will mark. The lookup is indexed
+ * (`file_metadata_lookup_idx` on workspace, meta_key, meta_value), then the
+ * content-hash primary key. The cap keeps a bad pointer from gating the
+ * workspace. A copy of a copy is not in this result: only rows that point
+ * directly at `sourceKey`.
+ */
+export const COPY_HOLD_FANOUT_LIMIT = 32;
+
+export async function keysCopiedFrom(
+  db: D1Queryable,
+  workspace: string,
+  sourceKey: string,
+  contentSha256: string,
+): Promise<string[]> {
+  const result = await db
+    .prepare(
+      `SELECT m.object_key AS object_key
+       FROM file_metadata m
+       INNER JOIN file_content_hash h
+         ON h.workspace = m.workspace AND h.object_key = m.object_key
+       WHERE m.workspace = ?
+         AND m.meta_key = ?
+         AND m.meta_value = ?
+         AND h.content_sha256 = ?
+       ORDER BY m.object_key
+       LIMIT ?`,
+    )
+    .bind(workspace, COPIED_FROM_META_KEY, sourceKey, contentSha256, COPY_HOLD_FANOUT_LIMIT)
     .all<{ object_key: string }>();
   return (result.results ?? []).map((row) => row.object_key);
 }

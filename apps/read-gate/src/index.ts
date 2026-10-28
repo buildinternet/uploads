@@ -5,8 +5,9 @@
  * content type, and CORS. That pass-through adds `must-revalidate` so a
  * cached `/cdn-cgi/image/` variant follows the object's max-age (60s on
  * hosted uploads) instead of Cloudflare Images' one-hour minimum.
- * OPTIONS skips the gate. D1 errors fail open: the held bucket is still
- * the backstop, and this Worker does not bind it.
+ * OPTIONS skips the gate. D1 errors fail open. This Worker does not bind
+ * the held bucket, and it does not read objects that still sit there. A
+ * hold is a `read_gate` row.
  */
 
 /** Same lane string as `HOSTED_READ_LANE` in apps/api/src/read-gate.ts. */
