@@ -48,18 +48,8 @@ import {
   setObjectVisibility,
 } from "../files-core";
 import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service";
-import { listHeldKeys } from "../upload-hold-read";
-import {
-  HOLD_APPROVED,
-  HOLD_AREA_KEY,
-  HOLD_AT_KEY,
-  HOLD_BY_KEY,
-  HOLD_META_KEY,
-  HOLD_MOVED_KEY,
-  HOLD_PENDING,
-  parseHoldArea,
-  storedHoldReason,
-} from "../upload-hold";
+import { effectiveHold, listHeldKeys } from "../upload-hold-read";
+import { HOLD_AREA_KEY, HOLD_MOVED_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
 import { readHeld } from "../held-storage";
 import {
   getFileMetadata,
@@ -524,7 +514,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     async (c) => {
       const key = c.req.query("key") ?? "";
       if (badKey(key)) throw new NotFoundError();
-      const result = await holdAgain(c.env, c.get("workspace"), c.req.param("workspace"), key);
+      const by = await approverLabel(c.env, c.get("uploaderIdentity"));
+      const result = await holdAgain(c.env, c.get("workspace"), c.req.param("workspace"), key, by);
       return c.json({ key, ...result });
     },
   )
@@ -535,14 +526,15 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   .get("/:workspace/files/review", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
-    const meta = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
-    const hold = meta[HOLD_META_KEY];
+    const workspaceName = c.get("workspaceName");
+    const meta = await getFileMetadata(dbFor(c.env), workspaceName, key);
+    const view = await effectiveHold(c.env, workspaceName, key, meta);
     return c.json({
       key,
-      hold: hold === HOLD_PENDING || hold === HOLD_APPROVED ? hold : null,
-      reason: hold ? storedHoldReason(meta) : null,
-      by: hold === HOLD_APPROVED ? (meta[HOLD_BY_KEY] ?? null) : null,
-      at: hold === HOLD_APPROVED ? (meta[HOLD_AT_KEY] ?? null) : null,
+      hold: view.hold,
+      reason: view.hold ? storedHoldReason(meta) : null,
+      by: view.by,
+      at: view.at,
     });
   })
 

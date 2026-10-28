@@ -8,9 +8,13 @@
  * with `POST /v1/workspaces/:workspace/files/approve`, which moves the
  * bytes back to the same key.
  *
- * State is one server-owned row, `ai.hold`: `pending` or `approved`. It is
- * in `CLASSIFIER_ROW_KEYS`, so it shares the classifier's lifetime:
- * identical bytes keep it (an approval sticks), and new bytes clear it.
+ * State for the current bytes is one server-owned row, `ai.hold`:
+ * `pending` or `approved`. It is in `CLASSIFIER_ROW_KEYS`, so it shares
+ * the classifier's lifetime: identical bytes keep it (an approval sticks),
+ * and new bytes clear it. A release also appends an override event
+ * (`file-events.ts`) with who released it and the safety flags in force.
+ * That event does not change `ai.secret`, `ai.pii`, `ai.rating`, or
+ * `ai.content`, and it stays after new bytes clear the row.
  *
  * Env-free, so the CLI's local-gh comment path can share the predicate.
  */

@@ -21,6 +21,7 @@ import {
   storageBudgetDenial,
   uploadBudgetDenial,
 } from "./budget";
+import { deleteFileEvents } from "./file-events";
 import {
   deleteFileMetadata,
   deleteServerFileMetadataKeys,
@@ -1321,6 +1322,7 @@ export async function deleteObject(
   });
   if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
+  await deleteFileEvents(dbFor(env), workspaceName, key);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
   if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 

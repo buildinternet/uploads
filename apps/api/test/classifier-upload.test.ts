@@ -5,6 +5,7 @@ import { deleteObject, putObject } from "../src/files-core";
 import { contentSha256Hex } from "../src/provenance";
 import { FakeR2Bucket } from "./fake-r2";
 import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
+import { listFileEvents } from "../src/file-events";
 import { imagePhash } from "../src/phash";
 import {
   CLASSIFIER_JEV_MODEL,
@@ -1248,6 +1249,10 @@ describe("safety flags", () => {
     expect(copied?.["ai.surface"]).toBe("desktop");
     expect(copied?.["ai.screen"]).toBe("settings");
     expect(copied?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    const reuseEvents = await listFileEvents(harness.env.DB, WORKSPACE, second.key);
+    expect(reuseEvents.map((event) => event.kind)).toEqual(["reused_perceptual"]);
+    expect(reuseEvents[0]?.secret).toBeNull();
+    expect(reuseEvents[0]?.classifierVersion).toBe(CLASSIFIER_VERSION);
     for (const key of [
       "ai.rating",
       "ai.rating.confidence",
@@ -1766,5 +1771,109 @@ describe("held uploads move out of the public bucket", () => {
     await deleteObject(harness.env, harness.ws, key, WORKSPACE);
     expect(await harness.held.head(heldKey)).toBeNull();
     expect(await rows(harness.env)).toBeUndefined();
+  });
+});
+
+describe("classifier event log", () => {
+  const key = "images/flagged.png";
+
+  it("appends a classification for each set of bytes and keeps the earlier event", async () => {
+    let calls = 0;
+    const harness = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      return {
+        answers: {
+          secret: jevAnswer("none", 0.93),
+          pii: jevAnswer("none", 0.91),
+          rating: jevAnswer("safe", 0.96),
+          content: jevAnswer("none", 0.94),
+        },
+      };
+    });
+    const firstBytes = atLeast(pngOf(400, 280));
+    const secondBytes = atLeast(pngOf(500, 280));
+    await putFlagged(harness, firstBytes);
+    await putFlagged(harness, secondBytes, { replace: true });
+
+    const events = await listFileEvents(harness.env.DB, WORKSPACE, key);
+    expect(events.map((event) => event.kind)).toEqual(["classified", "classified"]);
+    expect(events[0]).toMatchObject({
+      secret: "api_key",
+      rating: "explicit",
+      model: CLASSIFIER_JEV_MODEL,
+      classifierVersion: CLASSIFIER_VERSION,
+      contentSha256: await contentSha256Hex(firstBytes),
+    });
+    expect(events[1]).toMatchObject({
+      secret: "none",
+      rating: "safe",
+      contentFlag: "none",
+      contentSha256: await contentSha256Hex(secondBytes),
+    });
+    const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.secret"]).toBe("none");
+    expect(stored?.["ai.rating"]).toBe("safe");
+  });
+
+  it("appends reused_exact when the same bytes are classified again", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, FITTING_PNG, { replace: true });
+    const events = await listFileEvents(harness.env.DB, WORKSPACE, key);
+    expect(events.map((event) => event.kind)).toEqual(["classified", "reused_exact"]);
+    expect(events[1]).toMatchObject({ secret: "api_key", model: null });
+  });
+
+  it("appends skipped when the image never reaches the model", async () => {
+    const { env, ws } = makeClassifierEnv();
+    await classifyAndStore(env, ws, WORKSPACE, "images/tiny.png", pngOf(8, 8), "image/png");
+    const events = await listFileEvents(env.DB, WORKSPACE, "images/tiny.png");
+    expect(events).toMatchObject([{ kind: "skipped", reason: "small", model: null }]);
+  });
+
+  it("appends failed and keeps the classification of the bytes it replaced", async () => {
+    let calls = 0;
+    const harness = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      throw new Error("provider down");
+    });
+    await putFlagged(harness, atLeast(pngOf(400, 280)));
+    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
+    const events = await listFileEvents(harness.env.DB, WORKSPACE, key);
+    expect(events.map((event) => event.kind)).toEqual(["classified", "failed"]);
+    expect(events[0]?.secret).toBe("api_key");
+    expect(events[1]).toMatchObject({
+      reason: "provider_error",
+      model: CLASSIFIER_JEV_MODEL,
+      secret: null,
+    });
+    const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.secret"]).toBeUndefined();
+    expect(stored?.["ai.classifier"]).toBe("failed");
+  });
+
+  it("records a release override and leaves the safety flag in place", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
+    expect(await approveUpload(harness.env, harness.ws, WORKSPACE, key, "Member")).toEqual({
+      approved: true,
+    });
+    const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.secret"]).toBe("api_key");
+    expect(stored?.["ai.pii"]).toBe("financial");
+    expect(stored?.["ai.hold"]).toBe("approved");
+    const events = await listFileEvents(harness.env.DB, WORKSPACE, key);
+    const override = events.find((event) => event.kind === "override");
+    expect(override).toMatchObject({
+      action: "release",
+      actor: "Member",
+      secret: "api_key",
+      pii: "financial",
+      rating: "explicit",
+    });
+    expect(override?.createdAt).toBe(stored?.["ai.hold.at"]);
+    expect(override?.contentSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 });

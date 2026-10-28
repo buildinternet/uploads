@@ -6,9 +6,18 @@
  */
 
 import { dbFor } from "./db-session";
+import { contentHashForKey } from "./content-hash";
 import { getMetadataForKeys } from "./file-metadata";
+import { latestOverrideEvent, overrideApplies } from "./file-events";
 import { aiRows } from "./classifier-admin";
-import { HOLD_META_KEY, HOLD_PENDING, isHeld } from "./upload-hold";
+import {
+  HOLD_APPROVED,
+  HOLD_AT_KEY,
+  HOLD_BY_KEY,
+  HOLD_META_KEY,
+  HOLD_PENDING,
+  isHeld,
+} from "./upload-hold";
 
 /** The subset of `keys` held for approval. One batched D1 read. */
 export async function heldKeysAmong(
@@ -28,6 +37,51 @@ export async function heldKeysAmong(
 /** Whether one key is held. */
 export async function isKeyHeld(env: Env, workspaceName: string, key: string): Promise<boolean> {
   return (await heldKeysAmong(env, workspaceName, [key])).has(key);
+}
+
+export interface EffectiveHold {
+  hold: "pending" | "approved" | null;
+  by: string | null;
+  at: string | null;
+}
+
+/**
+ * Hold state for a member view. `ai.hold` is the effective state for the
+ * current bytes (pending, approved, or absent). A release override for
+ * those same bytes supplies who released it and when. An override for a
+ * different hash is an earlier set of bytes and is ignored. A pending row
+ * stays pending: that is what comments and the public gate already read.
+ */
+export async function effectiveHold(
+  env: Env,
+  workspace: string,
+  objectKey: string,
+  meta: Record<string, string>,
+): Promise<EffectiveHold> {
+  const row = meta[HOLD_META_KEY];
+  const fromRow = (): EffectiveHold => {
+    if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
+    const released = row === HOLD_APPROVED;
+    return {
+      hold: row,
+      by: released ? (meta[HOLD_BY_KEY] ?? null) : null,
+      at: released ? (meta[HOLD_AT_KEY] ?? null) : null,
+    };
+  };
+  if (row !== HOLD_APPROVED) return fromRow();
+  const db = dbFor(env);
+  const [override, currentSha] = await Promise.all([
+    latestOverrideEvent(db, workspace, objectKey),
+    contentHashForKey(db, workspace, objectKey),
+  ]);
+  if (
+    !override ||
+    override.action !== "release" ||
+    !overrideApplies(override.contentSha256, currentSha ?? null)
+  ) {
+    return fromRow();
+  }
+  return { hold: "approved", by: override.actor, at: override.createdAt };
 }
 
 /**

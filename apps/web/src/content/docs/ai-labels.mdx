@@ -65,6 +65,8 @@ A stored flag stays until a later classification writes that same key. A confide
 
 The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
 
+You cannot set, change, or delete these flags from the CLI, the API, or MCP. A member release does not change them either. It records a separate override: who released the hold, and when.
+
 </section>
 
 <section id="held-uploads">
@@ -94,7 +96,7 @@ curl -X POST -H "Authorization: Bearer $UPLOADS_TOKEN" \
 
 With the [Slack app](/docs/slack#held-uploads) connected, the uploader (or, without one, the workspace admins) gets a Slack message for each new hold, with an **Approve** button. To get an email for each new hold instead, or as well, turn on **An upload is held for review** under Email notifications in your [account settings](/account/profile). It's off by default.
 
-Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` and `ai.pii=other` never hold a file, and the `ai.rating` and `ai.content` flags never hold one.
+Approval records that override, writes `ai.hold=approved`, and re-syncs the comment. The safety flags stay as the classifier wrote them. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` and `ai.pii=other` never hold a file, and the `ai.rating` and `ai.content` flags never hold one.
 
 </section>
 

@@ -12,6 +12,7 @@
 import { ServiceUnavailableError } from "@uploads/errors";
 import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
+import { appendOverrideEvent } from "./file-events";
 import {
   deleteServerFileMetadataKeys,
   getFileMetadata,
@@ -125,6 +126,11 @@ export type ApproveUploadResult = { approved: true } | { approved: false; reason
  * Release a held file. A file that is not held (never flagged, already
  * approved, or no row for this key) is `not_held`, which the route reports
  * as a 200 so a retried approve is harmless.
+ *
+ * Safety flags (`ai.secret`, `ai.pii`, `ai.rating`, `ai.content`) stay as
+ * the classifier wrote them. The release is an override event (who, when,
+ * the flags in force, the content hash) plus `ai.hold=approved`, which is
+ * the effective hold every existing reader already checks.
  */
 export async function approveUpload(
   env: Env,
@@ -146,10 +152,19 @@ export async function approveUpload(
     }
     await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_MOVED_KEY]);
   }
+  const at = new Date().toISOString();
   await setServerFileMetadata(db, workspaceName, key, {
     [HOLD_META_KEY]: HOLD_APPROVED,
-    [HOLD_AT_KEY]: new Date().toISOString(),
+    [HOLD_AT_KEY]: at,
     ...(by ? { [HOLD_BY_KEY]: by } : {}),
+  });
+  await appendOverrideEvent(env, {
+    workspace: workspaceName,
+    objectKey: key,
+    action: "release",
+    actor: by ?? null,
+    safety: existing,
+    at,
   });
   console.log({ event: "upload_approved", workspace: workspaceName });
   await Promise.all([
@@ -174,6 +189,7 @@ export async function holdAgain(
   ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
+  by?: string | null,
 ): Promise<HoldAgainResult> {
   const db = dbFor(env);
   const existing = await getFileMetadata(db, workspaceName, key);
@@ -181,6 +197,14 @@ export async function holdAgain(
   // The row lands first, as in `applyUploadHold`.
   await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
   await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_BY_KEY, HOLD_AT_KEY]);
+  await appendOverrideEvent(env, {
+    workspace: workspaceName,
+    objectKey: key,
+    action: "hold",
+    actor: by ?? null,
+    safety: existing,
+    at: new Date().toISOString(),
+  });
   const moved = await moveToHeld(env, ws, workspaceName, key);
   console.log({ event: "upload_held_again", workspace: workspaceName, moved });
   await resyncAttachmentComment(env, ws, workspaceName, key, existing);
