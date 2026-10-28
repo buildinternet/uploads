@@ -1768,3 +1768,54 @@ describe("held uploads move out of the public bucket", () => {
     expect(await rows(harness.env)).toBeUndefined();
   });
 });
+
+describe("classifier event log", () => {
+  it("appends skip, classify, and reuse events across an overwrite", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    const events: Array<{ kind: string; reason: string | null; secret: string | null }> = [];
+    const db = harness.env.DB as unknown as { prepare: (sql: string) => unknown };
+    const prepare = db.prepare.bind(db);
+    db.prepare = (sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (!normalized.includes("file_events")) return prepare(sql);
+      let values: unknown[] = [];
+      return {
+        bind(...next: unknown[]) {
+          values = next;
+          return this;
+        },
+        async run() {
+          if (normalized.startsWith("INSERT INTO file_events")) {
+            events.push({
+              kind: String(values[3]),
+              reason: (values[6] as string | null) ?? null,
+              secret: (values[13] as string | null) ?? null,
+            });
+          }
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
+        async first() {
+          return null;
+        },
+      };
+    };
+
+    await putFlagged(harness, pngOf(8, 8));
+    await putFlagged(harness, FITTING_PNG, { replace: true });
+    await putFlagged(harness, FITTING_PNG, { replace: true });
+
+    expect(events).toEqual([
+      { kind: "skipped", reason: "small", secret: null },
+      { kind: "classified", reason: null, secret: "api_key" },
+      { kind: "reused_exact", reason: null, secret: "api_key" },
+    ]);
+    const stored = (
+      await getMetadataForKeys(harness.env.DB, WORKSPACE, ["images/flagged.png"])
+    ).get("images/flagged.png");
+    expect(stored?.["ai.secret"]).toBe("api_key");
+    expect(stored?.["ai.skip"]).toBeUndefined();
+  });
+});

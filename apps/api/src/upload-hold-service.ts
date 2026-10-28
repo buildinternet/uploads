@@ -9,16 +9,17 @@
  * (`hold-email-notify.ts`).
  */
 
-import { ServiceUnavailableError } from "@uploads/errors";
+import { ServiceUnavailableError, ValidationError } from "@uploads/errors";
 import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
+import { appendOverrideEvent } from "./file-events";
 import {
   deleteServerFileMetadataKeys,
   getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
-import { moveToHeld, restoreFromHeld } from "./held-storage";
+import { moveToHeld, objectContentSha256, restoreFromHeld } from "./held-storage";
 import { emailHold } from "./hold-email-notify";
 import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
@@ -124,7 +125,8 @@ export type ApproveUploadResult = { approved: true } | { approved: false; reason
 /**
  * Release a held file. A file that is not held (never flagged, already
  * approved, or no row for this key) is `not_held`, which the route reports
- * as a 200 so a retried approve is harmless.
+ * as a 200 so a retried approve is harmless. Safety flags stay as
+ * classified. The release also appends an override event.
  */
 export async function approveUpload(
   env: Env,
@@ -136,20 +138,42 @@ export async function approveUpload(
   const db = dbFor(env);
   const existing = await getFileMetadata(db, workspaceName, key);
   if (existing[HOLD_META_KEY] !== HOLD_PENDING) return { approved: false, reason: "not_held" };
+  let contentSha256: string | undefined;
   if (existing[HOLD_MOVED_KEY] === "1") {
     // Bytes first: approving a file whose bytes cannot come back would
-    // leave its links broken with no hold left to explain why.
-    if (!(await restoreFromHeld(env, ws, workspaceName, key))) {
+    // leave its links broken with no hold left to explain why. The hash is
+    // of that body, not the best-effort D1 index.
+    const restored = await restoreFromHeld(env, ws, workspaceName, key);
+    if (!restored) {
       throw new ServiceUnavailableError("the held copy of this file could not be restored", {
         code: "held_restore_failed",
       });
     }
+    contentSha256 = restored;
     await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_MOVED_KEY]);
+  } else {
+    contentSha256 = await objectContentSha256(env, ws, key);
   }
+  if (!contentSha256) {
+    throw new ValidationError(
+      "this file has no content hash, so the hold change cannot be recorded",
+      { code: "content_hash_unknown" },
+    );
+  }
+  const at = new Date().toISOString();
   await setServerFileMetadata(db, workspaceName, key, {
     [HOLD_META_KEY]: HOLD_APPROVED,
-    [HOLD_AT_KEY]: new Date().toISOString(),
+    [HOLD_AT_KEY]: at,
     ...(by ? { [HOLD_BY_KEY]: by } : {}),
+  });
+  await appendOverrideEvent(env, {
+    workspace: workspaceName,
+    objectKey: key,
+    contentSha256,
+    action: "release",
+    actor: by ?? null,
+    safety: existing,
+    at,
   });
   console.log({ event: "upload_approved", workspace: workspaceName });
   await Promise.all([
@@ -174,13 +198,30 @@ export async function holdAgain(
   ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
+  by?: string | null,
 ): Promise<HoldAgainResult> {
   const db = dbFor(env);
   const existing = await getFileMetadata(db, workspaceName, key);
   if (existing[HOLD_META_KEY] !== HOLD_APPROVED) return { held: false, reason: "not_approved" };
+  const contentSha256 = await objectContentSha256(env, ws, key);
+  if (!contentSha256) {
+    throw new ValidationError(
+      "this file has no content hash, so the hold change cannot be recorded",
+      { code: "content_hash_unknown" },
+    );
+  }
   // The row lands first, as in `applyUploadHold`.
   await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
   await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_BY_KEY, HOLD_AT_KEY]);
+  await appendOverrideEvent(env, {
+    workspace: workspaceName,
+    objectKey: key,
+    contentSha256,
+    action: "hold",
+    actor: by ?? null,
+    safety: existing,
+    at: new Date().toISOString(),
+  });
   const moved = await moveToHeld(env, ws, workspaceName, key);
   console.log({ event: "upload_held_again", workspace: workspaceName, moved });
   await resyncAttachmentComment(env, ws, workspaceName, key, existing);

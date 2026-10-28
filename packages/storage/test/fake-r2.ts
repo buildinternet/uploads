@@ -6,6 +6,7 @@
 interface StoredObject {
   data: Uint8Array;
   contentType?: string;
+  customMetadata?: Record<string, string>;
 }
 
 export class FakeR2Bucket {
@@ -22,7 +23,7 @@ export class FakeR2Bucket {
       storageClass: "Standard",
       checksums: {},
       httpMetadata: { contentType: obj.contentType },
-      customMetadata: {},
+      customMetadata: obj.customMetadata ? { ...obj.customMetadata } : {},
       writeHttpMetadata() {},
     };
   }
@@ -30,7 +31,10 @@ export class FakeR2Bucket {
   async put(
     key: string,
     value: ArrayBuffer | ArrayBufferView | string | ReadableStream<Uint8Array> | null,
-    opts?: { httpMetadata?: { contentType?: string } | Headers },
+    opts?: {
+      httpMetadata?: { contentType?: string } | Headers;
+      customMetadata?: Record<string, string>;
+    },
   ) {
     let data: Uint8Array;
     if (typeof value === "string") data = new TextEncoder().encode(value);
@@ -58,7 +62,11 @@ export class FakeR2Bucket {
       httpMetadata instanceof Headers
         ? (httpMetadata.get("content-type") ?? undefined)
         : httpMetadata?.contentType;
-    const obj = { data, contentType };
+    const obj = {
+      data,
+      contentType,
+      customMetadata: opts?.customMetadata ? { ...opts.customMetadata } : undefined,
+    };
     this.store.set(key, obj);
     return this.meta(key, obj);
   }

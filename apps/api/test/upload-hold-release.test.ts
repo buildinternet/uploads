@@ -28,7 +28,7 @@ function makeEnv() {
     REGISTRY: registry,
     UPLOADS_DEFAULT: bucket,
   } as unknown as Env;
-  return { env, registry, record };
+  return { env, registry, record, bucket };
 }
 
 async function hold(env: Env, workspace: string, key: string) {
@@ -53,9 +53,12 @@ describe("operator hold release", () => {
   });
 
   it("approves every pending hold, or one workspace's", async () => {
-    const { env, registry, record } = makeEnv();
+    const { env, registry, record, bucket } = makeEnv();
     await registry.put("ws:acme", JSON.stringify(record("acme")));
     await registry.put("ws:beta", JSON.stringify(record("beta")));
+    const sha = { "content-sha256": "ab".repeat(32) };
+    await bucket.put("acme/a.png", new Uint8Array([1]), { customMetadata: sha });
+    await bucket.put("beta/c.png", new Uint8Array([2]), { customMetadata: sha });
     await hold(env, "acme", "a.png");
     await hold(env, "beta", "c.png");
 

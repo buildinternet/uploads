@@ -21,7 +21,9 @@
  * A call that times out, errors, or answers below the confidence floor
  * writes `ai.classifier=failed` and `ai.error`, but only when these bytes
  * have no earlier result. New bytes clear every classifier row first
- * (`CLASSIFIER_ROW_KEYS`).
+ * (`CLASSIFIER_ROW_KEYS`). Each attempt also appends a `file_events` row
+ * (`classified`, `reused_exact`, `reused_perceptual`, `skipped`, `failed`).
+ * The log keeps the earlier attempt after those rows are cleared.
  *
  * Before calling, a finished classification in the same workspace can stand
  * in: identical bytes reuse all rows (including safety flags and holds); an
@@ -40,6 +42,7 @@
  */
 
 import { contentHashDonorKeys, contentHashForKey } from "./content-hash";
+import { appendClassificationEvent, type ClassificationEventKind } from "./file-events";
 import {
   PHASH_META_KEY,
   SAFETY_FLAG_KEYS,
@@ -1159,6 +1162,31 @@ function classifierVersionMarker(provider: ClassifierProvider, resized: boolean)
   return resized ? CLASSIFIER_RESIZED_VERSION : CLASSIFIER_VERSION;
 }
 
+function classifierModel(provider: ClassifierProvider): string {
+  return provider === "luna" ? CLASSIFIER_LUNA_MODEL : CLASSIFIER_JEV_MODEL;
+}
+
+async function recordClassificationEvent(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  bytes: Uint8Array,
+  kind: ClassificationEventKind,
+  meta: Record<string, string> | undefined,
+  extra: { model?: string | null; reason?: string | null } = {},
+): Promise<void> {
+  await appendClassificationEvent(env, {
+    workspace: workspaceName,
+    objectKey: key,
+    bytes,
+    kind,
+    classifierVersion: meta?.["ai.classifier"] ?? null,
+    model: extra.model ?? null,
+    reason: extra.reason ?? null,
+    safety: meta,
+  });
+}
+
 /** Display labels a skip must not leave behind from an earlier classification. */
 const CLASSIFIER_DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen", "ai.ready"] as const;
 
@@ -1178,6 +1206,7 @@ async function storeSkip(
   key: string,
   reason: string,
   provider: ClassifierProvider,
+  bytes: Uint8Array,
 ): Promise<Record<string, string>> {
   const db = dbFor(env);
   await deleteServerFileMetadataKeys(db, workspaceName, key, [
@@ -1186,6 +1215,7 @@ async function storeSkip(
   ]);
   const meta = skipMeta(reason, provider);
   await setServerFileMetadata(db, workspaceName, key, meta);
+  await recordClassificationEvent(env, workspaceName, key, bytes, "skipped", meta, { reason });
   return meta;
 }
 
@@ -1212,14 +1242,31 @@ async function storeFailure(
   key: string,
   reason: ClassifierErrorReason,
   provider: ClassifierProvider,
+  bytes: Uint8Array,
 ): Promise<Record<string, string> | undefined> {
   console.log({ event: "classifier_call_failed", reason, provider });
+  const model = classifierModel(provider);
   const db = dbFor(env);
   const existing = (await getFileMetadata(db, workspaceName, key))["ai.classifier"];
-  if (existing !== undefined && existing !== CLASSIFIER_FAILED) return undefined;
+  if (existing !== undefined && existing !== CLASSIFIER_FAILED) {
+    await recordClassificationEvent(
+      env,
+      workspaceName,
+      key,
+      bytes,
+      "failed",
+      { "ai.classifier": CLASSIFIER_FAILED },
+      { model, reason },
+    );
+    return undefined;
+  }
   await deleteServerFileMetadataKeys(db, workspaceName, key, ["ai.skip"]);
   const meta = { "ai.classifier": CLASSIFIER_FAILED, "ai.error": reason };
   await setServerFileMetadata(db, workspaceName, key, meta);
+  await recordClassificationEvent(env, workspaceName, key, bytes, "failed", meta, {
+    model,
+    reason,
+  });
   return meta;
 }
 
@@ -1421,6 +1468,7 @@ async function matchPerceptualReuse(
   workspaceName: string,
   key: string,
   phash: string,
+  bytes: Uint8Array,
 ): Promise<Record<string, string> | undefined> {
   const hits = await findObjectsByMetadata(
     dbFor(env),
@@ -1433,7 +1481,9 @@ async function matchPerceptualReuse(
     const meta = perceptualReuseMeta(hit.metadata, phash);
     if (!meta) continue;
     console.log({ event: "classifier_reused", match: "phash", workspace: workspaceName });
-    return storeDecision(env, workspaceName, key, meta);
+    const stored = await storeDecision(env, workspaceName, key, meta);
+    await recordClassificationEvent(env, workspaceName, key, bytes, "reused_perceptual", stored);
+    return stored;
   }
   return undefined;
 }
@@ -1478,7 +1528,9 @@ async function tryReuseClassification(
     ]);
     if (recorded === sha && hasReuseBody(own)) {
       console.log({ event: "classifier_reused", match: "sha256", workspace: workspaceName });
-      return { meta: classifierRowsOf(own), hold: true };
+      const meta = classifierRowsOf(own);
+      await recordClassificationEvent(env, workspaceName, key, bytes, "reused_exact", meta);
+      return { meta, hold: true };
     }
 
     const phash = imagePhash(bytes, contentType);
@@ -1486,11 +1538,13 @@ async function tryReuseClassification(
       const meta = exactReuseMeta(await getFileMetadata(db, workspaceName, donorKey), phash);
       if (!meta) continue;
       console.log({ event: "classifier_reused", match: "sha256", workspace: workspaceName });
-      return { meta: await storeDecision(env, workspaceName, key, meta), hold: true };
+      const stored = await storeDecision(env, workspaceName, key, meta);
+      await recordClassificationEvent(env, workspaceName, key, bytes, "reused_exact", stored);
+      return { meta: stored, hold: true };
     }
 
     if (phash) {
-      const meta = await matchPerceptualReuse(env, workspaceName, key, phash);
+      const meta = await matchPerceptualReuse(env, workspaceName, key, phash, bytes);
       if (meta) return { meta, hold: false };
     }
     return { hold: false, phash };
@@ -1521,7 +1575,7 @@ export async function classifyAndStore(
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
     const provider = await resolveClassifierProvider(env, ws, workspaceName);
     const trivial = trivialImageSkip(contentType, bytes);
-    if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider);
+    if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider, bytes);
 
     const reused = await tryReuseClassification(env, workspaceName, key, bytes, contentType);
     if (reused.meta) {
@@ -1555,7 +1609,7 @@ export async function classifyAndStore(
       if (!resizeController.signal.aborted) {
         console.error({ event: "classifier_image_transform_failed", err });
       }
-      return await storeSkip(env, workspaceName, key, reason, provider);
+      return await storeSkip(env, workspaceName, key, reason, provider, bytes);
     }
 
     if (!prepared.image) {
@@ -1565,6 +1619,7 @@ export async function classifyAndStore(
         key,
         prepared.skip ?? CLASSIFIER_SKIP_UNSUPPORTED,
         provider,
+        bytes,
       );
     }
 
@@ -1573,7 +1628,7 @@ export async function classifyAndStore(
       phash = imagePhash(prepared.hashable.bytes, prepared.hashable.contentType);
       if (phash) {
         try {
-          const meta = await matchPerceptualReuse(env, workspaceName, key, phash);
+          const meta = await matchPerceptualReuse(env, workspaceName, key, phash, bytes);
           if (meta) {
             return finishReused(
               env,
@@ -1611,13 +1666,23 @@ export async function classifyAndStore(
         ? CLASSIFIER_ERROR_TIMEOUT
         : CLASSIFIER_ERROR_PROVIDER;
       console.error({ event: "classifier_failed", workspace: workspaceName, key, reason, err });
-      return await storeFailure(env, workspaceName, key, reason, provider);
+      return await storeFailure(env, workspaceName, key, reason, provider, bytes);
     }
     if (!meta) {
-      return await storeFailure(env, workspaceName, key, CLASSIFIER_ERROR_NO_ANSWER, provider);
+      return await storeFailure(
+        env,
+        workspaceName,
+        key,
+        CLASSIFIER_ERROR_NO_ANSWER,
+        provider,
+        bytes,
+      );
     }
     if (phash) meta[PHASH_META_KEY] = phash;
     const stored = await storeDecision(env, workspaceName, key, meta);
+    await recordClassificationEvent(env, workspaceName, key, bytes, "classified", stored, {
+      model: classifierModel(provider),
+    });
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.
     const { applyUploadHold, resyncCommentAfterClassification } =

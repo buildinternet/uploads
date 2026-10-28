@@ -56,7 +56,8 @@ export const SAFETY_FLAG_FIELDS = CLASSIFIER_SAFETY_FIELDS;
  * classification is scheduled. A classification that writes a value
  * (including a confident `none`) replaces that key; one that omits a key
  * leaves the old value. Object delete removes them. They don't bump
- * `ai.classifier`.
+ * `ai.classifier`. The append-only history is `file_events`. An overwrite,
+ * a delete, and retention leave it in place. Workspace teardown removes it.
  */
 export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),

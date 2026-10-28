@@ -14,12 +14,10 @@ class PreviewBucket extends FakeR2Bucket {
   privateKeys = new Set<string>();
   override async head(key: string) {
     const head = await super.head(key);
-    return (
-      head && {
-        ...head,
-        customMetadata: this.privateKeys.has(key) ? { visibility: "private" } : {},
-      }
-    );
+    const customMetadata: Record<string, string> = this.privateKeys.has(key)
+      ? { visibility: "private" }
+      : {};
+    return head && { ...head, customMetadata };
   }
 }
 
