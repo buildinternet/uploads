@@ -1492,9 +1492,12 @@ describe("mcp worker", () => {
   });
 
   it("list_held, get_metadata, and approve cover a held file", async () => {
-    const { env, metadata } = await makeEnv();
+    const { env, bucket, metadata } = await makeEnv();
     const key = "gh/acme/web/pull/12/env.png";
-    // A moved hold: rows only, no object in the bucket.
+    // Bytes stay in the bucket and carry the hash the release records.
+    await bucket.put(key, new Uint8Array([1]), {
+      customMetadata: { "content-sha256": "ab".repeat(32) },
+    });
     metadata.set(
       `test-ws ${key}`,
       new Map([
