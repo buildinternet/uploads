@@ -16,6 +16,7 @@ import {
   getMetadataForKeys,
   validateMetadataFilters,
 } from "./file-metadata";
+import { presentHoldMetadata } from "./upload-hold-read";
 import { storage } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
@@ -255,6 +256,17 @@ export function searchPathFor(filters: Record<string, string> | undefined): File
  * surviving match — so a window whose rows were all dropped by the name term
  * still advances instead of replaying itself forever.
  */
+async function projectSearchHolds<T extends { key: string; metadata: Record<string, string> }>(
+  env: Env,
+  workspace: string,
+  matches: T[],
+): Promise<T[]> {
+  if (matches.length === 0) return matches;
+  const map = new Map(matches.map((match) => [match.key, match.metadata]));
+  const shown = await presentHoldMetadata(env, workspace, map);
+  return matches.map((match) => ({ ...match, metadata: shown.get(match.key) ?? match.metadata }));
+}
+
 export async function searchFilesByNameAndMeta(
   env: Env,
   record: WorkspaceRecord,
@@ -312,7 +324,7 @@ export async function searchFilesByNameAndMeta(
     // a name term that drops the whole window still moves the scan forward.
     const lastConsumed = truncated ? window[window.length - 1]!.key : undefined;
     return {
-      matches: narrowed,
+      matches: await projectSearchHolds(env, workspaceName, narrowed),
       truncated,
       cursor: lastConsumed === undefined ? null : encodeSearchCursor("meta", scope, lastConsumed),
     };
@@ -352,8 +364,13 @@ export async function searchFilesByNameAndMeta(
   const pageKeys = keys.slice(0, pageSize);
   const metaByKey = await getMetadataForKeys(dbFor(env), workspaceName, pageKeys);
   const lastKey = truncated ? pageKeys[pageKeys.length - 1] : undefined;
+  const matches = await projectSearchHolds(
+    env,
+    workspaceName,
+    pageKeys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} })),
+  );
   return {
-    matches: pageKeys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} })),
+    matches,
     truncated,
     cursor: lastKey === undefined ? null : encodeSearchCursor("name", scope, lastKey),
   };

@@ -163,6 +163,7 @@ export class UsageFakeD1 {
             meta: {},
           };
         }
+        if (normalized.includes("blob_hold")) throw new Error("no such table: blob_hold");
         throw new Error(`unsupported all: ${normalized}`);
       },
       run: async () => {
@@ -390,6 +391,15 @@ export class UsageFakeD1 {
         }
         if (normalized.startsWith("UPDATE auth_tokens SET last_used_at")) {
           return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (
+          normalized.startsWith("INSERT INTO file_events") ||
+          normalized.startsWith("INSERT INTO blob_hold")
+        ) {
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (normalized.includes("blob_hold")) {
+          throw new Error("no such table: blob_hold");
         }
         throw new Error(`unsupported run: ${normalized}`);
       },

@@ -8,17 +8,13 @@
  * with `POST /v1/workspaces/:workspace/files/approve`, which moves the
  * bytes back to the same key.
  *
- * The classifier writes `ai.hold=pending` for the bytes it holds. A release
- * or a re-hold does not change that row. The effective state is
- * `deriveHoldState`: the pending row (its reason is `holdReason`), then the
- * latest override event whose content hash still matches these bytes.
- * `release` means released and `hold` means held. An override for other
- * bytes is ignored, so a new upload starts over. A row left at
- * `ai.hold=approved` is a release from before the event log and still
- * counts as released until the bytes change. `ai.hold` is in
- * `CLASSIFIER_ROW_KEYS`: identical bytes keep the row, and new bytes clear
- * it. The event does not change `ai.secret`, `ai.pii`, `ai.rating`, or
- * `ai.content`.
+ * The classifier writes `ai.hold=pending` and a `blob_hold` row for the
+ * content hash. A release or a re-hold updates that row and appends an
+ * override event. It does not write `ai.hold`. The same hash stays released
+ * on another key. New bytes are a new hash and can be held again. `ai.hold`
+ * is in `CLASSIFIER_ROW_KEYS`: identical bytes keep the row, and new bytes
+ * clear it. The event does not change `ai.secret`, `ai.pii`, `ai.rating`,
+ * or `ai.content`.
  *
  * Env-free, so the CLI's local-gh comment path can share the predicate.
  */
@@ -147,53 +143,32 @@ export function storedHoldReason(meta: Record<string, string> | undefined): stri
  */
 export const HELD_FILENAME = "held for review";
 
-export interface HoldOverride {
-  action: string;
-  actor: string | null;
-  contentSha256: string | null;
-  createdAt: string;
-}
-
 export interface EffectiveHold {
   hold: "pending" | "approved" | null;
   by: string | null;
   at: string | null;
 }
 
+export interface BlobHoldView {
+  state: "held" | "released";
+  actor: string | null;
+  at: string | null;
+}
+
 /**
- * Effective hold for the current bytes. A matching override wins (`release`
- * is released, `hold` is held). With no matching override, `ai.hold=pending`
- * is held and a legacy `ai.hold=approved` is released. Anything else was
- * never held. `holdReason` is why a pending row exists; it is not a hold
- * by itself (a skipped hold keeps the flags and stays public).
+ * Effective hold for these bytes. `blob_hold` wins: `released` is released,
+ * `held` is held. With no projection, a pending row is still held (the hash
+ * was unknown, so no release could be recorded). `holdReason` is why a
+ * pending row exists. It is not a hold by itself.
  */
 export function deriveHoldState(
   meta: Record<string, string> | undefined,
-  override: HoldOverride | null,
-  currentSha: string | null,
+  blob: BlobHoldView | null,
 ): EffectiveHold {
-  const row = meta?.[HOLD_META_KEY];
-  if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
-  const matching =
-    override && overrideApplies(override.contentSha256, currentSha) ? override : null;
-  if (matching?.action === "hold") return { hold: "pending", by: null, at: null };
-  if (matching?.action === "release") {
-    return { hold: "approved", by: matching.actor, at: matching.createdAt };
-  }
-  if (row === HOLD_APPROVED) {
-    return {
-      hold: "approved",
-      by: meta?.[HOLD_BY_KEY] ?? null,
-      at: meta?.[HOLD_AT_KEY] ?? null,
-    };
-  }
-  return { hold: "pending", by: null, at: null };
-}
-
-/** An override applies only while the key's current bytes are the ones it named. */
-export function overrideApplies(eventSha: string | null, currentSha: string | null): boolean {
-  if (eventSha === null) return currentSha === null;
-  return eventSha === currentSha;
+  if (blob?.state === "released") return { hold: "approved", by: blob.actor, at: blob.at };
+  if (blob?.state === "held") return { hold: "pending", by: null, at: null };
+  if (meta?.[HOLD_META_KEY] === HOLD_PENDING) return { hold: "pending", by: null, at: null };
+  return { hold: null, by: null, at: null };
 }
 
 /**

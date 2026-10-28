@@ -1649,10 +1649,10 @@ describe("held uploads", () => {
 
     const approved = await approveUpload(harness.env, harness.ws, WORKSPACE, key);
     expect(approved).toEqual({ approved: true });
-    expect(await holdOf(harness.env)).toBe("approved");
+    expect(await holdOf(harness.env)).toBe("pending");
 
     await putFlagged(harness, FITTING_PNG, { replace: true, enforceHold: true });
-    expect(await holdOf(harness.env)).toBe("approved");
+    expect(await holdOf(harness.env)).toBe("pending");
   });
 
   it("holds new bytes again after an approval", async () => {
@@ -1707,7 +1707,7 @@ describe("held uploads move out of the public bucket", () => {
     expect(new Uint8Array(await restored!.arrayBuffer())).toEqual(FITTING_PNG);
     expect(await harness.held.head(heldKey)).toBeNull();
     const after = await rows(harness.env);
-    expect(after?.["ai.hold"]).toBe("approved");
+    expect(after?.["ai.hold"]).toBe("pending");
     expect(after?.["ai.hold.moved"]).toBeUndefined();
   });
 

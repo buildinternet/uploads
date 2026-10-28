@@ -1422,24 +1422,22 @@ boxes can be off or miss part of the content. A failed or empty box call
 logs `classifier_hold_area` or `classifier_hold_area_failed` and leaves
 the hold as it is.
 
-`POST /v1/workspaces/:workspace/files/approve?key=` appends a `file_events`
-override (`action=release`) and re-syncs the comment (`upload_approved`).
-It does not change `ai.secret`, `ai.pii`, `ai.rating`, or `ai.content`.
-The hash is the object's `content-sha256`, or the hash of the body copied
-back from the held bucket. A file with neither fails the approve. A later
-`hold` override puts the file back under review. The latest override counts
-only while `content_sha256` matches the key's current bytes. A row that
-already says `ai.hold=approved` stays released until the bytes change.
-Classification appends `classified`, `reused_exact`, `reused_perceptual`,
-`skipped`, or `failed` the same way. New bytes still clear the current
-`ai.*` rows. The log keeps the earlier row. Deleting the file, or the
-retention sweep, does not delete the log. Workspace teardown does. The
-table is on the existing D1 database. A missing migration skips the append
-and the release falls back to writing `ai.hold=approved`. `ai.hold` is in
-`CLASSIFIER_ROW_KEYS`, so identical bytes keep the pending row and the
-matching release, and new bytes start over. Promote and attach copy every
-classifier row onto the new key and copy the matching override, since the
-copy is not classified again. `ai.rating`, `ai.content`, and
+`POST /v1/workspaces/:workspace/files/approve?key=` appends a release
+override and a `blob_hold` row for the content hash (`upload_approved`).
+It does not write `ai.hold`. The hash is the object's `content-sha256`, or
+the hash of the body copied back from the held bucket. A file with neither
+fails the approve. `expected_sha` must match that hash or the call answers 409. A later hold override sets the same hash back to `held`. Gates and the
+held list read `blob_hold` where `state` is `held`. The same bytes stay
+released on a copied or renamed key. Classification appends `classified`,
+`reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
+New bytes still clear the current `ai.*` rows and can be held again. The
+log keeps the earlier row. Deleting the file, or the retention sweep, does
+not delete the log. Workspace teardown does. A migration turns each
+`ai.hold=approved` row that has a content hash into a release, then sets
+the row back to `pending`. Approved rows with no hash stay `approved`
+and are not held. Count them with `SELECT COUNT(*) FROM file_metadata
+WHERE meta_key = 'ai.hold' AND meta_value = 'approved'`. A pending row
+with no hash stays pending and is still held. `ai.rating`, `ai.content`, and
 `ai.pii=contact` never hold a file.
 
 ### Allowlist (Flagship is the control plane)

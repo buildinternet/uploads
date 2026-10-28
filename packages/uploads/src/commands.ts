@@ -2880,7 +2880,11 @@ export async function approveHeldFiles(opts: {
         );
         continue;
       }
-      const result = await opts.client.approve(key);
+      const held = (await listHeldUnder(opts.client, [key])).find((file) => file.key === key);
+      const result = await opts.client.approve(
+        key,
+        held?.sha ? { expectedSha: held.sha } : undefined,
+      );
       files.push({ key, action: result.approved ? "approved" : "not_held" });
     }
     return { dryRun, files };
@@ -2889,9 +2893,9 @@ export async function approveHeldFiles(opts: {
   const target = opts.target!;
   const held = await listHeldFiles(opts.client, { target });
   const files: ApproveFile[] = [];
-  for (const { key, reason } of held) {
+  for (const { key, reason, sha } of held) {
     if (opts.all && !dryRun) {
-      const result = await opts.client.approve(key);
+      const result = await opts.client.approve(key, sha ? { expectedSha: sha } : undefined);
       files.push({ key, action: result.approved ? "approved" : "not_held", reason });
     } else {
       files.push({ key, action: "held", reason });
@@ -2904,7 +2908,7 @@ export async function approveHeldFiles(opts: {
 export async function listHeldFiles(
   client: UploadsClient,
   opts: { target?: GhTarget; prefix?: string },
-): Promise<{ key: string; reason: string }[]> {
+): Promise<{ key: string; reason: string; sha?: string | null }[]> {
   const { target } = opts;
   if (!target) return listHeldUnder(client, [opts.prefix ?? ""]);
   const ghPrefix = await resolveGhPrefixSafe(client, {
@@ -2925,10 +2929,14 @@ export async function listHeldFiles(
 async function listHeldUnder(
   client: UploadsClient,
   prefixes: readonly string[],
-): Promise<{ key: string; reason: string }[]> {
+): Promise<{ key: string; reason: string; sha?: string | null }[]> {
   try {
     const pages = await Promise.all(prefixes.map((prefix) => client.listHeld(prefix)));
-    return pages.flat().map((file) => ({ key: file.key, reason: file.reason ?? "flagged" }));
+    return pages.flat().map((file) => ({
+      key: file.key,
+      reason: file.reason ?? "flagged",
+      sha: file.sha,
+    }));
   } catch (err) {
     if (err instanceof UploadsError && err.status === 404) return [];
     throw err;

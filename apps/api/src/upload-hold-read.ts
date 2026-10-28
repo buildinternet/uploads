@@ -8,7 +8,7 @@
 import { dbFor } from "./db-session";
 import { contentHashesForKeys, contentHashForKey } from "./content-hash";
 import { getMetadataForKeys } from "./file-metadata";
-import { latestOverridesForKeys } from "./file-events";
+import { blobHoldsFor } from "./file-events";
 import { aiRows } from "./classifier-admin";
 import {
   deriveHoldState,
@@ -16,6 +16,7 @@ import {
   HOLD_META_KEY,
   HOLD_PENDING,
   projectHold,
+  type BlobHoldView,
   type EffectiveHold,
 } from "./upload-hold";
 
@@ -52,11 +53,9 @@ export async function effectiveHold(
   const row = meta[HOLD_META_KEY];
   if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
   const db = dbFor(env);
-  const [overrides, currentSha] = await Promise.all([
-    latestOverridesForKeys(db, workspace, [objectKey]),
-    contentHashForKey(db, workspace, objectKey),
-  ]);
-  return deriveHoldState(meta, overrides.get(objectKey) ?? null, currentSha ?? null);
+  const currentSha = await contentHashForKey(db, workspace, objectKey);
+  const blobs = currentSha ? await blobHoldsFor(db, workspace, [currentSha]).catch(noBlob) : null;
+  return deriveHoldState(meta, currentSha ? (blobs?.get(currentSha) ?? null) : null);
 }
 
 /** Replace `ai.hold` on held or released keys with the effective state. */
@@ -95,24 +94,17 @@ async function holdViews(
     (await getMetadataForKeys(db, workspace, keys, {
       metaKeys: [HOLD_META_KEY],
     }));
-  const candidates = keys.filter((key) => {
-    const row = rows.get(key)?.[HOLD_META_KEY];
-    return row === HOLD_PENDING || row === HOLD_APPROVED;
-  });
-  const [overrides, hashes] =
-    candidates.length === 0
-      ? [new Map(), new Map<string, string>()]
-      : await Promise.all([
-          latestOverridesForKeys(db, workspace, candidates),
-          contentHashesForKeys(db, workspace, candidates),
-        ]);
+  const hashes = await contentHashesForKeys(db, workspace, keys);
+  const blobs = await blobHoldsFor(db, workspace, [...new Set(hashes.values())]).catch(noBlob);
   for (const key of keys) {
-    out.set(
-      key,
-      deriveHoldState(rows.get(key), overrides.get(key) ?? null, hashes.get(key) ?? null),
-    );
+    const sha = hashes.get(key);
+    out.set(key, deriveHoldState(rows.get(key), sha ? (blobs.get(sha) ?? null) : null));
   }
   return out;
+}
+
+function noBlob(): Map<string, BlobHoldView> {
+  return new Map();
 }
 
 /**
@@ -122,8 +114,8 @@ async function holdViews(
  * the result is small.
  */
 export async function listHeldKeys(env: Env, workspaceName: string): Promise<string[]> {
-  const rows = await loadHeld(env, { workspace: workspaceName });
-  return rows.slice(0, 1000).map((row) => row.objectKey);
+  const rows = await loadHeld(env, { workspace: workspaceName, limit: 1000 });
+  return rows.map((row) => row.objectKey);
 }
 
 /** One held file, across workspaces, for the operator view. */
@@ -141,55 +133,76 @@ export async function listHeldAcrossWorkspaces(
   env: Env,
   opts: { workspace?: string; limit: number },
 ): Promise<HeldFileRow[]> {
-  const rows = await loadHeld(env, { workspace: opts.workspace });
-  return rows.slice(0, opts.limit);
+  return loadHeld(env, { workspace: opts.workspace, limit: opts.limit });
 }
 
 /** How many files are held, per workspace, for the operator view. */
 export async function countHeldByWorkspace(
   env: Env,
 ): Promise<{ workspace: string; count: number }[]> {
-  const rows = await loadHeld(env, {});
-  const counts = new Map<string, number>();
-  for (const row of rows) counts.set(row.workspace, (counts.get(row.workspace) ?? 0) + 1);
-  return [...counts.entries()]
-    .map(([workspace, count]) => ({ workspace, count }))
-    .sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace));
+  try {
+    const result = await dbFor(env)
+      .prepare(
+        `SELECT h.workspace AS workspace, COUNT(*) AS count
+         FROM blob_hold b
+         JOIN file_content_hash h
+           ON h.workspace = b.workspace AND h.content_sha256 = b.content_sha256
+         WHERE b.state = 'held'
+         GROUP BY h.workspace
+         ORDER BY count DESC, h.workspace`,
+      )
+      .all<{ workspace: string; count: number }>();
+    return (result.results ?? []).map((row) => ({
+      workspace: row.workspace,
+      count: Number(row.count),
+    }));
+  } catch (err) {
+    if (!noSuchTable(err)) throw err;
+    const rows = await holdRows(env, undefined, HOLD_PENDING);
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.workspace, (counts.get(row.workspace) ?? 0) + 1);
+    return [...counts.entries()]
+      .map(([workspace, count]) => ({ workspace, count }))
+      .sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace));
+  }
 }
 
-/**
- * Keys whose effective state is held. Candidates are the `ai.hold` rows
- * (`pending`, and legacy `approved` that a later hold override can re-hold).
- * `deriveHoldState` drops a pending row whose latest matching override is a
- * release. One index seek per value, the same shape `file_metadata_ai_idx`
- * already serves.
- */
-async function loadHeld(env: Env, opts: { workspace?: string }): Promise<HeldFileRow[]> {
-  const candidates = [
-    ...(await holdRows(env, opts.workspace, HOLD_PENDING)),
-    ...(await holdRows(env, opts.workspace, HOLD_APPROVED)),
-  ];
-  const byWorkspace = new Map<string, HeldFileRow[]>();
-  for (const row of candidates) {
-    const list = byWorkspace.get(row.workspace) ?? [];
-    list.push(row);
-    byWorkspace.set(row.workspace, list);
+function noSuchTable(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("no such table");
+}
+
+/** Keys whose bytes are `blob_hold.state = held`, bounded by `limit`. */
+async function loadHeld(
+  env: Env,
+  opts: { workspace?: string; limit: number },
+): Promise<HeldFileRow[]> {
+  try {
+    const workspaceClause = opts.workspace ? "AND b.workspace = ?" : "";
+    const binds: unknown[] = [];
+    if (opts.workspace) binds.push(opts.workspace);
+    binds.push(opts.limit);
+    const result = await dbFor(env)
+      .prepare(
+        `SELECT h.workspace AS workspace, h.object_key AS object_key
+         FROM blob_hold b
+         JOIN file_content_hash h
+           ON h.workspace = b.workspace AND h.content_sha256 = b.content_sha256
+         WHERE b.state = 'held' ${workspaceClause}
+         ORDER BY h.workspace, h.object_key
+         LIMIT ?`,
+      )
+      .bind(...binds)
+      .all<{ workspace: string; object_key: string }>();
+    return (result.results ?? []).map((row) => ({
+      workspace: row.workspace,
+      objectKey: row.object_key,
+    }));
+  } catch (err) {
+    if (!noSuchTable(err)) throw err;
+    const rows = await holdRows(env, opts.workspace, HOLD_PENDING);
+    return rows.slice(0, opts.limit);
   }
-  const held: HeldFileRow[] = [];
-  for (const [workspace, rows] of byWorkspace) {
-    const views = await holdViews(
-      env,
-      workspace,
-      rows.map((row) => row.objectKey),
-    );
-    for (const row of rows) {
-      if (views.get(row.objectKey)?.hold === "pending") held.push(row);
-    }
-  }
-  held.sort(
-    (a, b) => a.workspace.localeCompare(b.workspace) || a.objectKey.localeCompare(b.objectKey),
-  );
-  return held;
 }
 
 async function holdRows(

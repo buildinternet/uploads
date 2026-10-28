@@ -1103,10 +1103,15 @@ if (timingsEnabled)
             approve.disabled = true;
             error.hidden = true;
             try {
-              const result = await fetch(filesEndpoint(`/approve?key=${encodeURIComponent(key)}`), {
-                method: "POST",
-                credentials: "include",
-              });
+              const sha =
+                typeof item.sha === "string" ? `&expected_sha=${encodeURIComponent(item.sha)}` : "";
+              const result = await fetch(
+                filesEndpoint(`/approve?key=${encodeURIComponent(key)}${sha}`),
+                {
+                  method: "POST",
+                  credentials: "include",
+                },
+              );
               if (!result.ok) throw new Error(String(result.status));
               window.location.reload();
             } catch (e) {
@@ -1217,10 +1222,17 @@ if (timingsEnabled)
             if (!ok) return;
             holdBtn.disabled = true;
             try {
-              const result = await fetch(filesEndpoint(`/hold?key=${encodeURIComponent(key)}`), {
-                method: "POST",
-                credentials: "include",
-              });
+              const sha =
+                typeof review.sha === "string"
+                  ? `&expected_sha=${encodeURIComponent(review.sha)}`
+                  : "";
+              const result = await fetch(
+                filesEndpoint(`/hold?key=${encodeURIComponent(key)}${sha}`),
+                {
+                  method: "POST",
+                  credentials: "include",
+                },
+              );
               if (!result.ok) throw new Error(String(result.status));
               window.location.reload();
             } catch (e) {

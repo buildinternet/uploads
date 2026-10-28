@@ -1344,10 +1344,9 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     );
 
     // The private-prefix discovery scan (issue #934), the unconditional
-    // gh.detached + feed-scope read, and the held-key lookup (pending rows,
-    // then legacy approved rows). The path/state fetch is skipped, and the
-    // comment path no longer queries the PR scope.
-    expect(metadataQueries).toBe(4);
+    // gh.detached + feed-scope read, and the held-key lookup. The path/state
+    // fetch is skipped, and the comment path no longer queries the PR scope.
+    expect(metadataQueries).toBe(3);
     expect(result.body).not.toContain("<code>/settings");
   });
 

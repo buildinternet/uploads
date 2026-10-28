@@ -367,16 +367,17 @@ back to the same key (a BYO bucket's domain keeps serving). A moved file is
 absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held copy.
 `POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) records
-a release for the current bytes and re-syncs the comment. It does not write
-`ai.hold=approved`. `uploads meta get` and `GET …/files/:key?metadata=1`
-still show `ai.hold=approved`, plus who released it and when, from that
-record. `POST …/files/hold?key=` puts a released file back under review.
-`GET …/files/review?key=` returns the hold state for members; the file page
-uses it for its Reviewed note. A release applies only while the bytes are
-unchanged. An older `ai.hold=approved` row still counts as released.
-`ai.hold` follows the same lifetime as the other `ai.*` rows, and promote
-and attach copy it, and the matching release, onto the new key. A workspace
-record with `holdFlaggedUploads: false` writes no holds.
+a release for these bytes and re-syncs the comment. It does not write
+`ai.hold`. The decision is stored for the content hash, so the same bytes
+stay released on another key. `uploads meta get` shows `ai.hold=approved`
+after a release, with who released it and when. Pass `expected_sha` (the
+`sha` from `GET …/files/review` or `GET …/files/held`) to bind the action
+to the bytes you reviewed. A different hash answers 409
+`content_hash_mismatch`. `POST …/files/hold?key=` puts those bytes back
+under review and accepts the same `expected_sha`. `GET …/files/review?key=`
+returns `hold`, `by`, `at`, and `sha` for members. The file page uses it
+for the Reviewed note. A workspace record with `holdFlaggedUploads: false`
+writes no holds.
 
 ### Usage ledger and budgets
 

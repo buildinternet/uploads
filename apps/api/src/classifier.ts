@@ -1496,11 +1496,15 @@ async function finishReused(
   meta: Record<string, string>,
   hold: boolean,
   enforceHold: boolean,
+  contentSha256: string | undefined,
 ): Promise<Record<string, string>> {
   const { applyUploadHold, resyncCommentAfterClassification } =
     await import("./upload-hold-service");
   const placed = hold
-    ? await applyUploadHold(env, ws, workspaceName, key, meta, { enforce: enforceHold })
+    ? await applyUploadHold(env, ws, workspaceName, key, meta, {
+        enforce: enforceHold,
+        contentSha256,
+      })
     : false;
   // A hold re-syncs the comment itself.
   if (!placed) await resyncCommentAfterClassification(env, ws, workspaceName, key);
@@ -1577,6 +1581,7 @@ export async function classifyAndStore(
     const trivial = trivialImageSkip(contentType, bytes);
     if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider, bytes);
 
+    const contentSha256 = await contentSha256Hex(bytes).catch(() => undefined);
     const reused = await tryReuseClassification(env, workspaceName, key, bytes, contentType);
     if (reused.meta) {
       return finishReused(
@@ -1587,6 +1592,7 @@ export async function classifyAndStore(
         reused.meta,
         reused.hold,
         deps?.enforceHold === true,
+        contentSha256,
       );
     }
 
@@ -1638,6 +1644,7 @@ export async function classifyAndStore(
               meta,
               false,
               deps?.enforceHold === true,
+              contentSha256,
             );
           }
         } catch (err) {
@@ -1689,6 +1696,7 @@ export async function classifyAndStore(
       await import("./upload-hold-service");
     const placed = await applyUploadHold(env, ws, workspaceName, key, stored, {
       enforce: deps?.enforceHold === true,
+      contentSha256,
     });
     // A hold re-syncs the comment itself; otherwise the AI notes need the new labels.
     if (!placed) await resyncCommentAfterClassification(env, ws, workspaceName, key);

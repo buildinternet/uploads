@@ -107,6 +107,8 @@ export interface HeldFile {
   reason: string | null;
   /** True when the bytes moved out of the public bucket while held. */
   moved: boolean;
+  /** Content hash of the held bytes, when the server knows it. */
+  sha?: string | null;
 }
 
 /**

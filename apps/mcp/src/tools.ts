@@ -161,6 +161,7 @@ import {
   projectHold,
   storedHoldReason,
 } from "@uploads/api/upload-hold";
+import { contentHashesForKeys } from "@uploads/api/content-hash";
 import { effectiveHold, listHeldKeys } from "@uploads/api/upload-hold-read";
 import {
   approveUpload,
@@ -555,9 +556,12 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
   /** Held files, optionally on one PR/issue or under one prefix (`list_held`, `approve`). */
   async function heldFiles(target?: GhTarget, prefix = "") {
     const keys = (await listHeldKeys(env, workspaceName)).filter((key) => key.startsWith(prefix));
-    const meta = await getMetadataForKeys(env.DB, workspaceName, keys, {
-      metaKeys: [HOLD_AREA_KEY, "ai.secret", "ai.pii", "gh.repo"],
-    });
+    const [meta, hashes] = await Promise.all([
+      getMetadataForKeys(env.DB, workspaceName, keys, {
+        metaKeys: [HOLD_AREA_KEY, "ai.secret", "ai.pii", "gh.repo"],
+      }),
+      contentHashesForKeys(env.DB, workspaceName, keys),
+    ]);
     return keys.flatMap((key) => {
       const row = meta.get(key) ?? {};
       if (target) {
@@ -577,6 +581,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           key,
           reason: storedHoldReason(row) ?? "flagged",
           area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
+          sha: hashes.get(key) ?? null,
         },
       ];
     });
@@ -1916,7 +1921,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`) and `area`, an approximate box around the flagged content as fractions of the image (null when unknown).",
+        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`), `area` (an approximate box around the flagged content as fractions of the image, null when unknown), and `sha` (the content hash, null when unknown). `approve` with `pr` or `issue` sends that hash.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1961,11 +1966,11 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         await requireWriteBudget();
         const toApprove = target
           ? await heldFiles(target)
-          : keys.map((key) => ({ key, reason: undefined }));
+          : keys.map((key) => ({ key, reason: undefined, sha: undefined as string | undefined }));
         const by = await approverLabel(env, ctx.uploaderIdentity);
         const files = [];
-        for (const { key, reason } of toApprove) {
-          const result = await approveUpload(env, workspace, workspaceName, key, by);
+        for (const { key, reason, sha } of toApprove) {
+          const result = await approveUpload(env, workspace, workspaceName, key, by, sha);
           files.push({
             key,
             action: result.approved ? "approved" : "not_held",

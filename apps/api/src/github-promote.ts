@@ -25,7 +25,6 @@ import {
   setFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
-import { copyApplicableOverride } from "./file-events";
 import { reholdIfHeld } from "./held-storage";
 import { putObject, putOptsFromStoredObject } from "./files-core";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
@@ -480,7 +479,6 @@ export async function promoteBranchAttachments(
       // The copy is not classified again, so its labels and any hold
       // (`upload-hold.ts`) come from the staged original.
       await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(stagedMeta));
-      await copyApplicableOverride(env, workspaceName, key, destKey);
       await reholdIfHeld(env, ws, workspaceName, destKey);
     } catch (err) {
       console.error(

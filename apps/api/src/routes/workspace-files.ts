@@ -28,6 +28,7 @@
  * Kept out of scope for this phase — see `.context/613-api-consolidation-plan.md`.
  */
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
+import { contentHashForKey, contentHashesForKeys } from "../content-hash";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
 import { parseFileTypeQuery, parseSinceQuery, parseSurfaceQuery } from "../file-type-sql";
@@ -451,9 +452,12 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     const name = c.get("workspaceName");
     const prefix = c.req.query("prefix") ?? "";
     const keys = (await listHeldKeys(c.env, name)).filter((key) => key.startsWith(prefix));
-    const meta = await getMetadataForKeys(dbFor(c.env), name, keys, {
-      metaKeys: [HOLD_MOVED_KEY, HOLD_AREA_KEY, "ai.secret", "ai.pii"],
-    });
+    const [meta, hashes] = await Promise.all([
+      getMetadataForKeys(dbFor(c.env), name, keys, {
+        metaKeys: [HOLD_MOVED_KEY, HOLD_AREA_KEY, "ai.secret", "ai.pii"],
+      }),
+      contentHashesForKeys(dbFor(c.env), name, keys),
+    ]);
     return c.json({
       items: keys.map((key) => {
         const row = meta.get(key) ?? {};
@@ -461,8 +465,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           key,
           reason: storedHoldReason(row),
           moved: row[HOLD_MOVED_KEY] === "1",
-          // Where to look, as fractions of the image; null when unknown.
           area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
+          sha: hashes.get(key) ?? null,
         };
       }),
     });
@@ -500,7 +504,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       const key = c.req.query("key") ?? "";
       if (badKey(key)) throw new NotFoundError();
       const by = await approverLabel(c.env, c.get("uploaderIdentity"));
-      const result = await approveUpload(c.env, record, workspaceName, key, by);
+      const result = await approveUpload(
+        c.env,
+        record,
+        workspaceName,
+        key,
+        by,
+        c.req.query("expected_sha"),
+      );
       return c.json({ key, ...result });
     },
   )
@@ -517,7 +528,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       const key = c.req.query("key") ?? "";
       if (badKey(key)) throw new NotFoundError();
       const by = await approverLabel(c.env, c.get("uploaderIdentity"));
-      const result = await holdAgain(c.env, c.get("workspace"), c.req.param("workspace"), key, by);
+      const result = await holdAgain(
+        c.env,
+        c.get("workspace"),
+        c.req.param("workspace"),
+        key,
+        by,
+        c.req.query("expected_sha"),
+      );
       return c.json({ key, ...result });
     },
   )
@@ -531,12 +549,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     const workspaceName = c.get("workspaceName");
     const meta = await getFileMetadata(dbFor(c.env), workspaceName, key);
     const view = await effectiveHold(c.env, workspaceName, key, meta);
+    const sha = await contentHashForKey(dbFor(c.env), workspaceName, key);
     return c.json({
       key,
       hold: view.hold,
       reason: view.hold ? storedHoldReason(meta) : null,
       by: view.by,
       at: view.at,
+      sha: sha ?? null,
     });
   })
 

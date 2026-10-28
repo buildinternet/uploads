@@ -1749,7 +1749,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` for one PR or issue, or `prefix`. Each item has a `reason` such as `secret: api_key`. Same as `uploads approve --pr <n>`.",
+        "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` for one PR or issue, or `prefix`. Each item has a `reason` such as `secret: api_key`, and `sha`, the content hash of those bytes. `approve` sends that hash. Same as `uploads approve --pr <n>`.",
       inputSchema: {
         type: "object",
         properties: {

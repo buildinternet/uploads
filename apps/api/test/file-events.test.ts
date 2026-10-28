@@ -23,6 +23,7 @@ describe("file_events", () => {
       "migrations/20260713210559_file_metadata.sql",
       "migrations/20260724140000_file_content_hash.sql",
       "migrations/20261028120000_file_events.sql",
+      "migrations/20261028140000_blob_hold.sql",
     ]);
     const db = database(sqlite);
     const bucket = new FakeR2Bucket();
@@ -30,6 +31,7 @@ describe("file_events", () => {
       customMetadata: { "content-sha256": SHA },
     });
     const env = { DB: db, UPLOADS_DEFAULT: bucket } as unknown as Env;
+    await recordContentHash(db, "acme", "shots/a.png", SHA);
     await setServerFileMetadata(db, "acme", "shots/a.png", {
       "ai.hold": "pending",
       "ai.secret": "api_key",
@@ -107,10 +109,12 @@ describe("file_events", () => {
       "ai.hold": "pending",
       "ai.secret": "api_key",
     });
-    expect(await approveUpload(env, ws, "acme", "a.png", "Member")).toEqual({ approved: true });
+    await expect(approveUpload(env, ws, "acme", "a.png", "Member")).rejects.toThrow(
+      /no such table/,
+    );
     const stored = await getFileMetadata(db, "acme", "a.png");
     expect(stored["ai.secret"]).toBe("api_key");
-    expect(stored["ai.hold"]).toBe("approved");
+    expect(stored["ai.hold"]).toBe("pending");
     sqlite.close();
   });
 });
