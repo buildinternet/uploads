@@ -98,19 +98,14 @@ A push does not preview `uploads-web`, `uploads-auth`, or `uploads-api`. See
 
 ### The `apps/read-gate` worker
 
-`uploads-read-gate` is the pass-through for the hosted R2 custom domains.
-A host uses it only after that host's zone route is attached. The planned
-order is `store.uploads.sh`, then `storage.uploads.sh`, then
-`embed.uploads.sh`. As of 2026-10-28 only `store.uploads.sh` is attached.
-`storage.uploads.sh` and `embed.uploads.sh` are pending, in that order. The
-zone routes are the current set. On an attached host it 404s a safety hold
-and forwards every other request. Workers Builds deploys it from the repo
-root with no build command. The deploy
-command is `pnpm run deploy:read-gate`. Watch paths are `apps/read-gate/**`,
-`pnpm-lock.yaml`, and `pnpm-workspace.yaml`. Non-production branch builds
-are off. `apps/read-gate/wrangler.jsonc` has no `routes` array, so a deploy
-does not attach or remove a host. The root `pnpm run deploy` script does
-not deploy this Worker. Cutover, one host at a time, is in
+`uploads-read-gate` serves `store.uploads.sh`, `storage.uploads.sh`, and
+`embed.uploads.sh`. It 404s a safety hold and forwards every other request.
+Workers Builds deploys it from the repo root with no build command. The
+deploy command is `pnpm run deploy:read-gate`. Watch paths are
+`apps/read-gate/**`, `pnpm-lock.yaml`, and `pnpm-workspace.yaml`.
+Non-production branch builds are off. `apps/read-gate/wrangler.jsonc` has
+no `routes` array, so a deploy does not attach or remove a host. The root
+`pnpm run deploy` script does not deploy this Worker. Behavior is in
 [ops.md](ops.md#hosted-read-gate).
 
 Use `pnpm run deploy`, not `pnpm deploy` — the bare form is pnpm's own

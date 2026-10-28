@@ -247,15 +247,12 @@ Each worker and the web app deploy separately. All storage access goes through
 `createStorage()` in `packages/storage` — adding a provider is one new case
 plus peer deps, no API changes.
 
-Hosted file bytes stay on the shared `uploads-default` bucket. The public
-hosts are the R2 custom domains `store.uploads.sh`, `storage.uploads.sh`, and
-`embed.uploads.sh`. `uploads-read-gate` (`apps/read-gate`) is a pass-through
-for that lane, attached one host at a time: `store`, then `storage`, then
-`embed`. As of 2026-10-28 only `store.uploads.sh` is attached. `storage` and
-`embed` are pending, in that order. On an attached host it 404s a safety
-hold. It does not gate private files, and it does not run for a
-bring-your-own bucket. The zone routes are the current set. Operator notes
-are in [docs/ops.md](docs/ops.md#hosted-read-gate).
+Hosted file bytes stay on the shared `uploads-default` bucket.
+`store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh` are served
+through `uploads-read-gate` (`apps/read-gate`). The Worker 404s a safety
+hold and passes every other request through to R2. It does not gate private
+files, and it does not run for a bring-your-own bucket. Operator notes are
+in [docs/ops.md](docs/ops.md#hosted-read-gate).
 
 ## Docs
 
