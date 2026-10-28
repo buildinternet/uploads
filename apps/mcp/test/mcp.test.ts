@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import app from "../src/index";
@@ -2909,8 +2910,9 @@ describe("sign_upload_url and PUT /u/:ticket (issue #1242)", () => {
       const stored = bucket.store.get(body.key as string)!;
       expect(stored.data.byteLength).toBe(LARGE);
       expect(stored.data.subarray(0, 12)).toEqual(bytes.subarray(0, 12));
-      // The hash is only known after the write, so it isn't in the R2 bag.
-      expect(body.provenance).not.toHaveProperty("content-sha256");
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      expect(body.provenance).toMatchObject({ "content-sha256": hash });
+      expect(stored.customMetadata?.["content-sha256"]).toBe(hash);
     });
 
     it("refuses a large file it can only verify in full", async () => {

@@ -303,8 +303,16 @@ Never send tokens, workspace secrets, or PII.
 
 **Server-only:** every put also stores `content-sha256` (lowercase hex SHA-256 of
 the **final stored body**). Client-supplied `content-sha256` headers are ignored.
+A streamed upload hashes the body as it is written. R2 custom metadata is fixed
+when the put starts, and the Workers binding cannot patch it, so the worker
+copies that one object onto itself to store the digest.
 
-Put and head responses always include `provenance` with at least
+A presigned upload (`POST /files/sign`) leaves the object without a hash. The
+client writes straight to the bucket. The API is not called again when that
+write finishes, so nothing hashes the bytes. Those objects have no
+`content-sha256` and no `file_content_hash` row.
+
+A put or head of an object the worker stored includes `provenance` with at least
 `content-sha256`. The CLI/`uploads mcp` set the client fields automatically from
 optimize/frame options.
 
