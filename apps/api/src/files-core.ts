@@ -33,6 +33,7 @@ import {
 import {
   applyInheritedMetaAdditively,
   contentHashForKey,
+  deleteContentHashes,
   inheritableMetaForHash,
   recordContentHash,
 } from "./content-hash";
@@ -792,36 +793,31 @@ export async function putObject(
   let storedMetadata: Record<string, string> | undefined;
 
   // Before recordContentHash overwrites the row. See CLASSIFIER_ROW_KEYS.
-  const previousHash = await contentHashForKey(dbFor(env), workspaceName, finalKey);
+  const db = dbFor(env);
+  const previousHash = await contentHashForKey(db, workspaceName, finalKey);
   const sameBytes = previousHash === contentSha256;
+  if (!sameBytes) await deleteContentHashes(db, workspaceName, [finalKey]);
 
   if (opts?.metadata) {
     // Full replace in one batch: an overwrite must not inherit a prior put's
-    // custom metadata.
+    // custom metadata. Classifier rows stay until the new hash is stored.
     storedMetadata = mergeWithinMetadataCaps(opts.metadata, inherited);
-    await replaceFileMetadata(dbFor(env), workspaceName, finalKey, storedMetadata, {
-      keepClassifierRows: sameBytes,
+    await replaceFileMetadata(db, workspaceName, finalKey, storedMetadata, {
+      keepClassifierRows: true,
     });
     // Explicit metadata only: inherited keys describe the bytes, and must not
     // attribute the donor upload's PR to this one.
-    await recordPrActivityFromMetadata(dbFor(env), workspaceName, opts.metadata);
+    await recordPrActivityFromMetadata(db, workspaceName, opts.metadata);
   } else {
     // No metadata sent: leave existing tags alone and add inherited keys only.
-    storedMetadata = await applyInheritedMetaAdditively(
-      dbFor(env),
-      workspaceName,
-      finalKey,
-      inherited,
-    );
-    if (!sameBytes) {
-      await deleteServerFileMetadataKeys(dbFor(env), workspaceName, finalKey, [
-        ...CLASSIFIER_ROW_KEYS,
-      ]);
-    }
+    storedMetadata = await applyInheritedMetaAdditively(db, workspaceName, finalKey, inherited);
   }
 
   // Last and best-effort: a failed index write only costs later inheritance.
-  await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
+  await recordContentHash(db, workspaceName, finalKey, contentSha256);
+  if (!sameBytes && (await contentHashForKey(db, workspaceName, finalKey)) === contentSha256) {
+    await deleteServerFileMetadataKeys(db, workspaceName, finalKey, [...CLASSIFIER_ROW_KEYS]);
+  }
 
   // After the metadata replace, never before: replaceFileMetadata deletes
   // client rows and would wipe the server-owned video.*/image.* rows.
@@ -1321,6 +1317,7 @@ export async function deleteObject(
   });
   if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
+  await deleteContentHashes(dbFor(env), workspaceName, [key]);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
   if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 

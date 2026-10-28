@@ -118,6 +118,31 @@ export async function contentHashesForKeys(
  * Never throws: the object is already durably stored by the time this runs, and
  * a missing index row costs a future inheritance, not correctness.
  */
+export async function deleteContentHashes(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const chunkSize = 80;
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    try {
+      await db
+        .prepare(
+          `DELETE FROM file_content_hash WHERE workspace = ? AND object_key IN (${placeholders})`,
+        )
+        .bind(workspace, ...chunk)
+        .run();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("no such table")) return;
+      throw err;
+    }
+  }
+}
+
 export async function recordContentHash(
   db: D1Queryable,
   workspace: string,

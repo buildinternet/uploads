@@ -76,6 +76,11 @@ function makeFakeDB() {
             hashes.set(`${args[0]} ${args[1]}`, String(args[2]));
             return { success: true, meta: { changes: 1 }, results: [] };
           }
+          if (normalized.startsWith("DELETE FROM file_content_hash")) {
+            const [workspace, ...objectKeys] = args as string[];
+            for (const objectKey of objectKeys) hashes.delete(`${workspace} ${objectKey}`);
+            return { success: true, meta: { changes: objectKeys.length }, results: [] };
+          }
           if (normalized.startsWith("INSERT INTO blob_hold")) {
             blobs.set(`${args[0]} ${args[1]}`, {
               state: String(args[2]),
@@ -96,6 +101,25 @@ function makeFakeDB() {
               return row ? [{ content_sha256: sha, ...row }] : [];
             });
             return { success: true, results: results as T[], meta: {} };
+          }
+          if (normalized.includes("FROM blob_hold") && normalized.includes("file_content_hash")) {
+            const workspace = normalized.includes("b.workspace = ?") ? String(args[0]) : undefined;
+            const limit = Number(args[args.length - 1]);
+            const results: { workspace: string; object_key: string }[] = [];
+            for (const [scoped, hash] of hashes) {
+              const space = scoped.indexOf(" ");
+              const ws = scoped.slice(0, space);
+              const objectKey = scoped.slice(space + 1);
+              if (workspace && ws !== workspace) continue;
+              if (blobs.get(`${ws} ${hash}`)?.state !== "held") continue;
+              if (!table.metadata.get(scoped)?.has("ai.hold")) continue;
+              results.push({ workspace: ws, object_key: objectKey });
+            }
+            results.sort(
+              (a, b) =>
+                a.workspace.localeCompare(b.workspace) || a.object_key.localeCompare(b.object_key),
+            );
+            return { success: true, results: results.slice(0, limit) as T[], meta: {} };
           }
           if (normalized.includes("blob_hold")) throw new Error("no such table: blob_hold");
           return (

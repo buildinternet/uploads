@@ -357,6 +357,19 @@ async function makeEnv(
                 .slice(0, limit);
               return { success: true, results: results as T[], meta: {} };
             }
+            if (normalized.includes("blob_hold") && normalized.includes("file_content_hash")) {
+              const scopePrefix = "test-ws ";
+              const results: { workspace: string; object_key: string }[] = [];
+              for (const [scoped, map] of metadata) {
+                if (!scoped.startsWith(scopePrefix) || map.get("ai.hold") === undefined) continue;
+                results.push({
+                  workspace: "test-ws",
+                  object_key: scoped.slice(scopePrefix.length),
+                });
+              }
+              const limit = Number(values[values.length - 1]);
+              return { success: true, results: results.slice(0, limit) as T[], meta: {} };
+            }
             if (normalized.includes("blob_hold")) {
               throw new Error("no such table: blob_hold");
             }

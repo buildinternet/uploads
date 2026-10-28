@@ -368,8 +368,8 @@ absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held copy.
 `POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) records
 a release for these bytes and re-syncs the comment. It does not write
-`ai.hold`. The decision is stored for the content hash, so the same bytes
-stay released on another key. `uploads meta get` shows `ai.hold=approved`
+`ai.hold`. The release is stored for the content hash and applies to every
+key that has its own hold row. A key with no hold row is not held. `uploads meta get` shows `ai.hold=approved`
 after a release, with who released it and when. Pass `expected_sha` (the
 `sha` from `GET …/files/review` or `GET …/files/held`) to bind the action
 to the bytes you reviewed. A different hash answers 409

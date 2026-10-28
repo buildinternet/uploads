@@ -6,6 +6,7 @@ import { ATTACHMENTS_MARKER, attachmentsMarker, ghPrivateKeyPrefix } from "./git
 import { findFeedByScope } from "./feeds";
 import { feedItemIdFor } from "@uploads/comment-render/scope";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
+import { recordContentHash } from "./content-hash";
 import { replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
 import { objectPublicUrls, storageConfig } from "./storage";
 import { posterKeyFor } from "./poster";
@@ -29,6 +30,9 @@ const MIGRATION = [
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
   "migrations/20261004120000_feeds_source.sql",
+  "migrations/20260724140000_file_content_hash.sql",
+  "migrations/20261028120000_file_events.sql",
+  "migrations/20261028140000_blob_hold.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -677,6 +681,17 @@ describe("gatherCommentBody held uploads", () => {
       "ai.hold": "pending",
       "ai.hold.moved": "1",
     });
+    await recordContentHash(
+      env.DB,
+      workspaceName,
+      "gh/acme/web/pull/12/moved.png",
+      "ab".repeat(32),
+    );
+    await env.DB.prepare(
+      `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+    )
+      .bind(workspaceName, "ab".repeat(32), "2026-10-28T00:00:00.000Z")
+      .run();
     // Another PR's hold does not count here.
     await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/13/other.png", {
       "ai.hold": "pending",
@@ -1343,10 +1358,10 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // The private-prefix discovery scan (issue #934), the unconditional
-    // gh.detached + feed-scope read, and the held-key lookup. The path/state
-    // fetch is skipped, and the comment path no longer queries the PR scope.
-    expect(metadataQueries).toBe(3);
+    // The private-prefix discovery scan (issue #934) and the unconditional
+    // gh.detached + feed-scope read. The held-key lookup reads blob_hold.
+    // The path/state fetch is skipped.
+    expect(metadataQueries).toBe(2);
     expect(result.body).not.toContain("<code>/settings");
   });
 

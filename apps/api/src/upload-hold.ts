@@ -9,12 +9,12 @@
  * bytes back to the same key.
  *
  * The classifier writes `ai.hold=pending` and a `blob_hold` row for the
- * content hash. A release or a re-hold updates that row and appends an
- * override event. It does not write `ai.hold`. The same hash stays released
- * on another key. New bytes are a new hash and can be held again. `ai.hold`
- * is in `CLASSIFIER_ROW_KEYS`: identical bytes keep the row, and new bytes
- * clear it. The event does not change `ai.secret`, `ai.pii`, `ai.rating`,
- * or `ai.content`.
+ * content hash. A key is held only when it has that row and the blob is not
+ * released. A release applies to every key with a hold row and those bytes.
+ * Approve and hold do not write `ai.hold`. New bytes are a new hash and can
+ * be held again. `ai.hold` is in `CLASSIFIER_ROW_KEYS`: identical bytes keep
+ * the row, and new bytes clear it. The event does not change `ai.secret`,
+ * `ai.pii`, `ai.rating`, or `ai.content`.
  *
  * Env-free, so the CLI's local-gh comment path can share the predicate.
  */
@@ -156,18 +156,18 @@ export interface BlobHoldView {
 }
 
 /**
- * Effective hold for these bytes. `blob_hold` wins: `released` is released,
- * `held` is held. With no projection, a pending row is still held (the hash
- * was unknown, so no release could be recorded). `holdReason` is why a
- * pending row exists. It is not a hold by itself.
+ * Held only with this key's own `ai.hold=pending` row, and only when the
+ * blob is not released. A `blob_hold=held` row does not hide a key that has
+ * no hold row. A release covers every key that has a hold row for these bytes.
  */
 export function deriveHoldState(
   meta: Record<string, string> | undefined,
   blob: BlobHoldView | null,
 ): EffectiveHold {
+  const row = meta?.[HOLD_META_KEY];
+  if (row !== HOLD_PENDING && row !== HOLD_APPROVED) return { hold: null, by: null, at: null };
   if (blob?.state === "released") return { hold: "approved", by: blob.actor, at: blob.at };
-  if (blob?.state === "held") return { hold: "pending", by: null, at: null };
-  if (meta?.[HOLD_META_KEY] === HOLD_PENDING) return { hold: "pending", by: null, at: null };
+  if (row === HOLD_PENDING) return { hold: "pending", by: null, at: null };
   return { hold: null, by: null, at: null };
 }
 

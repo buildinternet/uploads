@@ -5,8 +5,10 @@
 --
 -- Backfill: an `ai.hold=approved` row with a `file_content_hash` becomes a
 -- release event and a `released` projection, then the row is reset to
--- `pending`. A pending row with a hash becomes `held`. A row with no hash
--- is skipped and left as it is. After the migration, the skip count is
+-- `pending`. A hash that still has a pending file in the held bucket is
+-- left held, so those bytes are not stranded. A pending row with a hash
+-- becomes `held`. A row with no hash is skipped and left as it is. After
+-- the migration, the skip count is
 -- the number of `ai.hold=approved` rows still stored:
 --   SELECT COUNT(*) FROM file_metadata
 --   WHERE meta_key = 'ai.hold' AND meta_value = 'approved';
@@ -44,7 +46,23 @@ LEFT JOIN file_metadata by_row
 LEFT JOIN file_metadata at_row
   ON at_row.workspace = m.workspace AND at_row.object_key = m.object_key
   AND at_row.meta_key = 'ai.hold.at'
-WHERE m.meta_key = 'ai.hold' AND m.meta_value = 'approved';
+WHERE m.meta_key = 'ai.hold' AND m.meta_value = 'approved'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM file_content_hash other
+    JOIN file_metadata pending
+      ON pending.workspace = other.workspace
+     AND pending.object_key = other.object_key
+     AND pending.meta_key = 'ai.hold'
+     AND pending.meta_value = 'pending'
+    JOIN file_metadata moved
+      ON moved.workspace = other.workspace
+     AND moved.object_key = other.object_key
+     AND moved.meta_key = 'ai.hold.moved'
+     AND moved.meta_value = '1'
+    WHERE other.workspace = h.workspace
+      AND other.content_sha256 = h.content_sha256
+  );
 
 INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
 SELECT h.workspace, h.content_sha256, 'released',
@@ -60,6 +78,22 @@ LEFT JOIN file_metadata at_row
   ON at_row.workspace = m.workspace AND at_row.object_key = m.object_key
   AND at_row.meta_key = 'ai.hold.at'
 WHERE m.meta_key = 'ai.hold' AND m.meta_value = 'approved'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM file_content_hash other
+    JOIN file_metadata pending
+      ON pending.workspace = other.workspace
+     AND pending.object_key = other.object_key
+     AND pending.meta_key = 'ai.hold'
+     AND pending.meta_value = 'pending'
+    JOIN file_metadata moved
+      ON moved.workspace = other.workspace
+     AND moved.object_key = other.object_key
+     AND moved.meta_key = 'ai.hold.moved'
+     AND moved.meta_value = '1'
+    WHERE other.workspace = h.workspace
+      AND other.content_sha256 = h.content_sha256
+  )
 GROUP BY h.workspace, h.content_sha256
 ON CONFLICT(workspace, content_sha256) DO UPDATE SET
   state = excluded.state,
@@ -73,4 +107,20 @@ WHERE meta_key = 'ai.hold' AND meta_value = 'approved'
     SELECT 1 FROM file_content_hash h
     WHERE h.workspace = file_metadata.workspace
       AND h.object_key = file_metadata.object_key
+      AND NOT EXISTS (
+        SELECT 1
+        FROM file_content_hash other
+        JOIN file_metadata pending
+          ON pending.workspace = other.workspace
+         AND pending.object_key = other.object_key
+         AND pending.meta_key = 'ai.hold'
+         AND pending.meta_value = 'pending'
+        JOIN file_metadata moved
+          ON moved.workspace = other.workspace
+         AND moved.object_key = other.object_key
+         AND moved.meta_key = 'ai.hold.moved'
+         AND moved.meta_value = '1'
+        WHERE other.workspace = h.workspace
+          AND other.content_sha256 = h.content_sha256
+      )
   );

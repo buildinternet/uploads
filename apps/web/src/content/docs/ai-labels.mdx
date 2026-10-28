@@ -96,7 +96,7 @@ curl -X POST -H "Authorization: Bearer $UPLOADS_TOKEN" \
 
 With the [Slack app](/docs/slack#held-uploads) connected, the uploader (or, without one, the workspace admins) gets a Slack message for each new hold, with an **Approve** button. To get an email for each new hold instead, or as well, turn on **An upload is held for review** under Email notifications in your [account settings](/account/profile). It's off by default.
 
-Approval records a release for these bytes and re-syncs the comment. It leaves the safety flags as the classifier wrote them. The same bytes stay released if the file is copied or renamed. New bytes are classified again and can be held again. `ai.pii=contact` and `ai.pii=other` never hold a file, and the `ai.rating` and `ai.content` flags never hold one.
+Approval records a release for these bytes and re-syncs the comment. It leaves the safety flags as the classifier wrote them. The same bytes stay released on every copy that has its own hold. A copy the classifier did not hold stays public. New bytes are classified again and can be held again. `ai.pii=contact` and `ai.pii=other` never hold a file, and the `ai.rating` and `ai.content` flags never hold one.
 
 </section>
 

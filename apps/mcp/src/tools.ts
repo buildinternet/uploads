@@ -1964,9 +1964,14 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         if (keys.length === 0 && !target) usage("approve requires keys or pr/issue");
         for (const key of keys) if (badKey(key)) usage(`invalid key: ${key}`);
         await requireWriteBudget();
+        const listed = await heldFiles(target);
+        const byKey = new Map(listed.map((file) => [file.key, file]));
         const toApprove = target
-          ? await heldFiles(target)
-          : keys.map((key) => ({ key, reason: undefined, sha: undefined as string | undefined }));
+          ? listed
+          : keys.map((key) => {
+              const sha = byKey.get(key)?.sha;
+              return { key, reason: undefined, sha: typeof sha === "string" ? sha : undefined };
+            });
         const by = await approverLabel(env, ctx.uploaderIdentity);
         const files = [];
         for (const { key, reason, sha } of toApprove) {

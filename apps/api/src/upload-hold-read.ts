@@ -5,11 +5,10 @@
  * readers do not pull in a cycle.
  */
 
-import { dbFor } from "./db-session";
+import { dbFor, type D1Queryable } from "./db-session";
 import { contentHashesForKeys, contentHashForKey } from "./content-hash";
 import { getMetadataForKeys } from "./file-metadata";
 import { blobHoldsFor } from "./file-events";
-import { aiRows } from "./classifier-admin";
 import {
   deriveHoldState,
   HOLD_APPROVED,
@@ -94,13 +93,41 @@ async function holdViews(
     (await getMetadataForKeys(db, workspace, keys, {
       metaKeys: [HOLD_META_KEY],
     }));
-  const hashes = await contentHashesForKeys(db, workspace, keys);
-  const blobs = await blobHoldsFor(db, workspace, [...new Set(hashes.values())]).catch(noBlob);
+  const candidates: string[] = [];
   for (const key of keys) {
+    const row = rows.get(key)?.[HOLD_META_KEY];
+    if (row === HOLD_PENDING || row === HOLD_APPROVED) candidates.push(key);
+    else out.set(key, { hold: null, by: null, at: null });
+  }
+  if (candidates.length === 0) return out;
+  const hashes = await contentHashesForKeys(db, workspace, candidates);
+  const blobs = await blobHoldsFor(db, workspace, [...new Set(hashes.values())]).catch(noBlob);
+  for (const key of candidates) {
     const sha = hashes.get(key);
     out.set(key, deriveHoldState(rows.get(key), sha ? (blobs.get(sha) ?? null) : null));
   }
   return out;
+}
+
+/** Keys in this workspace with this hash and their own `ai.hold` row. */
+export async function holdKeysForHash(
+  db: D1Queryable,
+  workspace: string,
+  contentSha256: string,
+): Promise<string[]> {
+  const result = await db
+    .prepare(
+      `SELECT h.object_key AS object_key
+       FROM file_content_hash h
+       INNER JOIN file_metadata m
+         ON m.workspace = h.workspace
+        AND m.object_key = h.object_key
+        AND m.meta_key = ?
+       WHERE h.workspace = ? AND h.content_sha256 = ?`,
+    )
+    .bind(HOLD_META_KEY, workspace, contentSha256)
+    .all<{ object_key: string }>();
+  return (result.results ?? []).map((row) => row.object_key);
 }
 
 function noBlob(): Map<string, BlobHoldView> {
@@ -124,11 +151,7 @@ export interface HeldFileRow {
   objectKey: string;
 }
 
-/**
- * Pending holds across every workspace (or one), oldest key order, for the
- * operator release. Seeks `file_metadata_ai_idx`, which leads with
- * `(meta_key, meta_value, workspace, object_key)`.
- */
+/** Held files across every workspace (or one), for the operator release. */
 export async function listHeldAcrossWorkspaces(
   env: Env,
   opts: { workspace?: string; limit: number },
@@ -136,99 +159,49 @@ export async function listHeldAcrossWorkspaces(
   return loadHeld(env, { workspace: opts.workspace, limit: opts.limit });
 }
 
+const HELD_KEY_JOIN = `FROM blob_hold b
+       JOIN file_content_hash h
+         ON h.workspace = b.workspace AND h.content_sha256 = b.content_sha256
+       JOIN file_metadata m
+         ON m.workspace = h.workspace AND m.object_key = h.object_key
+        AND m.meta_key = 'ai.hold'
+       WHERE b.state = 'held'`;
+
 /** How many files are held, per workspace, for the operator view. */
 export async function countHeldByWorkspace(
   env: Env,
 ): Promise<{ workspace: string; count: number }[]> {
-  try {
-    const result = await dbFor(env)
-      .prepare(
-        `SELECT h.workspace AS workspace, COUNT(*) AS count
-         FROM blob_hold b
-         JOIN file_content_hash h
-           ON h.workspace = b.workspace AND h.content_sha256 = b.content_sha256
-         WHERE b.state = 'held'
-         GROUP BY h.workspace
-         ORDER BY count DESC, h.workspace`,
-      )
-      .all<{ workspace: string; count: number }>();
-    return (result.results ?? []).map((row) => ({
-      workspace: row.workspace,
-      count: Number(row.count),
-    }));
-  } catch (err) {
-    if (!noSuchTable(err)) throw err;
-    const rows = await holdRows(env, undefined, HOLD_PENDING);
-    const counts = new Map<string, number>();
-    for (const row of rows) counts.set(row.workspace, (counts.get(row.workspace) ?? 0) + 1);
-    return [...counts.entries()]
-      .map(([workspace, count]) => ({ workspace, count }))
-      .sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace));
-  }
+  const result = await dbFor(env)
+    .prepare(
+      `SELECT h.workspace AS workspace, COUNT(*) AS count
+       ${HELD_KEY_JOIN}
+       GROUP BY h.workspace
+       ORDER BY count DESC, h.workspace`,
+    )
+    .all<{ workspace: string; count: number }>();
+  return (result.results ?? []).map((row) => ({
+    workspace: row.workspace,
+    count: Number(row.count),
+  }));
 }
 
-function noSuchTable(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes("no such table");
-}
-
-/** Keys whose bytes are `blob_hold.state = held`, bounded by `limit`. */
+/** Keys with their own hold row whose blob is `held`, bounded by `limit`. */
 async function loadHeld(
   env: Env,
   opts: { workspace?: string; limit: number },
 ): Promise<HeldFileRow[]> {
-  try {
-    const workspaceClause = opts.workspace ? "AND b.workspace = ?" : "";
-    const binds: unknown[] = [];
-    if (opts.workspace) binds.push(opts.workspace);
-    binds.push(opts.limit);
-    const result = await dbFor(env)
-      .prepare(
-        `SELECT h.workspace AS workspace, h.object_key AS object_key
-         FROM blob_hold b
-         JOIN file_content_hash h
-           ON h.workspace = b.workspace AND h.content_sha256 = b.content_sha256
-         WHERE b.state = 'held' ${workspaceClause}
-         ORDER BY h.workspace, h.object_key
-         LIMIT ?`,
-      )
-      .bind(...binds)
-      .all<{ workspace: string; object_key: string }>();
-    return (result.results ?? []).map((row) => ({
-      workspace: row.workspace,
-      objectKey: row.object_key,
-    }));
-  } catch (err) {
-    if (!noSuchTable(err)) throw err;
-    const rows = await holdRows(env, opts.workspace, HOLD_PENDING);
-    return rows.slice(0, opts.limit);
-  }
-}
-
-async function holdRows(
-  env: Env,
-  workspace: string | undefined,
-  value: string,
-): Promise<HeldFileRow[]> {
-  if (workspace) {
-    const result = await dbFor(env)
-      .prepare(
-        `SELECT object_key FROM file_metadata
-         WHERE workspace = ? AND meta_key = ? AND meta_value = ?
-           AND ${aiRows("")}
-         ORDER BY object_key`,
-      )
-      .bind(workspace, HOLD_META_KEY, value)
-      .all<{ object_key: string }>();
-    return (result.results ?? []).map((row) => ({ workspace, objectKey: row.object_key }));
-  }
+  const workspaceClause = opts.workspace ? "AND b.workspace = ?" : "";
+  const binds: unknown[] = [];
+  if (opts.workspace) binds.push(opts.workspace);
+  binds.push(opts.limit);
   const result = await dbFor(env)
     .prepare(
-      `SELECT workspace, object_key FROM file_metadata
-       WHERE meta_key = ? AND meta_value = ? AND ${aiRows("")}
-       ORDER BY workspace, object_key`,
+      `SELECT h.workspace AS workspace, h.object_key AS object_key
+       ${HELD_KEY_JOIN} ${workspaceClause}
+       ORDER BY h.workspace, h.object_key
+       LIMIT ?`,
     )
-    .bind(HOLD_META_KEY, value)
+    .bind(...binds)
     .all<{ workspace: string; object_key: string }>();
   return (result.results ?? []).map((row) => ({
     workspace: row.workspace,

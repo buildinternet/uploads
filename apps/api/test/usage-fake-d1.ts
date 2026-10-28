@@ -185,6 +185,12 @@ export class UsageFakeD1 {
         if (claimResult) return claimResult;
         const attachmentRunResult = this.attachmentIndexTable.tryRun(normalized, values);
         if (attachmentRunResult) return attachmentRunResult;
+        if (normalized.startsWith("DELETE FROM file_content_hash")) {
+          const [workspace, ...objectKeys] = values as string[];
+          for (const objectKey of objectKeys)
+            this.contentHashes.delete(`${workspace} ${objectKey}`);
+          return { success: true as const, meta: { changes: objectKeys.length }, results: [] };
+        }
         if (normalized.startsWith("INSERT INTO file_content_hash")) {
           const [workspace, objectKey, hash, updatedAt] = values as [
             string,

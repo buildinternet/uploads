@@ -1426,15 +1426,18 @@ the hold as it is.
 override and a `blob_hold` row for the content hash (`upload_approved`).
 It does not write `ai.hold`. The hash is the object's `content-sha256`, or
 the hash of the body copied back from the held bucket. A file with neither
-fails the approve. `expected_sha` must match that hash or the call answers 409. A later hold override sets the same hash back to `held`. Gates and the
-held list read `blob_hold` where `state` is `held`. The same bytes stay
-released on a copied or renamed key. Classification appends `classified`,
+fails the approve. `expected_sha` must match that hash or the call answers 409. A later hold override sets the same hash back to `held` and moves
+every key that has its own hold row. Gates and the held list count a key
+only when it has an `ai.hold` row and the blob is `held`. Deleting the file,
+or the retention sweep, drops its content hash, so it leaves that list.
+Classification appends `classified`,
 `reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
 New bytes still clear the current `ai.*` rows and can be held again. The
 log keeps the earlier row. Deleting the file, or the retention sweep, does
 not delete the log. Workspace teardown does. A migration turns each
 `ai.hold=approved` row that has a content hash into a release, then sets
-the row back to `pending`. Approved rows with no hash stay `approved`
+the row back to `pending`. A hash that still has a pending file in the
+held bucket is left held. Approved rows with no hash stay `approved`
 and are not held. Count them with `SELECT COUNT(*) FROM file_metadata
 WHERE meta_key = 'ai.hold' AND meta_value = 'approved'`. A pending row
 with no hash stays pending and is still held. `ai.rating`, `ai.content`, and

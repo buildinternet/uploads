@@ -16,6 +16,7 @@ import { appendOverrideEvent, blobHoldsFor } from "./file-events";
 import {
   deleteServerFileMetadataKeys,
   getFileMetadata,
+  getMetadataForKeys,
   setServerFileMetadata,
 } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
@@ -33,7 +34,12 @@ import {
 } from "./upload-hold";
 import type { UploaderIdentity } from "./uploader-identity";
 import { loadWorkspaceRecord, type WorkspaceRecord } from "./workspace";
-import { countHeldByWorkspace, effectiveHold, listHeldAcrossWorkspaces } from "./upload-hold-read";
+import {
+  countHeldByWorkspace,
+  effectiveHold,
+  holdKeysForHash,
+  listHeldAcrossWorkspaces,
+} from "./upload-hold-read";
 
 /**
  * Hold `key` when `decided` (the rows the classifier just stored) flags it
@@ -69,7 +75,10 @@ export async function applyUploadHold(
       return false;
     }
     const sha = opts.contentSha256;
-    if (!sha) return false;
+    if (!sha) {
+      console.log({ event: "upload_hold_skipped", workspace: workspaceName, reason, skip: "hash" });
+      return false;
+    }
     const db = dbFor(env);
     const existing = await getFileMetadata(db, workspaceName, key);
     const prior = await blobHoldsFor(db, workspaceName, [sha]).catch(() => new Map());
@@ -85,30 +94,24 @@ export async function applyUploadHold(
       return false;
     }
     const now = new Date().toISOString();
-    try {
-      await db.batch([
-        db
-          .prepare(
-            `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
-             VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(workspace, object_key, meta_key)
-             DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
-          )
-          .bind(workspaceName, key, HOLD_META_KEY, HOLD_PENDING, now),
-        db
-          .prepare(
-            `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
-             VALUES (?, ?, 'held', NULL, ?)
-             ON CONFLICT(workspace, content_sha256) DO UPDATE SET
-               state = 'held', actor = NULL, at = excluded.at`,
-          )
-          .bind(workspaceName, sha, now),
-      ]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes("no such table")) throw err;
-      await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
-    }
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(workspace, object_key, meta_key)
+           DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+        )
+        .bind(workspaceName, key, HOLD_META_KEY, HOLD_PENDING, now),
+      db
+        .prepare(
+          `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
+           VALUES (?, ?, 'held', NULL, ?)
+           ON CONFLICT(workspace, content_sha256) DO UPDATE SET
+             state = 'held', actor = NULL, at = excluded.at`,
+        )
+        .bind(workspaceName, sha, now),
+    ]);
     const moved = await moveToHeld(env, ws, workspaceName, key).catch((err: unknown) => {
       console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
       return false;
@@ -174,34 +177,39 @@ export async function approveUpload(
   const existing = await getFileMetadata(db, workspaceName, key);
   const before = await effectiveHold(env, workspaceName, key, existing);
   if (before.hold !== "pending") return { approved: false, reason: "not_held" };
-  let restored = false;
-  let contentSha256: string | undefined;
+  const restored: string[] = [];
+  let committed = false;
+  let keys: string[] = [key];
+  let metas = new Map<string, Record<string, string>>();
   try {
-    if (existing[HOLD_MOVED_KEY] === "1") {
-      const sha = await restoreFromHeld(env, ws, workspaceName, key);
-      if (!sha) {
-        throw new ServiceUnavailableError("the held copy of this file could not be restored", {
-          code: "held_restore_failed",
-        });
-      }
-      restored = true;
-      contentSha256 = sha;
-      await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_MOVED_KEY]);
-    } else {
-      contentSha256 = await objectContentSha256(env, ws, key);
-    }
-    if (!contentSha256) {
-      throw new ValidationError(
-        "this file has no content hash, so the hold change cannot be recorded",
-        { code: "content_hash_unknown" },
-      );
-    }
+    const contentSha256 = await contentShaForRelease(
+      env,
+      ws,
+      workspaceName,
+      key,
+      existing,
+      restored,
+    );
     if (expectedSha && expectedSha !== contentSha256) {
       throw new ConflictError("the file changed since it was reviewed", {
         code: "content_hash_mismatch",
       });
     }
-    const at = new Date().toISOString();
+    keys = await keysSharingHold(db, workspaceName, contentSha256, key);
+    metas = await getMetadataForKeys(db, workspaceName, keys, {
+      metaKeys: [HOLD_MOVED_KEY, "gh.repo"],
+    });
+    for (const other of keys) {
+      if (restored.includes(other)) continue;
+      if (metas.get(other)?.[HOLD_MOVED_KEY] !== "1") continue;
+      const sha = await restoreFromHeld(env, ws, workspaceName, other);
+      if (!sha) {
+        throw new ServiceUnavailableError("the held copy of this file could not be restored", {
+          code: "held_restore_failed",
+        });
+      }
+      restored.push(other);
+    }
     await appendOverrideEvent(env, {
       workspace: workspaceName,
       objectKey: key,
@@ -209,22 +217,82 @@ export async function approveUpload(
       action: "release",
       actor: by ?? null,
       safety: existing,
-      at,
+      at: new Date().toISOString(),
     });
+    committed = true;
+    await Promise.all(
+      restored.map((restoredKey) =>
+        deleteServerFileMetadataKeys(db, workspaceName, restoredKey, [HOLD_MOVED_KEY]),
+      ),
+    );
   } catch (err) {
-    if (restored) {
-      await moveToHeld(env, ws, workspaceName, key).catch((moveErr: unknown) => {
-        console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err: moveErr });
-      });
+    if (!committed) {
+      await Promise.all(
+        restored.map((restoredKey) =>
+          moveToHeld(env, ws, workspaceName, restoredKey).catch((moveErr: unknown) => {
+            console.error({
+              event: "upload_hold_move_failed",
+              workspace: workspaceName,
+              err: moveErr,
+            });
+          }),
+        ),
+      );
     }
     throw err;
   }
   console.log({ event: "upload_approved", workspace: workspaceName });
   await Promise.all([
-    resyncAttachmentComment(env, ws, workspaceName, key, existing),
+    ...keys.map((heldKey) =>
+      resyncAttachmentComment(
+        env,
+        ws,
+        workspaceName,
+        heldKey,
+        heldKey === key ? existing : (metas.get(heldKey) ?? {}),
+      ),
+    ),
     notifySlackHoldResolved(env, workspaceName, key, "approved", by),
   ]);
   return { approved: true };
+}
+
+async function contentShaForRelease(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  existing: Record<string, string>,
+  restored: string[],
+): Promise<string> {
+  if (existing[HOLD_MOVED_KEY] === "1") {
+    const sha = await restoreFromHeld(env, ws, workspaceName, key);
+    if (!sha) {
+      throw new ServiceUnavailableError("the held copy of this file could not be restored", {
+        code: "held_restore_failed",
+      });
+    }
+    restored.push(key);
+    return sha;
+  }
+  const sha = await objectContentSha256(env, ws, key);
+  if (!sha) {
+    throw new ValidationError(
+      "this file has no content hash, so the hold change cannot be recorded",
+      { code: "content_hash_unknown" },
+    );
+  }
+  return sha;
+}
+
+async function keysSharingHold(
+  db: ReturnType<typeof dbFor>,
+  workspaceName: string,
+  contentSha256: string,
+  key: string,
+): Promise<string[]> {
+  const siblings = await holdKeysForHash(db, workspaceName, contentSha256);
+  return [...new Set([key, ...siblings])];
 }
 
 export type HoldAgainResult = { held: true } | { held: false; reason: "not_approved" };
@@ -262,6 +330,7 @@ export async function holdAgain(
       code: "content_hash_mismatch",
     });
   }
+  const keys = await keysSharingHold(db, workspaceName, contentSha256, key);
   await appendOverrideEvent(env, {
     workspace: workspaceName,
     objectKey: key,
@@ -271,9 +340,27 @@ export async function holdAgain(
     safety: existing,
     at: new Date().toISOString(),
   });
-  const moved = await moveToHeld(env, ws, workspaceName, key);
-  console.log({ event: "upload_held_again", workspace: workspaceName, moved });
-  await resyncAttachmentComment(env, ws, workspaceName, key, existing);
+  const moved: boolean[] = [];
+  for (const heldKey of keys) {
+    moved.push(await moveToHeld(env, ws, workspaceName, heldKey));
+  }
+  console.log({
+    event: "upload_held_again",
+    workspace: workspaceName,
+    moved: moved.some(Boolean),
+  });
+  const metas = await getMetadataForKeys(db, workspaceName, keys, { metaKeys: ["gh.repo"] });
+  await Promise.all(
+    keys.map((heldKey) =>
+      resyncAttachmentComment(
+        env,
+        ws,
+        workspaceName,
+        heldKey,
+        heldKey === key ? existing : (metas.get(heldKey) ?? {}),
+      ),
+    ),
+  );
   return { held: true };
 }
 
