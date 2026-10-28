@@ -48,7 +48,21 @@ export class FakeR2Bucket {
     else if (value instanceof ArrayBuffer) data = new Uint8Array(value);
     else if (value && ArrayBuffer.isView(value))
       data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    else data = new Uint8Array(0);
+    else if (value instanceof ReadableStream) {
+      const chunks: Uint8Array[] = [];
+      const reader = value.getReader();
+      for (;;) {
+        const { done, value: chunk } = await reader.read();
+        if (done) break;
+        chunks.push(chunk);
+      }
+      data = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+      let offset = 0;
+      for (const chunk of chunks) {
+        data.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+    } else data = new Uint8Array(0);
 
     const httpMetadata = opts?.httpMetadata;
     const contentType =
