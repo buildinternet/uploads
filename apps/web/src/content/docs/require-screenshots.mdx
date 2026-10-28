@@ -190,9 +190,9 @@ comment:
 
 ## AI notes <a class="anchor" href="#ai-notes" aria-label="Link to this section">#</a>
 
-AI notes are a second look at the screenshots themselves. They show up under the checklist in the
-check's summary and in the PR comment, and a warning is named in the check's title. They never fail
-the check.
+AI notes are a second look at the screenshots themselves. A note that ran shows up under the
+checklist in the check's summary and in the PR comment. A warning is named in the check's title.
+They never fail the check.
 
 ```yaml title=".uploads.yml" frame="code"
 comment:
@@ -221,15 +221,20 @@ comment:
       <td>
         <code>identical-before-after</code>
       </td>
-      <td>A before and an after are the same picture.</td>
+      <td>
+        A before and an after are the same picture. A few bits of compression noise still count as
+        the same picture.
+      </td>
     </tr>
   </tbody>
 </table>
 
-Each note says ok, warning, or skipped. A note is skipped with a reason when it has nothing to look
-at, like no files marked as after. The notes read the [AI labels](/docs/ai-labels)
-uploads.sh adds to each image, so they need AI labels on for the workspace. Add the
-`uploads:no-ai` label to a PR to hide them.
+A note that ran shows as ok or as a warning. A skipped note stays out of the check and the
+comment. The check skips a note when it has nothing to judge, such as no file marked as after.
+It skips the before-and-after note when it has no readable hash to compare. When every note was
+skipped, the AI notes section is left out. The notes read the
+[AI labels](/docs/ai-labels) uploads.sh adds to each image, so they need AI labels on for the
+workspace. Add the `uploads:no-ai` label to a PR to hide them.
 
 </section>
 

@@ -841,20 +841,6 @@ describe("live link line", () => {
             outcome: "warning",
             details: ["`before.png` and `after.png` look the same"],
           },
-        ],
-      },
-    );
-    expect(warn).toContain(
-      "<details open><summary>AI notes · 1 warning</summary>\n\n- ⚠️ Before and after look the same\n  - `before.png` and `after.png` look the same\n\n</details>\n\n",
-    );
-    const quiet = attachmentsCommentBody(
-      one,
-      [],
-      ATTACHMENTS_MARKER,
-      AUTO_RENDER_OPTIONS,
-      undefined,
-      {
-        aiNotes: [
           {
             label: "After screens not checked",
             outcome: "skipped",
@@ -863,8 +849,30 @@ describe("live link line", () => {
         ],
       },
     );
-    expect(quiet).toContain("<details><summary>AI notes · nothing to flag</summary>");
-    expect(quiet).toContain("- ➖ After screens not checked\n  - No files are marked as after.");
+    expect(warn).toContain(
+      "<details open><summary>AI notes · 1 warning</summary>\n\n- ⚠️ Before and after look the same\n  - `before.png` and `after.png` look the same\n\n</details>\n\n",
+    );
+    expect(warn).not.toContain("After screens not checked");
+    const links = {
+      aiNotes: [
+        {
+          label: "After screens not checked",
+          outcome: "skipped" as const,
+          details: ["No files are marked as after."],
+        },
+      ],
+    };
+    const quiet = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      links,
+    );
+    const without = attachmentsCommentBody(one, [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS);
+    expect(quiet).toBe(without);
+    expect(quiet).not.toContain("AI notes");
   });
 
   it("shows the skip label in place of the checklist", () => {

@@ -4,8 +4,10 @@
  * labels the classifier already stored on each file (`ai.ready`,
  * `ai.phash`), so a sync never calls a model, and they never change the
  * check's conclusion. A note with nothing to read, including a file the
- * classifier failed on, says `skipped` and why, never `ok` or `warning`.
- * Any error drops the notes and leaves the comment and check as before. The `uploads:no-ai` label on the PR turns them off.
+ * classifier failed on, is `skipped` and stays out of the check and the
+ * comment. It is never `ok` or `warning`. When every note is skipped, that
+ * section is left out. Any error drops the notes and leaves the comment and
+ * check as before. The `uploads:no-ai` label on the PR turns them off.
  */
 import type { CheckAiNote } from "@uploads/comment-config";
 import type { AiNote, GhTarget } from "./github-comment-render";
@@ -64,9 +66,24 @@ export function readyScreenNote(files: readonly AiNoteFile[]): AiNote {
   return { label: "After screens look ready", outcome: "ok", details: [] };
 }
 
+/** Same picture, allowing a few bits of compression noise. Reuse lookup stays exact. */
+const IDENTICAL_PHASH_DISTANCE = 4;
+
+function phashBits(hash: string | undefined): bigint | undefined {
+  if (!hash || !/^[0-9a-f]{16}$/.test(hash)) return undefined;
+  return BigInt(`0x${hash}`);
+}
+
+function hammingDistance(a: bigint, b: bigint): number {
+  let n = 0;
+  for (let x = a ^ b; x; x &= x - 1n) n++;
+  return n;
+}
+
 /**
- * Warns when a before and an after have the same perceptual hash, which
- * means the same picture. Pure.
+ * Warns when a before and an after are within IDENTICAL_PHASH_DISTANCE bits
+ * of the same perceptual hash. A missing or malformed hash is not a match;
+ * with nothing comparable the note is skipped. Pure.
  */
 export function identicalBeforeAfterNote(files: readonly AiNoteFile[]): AiNote {
   const before = files.filter((f) => f.meta?.state === "before");
@@ -78,22 +95,28 @@ export function identicalBeforeAfterNote(files: readonly AiNoteFile[]): AiNote {
       details: ["Needs a file marked as before and one marked as after."],
     };
   }
-  const afterByHash = new Map<string, string>();
-  for (const f of after) {
-    const hash = f.meta?.[PHASH_META_KEY];
-    if (hash && !afterByHash.has(hash)) afterByHash.set(hash, f.name);
-  }
-  if (afterByHash.size === 0 || !before.some((f) => f.meta?.[PHASH_META_KEY])) {
+  const beforeBits = before.flatMap((f) => {
+    const bits = phashBits(f.meta?.[PHASH_META_KEY]);
+    return bits === undefined ? [] : [{ name: f.name, bits }];
+  });
+  const afterBits = after.flatMap((f) => {
+    const bits = phashBits(f.meta?.[PHASH_META_KEY]);
+    return bits === undefined ? [] : [{ name: f.name, bits }];
+  });
+  if (beforeBits.length === 0 || afterBits.length === 0) {
     return {
       label: "Before and after not compared",
       outcome: "skipped",
       details: [NOT_CLASSIFIED],
     };
   }
-  const same = before.flatMap((f) => {
-    const match = afterByHash.get(f.meta?.[PHASH_META_KEY] ?? "");
-    return match ? [`${code(f.name)} and ${code(match)} look the same`] : [];
-  });
+  const same = beforeBits.flatMap((b) =>
+    afterBits.flatMap((a) =>
+      hammingDistance(b.bits, a.bits) <= IDENTICAL_PHASH_DISTANCE
+        ? [`${code(b.name)} and ${code(a.name)} look the same`]
+        : [],
+    ),
+  );
   if (same.length > 0) {
     return { label: "Before and after look the same", outcome: "warning", details: same };
   }

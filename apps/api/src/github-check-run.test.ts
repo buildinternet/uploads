@@ -28,6 +28,11 @@ describe("checkRunContent", () => {
             details: ["`after.png` looks blank"],
           },
           { label: "Before and after differ", outcome: "ok", details: [] },
+          {
+            label: "After screens not checked",
+            outcome: "skipped",
+            details: ["No files are marked as after."],
+          },
         ],
       },
       COMMENT,
@@ -37,6 +42,7 @@ describe("checkRunContent", () => {
     expect(content.summary).toContain(
       "### AI notes · 1 warning\n\n- ⚠️ An after screen may not show the change\n  - `after.png` looks blank\n- ✅ Before and after differ",
     );
+    expect(content.summary).not.toContain("After screens not checked");
     const quiet = checkRunContent(
       {
         count: 2,
@@ -47,6 +53,34 @@ describe("checkRunContent", () => {
     );
     expect(quiet.title).toBe("2 files attached");
     expect(quiet.summary).toContain("### AI notes · nothing to flag");
+  });
+
+  it("omits the AI notes section when every note was skipped", () => {
+    const facts = {
+      count: 2,
+      heldCount: 0,
+      requirement: {
+        checklist: [{ label: "Uploads", met: true }],
+        skipLabel: null,
+        skipHint: "uploads:skip-verify",
+      },
+    };
+    const skipped = checkRunContent(
+      {
+        ...facts,
+        aiNotes: [
+          {
+            label: "After screens not checked",
+            outcome: "skipped",
+            details: ["No files are marked as after."],
+          },
+        ],
+      },
+      COMMENT,
+    );
+    expect(skipped).toEqual(checkRunContent(facts, COMMENT));
+    expect(skipped.summary).toContain("**Required:** ✅ Uploads");
+    expect(skipped.summary).not.toContain("AI notes");
   });
 
   it("reports held files as neutral, never blocking", () => {
