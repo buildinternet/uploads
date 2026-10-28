@@ -14,9 +14,6 @@
   "compatibility_date": "2026-07-06",
   "workers_dev": false,
   "preview_urls": false,
-  "vars": {
-    "EXTRA_HOSTED_HOSTS": "read-gate-staging.uploads.sh",
-  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
