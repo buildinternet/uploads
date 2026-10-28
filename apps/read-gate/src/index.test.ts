@@ -138,6 +138,31 @@ describe("handleReadGate", () => {
     vi.unstubAllGlobals();
   });
 
+  it("gates an extra hosted host and lets an unknown host through", async () => {
+    const origin = vi.fn(async () => new Response("bytes", { status: 200 }));
+    vi.stubGlobal("fetch", origin);
+    const { env, calls } = db(async () => ({ hit: 1 }));
+    env.EXTRA_HOSTED_HOSTS = "read-gate-staging.uploads.sh";
+    const gated = await handleReadGate(
+      new Request("https://read-gate-staging.uploads.sh/cdn-cgi/image/format=png/acme/shot.avif"),
+      env,
+      ctx(),
+    );
+    expect(gated.status).toBe(404);
+    expect(await gated.json()).toEqual({
+      error: { code: "not_found", type: "not_found", message: "Not found." },
+    });
+    expect(origin).not.toHaveBeenCalled();
+
+    const unknown = new Request("https://other.uploads.sh/acme/shot.avif");
+    const passed = await handleReadGate(unknown, env, ctx());
+    expect(passed.status).toBe(200);
+    expect(origin).toHaveBeenCalledOnce();
+    expect(origin).toHaveBeenCalledWith(unknown);
+    expect(calls).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
   it("404s /__read-gate/ without forwarding to the origin", async () => {
     const origin = vi.fn(async () => new Response("origin", { status: 200 }));
     vi.stubGlobal("fetch", origin);
