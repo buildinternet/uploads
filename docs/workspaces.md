@@ -145,10 +145,13 @@ The prefix is applied in exactly one place — `createStorage()` in
 | --------- | ----------------- | ---------------------------------------------- |
 | `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
 
-Public reads on those hosted hosts go through `uploads-read-gate`
-(`apps/read-gate`) once that host's zone route is attached. The Worker 404s
-a safety hold. It does not hide a private file, and it does not run on a
-bring-your-own-bucket domain. The cutover order and the D1 rows are in
+`uploads-read-gate` (`apps/read-gate`) 404s a safety hold on a hosted host
+only after that host's zone route is attached. The planned order is
+`store.uploads.sh`, then `storage.uploads.sh`, then `embed.uploads.sh`.
+As of 2026-10-28 only `store.uploads.sh` is attached. `storage.uploads.sh`
+and `embed.uploads.sh` are pending, in that order. The zone routes are the
+current set. The Worker does not hide a private file, and it does not run
+on a bring-your-own-bucket domain. Details are in
 [ops.md](ops.md#hosted-read-gate).
 
 ## Self-serve workspaces

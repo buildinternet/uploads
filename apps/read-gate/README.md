@@ -1,8 +1,12 @@
 # @uploads/read-gate
 
-Pass-through Worker (`uploads-read-gate`) in front of the hosted R2 custom
-domains (`store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`).
-A safety hold returns 404. Every other request is `fetch(request)`, so R2
+Pass-through Worker (`uploads-read-gate`) for the hosted R2 custom domains.
+A host uses it only after that host's zone route is attached. The planned
+order is `store.uploads.sh`, then `storage.uploads.sh`, then
+`embed.uploads.sh`. As of 2026-10-28 only `store.uploads.sh` is attached.
+`storage.uploads.sh` and `embed.uploads.sh` are pending, in that order. The
+zone routes on `uploads.sh` are the current set. On an attached host, a
+safety hold returns 404. Every other request is `fetch(request)`, so R2
 keeps Range, validators, content type, and CORS.
 
 It does not gate private files. Private-repo images stay cookie-less public

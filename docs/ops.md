@@ -80,10 +80,13 @@ attachments comment prefer `embedUrl` for `<img src>`.
 | CLI / client | `UPLOADS_EMBED_PUBLIC_BASE_URL` | Same semantics client-side (also used if an older API omits `embedUrl`)                                    |
 
 The hosts stay R2 custom domains. Cache-Control on `embed.uploads.sh` is the
-zone rule above, not a Worker. `uploads-read-gate` is a pass-through on this
-lane. On a miss it returns the original request, so R2 still serves the bytes,
-including Range and validators. It 404s a safety hold only. See
-[Hosted read gate](#hosted-read-gate).
+zone rule above, not a Worker. `uploads-read-gate` is a pass-through, and a
+host uses it only after that host's zone route is attached. The planned order
+is `store.uploads.sh`, then `storage.uploads.sh`, then `embed.uploads.sh`.
+On an attached host, a miss returns the original request, so R2 still serves
+the bytes, including Range and validators. It 404s a safety hold only. A host
+with no route still serves straight from R2. The zone routes on `uploads.sh`
+are the current set. See [Hosted read gate](#hosted-read-gate).
 
 ## Public file page performance
 
@@ -288,8 +291,10 @@ Notes:
 - The custom error rules are scoped to `storage.` / `store.` / `embed.uploads.sh`
   on purpose: `uploads.sh` already serves its own branded 404, and the
   `api.` / `auth.` / `agents.` hosts must keep returning JSON error envelopes.
-- A 404 from `uploads-read-gate` is an origin 404 on those three hosts, so a
-  safety hold shows the same branded page as a missing file. The staging host
+- A 404 from `uploads-read-gate` is an origin 404, so a safety hold shows the
+  same branded page as a missing file on a host whose route is attached. The
+  rule itself lists all three storage hosts. Which of them run the Worker is
+  the zone route list, not this page. The staging host
   `read-gate-staging.uploads.sh` is not in this ruleset. See
   [Hosted read gate](#hosted-read-gate).
 - `waf_challenge` (the legacy WAF captcha) is not settable on the Pro plan.
@@ -1447,8 +1452,9 @@ prefix rotation does not move held copies.
 
 ### Hosted read gate
 
-`uploads-read-gate` (`apps/read-gate`) is a pass-through in front of the
-hosted lane. It gates safety holds only. It does not gate private files.
+`uploads-read-gate` (`apps/read-gate`) is a pass-through for the hosted lane.
+A host uses it only after that host's zone route is attached. It gates safety
+holds only. It does not gate private files.
 Private-repo images stay cookie-less public reads, which is what GitHub Camo
 needs. The Worker binds production D1 only. Do not add `UPLOADS_HELD`.
 
@@ -1463,10 +1469,11 @@ skips the lookup. Anything else returns `fetch(request)`, so R2 keeps Range,
 validators, content type, and CORS.
 
 A blocked key gets status 404 and the API not-found JSON envelope
-(`NotFoundError`). On `storage.uploads.sh`, `store.uploads.sh`, and
-`embed.uploads.sh`, the zone custom error rule `file_not_found` replaces
-that origin 404 with the branded missing-file page ("That file isn’t here"). A gated key
-and a missing file look the same to a visitor. See
+(`NotFoundError`). The zone custom error rule `file_not_found` is configured
+for `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`. On a
+host whose route is attached, that rule replaces the Worker 404 with the
+branded missing-file page ("That file isn’t here"). A gated key and a missing
+file look the same to a visitor there. See
 [Cloudflare error pages](#cloudflare-error-pages).
 
 `/cdn-cgi/image/…/<key>` is gated too. The Worker reads the object key out
@@ -1495,16 +1502,16 @@ BYO lane does not.
 publishes routes only when that list is non-empty, so a deploy neither
 attaches nor deletes them. Add each zone route by hand on the `uploads.sh`
 zone. These are routes, not new custom domains. The hosts are already R2
-custom domains. Attach them one at a time, lowest traffic first, embed last:
+custom domains. Planned order, one host at a time, lowest traffic first:
 
-1. `store.uploads.sh/*` — attached on 2026-10-28.
+1. `store.uploads.sh/*`
 2. `storage.uploads.sh/*`
 3. `embed.uploads.sh/*`
 
-This runbook records that `store.uploads.sh` is on the gate. It does not
-record whether `storage.uploads.sh` or `embed.uploads.sh` were attached
-after that date. Confirm the zone routes before you treat either host as
-live or as still waiting.
+As of 2026-10-28, only `store.uploads.sh/*` is attached.
+`storage.uploads.sh/*` and `embed.uploads.sh/*` are pending, in that order.
+The zone routes on `uploads.sh` are the current set. Check them before you
+treat a later host as attached. This list can lag the zone.
 
 `EXTRA_HOSTED_HOSTS` is an optional comma-separated Worker var. Hostnames in
 it use the same `hosted` lane, including `/cdn-cgi/image` parsing. An

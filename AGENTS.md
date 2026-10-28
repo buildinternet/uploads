@@ -177,10 +177,13 @@ return `embedUrl` alongside `url` — prefer embed for PR/issue markdown. See
 [docs/ops.md](docs/ops.md#dual-public-hosts-stable-vs-embed--github-camo).
 
 Those hosted hosts are R2 custom domains. `uploads-read-gate`
-(`apps/read-gate`) sits in front of the lane as a pass-through and 404s safety
-holds only. Private-repo images stay cookie-less public reads. A
-bring-your-own bucket is not on this Worker. Cutover is one host at a time.
-See [docs/ops.md](docs/ops.md#hosted-read-gate).
+(`apps/read-gate`) is a pass-through on a host only after that host's zone
+route is attached. The planned order is `store.uploads.sh`, then
+`storage.uploads.sh`, then `embed.uploads.sh`. As of 2026-10-28 only
+`store.uploads.sh` is attached. `storage` and `embed` are pending. The zone
+routes are the current set. On an attached host it 404s safety holds only.
+Private-repo images stay cookie-less public reads. A bring-your-own bucket
+is not on this Worker. See [docs/ops.md](docs/ops.md#hosted-read-gate).
 
 Bring-your-own-bucket is the advanced case: register with `--bucket` and the
 record points at a dedicated bucket (own binding or S3 credentials, own

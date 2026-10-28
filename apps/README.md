@@ -9,8 +9,10 @@ Deployable applications. API and web are separate Workers — see each app's REA
 | `slack/`     | `@uploads/slack`     | agents.uploads.sh/slack/\*                 |
 | `read-gate/` | `@uploads/read-gate` | hosted reads (`store`, `storage`, `embed`) |
 
-`read-gate/` is the pass-through in front of the hosted R2 custom domains. It
-404s a safety hold and forwards every other request. The runbook is
+`read-gate/` is the pass-through for hosted reads. A host uses it only after
+that host's zone route is attached. The planned order is `store`, then
+`storage`, then `embed`. The zone routes are the current set. On an attached
+host it 404s a safety hold and forwards every other request. The runbook is
 [docs/ops.md](../docs/ops.md#hosted-read-gate).
 
 ```bash
