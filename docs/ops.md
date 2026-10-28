@@ -1429,7 +1429,10 @@ Worker fails open when D1 errors, and it does not bind the held bucket.
 
 Never give the held bucket a custom domain or an r2.dev URL. The edge may
 serve its cached copy for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's
-Camo can keep its own copy longer. A BYO key is not moved, and it does not
+Camo can keep its own copy longer. Cloudflare Images keeps a transformed
+variant for at least one hour unless the source says `must-revalidate`.
+The read-gate pass-through adds that directive. See
+[Hosted read gate](#hosted-read-gate). A BYO key is not moved, and it does not
 get a `read_gate` row. uploads.sh still hides it on the comment, feeds,
 galleries, and the public file page. The URL on the customer's domain keeps
 serving the bytes. The Worker never runs there.
@@ -1459,7 +1462,24 @@ A decision is cached in the Cache API for 30 seconds, on that request's
 host, under `/__read-gate/<key>`. A request for that path 404s in the Worker
 and is not forwarded to R2. A D1 error fails open and is not cached. OPTIONS
 skips the lookup. Anything else returns `fetch(request)`, so R2 keeps Range,
-validators, content type, and CORS.
+validators, content type, and CORS. The Worker appends `must-revalidate`
+and keeps the object's `max-age`. A response that already says `no-store`
+or `must-revalidate` is unchanged. The `embed.uploads.sh` zone rule still
+sets `no-store` on the response the client sees. That rule does not
+decide what the edge stores.
+
+Cloudflare Images stores a `/cdn-cgi/image/…` variant from the source
+response. Without `must-revalidate` the variant stays fresh for at least
+one hour. A variant cached before a hold keeps returning 200 until that
+entry expires. An uncached option string fetches the source through this
+Worker, and the Worker 404s. With `must-revalidate` the variant goes stale
+with the object. Hosted uploads use `max-age=60` (`UPLOAD_CACHE_CONTROL`),
+so that window is 60 seconds.
+
+A direct read hits this Worker on every request. The Worker 404s once the
+hold is visible. The decision cache can still allow the read for 30
+seconds. In that window `fetch` can return the object's edge copy
+(`max-age=60` on `storage` and `store`).
 
 A blocked key gets status 404 and the API not-found JSON envelope
 (`NotFoundError`). The zone custom error rule `file_not_found` replaces that

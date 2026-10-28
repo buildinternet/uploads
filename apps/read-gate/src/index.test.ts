@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { cacheRequest, handleReadGate, objectKeyFromUrl, type ReadGateEnv } from "./index";
+import {
+  cacheRequest,
+  handleReadGate,
+  objectKeyFromUrl,
+  withMustRevalidate,
+  type ReadGateEnv,
+} from "./index";
 
 function ctx() {
   const pending: Promise<unknown>[] = [];
@@ -50,6 +56,7 @@ describe("handleReadGate", () => {
     const held = await handleReadGate(blocked, env, ctx());
     const transformed = await handleReadGate(png, env, ctx());
     expect(held.status).toBe(404);
+    expect(held.headers.get("cache-control")).toBe("no-store");
     expect(await held.json()).toEqual({
       error: { code: "not_found", type: "not_found", message: "Not found." },
     });
@@ -74,6 +81,7 @@ describe("handleReadGate", () => {
     const request = new Request("https://embed.uploads.sh/acme/shot.png", { method: "OPTIONS" });
     const response = await handleReadGate(request, env, ctx());
     expect(response.status).toBe(204);
+    expect(response.headers.get("cache-control")).toBeNull();
     expect(origin).toHaveBeenCalledWith(request);
     expect(calls).toEqual([]);
     vi.unstubAllGlobals();
@@ -157,6 +165,7 @@ describe("handleReadGate", () => {
     const unknown = new Request("https://other.uploads.sh/acme/shot.avif");
     const passed = await handleReadGate(unknown, env, ctx());
     expect(passed.status).toBe(200);
+    expect(passed.headers.get("cache-control")).toBeNull();
     expect(origin).toHaveBeenCalledOnce();
     expect(origin).toHaveBeenCalledWith(unknown);
     expect(calls).toHaveLength(1);
@@ -179,6 +188,64 @@ describe("handleReadGate", () => {
     expect(origin).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
     vi.unstubAllGlobals();
+  });
+
+  it("adds must-revalidate on an allowed read and keeps Range metadata", async () => {
+    const origin = vi.fn(
+      async () =>
+        new Response("bytes", {
+          status: 200,
+          headers: {
+            "cache-control": "public, max-age=60",
+            etag: '"abc"',
+            "content-type": "image/png",
+            "accept-ranges": "bytes",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", origin);
+    const { env } = db(async () => null);
+    const direct = await handleReadGate(
+      new Request("https://storage.uploads.sh/acme/shot.png"),
+      env,
+      ctx(),
+    );
+    const transformed = await handleReadGate(
+      new Request("https://storage.uploads.sh/cdn-cgi/image/format=png/acme/shot.png"),
+      env,
+      ctx(),
+    );
+    expect(direct.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    expect(transformed.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    expect(direct.headers.get("etag")).toBe('"abc"');
+    expect(direct.headers.get("content-type")).toBe("image/png");
+    expect(direct.headers.get("accept-ranges")).toBe("bytes");
+    expect(await direct.text()).toBe("bytes");
+    expect(direct.status).toBe(200);
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves no-store and an existing must-revalidate response unchanged", () => {
+    const noStore = new Response("embed", {
+      headers: { "cache-control": "max-age=0, no-cache, no-store, must-revalidate", etag: '"e"' },
+    });
+    const already = new Response("ok", {
+      headers: { "cache-control": "public, max-age=60, must-revalidate" },
+    });
+    const missing = new Response("plain");
+    const ranged = new Response("x", {
+      status: 206,
+      headers: { "cache-control": "public, max-age=60", "content-range": "bytes 0-0/1" },
+    });
+    expect(withMustRevalidate(noStore)).toBe(noStore);
+    expect(withMustRevalidate(already)).toBe(already);
+    expect(withMustRevalidate(missing).headers.get("cache-control")).toBe(
+      "public, max-age=60, must-revalidate",
+    );
+    const partial = withMustRevalidate(ranged);
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get("content-range")).toBe("bytes 0-0/1");
+    expect(partial.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
   });
 
   it("treats a cache hit without x-read-gate as a miss", async () => {

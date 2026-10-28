@@ -2,8 +2,11 @@
  * Route in front of the hosted bucket (embed, storage, store, and any
  * EXTRA_HOSTED_HOSTS). A held key 404s with the API's not-found envelope.
  * Everything else is the original request, so R2 keeps Range, validators,
- * content type, and CORS. OPTIONS skips the gate. D1 errors fail open: the
- * held bucket is still the backstop, and this Worker does not bind it.
+ * content type, and CORS. That pass-through adds `must-revalidate` so a
+ * cached `/cdn-cgi/image/` variant follows the object's max-age (60s on
+ * hosted uploads) instead of Cloudflare Images' one-hour minimum.
+ * OPTIONS skips the gate. D1 errors fail open: the held bucket is still
+ * the backstop, and this Worker does not bind it.
  */
 
 /** Same lane string as `HOSTED_READ_LANE` in apps/api/src/read-gate.ts. */
@@ -12,6 +15,10 @@ const HOSTED_LANE = "hosted";
 const HOSTED_HOSTS = new Set(["embed.uploads.sh", "storage.uploads.sh", "store.uploads.sh"]);
 
 const GATE_TTL_SECONDS = 30;
+
+// Same lifetime as `UPLOAD_CACHE_CONTROL` in apps/api/src/files-core.ts.
+// Used only when the origin sends no Cache-Control.
+const HOSTED_CACHE_CONTROL = "public, max-age=60, must-revalidate";
 
 const NOT_FOUND_BODY = JSON.stringify({
   error: { code: "not_found", type: "not_found", message: "Not found." },
@@ -136,6 +143,23 @@ async function isBlocked(
   }
 }
 
+/**
+ * Cloudflare Images caches a transformed variant for at least one hour when
+ * the source response has no `must-revalidate`. Append the directive and
+ * keep the object's max-age. Leave `no-store` (the embed zone rule) alone.
+ */
+export function withMustRevalidate(response: Response): Response {
+  const current = response.headers.get("cache-control");
+  if (current && /\b(?:must-revalidate|no-store)\b/i.test(current)) return response;
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", current ? `${current}, must-revalidate` : HOSTED_CACHE_CONTROL);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function heldNotFound(): Response {
   return new Response(NOT_FOUND_BODY, {
     status: 404,
@@ -162,7 +186,7 @@ export async function handleReadGate(
   const objectKey = objectKeyFromUrl(request.url, env);
   if (!objectKey) return fetch(request);
   if (await isBlocked(env, ctx, url.hostname, objectKey)) return heldNotFound();
-  return fetch(request);
+  return withMustRevalidate(await fetch(request));
 }
 
 export default {
