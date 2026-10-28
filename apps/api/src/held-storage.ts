@@ -139,7 +139,7 @@ export async function reholdIfHeld(
   held?: boolean,
 ): Promise<void> {
   if (!(held ?? (await isKeyHeld(env, workspaceName, key)))) return;
-  await insertHostedReadGate(dbFor(env), ws, workspaceName, [key]).catch((err: unknown) => {
+  await insertHostedReadGate(env, dbFor(env), ws, [key]).catch((err: unknown) => {
     console.error({ event: "read_gate_insert_failed", workspace: workspaceName, err });
   });
   if (!heldBucket(env)) return;

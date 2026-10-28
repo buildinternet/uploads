@@ -85,7 +85,7 @@ export async function applyUploadHold(
       const markingPending = existing[HOLD_META_KEY] === undefined;
       const gateKeys =
         markingPending || existing[HOLD_META_KEY] === HOLD_PENDING
-          ? hostedGateObjectKeys(ws, workspaceName, [key])
+          ? await hostedGateObjectKeys(env, ws, [key])
           : [];
       const statements = [
         ...(markingPending
@@ -110,7 +110,7 @@ export async function applyUploadHold(
     }
     const now = new Date().toISOString();
     const siblings = await holdKeysForHash(db, workspaceName, sha);
-    const gateKeys = hostedGateObjectKeys(ws, workspaceName, [key, ...siblings]);
+    const gateKeys = await hostedGateObjectKeys(env, ws, [key, ...siblings]);
     await db.batch([
       db
         .prepare(
@@ -239,7 +239,7 @@ export async function approveUpload(
         safety: existing,
         at: new Date().toISOString(),
       },
-      readGateDeletes(db, hostedGateObjectKeys(ws, workspaceName, keys)),
+      readGateDeletes(db, await hostedGateObjectKeys(env, ws, keys)),
     );
     committed = true;
     await Promise.all(
@@ -364,7 +364,7 @@ export async function holdAgain(
       safety: existing,
       at: new Date().toISOString(),
     },
-    readGateInserts(db, hostedGateObjectKeys(ws, workspaceName, keys)),
+    readGateInserts(db, await hostedGateObjectKeys(env, ws, keys)),
   );
   const moved: boolean[] = [];
   for (const heldKey of keys) {

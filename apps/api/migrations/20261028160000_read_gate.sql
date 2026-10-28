@@ -6,6 +6,7 @@
 --
 -- Backfill starts from held blobs (`blob_hold_state_idx`) and from
 -- `ai.hold.moved` (`file_metadata_ai_idx`). Both are equality lookups.
+-- Shared prefixes are always `<workspace>/` (`selfServeWorkspaceRecord`, `add-workspace.mjs`); lane identity is in KV, so this SQL cannot skip BYO workspaces.
 -- Poster and PDF-preview keys share `posterKeyFor`'s path. A Slack PNG is
 -- not its own object; the Worker reads it off the `/cdn-cgi/image/` URL.
 CREATE TABLE read_gate (

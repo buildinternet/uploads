@@ -81,7 +81,7 @@ import {
 export type { ClassifierHandoff };
 import { holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
-import { deleteHostedReadGate } from "./read-gate";
+import { deleteHostedReadGate, hostedGateObjectKeys, deleteReadGateKeys } from "./read-gate";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -846,7 +846,7 @@ export async function putObject(
   } else {
     // New bytes are not the held object. Drop a gate row before classification
     // decides whether these bytes should be held.
-    await deleteHostedReadGate(dbFor(env), ws, workspaceName, [finalKey]).catch(logHeldError);
+    await deleteHostedReadGate(env, dbFor(env), ws, [finalKey]).catch(logHeldError);
   }
   if (!sameBytes && heldBucket(env)) {
     const cleanup = deleteHeldCopy(env, workspaceName, finalKey).catch(logHeldError);
@@ -1312,6 +1312,8 @@ export async function deleteObject(
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
+  // Resolve while the object is still in a lane. A later delete cannot.
+  const gateKeys = await hostedGateObjectKeys(env, ws, [key]);
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
   // A held upload's bytes may be in the held bucket. Its size still counts.
@@ -1324,7 +1326,7 @@ export async function deleteObject(
   if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
   await deleteContentHashes(dbFor(env), workspaceName, [key]);
-  await deleteHostedReadGate(dbFor(env), ws, workspaceName, [key]);
+  await deleteReadGateKeys(dbFor(env), gateKeys);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
   if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 

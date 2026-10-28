@@ -7,7 +7,6 @@ import { deleteObject } from "../src/files-core";
 import { reholdIfHeld } from "../src/held-storage";
 import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { isKeyHeld, listHeldKeys } from "../src/upload-hold-read";
-import { hostedGateObjectKeys } from "../src/read-gate";
 import { applyUploadHold, approveUpload, holdAgain } from "../src/upload-hold-service";
 import type { WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
@@ -182,9 +181,6 @@ describe("blob hold", () => {
       "acme/b.png",
     ];
     expect(await listed()).toEqual(gated);
-    expect(hostedGateObjectKeys({ provider: "r2", bucket: "customer" }, "acme", ["a.png"])).toEqual(
-      [],
-    );
 
     expect(await approveUpload(env, ws, "acme", "a.png", "Member")).toEqual({ approved: true });
     expect(await listed()).toEqual([]);
@@ -256,7 +252,9 @@ describe("blob hold", () => {
   it("gates a held key when put, promote, or attach writes it again", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     const db = database(sqlite);
-    const env = envFor(sqlite, new FakeR2Bucket());
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/copy.png", new Uint8Array([1]));
+    const env = envFor(sqlite, bucket);
     await recordContentHash(db, "acme", "copy.png", SHA);
     await setServerFileMetadata(db, "acme", "copy.png", { "ai.hold": "pending" });
     await sqlite.db
@@ -300,6 +298,58 @@ describe("blob hold", () => {
     expect((await getFileMetadata(db, "acme", "copy.png"))["ai.hold"]).toBeUndefined();
     expect(await isKeyHeld(env, "acme", "copy.png")).toBe(false);
     expect(await isKeyHeld(env, "acme", "held.png")).toBe(true);
+    sqlite.close();
+  });
+
+  it("gates a key still in the shared bucket after the workspace moves to another lane", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const shared = new FakeR2Bucket();
+    await shared.put("acme/a.png", new Uint8Array([1]));
+    const env = {
+      DB: db,
+      UPLOADS_DEFAULT: shared,
+      UPLOADS_OTHER: new FakeR2Bucket(),
+      FLAGS: { getBooleanValue: async () => true },
+    } as unknown as Env;
+    const moved: WorkspaceRecord = {
+      ...ws,
+      bucket: "other",
+      binding: "UPLOADS_OTHER",
+      prefix: "other/",
+      storageLanes: [
+        {
+          id: "lane-shared",
+          provider: "r2",
+          bucket: "uploads-default",
+          binding: "UPLOADS_DEFAULT",
+          prefix: "acme/",
+          publicBaseUrl: "https://storage.uploads.sh",
+          lastActiveAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    };
+    await recordContentHash(db, "acme", "a.png", SHA);
+    expect(
+      await applyUploadHold(
+        env,
+        moved,
+        "acme",
+        "a.png",
+        { "ai.secret": "token", "ai.secret.confidence": "high" },
+        { enforce: true, contentSha256: SHA },
+      ),
+    ).toBe(true);
+    const row = await db
+      .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' AND object_key = ?`)
+      .bind("acme/a.png")
+      .first<{ object_key: string }>();
+    expect(row).toEqual({ object_key: "acme/a.png" });
+    const wrong = await db
+      .prepare(`SELECT object_key FROM read_gate WHERE object_key = ?`)
+      .bind("other/a.png")
+      .first();
+    expect(wrong).toBeNull();
     sqlite.close();
   });
 

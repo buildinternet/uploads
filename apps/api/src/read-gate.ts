@@ -1,26 +1,30 @@
 /**
  * Rows the hosted read-gate Worker checks. Keys are the public object key
- * (`<prefix><key>`), not a workspace plus a hash. BYO lanes are skipped:
- * those URLs are on the customer's domain, and the Worker never sees them.
+ * (`<prefix><key>`), not a workspace plus a hash. Whether a key is hosted,
+ * and which prefix it uses, comes from `resolveObjectLane` — the same lookup
+ * `moveToHeld` uses — so a key left in the shared bucket after a switch to
+ * BYO still gets a row. A key that resolves on a BYO lane does not.
  */
 
 import type { D1Queryable } from "./db-session";
 import { posterKeyFor } from "./poster-presentation";
-import { isSharedLane } from "./storage";
+import { createLaneResolver, isSharedLane } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 
 /** Lane value stored for every hosted-bucket key. The three public hosts share it. */
 export const HOSTED_READ_LANE = "hosted";
 
-export function hostedGateObjectKeys(
+export async function hostedGateObjectKeys(
+  env: Env,
   ws: WorkspaceRecord,
-  workspaceName: string,
   keys: string[],
-): string[] {
-  if (!isSharedLane(ws)) return [];
-  const prefix = ws.prefix ?? `${workspaceName}/`;
+): Promise<string[]> {
+  const resolver = createLaneResolver(env, ws);
   const out = new Set<string>();
   for (const key of keys) {
+    const lane = await resolver.resolve(key);
+    if (!lane || !isSharedLane(lane.config)) continue;
+    const prefix = lane.config.prefix ?? "";
     out.add(`${prefix}${key}`);
     out.add(`${prefix}${posterKeyFor(key)}`);
   }
@@ -53,12 +57,12 @@ function missingTable(err: unknown): boolean {
 
 /** Best-effort insert used when a write lands on a key that is already held. */
 export async function insertHostedReadGate(
+  env: Env,
   db: D1Queryable,
   ws: WorkspaceRecord,
-  workspaceName: string,
   keys: string[],
 ): Promise<void> {
-  const objectKeys = hostedGateObjectKeys(ws, workspaceName, keys);
+  const objectKeys = await hostedGateObjectKeys(env, ws, keys);
   if (objectKeys.length === 0) return;
   try {
     await db.batch(readGateInserts(db, objectKeys));
@@ -70,12 +74,16 @@ export async function insertHostedReadGate(
 
 /** Drop the gate rows for these keys and their posters. */
 export async function deleteHostedReadGate(
+  env: Env,
   db: D1Queryable,
   ws: WorkspaceRecord,
-  workspaceName: string,
   keys: string[],
 ): Promise<void> {
-  const objectKeys = hostedGateObjectKeys(ws, workspaceName, keys);
+  await deleteReadGateKeys(db, await hostedGateObjectKeys(env, ws, keys));
+}
+
+/** Drop these public object keys. Each delete is a primary-key lookup. */
+export async function deleteReadGateKeys(db: D1Queryable, objectKeys: string[]): Promise<void> {
   if (objectKeys.length === 0) return;
   try {
     await db.batch(readGateDeletes(db, objectKeys));
