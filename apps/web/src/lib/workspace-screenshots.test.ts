@@ -27,7 +27,6 @@ import {
   shotTileInput,
   shotPreviewPosition,
   previewPrDisplay,
-  ghKindFallbackLabel,
   shotPrLabelInput,
 } from "./workspace-screenshots";
 import { filesRouteRedirect } from "./workspace-route-redirects";
@@ -509,6 +508,14 @@ describe("shotPreviewCaption", () => {
     expect(shotPreviewCaption({ key: "shots/plain.webp" })).toEqual({ name: "plain.webp" });
     expect(shotPreviewCaption({ key: "shots/a.png", ghKind: "pull" })).toEqual({ name: "a.png" });
   });
+  it("keeps the GitHub login for the hover card", () => {
+    expect(
+      shotPreviewCaption({
+        key: "shots/a.png",
+        metadata: { "gh.author": "zachdunn", "gh.kind": "pull", "gh.number": "7" },
+      }).author,
+    ).toBe("zachdunn");
+  });
 });
 
 describe("shotPreviewPosition", () => {
@@ -615,16 +622,6 @@ describe("previewPrDisplay", () => {
 
   it("is null without a PR caption", () => {
     expect(previewPrDisplay({}, titles)).toBeNull();
-  });
-});
-
-describe("ghKindFallbackLabel", () => {
-  it("restores the kind-only wording", () => {
-    expect(ghKindFallbackLabel("pull")).toBe("PR");
-    expect(ghKindFallbackLabel("issue")).toBe("Issue");
-    expect(ghKindFallbackLabel("issues")).toBe("Issue");
-    expect(ghKindFallbackLabel("discussion")).toBe("discussion");
-    expect(ghKindFallbackLabel(undefined)).toBe("GitHub");
   });
 });
 

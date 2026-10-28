@@ -46,6 +46,8 @@ export interface ShellNavItem {
   icon: ShellNavIcon;
   /** Settings sub-pages — rendered as a `SidebarMenuSub` row under `settings`. */
   nested?: boolean;
+  /** Parent row that owns a submenu. Open when nested rows follow it. */
+  expands?: boolean;
 }
 
 export interface ShellNavSection {
@@ -154,6 +156,7 @@ export function accountNavSections(options: {
         href: workspacePath(workspace, tab.id),
         current: activeTab === tab.id,
         icon: TAB_ICONS[tab.id],
+        ...(tab.id === "settings" ? { expands: true } : {}),
       });
       if (tab.id !== "settings" || !subpage) continue;
       const base = `/account/workspaces/${encodeURIComponent(workspace)}/settings`;

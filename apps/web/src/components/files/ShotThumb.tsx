@@ -60,7 +60,6 @@ function applyShotThumbAspect(img: HTMLImageElement | null) {
 export function ShotThumb({
   item,
   paired,
-  contextLabel,
   href,
   onOpen,
   onPreviewEnter,
@@ -69,8 +68,6 @@ export function ShotThumb({
   item: ShotThumbItem;
   /** True when a before/after counterpart sits in the same strip/grid. */
   paired?: boolean;
-  /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
-  contextLabel?: ReactNode;
   /** Known destination; when null the tile falls back to a button + `onOpen`. */
   href: string | null;
   onOpen: () => void;
@@ -91,7 +88,7 @@ export function ShotThumb({
 
   const shared = {
     className: "wsp-tile",
-    "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
+    "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${caption.author ? ` by ${caption.author}` : ""}${paired ? " — has before/after pair" : ""}`,
     onMouseEnter: (event: { currentTarget: HTMLElement }) => {
       onPreviewEnter?.(event.currentTarget, caption);
     },
@@ -146,11 +143,6 @@ export function ShotThumb({
   const body = (
     <>
       {media}
-      {contextLabel && (
-        <span className="wsp-state absolute top-1 left-1 rounded-full border border-line bg-panel px-[5px] py-px text-[12px] leading-[1.4] tracking-[0.04em] text-muted-foreground uppercase">
-          {contextLabel}
-        </span>
-      )}
       {paired && (
         <span
           className="wsp-pair absolute top-1 right-1 grid h-[18px] w-[18px] place-items-center rounded-[4px] border border-line bg-panel text-muted-foreground"

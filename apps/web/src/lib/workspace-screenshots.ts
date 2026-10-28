@@ -130,11 +130,13 @@ export interface ShotPreviewCaption {
   state?: string;
   /** From the classifier's `ai.surface`: "Mobile" / "Desktop" / "Tablet". */
   device?: string;
+  /** GitHub login from `gh.author`, when the upload carries one. */
+  author?: string;
 }
 
 /**
  * Hover-card caption: filename, a compact PR/issue line when the file carries
- * GitHub attachment metadata, and the page, state and device when known.
+ * GitHub attachment metadata, and the page, state, device, and author when known.
  * Mirrors the file page's filename + byline split without the native `title`
  * tooltip.
  */
@@ -173,6 +175,8 @@ export function shotPreviewCaption(item: {
   }
   const surface = parseSurfaceParam(item.metadata?.["ai.surface"]);
   if (surface) caption.device = FILE_SURFACE_LABELS[surface];
+  const author = item.metadata?.["gh.author"];
+  if (author) caption.author = author;
   return caption;
 }
 
@@ -584,17 +588,6 @@ export function previewPrDisplay(
   if (!caption.ref) return { text: caption.pr };
   const label = shotPrLabelInput({ ghRef: caption.ref, ghKind: caption.kind }, titles);
   return label ? { label } : { text: caption.pr };
-}
-
-/**
- * Text for a GitHub-strip tile whose shot has no number or ref to build a
- * PrLabel from: "PR" / "Issue" from `gh.kind` (stored vocabulary is singular;
- * "issues" tolerated), the raw kind otherwise, "GitHub" with none.
- */
-export function ghKindFallbackLabel(kind: string | undefined): string {
-  if (kind === "pull") return "PR";
-  if (kind === "issue" || kind === "issues") return "Issue";
-  return kind || "GitHub";
 }
 
 /**

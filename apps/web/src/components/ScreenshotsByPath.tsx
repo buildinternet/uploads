@@ -25,11 +25,10 @@
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { PrLabel } from "@uploads/ui/components/pr-label";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import { CommandEmpty, InlineEmpty } from "./files/FilesEmpty";
-import { GhKindIcon, GitHubMark } from "./files/gh-glyphs";
+import { GitHubMark } from "./files/gh-glyphs";
 import type { TypeFilter } from "./files/FilterControls";
 import { PathFilterBar } from "./files/PathFilterBar";
 import { ShotThumb, type PreviewHandlers } from "./files/ShotThumb";
@@ -39,7 +38,6 @@ import {
   getWorkspaceFilesByPath,
   searchWorkspaceFiles,
   type FilesPathGroup,
-  type GithubTitleMap,
   type LatestShotItem,
   type PathCatalogEntry,
   type ProjectSummary,
@@ -73,8 +71,6 @@ import {
   screenshotsViewHref,
   screenshotsViewsEqual,
   SHOT_COUNT_DISPLAY_CAP,
-  shotPrLabelInput,
-  ghKindFallbackLabel,
   writeScreenshotsLocation,
   type GroupBy,
   type RecentView,
@@ -237,11 +233,7 @@ function ScreenshotsByPathInner({
   const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
 
   const { info, retry: retryInfo } = useWorkspaceInfo(apiOrigin, workspace, initialInfo);
-  const {
-    handlers: previewHandlers,
-    layer: previewLayer,
-    titles,
-  } = useShotPreview(apiOrigin, workspace);
+  const { handlers: previewHandlers, layer: previewLayer } = useShotPreview(apiOrigin, workspace);
   const [overview, setOverview] = useState<OverviewState>(
     () => initialOverview ?? { status: "loading" },
   );
@@ -677,20 +669,16 @@ function ScreenshotsByPathInner({
         ) : (
           <>
             <div className="wsp-grid grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-              {latestItems.map((item) => {
-                const prLabel = shotPrLabelInput(item, titles);
-                return (
-                  <ShotThumb
-                    key={item.key}
-                    item={item}
-                    paired={latestPaired.has(item.key)}
-                    contextLabel={prLabel ? <PrLabel size="sm" compact {...prLabel} /> : undefined}
-                    href={opener.href(item)}
-                    onOpen={() => opener.activate(item)}
-                    {...previewHandlers}
-                  />
-                );
-              })}
+              {latestItems.map((item) => (
+                <ShotThumb
+                  key={item.key}
+                  item={item}
+                  paired={latestPaired.has(item.key)}
+                  href={opener.href(item)}
+                  onOpen={() => opener.activate(item)}
+                  {...previewHandlers}
+                />
+              ))}
             </div>
             <p className="wft-end">
               Showing the {latestItems.length === 1 ? "newest upload" : "newest uploads"} — switch
@@ -790,7 +778,6 @@ function ScreenshotsByPathInner({
                 }
                 opener={opener}
                 preview={previewHandlers}
-                titles={titles}
               />
             );
           })}
@@ -851,7 +838,6 @@ function ProjectSection({
   drillHref,
   opener,
   preview,
-  titles,
 }: {
   label: string;
   summary: ProjectSummary | undefined;
@@ -870,7 +856,6 @@ function ProjectSection({
   drillHref: (group: DrillTarget) => string;
   opener: FileOpener;
   preview: PreviewHandlers;
-  titles: GithubTitleMap;
 }) {
   // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
   // the GitHub items' count so the header still reads sensibly.
@@ -934,7 +919,6 @@ function ProjectSection({
           typeFiltered={typeFiltered}
           opener={opener}
           preview={preview}
-          titles={titles}
         />
       )}
     </div>
@@ -947,14 +931,12 @@ function GitHubSection({
   typeFiltered,
   opener,
   preview,
-  titles,
 }: {
   items: SearchFileItem[];
   truncated: boolean;
   typeFiltered: boolean;
   opener: FileOpener;
   preview: PreviewHandlers;
-  titles: GithubTitleMap;
 }) {
   return (
     <div className="wsp-group grid gap-2.5">
@@ -967,32 +949,15 @@ function GitHubSection({
         </span>
       </div>
       <div className="wsp-strip">
-        {items.map((item) => {
-          const prLabel = shotPrLabelInput(item, titles);
-          const author = item.metadata["gh.author"];
-          return (
-            <ShotThumb
-              key={item.key}
-              item={item}
-              contextLabel={
-                <>
-                  {prLabel ? (
-                    <PrLabel size="sm" compact {...prLabel} />
-                  ) : (
-                    <>
-                      <GhKindIcon kind={item.metadata["gh.kind"]} />{" "}
-                      {ghKindFallbackLabel(item.metadata["gh.kind"])}
-                    </>
-                  )}
-                  {author ? ` · ${author}` : ""}
-                </>
-              }
-              href={opener.href(item)}
-              onOpen={() => opener.activate(item)}
-              {...preview}
-            />
-          );
-        })}
+        {items.map((item) => (
+          <ShotThumb
+            key={item.key}
+            item={item}
+            href={opener.href(item)}
+            onOpen={() => opener.activate(item)}
+            {...preview}
+          />
+        ))}
       </div>
     </div>
   );

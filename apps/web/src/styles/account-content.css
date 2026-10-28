@@ -1876,16 +1876,14 @@ button.wft-row {
   }
 }
 
-/* Inline GitHub glyphs beside repo labels and PR/issue text — kept as CSS
-   because the two contextual overrides key off surrounding component
-   classes that also stayed CSS above (.wsp-state, .wsp-preview__pr). */
+/* Inline GitHub glyphs beside repo labels and the hover card's PR line —
+   kept as CSS because the tighter margin keys off .wsp-preview__pr. */
 .wsp-ghicon {
   display: inline-block;
   vertical-align: -1px;
   margin-right: 5px;
   flex: none;
 }
-.wsp-state .wsp-ghicon,
 .wsp-preview__pr .wsp-ghicon {
   margin-right: 2px;
 }

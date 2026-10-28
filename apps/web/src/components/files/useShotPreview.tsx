@@ -137,6 +137,7 @@ export function useShotPreview(
   // dropping the line (previewPrDisplay).
   const previewPr = preview ? previewPrDisplay(preview, titles) : null;
   const details: [string, string][] = [];
+  if (preview?.author) details.push(["Author", preview.author]);
   if (preview?.page) details.push(["Page", preview.page]);
   if (preview?.state) details.push(["State", preview.state]);
   if (preview?.device) details.push(["Device", preview.device]);
