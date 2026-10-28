@@ -21,6 +21,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   type LucideIcon,
+  ChevronRight,
   ChevronsUpDown,
   CircleUser,
   CreditCard,
@@ -160,17 +161,25 @@ function NavGroup({ section }: { section: ShellNavSection }): ReactNode {
     for (let j = i + 1; j < section.items.length && section.items[j]!.nested; j++) {
       nested.push(section.items[j]!);
     }
+    const open = nested.length > 0;
     rows.push(
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton
           isActive={item.current}
           tooltip={item.label}
+          aria-expanded={item.expands ? open : undefined}
           render={<a href={item.href} aria-current={item.current ? "page" : undefined} />}
         >
           <Glyph name={item.icon} />
           <span>{item.label}</span>
+          {item.expands && (
+            <ChevronRight
+              aria-hidden
+              className={`ml-auto transition-transform duration-200 group-data-[collapsible=icon]:hidden ${open ? "rotate-90" : ""}`}
+            />
+          )}
         </SidebarMenuButton>
-        {nested.length > 0 && (
+        {open && (
           <SidebarMenuSub>
             {nested.map((sub) => (
               <SidebarMenuSubItem key={sub.href}>

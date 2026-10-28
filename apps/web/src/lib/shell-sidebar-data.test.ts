@@ -135,6 +135,8 @@ describe("accountNavSections", () => {
     });
     const settingsRow = settings[0]!.items.find((i) => i.label === "Settings");
     expect(settingsRow?.current).toBe(true);
+    expect(settingsRow?.expands).toBe(true);
+    expect(plain[0]!.items.find((i) => i.label === "Settings")?.expands).toBe(true);
     const nested = settings[0]!.items.filter((i) => i.nested);
     expect(nested.map((i) => i.label)).toEqual([
       "GitHub",
