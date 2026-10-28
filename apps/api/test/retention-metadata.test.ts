@@ -85,6 +85,37 @@ describe("purgeExpiredObjects — file_metadata cleanup (plan 007)", () => {
     }
   });
 
+  it("deletes the read_gate rows for an expired key in the same batch", async () => {
+    const sqlite = new SqliteD1([...MIGRATIONS, "migrations/20260724140000_file_content_hash.sql"]);
+    sqlite.db.exec(
+      `CREATE TABLE read_gate (lane TEXT NOT NULL, object_key TEXT NOT NULL, PRIMARY KEY (lane, object_key))`,
+    );
+    try {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("acme/old.png", new Uint8Array([1]));
+      bucket.setUploaded("acme/old.png", new Date("2020-01-01T00:00:00Z"));
+      const db = database(sqlite);
+      await insertMetadataRow(db, "acme", "old.png");
+      await db
+        .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', ?), ('hosted', ?)`)
+        .bind("acme/old.png", "acme/_internal/posters/old.png.jpg")
+        .run();
+      await db
+        .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', ?)`)
+        .bind("acme/fresh.png")
+        .run();
+
+      await purgeExpiredObjects(makeEnv(bucket, sqlite), RECORD, "acme");
+
+      const left = await db
+        .prepare(`SELECT object_key FROM read_gate ORDER BY object_key`)
+        .all<{ object_key: string }>();
+      expect((left.results ?? []).map((row) => row.object_key)).toEqual(["acme/fresh.png"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("leaves all file_metadata rows intact when nothing is expired", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {

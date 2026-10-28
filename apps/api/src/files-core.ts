@@ -81,6 +81,7 @@ import {
 export type { ClassifierHandoff };
 import { holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
+import { deleteReadGateKeys, gateObjectKeysOnLane, hostedGateObjectKeys } from "./read-gate";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -623,7 +624,8 @@ export async function putObject(
   const inspection = inspectUpload(head, policy, declared, newSize);
   if (!inspection.ok) throw inspection.error;
 
-  const store = await storage(env, ws);
+  const cfg = await storageConfig(env, ws);
+  const store = createStorage(cfg);
   // files-sdk upload() has no replaced flag, so derive it from a head: the
   // ledger size delta and the prior stamp (overwrite keeps first upload).
   const prior = await existingHead(store, finalKey);
@@ -637,7 +639,6 @@ export async function putObject(
   // Object), which isn't worth it for a race that only exists before the
   // key does. Revisit only if it's observed.
   if (replaced && !opts?.replace && !isManagedGithubKey(finalKey)) {
-    const cfg = await storageConfig(env, ws);
     const urls = objectPublicUrls(env, cfg, finalKey);
     throw new ConflictError(
       `An object already exists at "${finalKey}". Pass --replace (or replace: true) to overwrite it.`,
@@ -842,7 +843,12 @@ export async function putObject(
     console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
   if (sameBytes) {
     await reholdIfHeld(env, ws, workspaceName, finalKey).catch(logHeldError);
-  } else if (heldBucket(env)) {
+  } else {
+    // New bytes are not the held object. Drop a gate row before classification
+    // decides whether these bytes should be held.
+    await deleteReadGateKeys(dbFor(env), gateObjectKeysOnLane(cfg, [finalKey])).catch(logHeldError);
+  }
+  if (!sameBytes && heldBucket(env)) {
     const cleanup = deleteHeldCopy(env, workspaceName, finalKey).catch(logHeldError);
     let deferred = false;
     try {
@@ -871,7 +877,6 @@ export async function putObject(
       { enforceHold: opts?.enforceHold, handoff: opts?.classifierHandoff },
     );
 
-  const cfg = await storageConfig(env, ws);
   const urls = objectPublicUrls(env, cfg, finalKey);
   return {
     key: finalKey,
@@ -1306,6 +1311,8 @@ export async function deleteObject(
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
+  // Resolve while the object is still in a lane. A later delete cannot.
+  const gateKeys = await hostedGateObjectKeys(env, ws, [key]);
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
   // A held upload's bytes may be in the held bucket. Its size still counts.
@@ -1318,6 +1325,7 @@ export async function deleteObject(
   if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
   await deleteContentHashes(dbFor(env), workspaceName, [key]);
+  await deleteReadGateKeys(dbFor(env), gateKeys);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
   if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 

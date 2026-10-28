@@ -41,6 +41,7 @@ const MIGRATIONS = [
   "migrations/20261027120000_github_attachments_size.sql",
   "migrations/20261028120000_file_events.sql",
   "migrations/20261028140000_blob_hold.sql",
+  "migrations/20261028160000_read_gate.sql",
 ];
 
 const WS = "acme";

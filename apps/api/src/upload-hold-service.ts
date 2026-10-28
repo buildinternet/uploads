@@ -13,14 +13,10 @@ import { ConflictError, ServiceUnavailableError, ValidationError } from "@upload
 import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
 import { appendOverrideEvent, blobHoldsFor } from "./file-events";
-import {
-  deleteServerFileMetadataKeys,
-  getFileMetadata,
-  getMetadataForKeys,
-  setServerFileMetadata,
-} from "./file-metadata";
+import { deleteServerFileMetadataKeys, getFileMetadata, getMetadataForKeys } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
 import { moveToHeld, objectContentSha256, restoreFromHeld } from "./held-storage";
+import { hostedGateObjectKeys, readGateDeletes, readGateInserts } from "./read-gate";
 import { emailHold } from "./hold-email-notify";
 import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
@@ -85,15 +81,36 @@ export async function applyUploadHold(
     const state = prior.get(sha)?.state;
     if (state === "released") return false;
     if (state === "held" || existing[HOLD_META_KEY] !== undefined) {
-      if (existing[HOLD_META_KEY] === undefined) {
-        await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
-      }
+      const now = new Date().toISOString();
+      const markingPending = existing[HOLD_META_KEY] === undefined;
+      const gateKeys =
+        markingPending || existing[HOLD_META_KEY] === HOLD_PENDING
+          ? await hostedGateObjectKeys(env, ws, [key])
+          : [];
+      const statements = [
+        ...(markingPending
+          ? [
+              db
+                .prepare(
+                  `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(workspace, object_key, meta_key)
+                   DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+                )
+                .bind(workspaceName, key, HOLD_META_KEY, HOLD_PENDING, now),
+            ]
+          : []),
+        ...readGateInserts(db, gateKeys),
+      ];
+      if (statements.length > 0) await db.batch(statements);
       await moveToHeld(env, ws, workspaceName, key).catch((err: unknown) => {
         console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
       });
       return false;
     }
     const now = new Date().toISOString();
+    const siblings = await holdKeysForHash(db, workspaceName, sha);
+    const gateKeys = await hostedGateObjectKeys(env, ws, [key, ...siblings]);
     await db.batch([
       db
         .prepare(
@@ -111,6 +128,7 @@ export async function applyUploadHold(
              state = 'held', actor = NULL, at = excluded.at`,
         )
         .bind(workspaceName, sha, now),
+      ...readGateInserts(db, gateKeys),
     ]);
     const moved = await moveToHeld(env, ws, workspaceName, key).catch((err: unknown) => {
       console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
@@ -210,15 +228,19 @@ export async function approveUpload(
       }
       restored.push(other);
     }
-    await appendOverrideEvent(env, {
-      workspace: workspaceName,
-      objectKey: key,
-      contentSha256,
-      action: "release",
-      actor: by ?? null,
-      safety: existing,
-      at: new Date().toISOString(),
-    });
+    await appendOverrideEvent(
+      env,
+      {
+        workspace: workspaceName,
+        objectKey: key,
+        contentSha256,
+        action: "release",
+        actor: by ?? null,
+        safety: existing,
+        at: new Date().toISOString(),
+      },
+      readGateDeletes(db, await hostedGateObjectKeys(env, ws, keys)),
+    );
     committed = true;
     await Promise.all(
       restored.map((restoredKey) =>
@@ -331,15 +353,19 @@ export async function holdAgain(
     });
   }
   const keys = await keysSharingHold(db, workspaceName, contentSha256, key);
-  await appendOverrideEvent(env, {
-    workspace: workspaceName,
-    objectKey: key,
-    contentSha256,
-    action: "hold",
-    actor: by ?? null,
-    safety: existing,
-    at: new Date().toISOString(),
-  });
+  await appendOverrideEvent(
+    env,
+    {
+      workspace: workspaceName,
+      objectKey: key,
+      contentSha256,
+      action: "hold",
+      actor: by ?? null,
+      safety: existing,
+      at: new Date().toISOString(),
+    },
+    readGateInserts(db, await hostedGateObjectKeys(env, ws, keys)),
+  );
   const moved: boolean[] = [];
   for (const heldKey of keys) {
     moved.push(await moveToHeld(env, ws, workspaceName, heldKey));

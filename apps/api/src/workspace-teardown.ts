@@ -18,6 +18,7 @@
 import { dbFor } from "./db-session";
 import { deleteFileMetadataForWorkspace } from "./file-metadata";
 import { deleteFileEventsForWorkspace } from "./file-events";
+import { deleteReadGateForWorkspace } from "./read-gate";
 import { deleteGalleriesForWorkspace } from "./galleries";
 import { deleteFeedsForWorkspace } from "./feeds";
 import { deleteAttachmentsForWorkspaceSafe } from "./github-attachment-index";
@@ -107,6 +108,7 @@ export async function teardownWorkspace(
   await deleteFeedsForWorkspace(dbFor(env), name);
   await deleteFileMetadataForWorkspace(dbFor(env), name);
   await deleteFileEventsForWorkspace(dbFor(env), name);
+  await deleteReadGateForWorkspace(dbFor(env), name);
   // The attachment index is workspace-scoped like file_metadata (issue
   // #934) — a torn-down workspace must not leave rows behind.
   await deleteAttachmentsForWorkspaceSafe(dbFor(env), name);

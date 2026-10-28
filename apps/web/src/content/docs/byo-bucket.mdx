@@ -201,6 +201,7 @@ S3 providers.
 
 ## What's different <a class="anchor" href="#degraded" aria-label="Link to this section">#</a>
 
+- **Holds.** A hold hides the file in uploads.sh. It does not block the file's URL on your own domain.
 - **GitHub embeds.** Hosted-storage images get a dedicated embed host that GitHub's Camo proxy
   revalidates after an in-place overwrite. On your own domain you get the same behavior by adding the
   [cache rule above](#setup) — without it, embeds still render but may show stale bytes after an

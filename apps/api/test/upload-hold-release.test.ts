@@ -14,6 +14,7 @@ const MIGRATIONS = [
   "migrations/20261018000000_file_metadata_ai_idx.sql",
   "migrations/20261028120000_file_events.sql",
   "migrations/20261028140000_blob_hold.sql",
+  "migrations/20261028160000_read_gate.sql",
 ];
 
 function makeEnv() {

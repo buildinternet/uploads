@@ -116,6 +116,7 @@ export async function appendOverrideEvent(
     safety?: Record<string, string>;
     at: string;
   },
+  extra: D1PreparedStatement[] = [],
 ): Promise<void> {
   if (!SHA256_RE.test(input.contentSha256)) {
     throw new ValidationError(
@@ -160,6 +161,7 @@ export async function appendOverrideEvent(
            state = excluded.state, actor = excluded.actor, at = excluded.at`,
       )
       .bind(input.workspace, input.contentSha256, state, input.actor ?? null, input.at),
+    ...extra,
   ]);
 }
 

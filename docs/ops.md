@@ -1410,8 +1410,9 @@ when the key is a PR or issue attachment. A held file is left out of the
 comment (a count line replaces it), withheld from public feeds and
 galleries, and 401s on `/public/files`.
 
-Storage hosts are R2 custom domains with no Worker in the read path, so
-the bytes have to move (`held-storage.ts`). On a hosted (shared-lane) key
+Hosted storage is an R2 custom domain. `uploads-read-gate` can 404 a held
+key on that route, but the routes are not attached yet, so the bytes still
+have to move (`held-storage.ts`). On a hosted (shared-lane) key
 the hold copies the object and its poster into `UPLOADS_HELD` (bucket
 `uploads-held`, preview `uploads-preview-held`) at `<workspace>/<key>`,
 deletes the public copy, and writes `ai.hold.moved=1`. Never give that
@@ -1426,6 +1427,47 @@ held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
 lists held keys (a moved one is absent from `list`), and
 `…/files/held/download?key=` streams the held copy to a member. Private
 prefix rotation does not move held copies.
+
+### Hosted read gate
+
+`uploads-read-gate` (`apps/read-gate`) looks up a blocked key and, on a miss
+or a D1 error, returns `fetch(request)` so R2 still serves Range, validators,
+content type, and CORS. OPTIONS skips the lookup. A hit answers the same
+JSON 404 as `NotFoundError`. The Worker binds production D1 only. Do not add
+`UPLOADS_HELD`.
+
+`wrangler.jsonc` has no `routes` array. `wrangler deploy` publishes routes
+only when that list is non-empty, so a deploy neither attaches nor deletes
+them. Add each zone route by hand on the `uploads.sh` zone. These are routes,
+not custom domains (the hosts are already R2 custom domains). Lowest traffic
+first, embed last:
+
+1. `store.uploads.sh/*`
+2. `storage.uploads.sh/*`
+3. `embed.uploads.sh/*`
+
+Before the next host, confirm the route's subrequest reaches R2. `curl -sI`
+a public object. The response keeps that object's `etag`, `content-type`,
+and `accept-ranges: bytes`. `Range: bytes=0-0` returns 206. An unknown key
+returns R2's own 404, not the JSON `not_found` envelope. `OPTIONS` returns
+the same CORS headers as before the route.
+
+Before attaching `embed.uploads.sh`, shadow one lower-traffic host and check
+three things:
+
+- Gate a test key, then request `/cdn-cgi/image/format=png/<key>`. Tail the
+  Worker. Note whether that request runs there, and whether the transform's
+  own fetch of `/<key>` does too.
+- Request the bare object twice. The second request should be a Cache API
+  hit (`__read-gate` on that host), not a second D1 read.
+- Measure the TTFB the Worker adds on that shadow host before attaching embed.
+
+Rollback is deleting that host's route. Leave the Worker and the D1 rows in place.
+
+Workers Builds, when the project is created: root directory `/`, no build
+command, deploy command `pnpm run deploy:read-gate`, non-production branch
+builds off. Watch `apps/read-gate/**`, `pnpm-lock.yaml`, and
+`pnpm-workspace.yaml` only.
 
 A new hold on the Jev path makes one more Decisions call: a Jev 1.14 box
 question for the one region around everything flagged
