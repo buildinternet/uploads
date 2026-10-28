@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleReadGate, objectKeyFromUrl, type ReadGateEnv } from "./index";
+import { cacheRequest, handleReadGate, objectKeyFromUrl, type ReadGateEnv } from "./index";
 
 function ctx() {
   const pending: Promise<unknown>[] = [];
@@ -93,6 +93,48 @@ describe("handleReadGate", () => {
     expect((await handleReadGate(request, env, gate)).status).toBe(200);
     expect(lookups).toBe(2);
     expect(origin).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it("reads a replica session and caches on the request host", async () => {
+    const origin = vi.fn(async () => new Response("bytes", { status: 200 }));
+    vi.stubGlobal("fetch", origin);
+    const puts: string[] = [];
+    vi.stubGlobal("caches", {
+      default: {
+        async match() {
+          return undefined;
+        },
+        async put(request: Request) {
+          puts.push(request.url);
+        },
+      },
+    });
+    let mode = "";
+    const session = {
+      prepare() {
+        return {
+          bind() {
+            return { first: async () => null };
+          },
+        };
+      },
+    };
+    const env = {
+      DB: {
+        withSession(value: string) {
+          mode = value;
+          return session;
+        },
+        prepare() {
+          throw new Error("primary");
+        },
+      },
+    } as unknown as ReadGateEnv;
+    const request = new Request("https://store.uploads.sh/acme/shot.png");
+    expect((await handleReadGate(request, env, ctx())).status).toBe(200);
+    expect(mode).toBe("first-unconstrained");
+    expect(puts).toEqual([cacheRequest("store.uploads.sh", "acme/shot.png").url]);
     vi.unstubAllGlobals();
   });
 });

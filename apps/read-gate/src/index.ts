@@ -62,8 +62,9 @@ function gateCache(): Cache | undefined {
   }
 }
 
-function cacheRequest(objectKey: string): Request {
-  return new Request(`https://read-gate.internal/hosted/${encodeURIComponent(objectKey)}`);
+/** In-zone cache key. `cache.put` on a route Worker ignores a foreign host. */
+export function cacheRequest(hostname: string, objectKey: string): Request {
+  return new Request(`https://${hostname}/__read-gate/${encodeURIComponent(objectKey)}`);
 }
 
 async function readCache(request: Request): Promise<Response | undefined> {
@@ -93,14 +94,24 @@ function remember(ctx: GateContext, request: Request, blocked: boolean): void {
   }
 }
 
-async function isBlocked(env: ReadGateEnv, ctx: GateContext, objectKey: string): Promise<boolean> {
-  const cachedRequest = cacheRequest(objectKey);
+function gateDb(env: ReadGateEnv): Pick<D1Database, "prepare"> {
+  return typeof env.DB.withSession === "function"
+    ? env.DB.withSession("first-unconstrained")
+    : env.DB;
+}
+
+async function isBlocked(
+  env: ReadGateEnv,
+  ctx: GateContext,
+  hostname: string,
+  objectKey: string,
+): Promise<boolean> {
+  const cachedRequest = cacheRequest(hostname, objectKey);
   const hit = await readCache(cachedRequest);
   if (hit) return hit.headers.get("x-read-gate") === "block";
   try {
-    const row = await env.DB.prepare(
-      `SELECT 1 AS hit FROM read_gate WHERE lane = ? AND object_key = ?`,
-    )
+    const row = await gateDb(env)
+      .prepare(`SELECT 1 AS hit FROM read_gate WHERE lane = ? AND object_key = ?`)
       .bind(HOSTED_LANE, objectKey)
       .first();
     const blocked = row != null;
@@ -130,7 +141,7 @@ export async function handleReadGate(
   if (request.method === "OPTIONS") return fetch(request);
   const objectKey = objectKeyFromUrl(request.url);
   if (!objectKey) return fetch(request);
-  if (await isBlocked(env, ctx, objectKey)) return heldNotFound();
+  if (await isBlocked(env, ctx, new URL(request.url).hostname, objectKey)) return heldNotFound();
   return fetch(request);
 }
 
