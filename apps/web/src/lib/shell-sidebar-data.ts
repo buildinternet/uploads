@@ -274,3 +274,22 @@ export function workspaceSwitcherData(
 function displayName(ws: MyWorkspace): string {
   return ws.organization.name || ws.workspace;
 }
+
+function pathOf(href: string): string {
+  return new URL(href, "https://uploads.sh").pathname;
+}
+
+/**
+ * `sections` with only the item linking to `pathname` marked current, or
+ * `sections` unchanged when no item links there. The sidebar applies it as a
+ * navigation starts, so the clicked tab lights up before the page arrives.
+ */
+export function markCurrentPath(sections: ShellNavSection[], pathname: string): ShellNavSection[] {
+  if (!sections.some((s) => s.items.some((item) => pathOf(item.href) === pathname))) {
+    return sections;
+  }
+  return sections.map((s) => ({
+    ...s,
+    items: s.items.map((item) => ({ ...item, current: pathOf(item.href) === pathname })),
+  }));
+}

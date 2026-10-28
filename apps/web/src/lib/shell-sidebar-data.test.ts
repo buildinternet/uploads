@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accountNavSections,
   adminNavSections,
+  markCurrentPath,
   readSidebarDefaultOpen,
   workspaceSwitcherData,
 } from "./shell-sidebar-data";
@@ -254,5 +255,19 @@ describe("workspaceSwitcherData", () => {
     const data = workspaceSwitcherData([], { active: "acme" });
     expect(data.options).toEqual([]);
     expect(data.activeLabel).toBe("acme");
+  });
+});
+
+describe("markCurrentPath", () => {
+  const sections = adminNavSections({ section: "users" });
+
+  it("moves current to the item linking to the path", () => {
+    const next = markCurrentPath(sections, "/admin/email");
+    const current = next.flatMap((s) => s.items).filter((i) => i.current);
+    expect(current.map((i) => i.href)).toEqual(["/admin/email"]);
+  });
+
+  it("leaves sections alone when no item links to the path", () => {
+    expect(markCurrentPath(sections, "/docs")).toBe(sections);
   });
 });

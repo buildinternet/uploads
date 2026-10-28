@@ -43,6 +43,14 @@ export interface IslandMounterOptions<P extends object> {
    * scripts.
    */
   load: () => Promise<ComponentType<P>>;
+  /**
+   * The mount element carries `transition:persist`, so ClientRouter keeps the
+   * same node (and its React root) across navigations. Each boot then
+   * re-renders the live root with the new page's seed instead of tearing it
+   * down and hydrating again. A navigation to a page without the element
+   * leaves the old root detached until the next boot replaces it.
+   */
+  persist?: boolean;
 }
 
 /**
@@ -62,6 +70,7 @@ export function createIslandMounter<P extends object>(
   opts: IslandMounterOptions<P>,
 ): () => Promise<void> {
   let root: Root | null = null;
+  let container: HTMLElement | null = null;
 
   function teardown(): void {
     if (!root) return;
@@ -71,6 +80,7 @@ export function createIslandMounter<P extends object>(
       // Container may already be gone after a body swap.
     }
     root = null;
+    container = null;
   }
 
   return async function boot(): Promise<void> {
@@ -83,12 +93,19 @@ export function createIslandMounter<P extends object>(
     } catch {
       return;
     }
-    // Tear down before Astro swaps the body away. {once:true} auto-clears, so
-    // repeated astro:page-load events from ClientRouter never stack listeners.
-    document.addEventListener("astro:before-swap", teardown, { once: true });
+    if (!opts.persist) {
+      // Tear down before Astro swaps the body away. {once:true} auto-clears, so
+      // repeated astro:page-load events from ClientRouter never stack listeners.
+      document.addEventListener("astro:before-swap", teardown, { once: true });
+    }
     const Component = await opts.load();
     if (!document.contains(mount)) return;
+    if (root && container === mount) {
+      root.render(createElement(Component, seed));
+      return;
+    }
     teardown();
+    container = mount;
     root = hydrateRoot(mount, createElement(Component, seed), {
       identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
     });

@@ -7,9 +7,9 @@
  * reloads. Animations are intentionally off (`fallback="swap"` here; layouts
  * also set `transition:animate="none"` on `<html>`).
  *
- * While the next page is fetched, the clicked sidebar tab is marked current
- * and a thin bar shows at the top, so a click is acknowledged before the
- * server answers. The swap replaces both with the new page's own state.
+ * While the next page is fetched a thin bar shows at the top (the sidebar
+ * island lights up the clicked tab itself), so a click is acknowledged
+ * before the server answers. The swap clears the bar.
  *
  * Layout and page scripts that attach listeners or fill dynamic UI must re-run
  * on `astro:page-load` (bundled modules only execute once per session).
@@ -20,22 +20,9 @@ import { ClientRouter } from "astro:transitions";
 <ClientRouter fallback="swap" />
 
 <script>
-  document.addEventListener("astro:before-preparation", (event) => {
+  document.addEventListener("astro:before-preparation", () => {
     // The swap copies the new page's <html> attributes over, which clears this.
     document.documentElement.dataset.navigating = "";
-
-    const to = event.to;
-    if (to.origin !== location.origin || to.pathname === location.pathname) return;
-    const links = document.querySelectorAll<HTMLAnchorElement>("#shell-sidebar a[href]");
-    const target = [...links].find((a) => new URL(a.href).pathname === to.pathname);
-    if (!target) return;
-    for (const a of links) {
-      if (a.getAttribute("aria-current") !== "page") continue;
-      a.removeAttribute("aria-current");
-      a.removeAttribute("data-active");
-    }
-    target.setAttribute("aria-current", "page");
-    target.setAttribute("data-active", "");
   });
 </script>
 
