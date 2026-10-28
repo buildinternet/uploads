@@ -1227,8 +1227,23 @@ describe("safety flags", () => {
     expect(harness.calls).toHaveLength(2);
   });
 
-  it("reuses display labels on a pHash match and does not copy safety flags", async () => {
-    const harness = makeClassifierEnv(() => FLAGGED);
+  it("reuses display labels on a pHash match and asks the model for safety", async () => {
+    let n = 0;
+    const harness = makeClassifierEnv(() => {
+      n += 1;
+      if (n === 2) {
+        return {
+          answers: {
+            rating: jevAnswer("safe", 0.95),
+            content: jevAnswer("none", 0.95),
+            secret: jevAnswer("token", 0.92),
+            credential: jevAnswer("yes", 0.92),
+            pii: jevAnswer("none", 0.9),
+          },
+        };
+      }
+      return FLAGGED;
+    });
     const original = jpegFrame(4);
     const resaved = jpegFrame(4, "re-saved");
     const different = jpegFrame(90);
@@ -1237,7 +1252,15 @@ describe("safety flags", () => {
 
     const first = await putImage(harness, "images/phash-a.jpg", original);
     const second = await putImage(harness, "images/phash-b.jpg", resaved);
-    expect(harness.calls).toHaveLength(1);
+    expect(harness.calls).toHaveLength(2);
+    expect(Object.keys(harness.calls[1]!.body.questions)).toEqual([
+      "rating",
+      "content",
+      "secret",
+      "credential",
+      "pii",
+    ]);
+    expect(stateImage(harness.calls[1])?.type).toBe("image_url");
 
     const donor = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
     const copied = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [second.key])).get(
@@ -1248,26 +1271,143 @@ describe("safety flags", () => {
     expect(copied?.["ai.surface"]).toBe("desktop");
     expect(copied?.["ai.screen"]).toBe("settings");
     expect(copied?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
-    for (const key of [
-      "ai.rating",
-      "ai.rating.confidence",
-      "ai.content",
-      "ai.content.confidence",
-      "ai.secret",
-      "ai.secret.confidence",
-      "ai.pii",
-      "ai.pii.confidence",
-      "ai.hold",
-      "ai.hold.area",
-    ]) {
-      expect(copied?.[key]).toBeUndefined();
-    }
+    expect(copied?.["ai.secret"]).toBe("token");
+    expect(copied?.["ai.secret.confidence"]).toBe("high");
+    expect(copied?.["ai.rating"]).toBe("safe");
+    expect(copied?.["ai.pii"]).toBe("none");
+    expect(donor?.["ai.secret"]).toBe("api_key");
+    expect(copied?.["ai.hold"]).toBeUndefined();
 
     const third = await putImage(harness, "images/phash-c.jpg", different);
-    expect(harness.calls).toHaveLength(2);
+    expect(harness.calls).toHaveLength(3);
+    expect(Object.keys(harness.calls[2]!.body.questions)).toContain("kind");
     const fresh = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [third.key])).get(third.key);
     expect(fresh?.["ai.secret"]).toBe("api_key");
     expect(fresh?.["ai.phash"]).not.toBe(donor?.["ai.phash"]);
+  });
+
+  it("holds a pHash match when the safety call flags the new bytes", async () => {
+    let n = 0;
+    const harness = makeClassifierEnv(() => {
+      n += 1;
+      if (n === 1) {
+        return {
+          ...DECIDED,
+          answers: {
+            ...DECIDED.answers,
+            secret: jevAnswer("none", 0.95),
+            credential: jevAnswer("no", 0.95),
+          },
+        };
+      }
+      if (n === 2) {
+        return {
+          answers: {
+            secret: jevAnswer("token", 0.93),
+            credential: jevAnswer("yes", 0.93),
+          },
+        };
+      }
+      return { answers: {} };
+    });
+    const events: Array<{
+      kind: string;
+      model: string | null;
+      secret: string | null;
+      secretConfidence: string | null;
+    }> = [];
+    const db = harness.env.DB as unknown as { prepare: (sql: string) => unknown };
+    const prepare = db.prepare.bind(db);
+    db.prepare = (sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (!normalized.includes("file_events")) return prepare(sql);
+      let values: unknown[] = [];
+      return {
+        bind(...next: unknown[]) {
+          values = next;
+          return this;
+        },
+        async run() {
+          if (normalized.startsWith("INSERT INTO file_events")) {
+            events.push({
+              kind: String(values[3]),
+              model: (values[5] as string | null) ?? null,
+              secret: (values[13] as string | null) ?? null,
+              secretConfidence: (values[14] as string | null) ?? null,
+            });
+          }
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
+        async first() {
+          return null;
+        },
+      };
+    };
+
+    const original = jpegFrame(4);
+    const pasted = jpegFrame(4, "token-in-a-field");
+    expect(Buffer.from(original).equals(Buffer.from(pasted))).toBe(false);
+    await classifyAndStore(
+      harness.env,
+      harness.ws,
+      WORKSPACE,
+      "images/phash-hold-a.jpg",
+      original,
+      "image/jpeg",
+      {
+        enforceHold: true,
+      },
+    );
+    await classifyAndStore(
+      harness.env,
+      harness.ws,
+      WORKSPACE,
+      "images/phash-hold-b.jpg",
+      pasted,
+      "image/jpeg",
+      {
+        enforceHold: true,
+      },
+    );
+
+    expect(harness.calls).toHaveLength(3);
+    expect(Object.keys(harness.calls[0]!.body.questions)).toContain("kind");
+    expect(Object.keys(harness.calls[1]!.body.questions)).toEqual([
+      "rating",
+      "content",
+      "secret",
+      "credential",
+      "pii",
+    ]);
+    const safetyImage = stateImage(harness.calls[1]);
+    const safetyB64 = safetyImage?.image_url?.url?.slice("data:image/jpeg;base64,".length);
+    expect(Uint8Array.from(Buffer.from(safetyB64 ?? "", "base64"))).toEqual(pasted);
+    expect(harness.calls[2]!.body.questions.area).toMatchObject({ type: "box" });
+
+    const donor = (
+      await getMetadataForKeys(harness.env.DB, WORKSPACE, ["images/phash-hold-a.jpg"])
+    ).get("images/phash-hold-a.jpg");
+    const held = (
+      await getMetadataForKeys(harness.env.DB, WORKSPACE, ["images/phash-hold-b.jpg"])
+    ).get("images/phash-hold-b.jpg");
+    expect(held?.["ai.phash"]).toBe(donor?.["ai.phash"]);
+    expect(held?.["ai.kind"]).toBe("screenshot");
+    expect(held?.["ai.secret"]).toBe("token");
+    expect(held?.["ai.secret.confidence"]).toBe("high");
+    expect(held?.["ai.hold"]).toBe("pending");
+    expect(donor?.["ai.hold"]).toBeUndefined();
+    expect(events).toEqual([
+      { kind: "classified", model: CLASSIFIER_JEV_MODEL, secret: "none", secretConfidence: "high" },
+      {
+        kind: "reused_perceptual",
+        model: CLASSIFIER_JEV_MODEL,
+        secret: "token",
+        secretConfidence: "high",
+      },
+    ]);
   });
 
   it("stores a WebP fingerprint from the resized JPEG and reuses labels on that hash", async () => {
@@ -1325,19 +1465,26 @@ describe("safety flags", () => {
       opts,
     );
 
-    expect(harness.calls).toHaveLength(1);
+    expect(harness.calls).toHaveLength(2);
+    expect(Object.keys(harness.calls[1]!.body.questions)).toEqual([
+      "rating",
+      "content",
+      "secret",
+      "credential",
+      "pii",
+    ]);
     expect(first?.["ai.phash"]).toBe(imagePhash(same, "image/jpeg"));
     expect(second?.["ai.phash"]).toBe(first?.["ai.phash"]);
     expect(second?.["ai.kind"]).toBe("screenshot");
     expect(second?.["ai.surface"]).toBe("desktop");
     expect(second?.["ai.screen"]).toBe("settings");
-    expect(second?.["ai.secret"]).toBeUndefined();
-    expect(second?.["ai.rating"]).toBeUndefined();
+    expect(second?.["ai.secret"]).toBe("api_key");
+    expect(second?.["ai.rating"]).toBe("explicit");
     const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, ["shots/after.webp"])).get(
       "shots/after.webp",
     );
     expect(stored?.["ai.phash"]).toBe(first?.["ai.phash"]);
-    expect(stored?.["ai.secret"]).toBeUndefined();
+    expect(stored?.["ai.secret"]).toBe("api_key");
 
     const third = await classifyAndStore(
       harness.env,
@@ -1348,7 +1495,7 @@ describe("safety flags", () => {
       "image/webp",
       opts,
     );
-    expect(harness.calls).toHaveLength(2);
+    expect(harness.calls).toHaveLength(3);
     expect(third?.["ai.phash"]).toBe(imagePhash(different, "image/jpeg"));
     expect(third?.["ai.phash"]).not.toBe(first?.["ai.phash"]);
     expect(third?.["ai.secret"]).toBe("api_key");

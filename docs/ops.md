@@ -1375,6 +1375,23 @@ Decisions call times out at 8s (`CLASSIFIER_TIMEOUT_MS`). The two budgets
 are separate, so a slow resize cannot spend the model's time. A resize
 timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
 
+### Reuse
+
+Identical bytes reuse a stored result and do not call the model. The match
+is the content hash. Display labels and safety flags both copy, and a hold
+follows those flags.
+
+An equal pHash is a different file. The worker copies `ai.kind`,
+`ai.surface`, `ai.screen`, and `ai.ready` from the donor. It then asks
+`rating`, `content`, `secret`, `credential`, and `pii` on these pixels.
+The hold uses that answer. The event is `reused_perceptual`. Its safety
+columns are that call's answers, and its model id is the model that ran.
+
+Output tokens are free. The image is still billed, so the call costs nearly
+as much as a full classification. It skips the display questions. `screen`
+is the largest of those. A file with no image the provider can see stays
+`ai.classifier=skipped`. It does not take the donor's labels instead.
+
 ### Held uploads
 
 A stored decision with a `high` `ai.secret` other than `none`, or a `high`
@@ -1432,6 +1449,8 @@ only when it has an `ai.hold` row and the blob is `held`. Deleting the file,
 or the retention sweep, drops its content hash, so it leaves that list.
 Classification appends `classified`,
 `reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
+`reused_exact` copies safety flags and does not call the model.
+`reused_perceptual` records the safety answers from the pHash call.
 New bytes still clear the current `ai.*` rows and can be held again. The
 log keeps the earlier row. Deleting the file, or the retention sweep, does
 not delete the log. Workspace teardown does. A migration turns each

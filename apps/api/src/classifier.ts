@@ -25,12 +25,13 @@
  * (`classified`, `reused_exact`, `reused_perceptual`, `skipped`, `failed`).
  * The log keeps the earlier attempt after those rows are cleared.
  *
- * Before calling, a finished classification in the same workspace can stand
- * in: identical bytes reuse all rows (including safety flags and holds); an
- * exactly equal pHash reuses only the display labels. PNG and JPEG are hashed
- * from the upload. WebP, GIF, and AVIF are hashed from the PNG or JPEG the
- * resize step already produced. A Luna WebP is sent as-is, so it still
- * has no hash.
+ * Before calling, identical bytes (the same content hash) reuse every row,
+ * including safety flags, and skip the model. An exactly equal pHash reuses
+ * only the display labels, then asks the safety questions on these pixels.
+ * The hold uses that answer. PNG and JPEG are hashed from the upload. WebP,
+ * GIF, and AVIF are hashed from the PNG or JPEG the resize step already
+ * produced. A Luna WebP is sent as-is, so it still has no hash. A file with
+ * no pixels the provider can see is skipped and does not take those labels.
  *
  * Optional Luna path (`v4`, `CLASSIFIER_PROVIDER=luna` or Flagship
  * `llm-file-classifier-luna`) uses the same endpoint without resizing and
@@ -681,21 +682,30 @@ function aspectOf(width: number, height: number): "portrait" | "landscape" | "sq
   return "square";
 }
 
+/** Questions a pHash hit still asks. Display labels are copied instead. */
+const SAFETY_QUESTION_IDS = ["rating", "content", "secret", "credential", "pii"] as const;
+
 /**
  * The closed-enum questions the decision model answers, in one request.
  * Safety flags are separate questions so a PII hit cannot become a secret,
  * and a violent image is not scored as sexually explicit.
  */
-export function buildClassifierQuestions(): Record<string, JevChoiceQuestion> {
+export function buildClassifierQuestions(
+  ids: readonly string[] = Object.keys(CLASSIFIER_FIELDS),
+): Record<string, JevChoiceQuestion> {
   return Object.fromEntries(
-    Object.entries(CLASSIFIER_FIELDS).map(([id, field]) => [
-      id,
-      {
-        type: "choice" as const,
-        instructions: field.instructions,
-        criteria: { ...field.criteria },
-      },
-    ]),
+    ids.map((id) => {
+      const field = CLASSIFIER_FIELDS[id];
+      if (!field) throw new Error(`unknown classifier question ${id}`);
+      return [
+        id,
+        {
+          type: "choice" as const,
+          instructions: field.instructions,
+          criteria: { ...field.criteria },
+        },
+      ];
+    }),
   );
 }
 
@@ -965,13 +975,14 @@ export function buildDecideRequest(
   state: ClassifierState,
   provider: ClassifierProvider = "jev",
   image?: DecisionImagePart,
+  questions?: Record<string, JevChoiceQuestion>,
 ): ClassifierDecideRequest {
   return {
     stage: "decide",
     model: provider === "luna" ? CLASSIFIER_LUNA_MODEL : CLASSIFIER_JEV_MODEL,
     state,
     ...(image ? { image } : {}),
-    questions: buildClassifierQuestions(),
+    questions: questions ?? buildClassifierQuestions(),
   };
 }
 
@@ -1302,10 +1313,11 @@ async function decideImage(
   provider: ClassifierProvider,
   signal: AbortSignal,
   prepared: PreparedClassifierImage & { image: DecisionImagePart },
+  questions?: Record<string, JevChoiceQuestion>,
 ): Promise<Record<string, string> | undefined> {
   const state = buildClassifierState(key, contentType, bytes);
   if (prepared.note) state.note = prepared.note;
-  const request = buildDecideRequest(state, provider, prepared.image);
+  const request = buildDecideRequest(state, provider, prepared.image, questions);
   const decided = parseJevAnswers(await run(request, { signal }), { minConfidence });
 
   const meta: Record<string, string> = {
@@ -1462,13 +1474,12 @@ function perceptualReuseMeta(
   return meta;
 }
 
-/** Display-label reuse for an equal pHash. Does not copy safety flags. */
-async function matchPerceptualReuse(
+/** Display labels for an equal pHash. Safety flags are not on this copy. */
+async function findPerceptualDisplay(
   env: Env,
   workspaceName: string,
   key: string,
   phash: string,
-  bytes: Uint8Array,
 ): Promise<Record<string, string> | undefined> {
   const hits = await findObjectsByMetadata(
     dbFor(env),
@@ -1479,11 +1490,7 @@ async function matchPerceptualReuse(
   for (const hit of hits) {
     if (hit.key === key) continue;
     const meta = perceptualReuseMeta(hit.metadata, phash);
-    if (!meta) continue;
-    console.log({ event: "classifier_reused", match: "phash", workspace: workspaceName });
-    const stored = await storeDecision(env, workspaceName, key, meta);
-    await recordClassificationEvent(env, workspaceName, key, bytes, "reused_perceptual", stored);
-    return stored;
+    if (meta) return meta;
   }
   return undefined;
 }
@@ -1513,8 +1520,9 @@ async function finishReused(
 
 /**
  * A prior result that can replace the Decisions call, plus the pHash to
- * store when the call still has to run. Fail-soft: a lookup error falls
- * through to the model.
+ * store when the call still has to run. An equal pHash returns display
+ * labels only (`display`); the caller still asks the safety questions.
+ * Fail-soft: a lookup error falls through to the model.
  */
 async function tryReuseClassification(
   env: Env,
@@ -1522,7 +1530,12 @@ async function tryReuseClassification(
   key: string,
   bytes: Uint8Array,
   contentType: string,
-): Promise<{ meta?: Record<string, string>; hold: boolean; phash?: string }> {
+): Promise<{
+  meta?: Record<string, string>;
+  hold: boolean;
+  phash?: string;
+  display?: Record<string, string>;
+}> {
   try {
     const db = dbFor(env);
     const [sha, recorded, own] = await Promise.all([
@@ -1548,8 +1561,8 @@ async function tryReuseClassification(
     }
 
     if (phash) {
-      const meta = await matchPerceptualReuse(env, workspaceName, key, phash, bytes);
-      if (meta) return { meta, hold: false };
+      const display = await findPerceptualDisplay(env, workspaceName, key, phash);
+      if (display) return { hold: false, phash, display };
     }
     return { hold: false, phash };
   } catch (err) {
@@ -1630,23 +1643,12 @@ export async function classifyAndStore(
     }
 
     let phash = reused.phash;
+    let display = reused.display;
     if (!phash && prepared.hashable) {
       phash = imagePhash(prepared.hashable.bytes, prepared.hashable.contentType);
       if (phash) {
         try {
-          const meta = await matchPerceptualReuse(env, workspaceName, key, phash, bytes);
-          if (meta) {
-            return finishReused(
-              env,
-              ws,
-              workspaceName,
-              key,
-              meta,
-              false,
-              deps?.enforceHold === true,
-              contentSha256,
-            );
-          }
+          display = await findPerceptualDisplay(env, workspaceName, key, phash);
         } catch (err) {
           console.error({ event: "classifier_reuse_failed", workspace: workspaceName, err });
         }
@@ -1657,13 +1659,21 @@ export async function classifyAndStore(
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
     const modelController = new AbortController();
+    const questions = display ? buildClassifierQuestions(SAFETY_QUESTION_IDS) : undefined;
     let meta: Record<string, string> | undefined;
     try {
       meta = await withDeadline(
-        decideImage(run, key, bytes, contentType, minConfidence, provider, modelController.signal, {
-          ...prepared,
-          image: prepared.image,
-        }),
+        decideImage(
+          run,
+          key,
+          bytes,
+          contentType,
+          minConfidence,
+          provider,
+          modelController.signal,
+          { ...prepared, image: prepared.image },
+          questions,
+        ),
         timeoutMs,
         () => modelController.abort(),
         "classifier timed out",
@@ -1685,11 +1695,21 @@ export async function classifyAndStore(
         bytes,
       );
     }
+    if (display) {
+      console.log({ event: "classifier_reused", match: "phash", workspace: workspaceName });
+      meta = { ...display, ...meta };
+    }
     if (phash) meta[PHASH_META_KEY] = phash;
     const stored = await storeDecision(env, workspaceName, key, meta);
-    await recordClassificationEvent(env, workspaceName, key, bytes, "classified", stored, {
-      model: classifierModel(provider),
-    });
+    await recordClassificationEvent(
+      env,
+      workspaceName,
+      key,
+      bytes,
+      display ? "reused_perceptual" : "classified",
+      stored,
+      { model: classifierModel(provider) },
+    );
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.
     const { applyUploadHold, resyncCommentAfterClassification } =

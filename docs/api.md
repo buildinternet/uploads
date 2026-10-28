@@ -340,7 +340,10 @@ The same call, when it does run, also writes internal `ai.rating`,
 enum is omitted, and so is its confidence key. A stored safety flag stays
 until a later classification writes that key, including a confident `none`.
 A miss leaves the previous value. A skip does not write one. Re-uploading
-identical bytes does not clear a flag. New bytes clear every `ai.*` row
+identical bytes does not clear a flag. The same content hash on another key
+reuses the flags with no model call. An equal perceptual hash reuses the
+display labels and writes the flags from a safety-question call on the new
+bytes. New bytes clear every `ai.*` row
 before classification runs, so labels from the old bytes never remain. The labeler does not write
 `ai.tags` or `ai.summary` (older rows may still have them). A Luna
 Decisions try writes `ai.classifier=v4` and the same enums. Luna does not
