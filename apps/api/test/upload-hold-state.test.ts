@@ -249,6 +249,24 @@ describe("blob hold", () => {
     sqlite.close();
   });
 
+  it("drops a gate row when the held bytes are already gone", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const env = envFor(sqlite, new FakeR2Bucket());
+    await db
+      .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', ?)`)
+      .bind("acme/gone.png")
+      .run();
+    await deleteObject(env, ws, "gone.png", "acme");
+    expect(
+      await db
+        .prepare(`SELECT object_key FROM read_gate WHERE object_key = ?`)
+        .bind("acme/gone.png")
+        .first(),
+    ).toBeNull();
+    sqlite.close();
+  });
+
   it("gates a held key when put, promote, or attach writes it again", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     const db = database(sqlite);

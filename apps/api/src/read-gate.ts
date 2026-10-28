@@ -20,15 +20,42 @@ export async function hostedGateObjectKeys(
   keys: string[],
 ): Promise<string[]> {
   const resolver = createLaneResolver(env, ws);
+  let activePrefix: string | null | undefined;
   const out = new Set<string>();
   for (const key of keys) {
     const lane = await resolver.resolve(key);
-    if (!lane || !isSharedLane(lane.config)) continue;
-    const prefix = lane.config.prefix ?? "";
+    // A moved hold is gone from every public lane. The URL it had is the
+    // active lane's prefix, which is where delete and a re-hold must look.
+    const prefix = lane
+      ? isSharedLane(lane.config)
+        ? (lane.config.prefix ?? "")
+        : null
+      : await sharedActivePrefix();
+    if (prefix === null) continue;
     out.add(`${prefix}${key}`);
     out.add(`${prefix}${posterKeyFor(key)}`);
   }
   return [...out];
+
+  async function sharedActivePrefix(): Promise<string | null> {
+    if (activePrefix === undefined) {
+      const config = await resolver.activeConfig();
+      activePrefix = isSharedLane(config) ? (config.prefix ?? "") : null;
+    }
+    return activePrefix;
+  }
+}
+
+/** Public keys for objects just written to `config`. No storage probe. */
+export function gateObjectKeysOnLane(
+  config: Parameters<typeof isSharedLane>[0] & { prefix?: string },
+  keys: string[],
+): string[] {
+  if (!isSharedLane(config)) return [];
+  const prefix = config.prefix ?? "";
+  const out: string[] = [];
+  for (const key of keys) out.push(`${prefix}${key}`, `${prefix}${posterKeyFor(key)}`);
+  return out;
 }
 
 export function readGateInserts(db: D1Queryable, objectKeys: string[]) {
