@@ -86,14 +86,27 @@ API wrangler config), the **D1 Migrations** GitHub Actions workflow
 token must be allowed to edit D1). Apply is replay-safe. You can also run the
 workflow manually via **Actions → D1 Migrations → Run workflow**.
 
-Workers Builds still deploys each app from its directory on push to main; if
-the API build command is `pnpm run deploy` / `deploy:api`, migrations run in
-that path too. Prefer **additive** migrations so “migrate then deploy” stays
-safe; destructive changes need a deliberate reverse order and should not rely
-on the default pipeline.
+Workers Builds still deploys each app from its directory on push to main.
+`uploads-read-gate` is the exception: it deploys from the repo root, below.
+If the API build command is `pnpm run deploy` / `deploy:api`, migrations run
+in that path too. Prefer **additive** migrations so “migrate then deploy”
+stays safe; destructive changes need a deliberate reverse order and should
+not rely on the default pipeline.
 
 A push does not preview `uploads-web`, `uploads-auth`, or `uploads-api`. See
 [previews.md](previews.md#no-automatic-branch-preview).
+
+### The `apps/read-gate` worker
+
+`uploads-read-gate` serves `store.uploads.sh`, `storage.uploads.sh`, and
+`embed.uploads.sh`. It 404s a safety hold and forwards every other request.
+Workers Builds deploys it from the repo root with no build command. The
+deploy command is `pnpm run deploy:read-gate`. Watch paths are
+`apps/read-gate/**`, `pnpm-lock.yaml`, and `pnpm-workspace.yaml`.
+Non-production branch builds are off. `apps/read-gate/wrangler.jsonc` has
+no `routes` array, so a deploy does not attach or remove a host. The root
+`pnpm run deploy` script does not deploy this Worker. Behavior is in
+[ops.md](ops.md#hosted-read-gate).
 
 Use `pnpm run deploy`, not `pnpm deploy` — the bare form is pnpm's own
 command.

@@ -67,8 +67,8 @@ tenants (and their budgets and key policies) apart.
 
 This repo is the source of the canonical deployment at
 [uploads.sh](https://uploads.sh): the API worker, auth worker, MCP server, the
-Astro web app, and the `@buildinternet/uploads` CLI (published to npm from
-[`packages/uploads`](packages/uploads)).
+hosted read-gate Worker, the Astro web app, and the `@buildinternet/uploads`
+CLI (published to npm from [`packages/uploads`](packages/uploads)).
 
 ## What it looks like
 
@@ -246,6 +246,13 @@ REST routes are in [docs/api.md](docs/api.md).
 Each worker and the web app deploy separately. All storage access goes through
 `createStorage()` in `packages/storage` — adding a provider is one new case
 plus peer deps, no API changes.
+
+Hosted file bytes stay on the shared `uploads-default` bucket.
+`store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh` are served
+through `uploads-read-gate` (`apps/read-gate`). The Worker 404s a safety
+hold and passes every other request through to R2. It does not gate private
+files, and it does not run for a bring-your-own bucket. Operator notes are
+in [docs/ops.md](docs/ops.md#hosted-read-gate).
 
 ## Docs
 

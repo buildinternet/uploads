@@ -79,7 +79,12 @@ attachments comment prefer `embedUrl` for `<img src>`.
 | Worker       | `EMBED_PUBLIC_BASE_URL`         | Unset → default embed host for known storage hosts; empty → never emit `embedUrl`; URL → use as embed base |
 | CLI / client | `UPLOADS_EMBED_PUBLIC_BASE_URL` | Same semantics client-side (also used if an older API omits `embedUrl`)                                    |
 
-No Worker proxies image bytes — dual host is DNS + zone rules only.
+The hosts stay R2 custom domains. Cache-Control on `embed.uploads.sh` is the
+zone rule above, not a Worker. `uploads-read-gate` serves
+`store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`. On a miss
+it returns the original request, so R2 still serves the bytes, including
+Range and validators. It 404s a safety hold only. See
+[Hosted read gate](#hosted-read-gate).
 
 ## Public file page performance
 
@@ -148,9 +153,11 @@ The operator probe returned `ok: true` for all three hosts the same day. The `ac
 
 SVG and XML (`image/svg+xml`, `application/xml`, `text/xml`) are gated
 uploads: a lane only accepts them once its public host is **verified** to
-serve them behind a sandboxing Content-Security-Policy — these are bare R2
-custom domains with no Worker in front, so a malicious SVG's script would
-otherwise run with an origin. See
+serve them behind a sandboxing Content-Security-Policy. The hosted hosts are
+R2 custom domains. `uploads-read-gate` sits in front of them and only
+404s a safety hold, then passes the object through. It does not set a
+Content-Security-Policy, so a malicious SVG's script would still run with
+that origin unless the zone Transform Rule is in place. See
 `docs/superpowers/specs/2026-09-02-svg-xml-active-content-design.md` for the
 full design; `apps/api/src/active-content.ts` is the gate every write path
 checks, `apps/api/src/active-content-hosts.ts` is the hosted-lane half below.
@@ -260,7 +267,7 @@ Two mechanisms, both driven from `scripts/cf-error-pages/`:
 | Mechanism          | Covers                                                                                    | Where it lives         |
 | ------------------ | ----------------------------------------------------------------------------------------- | ---------------------- |
 | Error Pages        | Errors Cloudflare generates: 5xx/1xxx classes, WAF and IP blocks, rate limits, challenges | `PAGES` in `pages.mjs` |
-| Custom Error Rules | Errors an **origin** returns — R2 404 and 400 on the three storage hosts                  | `RULES` in `pages.mjs` |
+| Custom Error Rules | Origin 404 and 400 on the three storage hosts, including a read-gate 404                  | `RULES` in `pages.mjs` |
 
 ```bash
 node scripts/cf-error-pages/build.mjs      # render dist/*.html (gitignored)
@@ -282,6 +289,9 @@ Notes:
 - The custom error rules are scoped to `storage.` / `store.` / `embed.uploads.sh`
   on purpose: `uploads.sh` already serves its own branded 404, and the
   `api.` / `auth.` / `agents.` hosts must keep returning JSON error envelopes.
+- A 404 from `uploads-read-gate` on these three hosts is an origin 404, so a
+  safety hold shows the same branded page as a missing file. See
+  [Hosted read gate](#hosted-read-gate).
 - `waf_challenge` (the legacy WAF captcha) is not settable on the Pro plan.
   Cloudflare answers `success: true` and keeps the default; `deploy.mjs` reads
   each page back and reports that as `SKIPPED` rather than a false success. The
@@ -1410,15 +1420,20 @@ when the key is a PR or issue attachment. A held file is left out of the
 comment (a count line replaces it), withheld from public feeds and
 galleries, and 401s on `/public/files`.
 
-Hosted storage is an R2 custom domain. `uploads-read-gate` can 404 a held
-key on that route, but the routes are not attached yet, so the bytes still
-have to move (`held-storage.ts`). On a hosted (shared-lane) key
-the hold copies the object and its poster into `UPLOADS_HELD` (bucket
-`uploads-held`, preview `uploads-preview-held`) at `<workspace>/<key>`,
-deletes the public copy, and writes `ai.hold.moved=1`. Never give that
-bucket a custom domain or an r2.dev URL. The edge may serve its cached copy
-for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's Camo can keep its own
-copy longer. A BYO key is not moved: the customer's domain serves it.
+On a hosted (shared-lane) key the hold copies the object and its poster into
+`UPLOADS_HELD` (bucket `uploads-held`, preview `uploads-preview-held`) at
+`<workspace>/<key>`, deletes the public copy, and writes `ai.hold.moved=1`
+(`held-storage.ts`). That byte move stays as defense in depth. The read-gate
+Worker fails open when D1 errors, and it does not bind the held bucket.
+`moveToHeld` still runs after the gate rows are written.
+
+Never give the held bucket a custom domain or an r2.dev URL. The edge may
+serve its cached copy for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's
+Camo can keep its own copy longer. A BYO key is not moved, and it does not
+get a `read_gate` row. uploads.sh still hides it on the comment, feeds,
+galleries, and the public file page. The URL on the customer's domain keeps
+serving the bytes. The Worker never runs there.
+
 Approval copies the bytes back to the same key before it records the
 release, so links work again. An identical re-upload of a held key is
 moved straight back out. An identical re-upload of a released key stays
@@ -1430,44 +1445,65 @@ prefix rotation does not move held copies.
 
 ### Hosted read gate
 
-`uploads-read-gate` (`apps/read-gate`) looks up a blocked key and, on a miss
-or a D1 error, returns `fetch(request)` so R2 still serves Range, validators,
-content type, and CORS. OPTIONS skips the lookup. A hit answers the same
-JSON 404 as `NotFoundError`. The Worker binds production D1 only. Do not add
-`UPLOADS_HELD`.
+`uploads-read-gate` (`apps/read-gate`) serves `store.uploads.sh`,
+`storage.uploads.sh`, and `embed.uploads.sh`. It gates safety holds only.
+It does not gate private files.
+Private-repo images stay cookie-less public reads, which is what GitHub Camo
+needs. The Worker binds production D1 only. Do not add `UPLOADS_HELD`.
 
-`wrangler.jsonc` has no `routes` array. `wrangler deploy` publishes routes
-only when that list is non-empty, so a deploy neither attaches nor deletes
-them. Add each zone route by hand on the `uploads.sh` zone. These are routes,
-not custom domains (the hosts are already R2 custom domains). Lowest traffic
-first, embed last:
+It reads D1 `read_gate`, primary key `(lane, object_key)`. The lane value is
+`hosted` for every public host. The object key is the path in the URL,
+workspace prefix included. A row means block. The lookup uses
+`DB.withSession("first-unconstrained")` when the binding supports sessions.
+A decision is cached in the Cache API for 30 seconds, on that request's
+host, under `/__read-gate/<key>`. A request for that path 404s in the Worker
+and is not forwarded to R2. A D1 error fails open and is not cached. OPTIONS
+skips the lookup. Anything else returns `fetch(request)`, so R2 keeps Range,
+validators, content type, and CORS.
 
-1. `store.uploads.sh/*`
-2. `storage.uploads.sh/*`
-3. `embed.uploads.sh/*`
+A blocked key gets status 404 and the API not-found JSON envelope
+(`NotFoundError`). The zone custom error rule `file_not_found` replaces that
+404 on `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh` with
+the branded missing-file page ("That file isn’t here"). A gated key and a
+missing file look the same to a visitor. See
+[Cloudflare error pages](#cloudflare-error-pages).
 
-Before the next host, confirm the route's subrequest reaches R2. `curl -sI`
-a public object. The response keeps that object's `etag`, `content-type`,
-and `accept-ranges: bytes`. `Range: bytes=0-0` returns 206. An unknown key
-returns R2's own 404, not the JSON `not_found` envelope. `OPTIONS` returns
-the same CORS headers as before the route.
+`/cdn-cgi/image/…/<key>` is gated too. The Worker reads the object key out
+of the transform URL, so the transform request itself 404s when the source
+key is blocked. The transform's own origin fetch of `/<key>` also passes
+through this Worker.
 
-Before attaching `embed.uploads.sh`, shadow one lower-traffic host and check
-three things:
+The API writes and deletes `read_gate` rows in the same D1 batch as the hold
+change (`applyUploadHold`, approve, and hold-again). The rows cover the key
+being held and every other key in the workspace that shares its content hash
+and already has its own `ai.hold` row, plus each poster (`posterKeyFor`,
+which is also the PDF preview). A Slack PNG is not its own object. Deleting
+the file removes the rows. The retention purge deletes them by primary key
+in the same batch as metadata and content hashes. Workspace teardown deletes
+the workspace's prefix. The object key includes the workspace prefix
+(`<workspace>/<key>`).
 
-- Gate a test key, then request `/cdn-cgi/image/format=png/<key>`. Tail the
-  Worker. Note whether that request runs there, and whether the transform's
-  own fetch of `/<key>` does too.
-- Request the bare object twice. The second request should be a Cache API
-  hit (`__read-gate` on that host), not a second D1 read.
-- Measure the TTFB the Worker adds on that shadow host before attaching embed.
+A key left in the shared bucket after a switch to BYO still gets a row. Lane
+resolution is the same lookup `moveToHeld` uses. A key that resolves on a
+BYO lane does not.
 
-Rollback is deleting that host's route. Leave the Worker and the D1 rows in place.
+The three hosts are zone routes on R2 custom domains that already exist.
+`apps/read-gate/wrangler.jsonc` has no `routes` array. `wrangler deploy`
+publishes routes only when that list is non-empty, so a deploy neither
+attaches nor deletes them.
 
-Workers Builds, when the project is created: root directory `/`, no build
-command, deploy command `pnpm run deploy:read-gate`, non-production branch
-builds off. Watch `apps/read-gate/**`, `pnpm-lock.yaml`, and
-`pnpm-workspace.yaml` only.
+`EXTRA_HOSTED_HOSTS` is an optional comma-separated Worker var. It adds
+hostnames to the same `hosted` lane, for example a staging host. Those
+hosts use the same key parsing, including `/cdn-cgi/image`. An unknown host
+still passes through. The branded missing-file page covers the three public
+hosts. An extra hostname gets that page only when the zone rule lists it.
+
+Workers Builds deploys this Worker from the repo root. There is no build
+command. The deploy command is `pnpm run deploy:read-gate`. Non-production
+branch builds are off. Watch paths are only `apps/read-gate/**`,
+`pnpm-lock.yaml`, and `pnpm-workspace.yaml`. A push that does not touch
+those paths does not deploy it. The root `pnpm run deploy` script does not
+include this Worker.
 
 A new hold on the Jev path makes one more Decisions call: a Jev 1.14 box
 question for the one region around everything flagged
@@ -1720,6 +1756,6 @@ off reverts both.
 
 ## Deploys
 
-Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.
+Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets. The read-gate Worker is its own Workers Builds project (`pnpm run deploy:read-gate`), not part of `pnpm run deploy`.
 
 See also [workspaces.md](workspaces.md), [deploy.md](deploy.md), [releasing.md](releasing.md).

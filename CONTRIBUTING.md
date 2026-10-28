@@ -193,11 +193,13 @@ Production worker deploys normally happen through Cloudflare Workers Builds on
 push to `main`. `.github/workflows/d1-migrations.yml` applies remote D1
 migrations when `apps/api/migrations/**` changes. Manual deploys
 (`pnpm run deploy`, or `deploy:api` / `deploy:web` / `deploy:mcp` /
-`deploy:auth`) need `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in
-`.env`. Use `pnpm run deploy`, not bare `pnpm deploy` — that is pnpm's built-in.
+`deploy:auth` / `deploy:read-gate`) need `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` in `.env`. Use `pnpm run deploy`, not bare `pnpm deploy`
+— that is pnpm's built-in. `pnpm run deploy` does not deploy the read-gate
+Worker. That project is `pnpm run deploy:read-gate`.
 
-Pushing a branch does not preview the web, auth, or api workers. Upload a
-preview only when the change needs a live worker; the command is in
+Pushing a branch does not preview the web, auth, api, or read-gate workers.
+Upload a preview only when the change needs a live worker; the command is in
 [docs/previews.md](docs/previews.md#no-automatic-branch-preview).
 
 Full setup is in [docs/deploy.md](docs/deploy.md); the operator runbook is

@@ -47,6 +47,11 @@ with no way to renew it.
 So the design follows Camo's own model: a durable, unguessable URL with no
 auth gate. That's what the randomized prefix provides.
 
+The hosted read gate does not change that model. It 404s a safety hold. It
+does not check cookies, repo membership, or private visibility. A
+private-repo image stays a public read, which is what Camo sends when it
+refetches.
+
 ## Who can discover a URL
 
 The `<id>` appears only in the PR and issue surfaces that repo members can
