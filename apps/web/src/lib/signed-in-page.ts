@@ -207,6 +207,24 @@ export const INVITE_CSP = [
  * page-specific CSP. CSP must be a response header (not meta) so
  * `frame-ancestors` is enforced.
  */
+/**
+ * Workspace tabs that list uploaded files. Their HTML seeds file rows, and an
+ * upload can change at any moment, so they never take the short cache below.
+ */
+const FILE_TAB_RE =
+  /^\/account\/workspaces\/[^/]+\/(?:files|storage|screenshots|galleries|links)(?:\/|$)/;
+
+/**
+ * `Cache-Control` for an /account/* page. Most tabs get a 30s private cache
+ * so ClientRouter's hover prefetch is reused by the click that follows it
+ * (with `no-store` the browser discards the prefetched page). `private` keeps
+ * shared caches out, and `Vary: Cookie` (set alongside) keeps one signed-in
+ * user's page from answering for another cookie. File tabs stay `no-store`.
+ */
+export function accountPageCacheControl(pathname: string): string {
+  return FILE_TAB_RE.test(pathname) ? "no-store" : "private, max-age=30";
+}
+
 export function applyAuthSecurityHeaders(headers: Headers, csp: string): void {
   headers.set("Content-Security-Policy", csp);
   headers.set("Referrer-Policy", "no-referrer");

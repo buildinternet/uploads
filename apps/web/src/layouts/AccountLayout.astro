@@ -10,9 +10,9 @@
  * re-boot on `astro:page-load` (ClientRouter).
  */
 import { env } from "cloudflare:workers";
-import { sessionResultFromResponse, type SessionResult } from "../lib/auth-client";
-import { serverGetSession } from "../lib/auth-proxy";
+import { lookupServerSession } from "../lib/auth-proxy";
 import {
+  accountPageCacheControl,
   applyAuthSecurityHeaders,
   resolveSignedInOrigins,
   signedInCsp,
@@ -61,10 +61,12 @@ const pageHeading = title ?? (workspace || titles[section]);
 const docTitle = `${pageHeading} · uploads.sh`;
 
 const { authOrigin, apiOrigin } = resolveSignedInOrigins();
-// Header (not meta): frame-ancestors is ignored on meta CSP. Also sets
-// Cache-Control: no-store, so the per-request session reveal below is never
-// cached and served to another visitor.
+// Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
+// The session reveal below is per user: `private` keeps it out of shared
+// caches and `Vary: Cookie` out of another cookie's browser-cache hit.
+Astro.response.headers.set("Cache-Control", accountPageCacheControl(Astro.url.pathname));
+Astro.response.headers.set("Vary", "Cookie");
 
 // SSR-first session gate (issue #698). The web worker already receives the
 // host-only `uploads.sh` session cookie (it's what the per-page /me
@@ -85,9 +87,9 @@ if (sessionCookie.trim()) {
   // fallback in astro dev) instead of a fetch to the auth origin — the
   // binding forwards this request's cookie header itself (see
   // serverGetSession), so no cookie option is passed here.
-  const session = await serverGetSession(env, Astro.request)
-    .then(sessionResultFromResponse)
-    .catch((): SessionResult => ({ kind: "unavailable", reason: "network" }));
+  // Middleware starts this lookup before the page's own data fetches, so
+  // the two run in parallel instead of page data first, then session.
+  const session = await (Astro.locals.sessionLookup ?? lookupServerSession(env, Astro.request));
   if (session.kind === "signed_in") {
     // Serialized as a JS object literal (not a quoted string) so names/emails
     // with apostrophes need no quote-escaping; `<` is escaped so a stray

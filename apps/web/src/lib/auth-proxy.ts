@@ -24,6 +24,7 @@ import {
   timeOp,
   type TimingEnv,
 } from "@uploads/observability";
+import { sessionResultFromResponse, type SessionResult } from "./auth-client";
 import { rewriteOrigin, withInheritedCookie } from "./proxy-transport";
 
 export interface AuthProxyEnv extends TimingEnv {
@@ -185,6 +186,17 @@ export async function serverGetSession(
     }
     throw err;
   }
+}
+
+/**
+ * {@link serverGetSession} parsed into a `SessionResult`, with a thrown
+ * network failure mapped to "unavailable". Never rejects, so middleware can
+ * start it early and leave it on `locals` without an unhandled rejection.
+ */
+export function lookupServerSession(env: AuthProxyEnv, request: Request): Promise<SessionResult> {
+  return serverGetSession(env, request)
+    .then(sessionResultFromResponse)
+    .catch((): SessionResult => ({ kind: "unavailable", reason: "network" }));
 }
 
 /**

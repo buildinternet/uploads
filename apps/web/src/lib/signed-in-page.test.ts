@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  accountPageCacheControl,
   applyAuthSecurityHeaders,
   authPageCsp,
   devicePageCsp,
@@ -24,6 +25,26 @@ describe("resolveSignedInOrigins", () => {
 
   it("always resolves the api origin to the same-origin '/api' prefix (#731 phase D)", () => {
     expect(resolveSignedInOrigins().apiOrigin).toBe("/api");
+  });
+});
+
+describe("accountPageCacheControl", () => {
+  it("keeps tabs that list uploads uncached", () => {
+    for (const tab of ["files", "storage", "screenshots", "galleries", "links"]) {
+      expect(accountPageCacheControl(`/account/workspaces/acme/${tab}`)).toBe("no-store");
+    }
+    expect(accountPageCacheControl("/account/workspaces/acme/files/o/r/pull/12")).toBe("no-store");
+  });
+
+  it("gives other account pages a short private cache", () => {
+    for (const path of [
+      "/account/workspaces/acme/people",
+      "/account/workspaces/acme/settings/slack",
+      "/account/workspaces/files",
+      "/account/profile",
+    ]) {
+      expect(accountPageCacheControl(path)).toBe("private, max-age=30");
+    }
   });
 });
 

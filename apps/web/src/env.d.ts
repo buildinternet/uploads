@@ -23,3 +23,10 @@ interface Env {
   /** Kill switch for `Server-Timing` header emission only — slow-op logging is unaffected. */
   SERVER_TIMING_DISABLED?: string;
 }
+
+declare namespace App {
+  interface Locals {
+    /** Session lookup started by middleware for /account/* pages; awaited in AccountLayout. */
+    sessionLookup?: Promise<import("./lib/auth-client").SessionResult>;
+  }
+}

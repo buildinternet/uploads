@@ -12,6 +12,7 @@
  * @see https://isitagentready.com/.well-known/agent-skills/markdown-negotiation/SKILL.md
  */
 import { buildContentSignalHeader, convert } from "markdown-for-agents";
+import { isSignedInShellPath } from "./lib/signed-in-page";
 
 const SITE = "https://uploads.sh";
 
@@ -64,6 +65,10 @@ export async function withMarkdownNegotiation(
   request: Request,
   next: (request: Request) => Response | Promise<Response>,
 ): Promise<Response> {
+  // Signed-in shells have nothing for agents, and `Vary: Accept` would stop
+  // the browser reusing a hover prefetch: the prefetch and ClientRouter's
+  // fetch send different Accept headers.
+  if (isSignedInShellPath(new URL(request.url).pathname)) return next(request);
   const response = await next(request);
   const contentType = response.headers.get("Content-Type");
   const html = isHtmlContentType(contentType);
