@@ -137,4 +137,49 @@ describe("handleReadGate", () => {
     expect(puts).toEqual([cacheRequest("store.uploads.sh", "acme/shot.png").url]);
     vi.unstubAllGlobals();
   });
+
+  it("404s /__read-gate/ without forwarding to the origin", async () => {
+    const origin = vi.fn(async () => new Response("origin", { status: 200 }));
+    vi.stubGlobal("fetch", origin);
+    const { env, calls } = db(async () => ({ hit: 1 }));
+    const response = await handleReadGate(
+      new Request("https://embed.uploads.sh/__read-gate/acme%2Fshot.png/extra"),
+      env,
+      ctx(),
+    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: { code: "not_found", type: "not_found", message: "Not found." },
+    });
+    expect(origin).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("treats a cache hit without x-read-gate as a miss", async () => {
+    const origin = vi.fn(async () => new Response("bytes", { status: 200 }));
+    vi.stubGlobal("fetch", origin);
+    vi.stubGlobal("caches", {
+      default: {
+        async match() {
+          return new Response(null, { status: 404 });
+        },
+        async put() {},
+      },
+    });
+    let lookups = 0;
+    const { env } = db(async () => {
+      lookups += 1;
+      return { hit: 1 };
+    });
+    const response = await handleReadGate(
+      new Request("https://storage.uploads.sh/acme/shot.png"),
+      env,
+      ctx(),
+    );
+    expect(response.status).toBe(404);
+    expect(lookups).toBe(1);
+    expect(origin).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
 });

@@ -108,7 +108,9 @@ async function isBlocked(
 ): Promise<boolean> {
   const cachedRequest = cacheRequest(hostname, objectKey);
   const hit = await readCache(cachedRequest);
-  if (hit) return hit.headers.get("x-read-gate") === "block";
+  const mark = hit?.headers.get("x-read-gate");
+  if (mark === "block") return true;
+  if (mark === "allow") return false;
   try {
     const row = await gateDb(env)
       .prepare(`SELECT 1 AS hit FROM read_gate WHERE lane = ? AND object_key = ?`)
@@ -133,15 +135,22 @@ function heldNotFound(): Response {
   });
 }
 
+/** The Cache API key lives on the public host. Never forward that path to R2. */
+function isReservedGatePath(pathname: string): boolean {
+  return pathname === "/__read-gate" || pathname.startsWith("/__read-gate/");
+}
+
 export async function handleReadGate(
   request: Request,
   env: ReadGateEnv,
   ctx: GateContext,
 ): Promise<Response> {
+  const url = new URL(request.url);
+  if (isReservedGatePath(url.pathname)) return heldNotFound();
   if (request.method === "OPTIONS") return fetch(request);
   const objectKey = objectKeyFromUrl(request.url);
   if (!objectKey) return fetch(request);
-  if (await isBlocked(env, ctx, new URL(request.url).hostname, objectKey)) return heldNotFound();
+  if (await isBlocked(env, ctx, url.hostname, objectKey)) return heldNotFound();
   return fetch(request);
 }
 
