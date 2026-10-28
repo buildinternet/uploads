@@ -306,6 +306,14 @@ function LinksEmpty() {
   );
 }
 
+/**
+ * Titles already resolved this tab session, per workspace. Module state
+ * survives ClientRouter navigations, so coming back to Links paints the last
+ * known titles at once instead of the `owner/repo #123` fallback, while the
+ * usual request still refreshes them.
+ */
+const knownTitles = new Map<string, GithubTitleMap>();
+
 function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLinksProps) {
   const [state, setState] = useState<LinksState>(() => initialState ?? { status: "loading" });
   const [titles, setTitles] = useState<GithubTitleMap>({});
@@ -317,6 +325,14 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
   const requestedRefs = useRef(new Set<string>());
   // Refs whose failed batch was already re-armed once, so a dead route can't loop.
   const retriedRefs = useRef(new Set<string>());
+
+  useEffect(() => {
+    // After mount, not in the initial state: the server render has no titles,
+    // and hydration must match it.
+    const known = knownTitles.get(workspace);
+    if (known) setTitles((prev) => ({ ...known, ...prev }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     alive.current = true;
@@ -396,6 +412,7 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
         setTitles((prev) => {
           const next: GithubTitleMap = { ...prev };
           for (const map of maps) if (map) Object.assign(next, map);
+          knownTitles.set(workspace, next);
           return next;
         });
       },

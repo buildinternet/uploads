@@ -99,7 +99,12 @@ const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
 
       <div class="shell">
         <div class="layout">
-          <nav class="shell-side" id="shell-sidebar" aria-label="Admin sections">
+          <nav
+            class="shell-side"
+            id="shell-sidebar"
+            aria-label="Admin sections"
+            transition:persist="admin-sidebar"
+          >
             <ShellSidebar {...sidebarProps} />
           </nav>
 
@@ -155,6 +160,7 @@ const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
         mountId: "shell-sidebar",
         seedId: "shell-sidebar-seed",
         load: () => import("../components/shell/ShellSidebar").then((m) => m.ShellSidebar),
+        persist: true,
       });
 
       onAstroPageLoad(() => {

@@ -72,6 +72,16 @@ export interface TitleInfo {
 
 const OPEN_TTL = 3600;
 const SETTLED_TTL = 86400;
+/**
+ * Settled (closed/merged) member entries. A merged PR's title and state
+ * almost never change again, and an `issues`/`pull_request` webhook clears
+ * the entry when they do (`titleCacheKeys`) on repos with the App installed.
+ * A miss costs a few sequential GitHub calls, which made the Links tab's
+ * titles take ~2s once the day-long entries for older PRs had lapsed.
+ * Open entries keep `OPEN_TTL`: a linked repo without the App sends no
+ * webhooks, and an open PR's state does change.
+ */
+const MEMBER_SETTLED_TTL = 7 * 86400;
 const NEGATIVE_TTL = 3600;
 /**
  * Outlives every entry stamped before a bump: positive entries live at most
@@ -176,12 +186,13 @@ async function cacheOutcome(
   key: string,
   outcome: FetchOutcome,
   epoch: string | null = null,
+  settledTtl: number = SETTLED_TTL,
 ): Promise<TitleInfo | null> {
   // Only public entries pass an epoch; omitting `e` otherwise keeps the
   // stored shape unchanged for member entries and for repos never bumped.
   const stamp = epoch === null ? {} : { e: epoch };
   if (outcome.kind === "ok") {
-    const ttl = outcome.info.state === "open" ? OPEN_TTL : SETTLED_TTL;
+    const ttl = outcome.info.state === "open" ? OPEN_TTL : settledTtl;
     await env.GITHUB_CACHE.put(key, JSON.stringify({ v: outcome.info, ...stamp }), {
       expirationTtl: ttl,
     });
@@ -263,7 +274,7 @@ async function resolveMember(ctx: BatchContext, ref: string): Promise<TitleInfo 
     }
   }
 
-  return cacheOutcome(env, cacheKey, outcome);
+  return cacheOutcome(env, cacheKey, outcome, null, MEMBER_SETTLED_TTL);
 }
 
 /**

@@ -35,7 +35,7 @@ describe("resolveTitles (member audience, linked repo)", () => {
     expect(kv.store.get("ghref:o/r#9")?.expirationTtl).toBe(3600);
   });
 
-  it("marks merged PRs and caches closed/merged for 24h", async () => {
+  it("marks merged PRs and caches them for 7 days", async () => {
     const kv = new FakeKv();
     seedHomeToken(kv);
     const fetchImpl = (async () =>
@@ -45,7 +45,7 @@ describe("resolveTitles (member audience, linked repo)", () => {
       )) as typeof fetch;
     const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, fetchImpl);
     expect(out["o/r#9"]).toEqual({ title: "Fix the thing", state: "merged", kind: "pull" });
-    expect(kv.store.get("ghref:o/r#9")?.expirationTtl).toBe(86400);
+    expect(kv.store.get("ghref:o/r#9")?.expirationTtl).toBe(7 * 86400);
   });
 
   it("serves the ref cache without any fetch", async () => {

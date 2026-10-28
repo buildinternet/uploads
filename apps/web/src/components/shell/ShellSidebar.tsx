@@ -67,6 +67,7 @@ import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import { SidebarUsage } from "./SidebarUsage";
 import {
   accountNavSections,
+  markCurrentPath,
   workspaceSwitcherData,
   type AccountSectionId,
   type ShellNavIcon,
@@ -142,12 +143,19 @@ function ProBadge(): ReactNode {
 
 /** Bridges the Astro header's mobile button into the provider's toggle. */
 function SidebarToggleBridge(): null {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, setOpenMobile } = useSidebar();
   useEffect(() => {
     const handler = (): void => toggleSidebar();
     window.addEventListener(SIDEBAR_TOGGLE_EVENT, handler);
     return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, handler);
   }, [toggleSidebar]);
+  // The island persists across navigations now, so the mobile sheet no
+  // longer closes by being re-mounted: close it when a navigation starts.
+  useEffect(() => {
+    const close = (): void => setOpenMobile(false);
+    document.addEventListener("astro:before-preparation", close);
+    return () => document.removeEventListener("astro:before-preparation", close);
+  }, [setOpenMobile]);
   return null;
 }
 
@@ -261,6 +269,22 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
   const { account } = props;
   const [sections, setSections] = useState<ShellNavSection[]>(props.sections);
   const [switcher, setSwitcher] = useState<ShellSwitcher | null>(props.switcher);
+
+  // The layouts persist this island across ClientRouter swaps and re-render
+  // it with each page's seed. Admin sections come straight from that seed.
+  useEffect(() => {
+    if (!account) setSections(props.sections);
+  }, [account, props.sections]);
+
+  // Light up the clicked tab while the next page is still being fetched.
+  useEffect(() => {
+    const onNavigate = (event: Event): void => {
+      const { to } = event as Event & { to: URL };
+      if (to.origin === location.origin) setSections((prev) => markCurrentPath(prev, to.pathname));
+    };
+    document.addEventListener("astro:before-preparation", onNavigate);
+    return () => document.removeEventListener("astro:before-preparation", onNavigate);
+  }, []);
 
   // Account shell only: the URL carries no workspace on personal routes, so
   // paint from the membership cache first and revalidate after the session.
