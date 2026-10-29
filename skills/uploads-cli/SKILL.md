@@ -773,9 +773,11 @@ comments omit them. A high-confidence `ai.secret` (not `none`), or a
 high-confidence `ai.pii` of `identity_document|financial` (`identity_document`
 includes a written-out government ID number such as an SSN), holds the
 file (`ai.hold=pending`) when it was uploaded with CLI 0.59.0 or newer: the managed comment leaves it out and shows a held
-count, public feeds and galleries withhold it, and its `/f/` page asks for
-sign-in. On hosted storage the raw URL returns 404 until approval, which
-restores the same URL. Check the file, then run
+count, and public feeds and galleries withhold it. The `/f/` page asks a
+visitor to sign in, and shows the real file to a signed-in member of the
+workspace. On hosted storage an image URL returns a Held for review card
+until approval, and any other raw URL returns 404. Approval restores the
+same URL. Check the file, then run
 `uploads approve --pr <n>` to list held files and `--all` to approve them,
 or `uploads approve <key>`. If the file does show a credential, rotate it and
 replace or delete the file instead of approving. The classifier

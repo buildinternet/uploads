@@ -2357,7 +2357,7 @@ export interface StagedFile {
   path?: string;
   /** `gh.branch` when the object carries it. Absent on older staged files. */
   branch?: string;
-  /** Held for review (`ai.hold=pending`): its bytes are private until `uploads approve`. */
+  /** Held for review (`ai.hold=pending`): public reads stay gated until `uploads approve`. */
   held?: true;
 }
 
@@ -2954,11 +2954,13 @@ uploads approve <key...> [--dry-run]
 
 Release uploads held for review. The classifier holds a file it thinks shows
 a secret (an API key, a password, a token) or sensitive personal data (an ID
-document, a card number). A held file stays out of the managed PR comment,
-public feeds, galleries, and its /f/ page until a workspace member approves
-it. On hosted storage its raw URL returns 404 while it is held, and comes
-back at the same URL on approval. A file in your own bucket keeps serving
-from your domain.
+document, a card number). A held file stays out of the managed PR comment
+and out of public feeds and galleries until a workspace member approves it.
+The file page shows the real file to a signed-in member of the workspace.
+On hosted storage an image URL returns a Held for review card while the
+file is held, and any other raw URL returns 404. Approval brings the file
+back at the same URL. A file in your own bucket keeps serving from your
+domain.
 
 Check the file first. If it does show a credential, rotate the credential
 and replace or delete the file instead of approving it.
