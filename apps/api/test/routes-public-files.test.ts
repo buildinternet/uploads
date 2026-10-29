@@ -1122,6 +1122,25 @@ describe("GET /public/files/:workspace/:key?download=1", () => {
     expect(res.headers.get("Content-Security-Policy")).toBe("sandbox");
   });
 
+  it("401s with auth_required for a held file, without streaming bytes", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env);
+    await setServerFileMetadata(
+      env.DB as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+      {
+        "ai.hold": "pending",
+      },
+    );
+
+    const res = await app.request("/public/files/default/screenshots/shot.png?download=1", {}, env);
+    expect(res.status).toBe(401);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "auth_required" },
+    });
+  });
+
   it("401s with auth_required for a private object, without streaming bytes", async () => {
     const { env } = await makeEnv();
     await seedShot(env, { "X-Uploads-Visibility": "private" });

@@ -207,6 +207,12 @@ async function seed(bucket: FakeR2Bucket) {
   });
 }
 
+async function holdFile(env: Parameters<typeof app.request>[2]) {
+  const db = (env as { DB: D1Database }).DB;
+  await recordContentHash(db, "acme", "shots/a.png", "ab".repeat(32));
+  await setServerFileMetadata(db, "acme", "shots/a.png", { "ai.hold": "pending" });
+}
+
 describe("GET /v1/workspaces/:workspace/files (dual auth)", () => {
   it("accepts a bearer token", async () => {
     const { env, bucket } = await makeEnv();
@@ -430,6 +436,40 @@ describe("PATCH /v1/workspaces/:workspace/files/visibility (dual auth)", () => {
   });
 });
 
+describe("GET /v1/workspaces/:workspace/files/held/download (dual auth)", () => {
+  const download = (env: Parameters<typeof app.request>[2], headers: Record<string, string>) =>
+    app.request("/v1/workspaces/acme/files/held/download?key=shots/a.png", { headers }, env);
+
+  it("streams the real object to a workspace member", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    await holdFile(env);
+    const res = await download(env, { cookie: "session=x" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("404s a signed-in caller who is not a member", async () => {
+    const { env, bucket } = await makeEnv({ member: false });
+    await seed(bucket);
+    await holdFile(env);
+    const res = await download(env, { cookie: "session=x" });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error?: { code?: string } }).error?.code).toBe(
+      "workspace_not_found",
+    );
+  });
+
+  it("401s a signed-out caller", async () => {
+    const { env, bucket } = await makeEnv({ session: false });
+    await seed(bucket);
+    await holdFile(env);
+    const res = await download(env, {});
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("POST /v1/workspaces/:workspace/files/approve (dual auth)", () => {
   const approve = (env: Parameters<typeof app.request>[2], headers: Record<string, string>) =>
     app.request(
@@ -460,6 +500,27 @@ describe("POST /v1/workspaces/:workspace/files/approve (dual auth)", () => {
       approved: false,
       reason: "not_held",
     });
+  });
+
+  it("releases a held file for a workspace member", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const db = (env as { DB: D1Database }).DB;
+    await recordContentHash(db, "acme", "shots/a.png", "cd".repeat(32));
+    await setServerFileMetadata(db, "acme", "shots/a.png", { "ai.hold": "pending" });
+    const res = await approve(env, { cookie: "session=x" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ key: "shots/a.png", approved: true });
+  });
+
+  it("404s a signed-in caller who is not a member", async () => {
+    const { env, bucket } = await makeEnv({ member: false });
+    await seed(bucket);
+    const res = await approve(env, { cookie: "session=x" });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error?: { code?: string } }).error?.code).toBe(
+      "workspace_not_found",
+    );
   });
 
   it("rejects an unauthenticated caller", async () => {
