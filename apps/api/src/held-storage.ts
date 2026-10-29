@@ -13,6 +13,7 @@
  */
 
 import { createStorage, type Files } from "@uploads/storage";
+import { contentHashForKey } from "./content-hash";
 import { dbFor } from "./db-session";
 import { setServerFileMetadata } from "./file-metadata";
 import { UPLOAD_CACHE_CONTROL } from "./files-core";
@@ -96,15 +97,24 @@ export async function restoreFromHeld(
 
 const SHA256_RE = /^[a-f0-9]{64}$/;
 
-/** `content-sha256` on the object, for a hold that never left the public bucket. */
+/**
+ * The content hash a hold change should fan out on. Prefer `content-sha256`
+ * on the object. When that stamp is missing, use `file_content_hash` — the
+ * same column `keysCopiedFrom` reads. No object means no hash: a deleted key
+ * must not release siblings from a leftover index row.
+ */
 export async function objectContentSha256(
   env: Env,
   ws: WorkspaceRecord,
+  workspaceName: string,
   key: string,
 ): Promise<string | undefined> {
   const lane = await resolveObjectLaneWithHead(env, ws, key);
   const value = lane?.head.metadata?.["content-sha256"];
-  return typeof value === "string" && SHA256_RE.test(value) ? value : undefined;
+  if (typeof value === "string" && SHA256_RE.test(value)) return value;
+  if (!lane) return undefined;
+  const indexed = await contentHashForKey(dbFor(env), workspaceName, key);
+  return indexed && SHA256_RE.test(indexed) ? indexed : undefined;
 }
 
 /**

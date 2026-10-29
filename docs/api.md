@@ -301,10 +301,14 @@ X-Uploads-Meta-keep-exif: 1
 `optimized`, `frame`, `keep-exif`. Values are printable ASCII, max 128 chars.
 Never send tokens, workspace secrets, or PII.
 
-**Server-only:** every put also stores `content-sha256` (lowercase hex SHA-256 of
-the **final stored body**). Client-supplied `content-sha256` headers are ignored.
+**Server-only:** every API put stores `content-sha256` (lowercase hex SHA-256 of
+the final stored body) on the object and in `file_content_hash`. A streamed
+body is hashed as it is written. The API then stores that digest on the
+object. Client-supplied `content-sha256` headers are ignored. Hold fan-out
+reads `file_content_hash`. A presigned upload (`POST …/files/sign`) does not
+record a hash. The API does not see those bytes.
 
-Put and head responses always include `provenance` with at least
+Put and head of an API-written object include `provenance` with at least
 `content-sha256`. The CLI/`uploads mcp` set the client fields automatically from
 optimize/frame options.
 

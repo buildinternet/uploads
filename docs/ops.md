@@ -1584,8 +1584,11 @@ change (`applyUploadHold`, approve, and hold-again). The rows cover the key
 being held, every other key in the workspace that shares its content hash
 and already has its own `ai.hold` row, and promote or attach copies of this
 upload (`ai.copied-from`) that still have that hash, plus each poster
-(`posterKeyFor`, which is also the PDF preview). A Slack PNG is not its own
-object. Deleting
+(`posterKeyFor`, which is also the PDF preview). The hash is the SHA-256
+recorded at upload in `file_content_hash`. The same digest is stored on the
+object as `content-sha256`. An API put records both. A presigned
+direct-to-bucket upload records neither. Fan-out stops at 32 direct copies.
+A Slack PNG is not its own object. Deleting
 the file removes the rows. The retention purge deletes them by primary key
 in the same batch as metadata and content hashes. Workspace teardown deletes
 the workspace's prefix. The object key includes the workspace prefix
@@ -1628,7 +1631,8 @@ the hold as it is.
 `POST /v1/workspaces/:workspace/files/approve?key=` appends a release
 override and a `blob_hold` row for the content hash (`upload_approved`).
 It does not write `ai.hold`. The hash is the object's `content-sha256`, or
-the hash of a legacy body copied back from the held bucket. A file with neither
+the `file_content_hash` row when the object has no stamp, or the hash of a
+legacy body copied back from the held bucket. A file with none of these
 fails the approve. `expected_sha` must match that hash or the call answers 409.
 A later hold override sets the same hash back to `held` and gates every key
 that has its own hold row. It does not move bytes. Gates and the held list

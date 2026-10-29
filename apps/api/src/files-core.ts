@@ -112,7 +112,7 @@ import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibi
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
-import { openStreamedBody, type StreamedBody } from "./streamed-body";
+import { fixedLengthStream, openStreamedBody, type StreamedBody } from "./streamed-body";
 import { notifySlackHoldResolved } from "./slack-hold-notify";
 
 export type { StreamedBody };
@@ -498,6 +498,26 @@ export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "t
 }
 
 /**
+ * Write `content-sha256` onto an object whose digest was known only after the
+ * first put. R2 custom metadata cannot change in place, so this stores the
+ * same bytes again. The caller keeps the original object if this throws.
+ */
+async function stampContentSha256(
+  store: Files,
+  key: string,
+  size: number,
+  contentType: string,
+  metadata: Record<string, string>,
+): Promise<void> {
+  const current = await store.download(key, { as: "stream" });
+  await store.upload(key, fixedLengthStream(current.stream(), size), {
+    contentType,
+    cacheControl: UPLOAD_CACHE_CONTROL,
+    metadata,
+  });
+}
+
+/**
  * Upload with the workspace's guardrails (size cap, content-type allowlist,
  * content type sniffed from the bytes; see guards.ts), then update the usage
  * ledger. Metering is best-effort and never fails the upload.
@@ -699,7 +719,7 @@ export async function putObject(
 
   // Always hash the final stored body; never trust a client hash.
   // `uploaded-at` is server-only. A streamed body's hash is known only after
-  // the write, so its `content-sha256` lives in the D1 hash index alone.
+  // the write, so its object metadata is stamped in a follow-up put.
   let contentSha256 = bytes ? (opts?.contentSha256 ?? (await contentSha256Hex(bytes))) : undefined;
   // Started early so the D1 read overlaps the R2 write. Never rejects, so
   // it's safe to leave in flight if the upload throws.
@@ -828,6 +848,26 @@ export async function putObject(
       ? [...CLASSIFIER_ROW_KEYS].filter((metaKey) => metaKey !== HOLD_META_KEY)
       : [...CLASSIFIER_ROW_KEYS];
     await deleteServerFileMetadataKeys(db, workspaceName, finalKey, drop);
+  }
+
+  if (streamed) {
+    // Custom metadata is fixed at put time. The digest is in the hash index
+    // now, so write the same bytes back with `content-sha256`. A failed stamp
+    // leaves the object in place.
+    try {
+      await stampContentSha256(store, finalKey, newSize, inspection.contentType, {
+        ...storageMetadata,
+        "content-sha256": contentSha256,
+      });
+      provenance["content-sha256"] = contentSha256;
+    } catch (err) {
+      console.error({
+        event: "content_sha256_stamp_failed",
+        workspace: workspaceName,
+        key: finalKey,
+        err,
+      });
+    }
   }
 
   // After the metadata replace, never before: replaceFileMetadata deletes

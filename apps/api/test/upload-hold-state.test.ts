@@ -207,6 +207,39 @@ describe("blob hold", () => {
     sqlite.close();
   });
 
+  it("releases every same-sha key when the object has no content-sha256 stamp", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]));
+    await bucket.put("acme/b.png", new Uint8Array([1]));
+    const env = { DB: db, UPLOADS_DEFAULT: bucket } as unknown as Env;
+    await recordContentHash(db, "acme", "a.png", SHA);
+    await recordContentHash(db, "acme", "b.png", SHA);
+    await setServerFileMetadata(db, "acme", "a.png", { "ai.hold": "pending" });
+    await setServerFileMetadata(db, "acme", "b.png", { "ai.hold": "pending" });
+    await sqlite.db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .run("acme", SHA, "2026-10-28T00:00:00.000Z");
+    await sqlite.db
+      .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', ?), ('hosted', ?)`)
+      .run("acme/a.png", "acme/b.png");
+
+    expect(await approveUpload(env, ws, "acme", "a.png", "Member")).toEqual({ approved: true });
+    const rows = await db
+      .prepare(`SELECT object_key FROM read_gate ORDER BY object_key`)
+      .all<{ object_key: string }>();
+    expect(rows.results ?? []).toEqual([]);
+    const blob = await db
+      .prepare(`SELECT state FROM blob_hold WHERE workspace = ? AND content_sha256 = ?`)
+      .bind("acme", SHA)
+      .first<{ state: string }>();
+    expect(blob?.state).toBe("released");
+    sqlite.close();
+  });
+
   it("backfills gate rows from held blobs and moved keys", async () => {
     const sqlite = new SqliteD1(MIGRATIONS.slice(0, 4));
     const db = database(sqlite);

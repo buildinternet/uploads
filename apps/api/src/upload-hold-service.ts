@@ -309,7 +309,7 @@ async function contentShaForRelease(
     restored.push(key);
     return sha;
   }
-  const sha = await objectContentSha256(env, ws, key);
+  const sha = await objectContentSha256(env, ws, workspaceName, key);
   if (!sha) {
     throw new ValidationError(
       "this file has no content hash, so the hold change cannot be recorded",
@@ -352,7 +352,7 @@ export async function holdAgain(
   const existing = await getFileMetadata(db, workspaceName, key);
   const before = await effectiveHold(env, workspaceName, key, existing);
   if (before.hold !== "approved") return { held: false, reason: "not_approved" };
-  const contentSha256 = await objectContentSha256(env, ws, key);
+  const contentSha256 = await objectContentSha256(env, ws, workspaceName, key);
   if (!contentSha256) {
     throw new ValidationError(
       "this file has no content hash, so the hold change cannot be recorded",
