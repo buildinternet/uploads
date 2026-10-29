@@ -98,7 +98,12 @@ describe("renderWeeklyDigestEmail", () => {
     expect(list).toContain("got busy");
     expect(email.html).toContain("Storage is at 86% of the plan.");
     expect(email.html).toContain("View billing");
+    expect(email.html).toContain("connect a bucket");
     expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/billing");
+    expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/storage#bucket");
+    expect(email.text).toContain(
+      "Storage is at 86% of the plan. View billing: https://uploads.sh/account/workspaces/acme/billing or connect a bucket: https://uploads.sh/account/workspaces/acme/storage#bucket",
+    );
     expect(email.html).not.toMatch(/<a[^>]*>Storage is at 86%/);
     expect(email.html).toContain("See your full week");
     expect(email.text).toContain("- acme/web got busy — 8 files, up from 1");

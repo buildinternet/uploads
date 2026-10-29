@@ -52,8 +52,9 @@ Each plan has one file cap: videos get the same ceiling as everything else,
 
 - **Oversized file.** The upload is rejected before any bytes land, with an error that names the cap.
   Nothing counts against your storage.
-- **Storage full.** New uploads are rejected until you free space. Existing files keep serving. Check
-  `uploads usage` to see where you stand, then `uploads list` and `uploads delete` to clear room.
+- **Storage full.** New uploads are rejected until you free space. Existing files keep serving. Run
+  `uploads usage`, then `uploads list` and `uploads delete` to clear room. Upgrade on the billing
+  tab, or connect your own bucket on the Storage tab.
 - **Member cap (free).** Invites beyond the cap are refused, pending invites included. Upgrade the
   workspace or revoke an unused invite.
 

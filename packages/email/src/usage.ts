@@ -74,6 +74,10 @@ function joinOr(parts: string[]): string {
   return `${parts.slice(0, -1).join(", ")} or ${parts[parts.length - 1]}`;
 }
 
+function remedyLink(href: string, label: string): string {
+  return `<a href="${escapeHtml(href)}" style="color:#b9b0cf;">${label}</a>`;
+}
+
 /**
  * The actionable next step. Which remedies apply depends on the caps that
  * crossed and the plan:
@@ -88,7 +92,8 @@ function remedy(opts: {
   hasStorage: boolean;
   hasUploads: boolean;
   plan?: string;
-  manageUrl: string;
+  billingUrl: string;
+  storageUrl: string;
 }): { html: string; text: string } {
   const subject =
     opts.hasStorage && opts.hasUploads
@@ -96,18 +101,15 @@ function remedy(opts: {
       : opts.hasStorage
         ? "your storage limit"
         : "your monthly upload limit";
-  const link = (label: string) =>
-    `<a href="${escapeHtml(opts.manageUrl)}" style="color:#b9b0cf;">${label}</a>`;
-
   const htmlParts: string[] = [];
   const textParts: string[] = [];
   if (opts.plan !== "pro") {
-    htmlParts.push(link("upgrade to a paid plan"));
-    textParts.push("upgrade to a paid plan");
+    htmlParts.push(remedyLink(opts.billingUrl, "upgrade to a paid plan"));
+    textParts.push(`upgrade to a paid plan (${opts.billingUrl})`);
   }
   if (opts.hasStorage) {
-    htmlParts.push(link("connect your own storage bucket"));
-    textParts.push("connect your own storage bucket");
+    htmlParts.push(remedyLink(opts.storageUrl, "connect your own storage bucket"));
+    textParts.push(`connect your own storage bucket (${opts.storageUrl})`);
   }
   if (htmlParts.length === 0) {
     const fallback = "Your monthly upload count resets at the start of next month.";
@@ -134,7 +136,11 @@ export function renderUsageAlertEmail(ctx: {
   webOrigin?: string;
 }): RenderedEmail {
   const origin = resolveWebOrigin(ctx.webOrigin);
-  const manageUrl = `${origin}/account/workspaces/${ctx.organizationSlug}/settings`;
+  const workspaceBase = `${origin}/account/workspaces/${encodeURIComponent(ctx.organizationSlug)}`;
+  // Billing is where you upgrade and see the cap. The bucket section of the
+  // Storage tab is where you connect your own bucket (`#bucket`).
+  const billingUrl = `${workspaceBase}/billing`;
+  const storageUrl = `${workspaceBase}/storage#bucket`;
   const settingsUrl = `${origin}/account/profile`;
 
   const events = ctx.events.slice(0, 2);
@@ -159,7 +165,8 @@ export function renderUsageAlertEmail(ctx: {
     hasStorage: events.some((e) => e.cap === "storage"),
     hasUploads: events.some((e) => e.cap === "uploads"),
     plan: ctx.plan,
-    manageUrl,
+    billingUrl,
+    storageUrl,
   });
 
   const linesHtml = events.map((e) => `<br>${eventLineHtml(e)}`).join("");
@@ -178,13 +185,13 @@ export function renderUsageAlertEmail(ctx: {
       "",
       fix.text,
       "",
-      `Manage this workspace: ${manageUrl}`,
+      `View billing: ${billingUrl}`,
       "",
       "—",
       "uploads.sh · a Build Internet project",
       `Turn this notification off in your account settings: ${settingsUrl}`,
     ].join("\n"),
-    cta: { url: manageUrl, label: "Manage workspace →" },
+    cta: { url: billingUrl, label: "View billing →" },
     footNoteHtml: `You administer this workspace. <a href="${escapeHtml(settingsUrl)}" style="color:#b9b0cf;">Manage notifications</a> to turn this off.`,
     webOrigin: ctx.webOrigin,
   });

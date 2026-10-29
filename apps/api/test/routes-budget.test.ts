@@ -70,6 +70,11 @@ describe("workspace budget enforcement", () => {
     expect(body.error.code).toBe("storage_quota_exceeded");
     expect(body.error.type).toBe("insufficient_storage");
     expect(body.error.details.maxStorageBytes).toBe(PNG.byteLength - 1);
+    expect(body.error.message).toContain("storage quota exceeded");
+    expect(body.error.message).toContain("https://uploads.sh/account/workspaces/default/billing");
+    expect(body.error.message).toContain(
+      "https://uploads.sh/account/workspaces/default/storage#bucket",
+    );
   });
 
   it("returns 429 when monthly upload budget is spent", async () => {

@@ -282,12 +282,25 @@ function storageFootnote(
   const sentence = note?.text.trim().replace(/\.+$/u, "") ?? "";
   if (!sentence) return { html: "", text: "" };
   const href = resolveHref(note?.href, webOrigin);
+  // The pulse note's href is the billing tab. Offer the bucket beside it.
+  const bucket = href?.endsWith("/billing")
+    ? `${href.slice(0, -"/billing".length)}/storage#bucket`
+    : null;
   const link = href
-    ? ` <a href="${escapeHtml(href)}" style="color:#8a8a83;text-decoration:underline;">View billing</a>`
+    ? ` <a href="${escapeHtml(href)}" style="color:#8a8a83;text-decoration:underline;">View billing</a>${
+        bucket
+          ? ` or <a href="${escapeHtml(bucket)}" style="color:#8a8a83;text-decoration:underline;">connect a bucket</a>`
+          : ""
+      }`
     : "";
+  const text = !href
+    ? `${sentence}.`
+    : bucket
+      ? `${sentence}. View billing: ${href} or connect a bucket: ${bucket}`
+      : `${sentence}. View billing: ${href}`;
   return {
     html: `<p style="margin:18px 0 0;${FOOT}">${escapeHtml(sentence)}.${link}</p>`,
-    text: href ? `${sentence}. View billing: ${href}` : `${sentence}.`,
+    text,
   };
 }
 

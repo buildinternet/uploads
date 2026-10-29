@@ -43,6 +43,10 @@ describe("checkPutBudget", () => {
     );
     expect(denial?.code).toBe("storage_quota_exceeded");
     expect(denial?.status).toBe(507);
+    expect(denial?.message).toContain("900 + 200 > 1000 bytes");
+    expect(denial?.message).toContain(
+      "Upgrade your plan (https://uploads.sh/account/workspaces/acme/billing) or connect your own bucket (https://uploads.sh/account/workspaces/acme/storage#bucket).",
+    );
     expect(denial?.detail).toMatchObject({
       bytes: 900,
       deltaBytes: 200,

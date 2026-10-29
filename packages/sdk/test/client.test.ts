@@ -76,6 +76,28 @@ describe("createUploadsClient", () => {
     });
   });
 
+  it("keeps a storage-quota remedy in the error message", async () => {
+    const message =
+      "storage quota exceeded (1 + 2 > 3 bytes). Upgrade your plan (https://uploads.sh/account/workspaces/ws/billing) or connect your own bucket (https://uploads.sh/account/workspaces/ws/storage#bucket).";
+    const { fetch } = fakeFetch(
+      json(
+        {
+          error: {
+            code: "storage_quota_exceeded",
+            type: "insufficient_storage",
+            message,
+            details: { bytes: 1, deltaBytes: 2, maxStorageBytes: 3 },
+          },
+        },
+        507,
+      ),
+    );
+    const client = createUploadsClient(config, { fetch });
+    const err = await client.put("a.png", new Uint8Array([1])).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UploadsError);
+    expect(err).toMatchObject({ code: "STORAGE_QUOTA", status: 507, message });
+  });
+
   it("retries a GET once on 503 and reports the retry", async () => {
     vi.useFakeTimers();
     try {

@@ -769,6 +769,27 @@ describe("tools/call put", () => {
     expect(res.result.content[0].text).toContain("file, files, contentBase64, or contentUrl");
   });
 
+  it("surfaces a storage-quota remedy from the API message", async () => {
+    const { UploadsError } = await import("../src/errors.js");
+    const message =
+      "storage quota exceeded (1 + 2 > 3 bytes). Upgrade your plan (https://uploads.sh/account/workspaces/acme/billing) or connect your own bucket (https://uploads.sh/account/workspaces/acme/storage#bucket).";
+    const { server } = serverWith({
+      factory: () =>
+        ({
+          put: async () => {
+            throw new UploadsError(message, "STORAGE_QUOTA", 507);
+          },
+        }) as unknown as UploadsClient,
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "a.png" },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain(message);
+    expect(res.result.content[0].text).toContain("(STORAGE_QUOTA)");
+  });
+
   it("uploads from a loopback contentUrl", async () => {
     const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     vi.stubGlobal(

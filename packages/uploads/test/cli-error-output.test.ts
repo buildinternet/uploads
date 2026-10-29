@@ -174,3 +174,63 @@ describe("insufficient scope names the scope and how to get it", () => {
     expect(printed.match(/uploads\.sh\/account\/developers/g)).toHaveLength(1);
   });
 });
+
+async function runQuotaDelete(status: number, code: string, message: string) {
+  const err: string[] = [];
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+    err.push(String(chunk));
+    return true;
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code, message } }), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+    ),
+  );
+  const exit = await runCli(["node", "uploads", "delete", "screenshots/a.png"]);
+  return { exit, printed: err.join("") };
+}
+
+describe("quota hints tell a customer what to do", () => {
+  beforeEach(() => {
+    vi.stubEnv("BUILDINTERNET_CONFIG", "/nonexistent/uploads-quota-test-config");
+    vi.stubEnv("UPLOADS_TOKEN", "up_test_quota");
+    vi.stubEnv("UPLOADS_WORKSPACE", "acme");
+    vi.stubEnv("UPLOADS_API_URL", "https://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("prints a customer storage-quota hint and keeps the server remedy", async () => {
+    const message =
+      "storage quota exceeded (1 + 2 > 3 bytes). Upgrade your plan (https://uploads.sh/account/workspaces/acme/billing) or connect your own bucket (https://uploads.sh/account/workspaces/acme/storage#bucket).";
+    const { exit, printed } = await runQuotaDelete(507, "storage_quota_exceeded", message);
+    expect(exit).not.toBe(0);
+    expect(printed).toContain(message);
+    expect(printed).toContain(
+      "hint: run `uploads usage`, delete objects, or upgrade your plan or connect your own bucket: https://uploads.sh/docs/limits",
+    );
+    expect(printed).not.toContain("workspace:limits");
+  });
+
+  it("does not offer a bucket for the monthly upload cap", async () => {
+    const { printed } = await runQuotaDelete(
+      429,
+      "upload_budget_exceeded",
+      "upload budget exceeded (10/10 this period)",
+    );
+    expect(printed).toContain(
+      "hint: run `uploads usage`, or upgrade your plan: https://uploads.sh/docs/limits",
+    );
+    expect(printed).not.toContain("connect your own bucket");
+    expect(printed).not.toContain("workspace:limits");
+  });
+});

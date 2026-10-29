@@ -17,7 +17,10 @@ describe("renderUsageAlertEmail", () => {
     expect(email.html).toContain("225 MB");
     expect(email.html).toContain("250 MB");
     expect(email.html).not.toContain("225000000");
-    expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/settings");
+    expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/billing");
+    expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/storage#bucket");
+    expect(email.html).not.toContain("/account/workspaces/acme/settings");
+    expect(email.html).toContain("View billing →");
     expect(email.html).toContain("https://uploads.sh/account/profile");
     expect(email.text).toContain("225 MB of 250 MB");
   });
@@ -32,9 +35,15 @@ describe("renderUsageAlertEmail", () => {
     expect(email.text).toContain("upgrade to a paid plan");
     expect(email.text).toContain("connect your own storage bucket");
     expect(email.text).toContain("To raise your storage limit");
-    // Remedies are clickable in the HTML.
-    expect(email.html).toContain(">upgrade to a paid plan</a>");
-    expect(email.html).toContain(">connect your own storage bucket</a>");
+    expect(email.text).toContain("https://uploads.sh/account/workspaces/acme/billing");
+    expect(email.text).toContain("https://uploads.sh/account/workspaces/acme/storage#bucket");
+    // Each remedy goes to the page that does that thing.
+    expect(email.html).toContain(
+      'href="https://uploads.sh/account/workspaces/acme/billing" style="color:#b9b0cf;">upgrade to a paid plan</a>',
+    );
+    expect(email.html).toContain(
+      'href="https://uploads.sh/account/workspaces/acme/storage#bucket" style="color:#b9b0cf;">connect your own storage bucket</a>',
+    );
   });
 
   it("says 'reached' (not a percentage) when a cap hits 100%", () => {
@@ -50,8 +59,11 @@ describe("renderUsageAlertEmail", () => {
     // Upload counts are grouped, not byte-formatted.
     expect(email.text).toContain("3,000 of 3,000 uploads this month");
     // An external bucket does not lift the upload-count cap, so it isn't offered.
-    expect(email.text).toContain("upgrade to a paid plan");
+    expect(email.text).toContain(
+      "upgrade to a paid plan (https://uploads.sh/account/workspaces/acme/billing)",
+    );
     expect(email.text).not.toContain("storage bucket");
+    expect(email.html).not.toContain("/account/workspaces/acme/storage");
   });
 
   it("covers both caps in one email when they cross together", () => {
@@ -94,6 +106,8 @@ describe("renderUsageAlertEmail", () => {
       plan: "pro",
     });
     expect(email.text).not.toContain("upgrade to a paid plan");
-    expect(email.text).toContain("connect your own storage bucket");
+    expect(email.text).toContain(
+      "connect your own storage bucket (https://uploads.sh/account/workspaces/acme/storage#bucket)",
+    );
   });
 });

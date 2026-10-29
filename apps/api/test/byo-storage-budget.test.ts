@@ -198,7 +198,10 @@ describe("BYO-bucket workspace storage budget attribution", () => {
     const { env } = await makeSharedEnv({ maxStorageBytes: PNG.byteLength - 1 });
     const res = await put(env, "shared.png");
     expect(res.status).toBe(507);
-    const body = (await res.json()) as { error: { code: string } };
+    const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("storage_quota_exceeded");
+    expect(body.error.message).toContain(
+      "https://uploads.sh/account/workspaces/default/storage#bucket",
+    );
   });
 });
