@@ -31,6 +31,58 @@ function env(): AuthEnv {
   return { DB: poisonDB(), WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
 }
 
+describe("POST /internal/webhook-dlq/notify", () => {
+  const event = { keys: ["ghref:acme/app#7"], deliveryId: "delivery-1" };
+
+  function notify(body: unknown, overrides: Partial<AuthEnv> = {}) {
+    return app().request(
+      "/internal/webhook-dlq/notify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      { ...env(), ...overrides },
+    );
+  }
+
+  it("400s when the batch has no webhook event", async () => {
+    const res = await notify({ events: [{ deliveryId: "delivery-1" }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_request" },
+    });
+  });
+
+  it("skips the mail when OPERATOR_ALERT_EMAIL is unset", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const send = vi.fn();
+    const res = await notify({ events: [event] }, { EMAIL: { send } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, sent: false });
+    expect(send).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("sends one email for the whole batch", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const second = { keys: [], promote: { repo: "acme/app", num: 8, branch: "feat" } };
+    const res = await notify(
+      { events: [event, second] },
+      { EMAIL: { send }, OPERATOR_ALERT_EMAIL: "ops@uploads.sh" },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, sent: true });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      to: "ops@uploads.sh",
+      subject: "[webhook] 2 GitHub events dead-lettered",
+    });
+    expect(send.mock.calls[0]?.[0].text).toContain("delivery-1");
+    expect(send.mock.calls[0]?.[0].text).toContain(JSON.stringify([event, second], null, 2));
+  });
+});
+
 describe("GET /internal/memberships", () => {
   it("400s when userId is missing", async () => {
     const res = await app().request("/internal/memberships", {}, env());

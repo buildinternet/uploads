@@ -27,6 +27,7 @@ import {
 } from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { notifyAdminsOfUsageAlert, notifyOperatorOfStorageAlert } from "./notify-usage-alert";
+import { notifyOperatorOfWebhookDlq, parseWebhookDlqEvents } from "./notify-webhook-dlq";
 import { sendCliUpgradeEmails, type CliUpgradeMessage } from "./notify-product-updates";
 import { sendWeeklyDigests, type DigestSendEnv } from "./notify-weekly-digest";
 import { signingSecret } from "./digest-token";
@@ -1270,6 +1271,17 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       storageMode,
     });
     return c.json({ ok: true }, 200);
+  })
+  // GitHub webhook dead letters: the API worker's DLQ consumer posts one
+  // batch of compact events. This sends a single FYI to OPERATOR_ALERT_EMAIL.
+  .post("/webhook-dlq/notify", async (c) => {
+    const body = await c.req.json<{ events?: unknown }>().catch(() => ({}) as { events?: unknown });
+    const events = parseWebhookDlqEvents(body.events);
+    if (!events) {
+      return c.json(errorJson("invalid_request", "at least one webhook event is required"), 400);
+    }
+    const result = await notifyOperatorOfWebhookDlq(c.env, events);
+    return c.json({ ok: true, sent: result.sent }, 200);
   })
   // Weekly digest: the API worker assembles activity and posts the messages.
   // This worker signs the unsubscribe links and sends, because the preference

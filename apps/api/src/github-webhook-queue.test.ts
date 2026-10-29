@@ -2,7 +2,7 @@
  * Queue-path ingestion for GitHub webhooks (issue #287): producer behavior in
  * `handleWebhook` (enqueue the compact event, inline fallback on a missing
  * binding or a failed send) and the consumer in github-webhook-queue.ts
- * (process/ack, retry-on-failure, DLQ log-and-ack). The extraction and
+ * (process/ack, retry-on-failure, DLQ log, one alert per batch, ack). The extraction and
  * processing semantics themselves are covered by github-webhook.test.ts and
  * the auto-promote/reconcile suites, which exercise the queueless inline path.
  */
@@ -397,6 +397,27 @@ describe("handleWebhook producer path", () => {
     expect(kv.store.has("ghref:o/r#1")).toBe(true);
   });
 
+  it("stamps a GitHub delivery id onto the queued event", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:o/r#1", { value: "{}" });
+    const queue = new FakeQueue();
+    await handleWebhook(envWith(kv, queue), "issues", issuesPayload, undefined, "  delivery-1  ");
+    expect(queue.sent).toEqual([
+      { keys: ["ghref:o/r#1", "ghref:pub:o/r#1"], deliveryId: "delivery-1" },
+    ]);
+  });
+
+  it("omits a blank, oversized, or broken delivery id", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:o/r#1", { value: "{}" });
+    const queue = new FakeQueue();
+    await handleWebhook(envWith(kv, queue), "issues", issuesPayload, undefined, "   ");
+    await handleWebhook(envWith(kv, queue), "issues", issuesPayload, undefined, "x".repeat(129));
+    await handleWebhook(envWith(kv, queue), "issues", issuesPayload, undefined, "bad\nid");
+    expect(queue.sent.every((event) => event.deliveryId === undefined)).toBe(true);
+    expect(queue.sent).toHaveLength(3);
+  });
+
   it("enqueues nothing for a no-work delivery", async () => {
     const queue = new FakeQueue();
     await handleWebhook(envWith(new FakeKv(), queue), "ping", {});
@@ -460,10 +481,101 @@ describe("handleGithubWebhookBatch", () => {
     const kv = new FakeKv();
     kv.store.set("ghtok:42", { value: "t" });
     const m = msg({ keys: ["ghtok:42"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_DLQ, [m]), envWith(kv));
     expect(kv.store.has("ghtok:42")).toBe(true); // untouched — terminal log only.
     expect(m.acked).toBe(true);
     expect(m.retried).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("logs the full dead-lettered event and alerts once per batch", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    const first = msg({ keys: ["ghtok:1"], deliveryId: "delivery-a" });
+    const second = msg({
+      keys: [],
+      deliveryId: "delivery-b",
+      ingest: { repo: "acme/app", kind: "pull", num: 7, source: "body" },
+    });
+    const env = { ...envWith(new FakeKv()), AUTH: { fetch } } as unknown as Env;
+    await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_DLQ, [first, second]), env);
+
+    const lines = log.mock.calls.map((call) => JSON.parse(String(call[0])));
+    expect(lines).toEqual([
+      {
+        message: "github webhook event dead-lettered",
+        deliveryId: "delivery-a",
+        event: first.body,
+      },
+      {
+        message: "github webhook event dead-lettered",
+        deliveryId: "delivery-b",
+        event: second.body,
+      },
+    ]);
+    expect(first.acked).toBe(true);
+    expect(second.acked).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://auth.internal/internal/webhook-dlq/notify");
+    expect(init.method).toBe("POST");
+    expect(new Headers(init.headers).get("x-uploads-internal")).toBe("1");
+    expect(JSON.parse(String(init.body))).toEqual({ events: [first.body, second.body] });
+    log.mockRestore();
+  });
+
+  it("processes a replayed event that still carries its delivery id", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:42", { value: "t" });
+    const fetch = vi.fn();
+    const m = msg({ keys: ["ghtok:42"], deliveryId: "delivery-1" });
+    const env = { ...envWith(kv), AUTH: { fetch } } as unknown as Env;
+    await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), env);
+    expect(kv.store.has("ghtok:42")).toBe(false);
+    expect(m.acked).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("acks the batch when the operator alert fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetch = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
+    const m = msg({ keys: [], deliveryId: "delivery-1" });
+    const env = { AUTH: { fetch } } as unknown as Env;
+    await expect(
+      handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_DLQ, [m]), env),
+    ).resolves.toBeUndefined();
+    expect(m.acked).toBe(true);
+    expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+      "github_webhook_dlq_alert_failed",
+    );
+    warn.mockRestore();
+  });
+
+  it("acks when the operator alert throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetch = vi.fn().mockRejectedValue(new Error("auth down"));
+    const m = msg({ keys: [], deliveryId: "delivery-1" });
+    const env = { AUTH: { fetch } } as unknown as Env;
+    await expect(
+      handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_DLQ, [m]), env),
+    ).resolves.toBeUndefined();
+    expect(m.acked).toBe(true);
+    expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("auth down");
+    warn.mockRestore();
+  });
+
+  it("acks when AUTH is absent and does not throw", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const m = msg({ keys: [] });
+    await expect(
+      handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_DLQ, [m]), envWith(new FakeKv())),
+    ).resolves.toBeUndefined();
+    expect(m.acked).toBe(true);
+    expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+      "github_webhook_dlq_alert_skipped",
+    );
+    warn.mockRestore();
   });
 
   it("dispatches ingest events to ingestForWebhook and acks", async () => {
