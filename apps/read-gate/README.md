@@ -12,10 +12,13 @@ keeps the card from sticking after the hold lifts. A hold on any other
 file still returns 404 with the API not-found envelope. The API records
 the hold in D1 `read_gate`. This Worker reads that table. A D1 error
 serves the object, by choice, the same as the classifier's fail-open.
-Every other request is `fetch(request)`, so R2 keeps Range, validators,
-content type, and CORS. The pass-through adds `must-revalidate` so a
-cached image transform follows the object's max-age instead of Cloudflare
-Images' one-hour minimum.
+GET and HEAD on these hosts include `Access-Control-Allow-Origin: *`.
+OPTIONS is answered here and is not forwarded. The preflight allows GET
+and HEAD from any origin, echoes `Access-Control-Request-Headers`, and
+sets `Access-Control-Max-Age` to 86400. Every other request is
+`fetch(request)`, so R2 keeps Range, validators, and content type. The
+pass-through adds `must-revalidate` so a cached image transform follows
+the object's max-age instead of Cloudflare Images' one-hour minimum.
 
 It does not gate private files. Private-repo images stay cookie-less public
 reads. It does not run on a bring-your-own-bucket domain. It does not bind

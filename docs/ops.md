@@ -83,8 +83,9 @@ The hosts stay R2 custom domains. Cache-Control on `embed.uploads.sh` is the
 zone rule above, not a Worker. `uploads-read-gate` serves
 `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`. On a miss
 it returns the original request, so R2 still serves the bytes, including
-Range and validators. A held image gets a "Held for review" card. Any other
-safety hold is a 404. See [Hosted read gate](#hosted-read-gate).
+Range and validators. GET and HEAD include `Access-Control-Allow-Origin: *`.
+The Worker answers OPTIONS. A held image gets a "Held for review" card. Any
+other safety hold is a 404. See [Hosted read gate](#hosted-read-gate).
 
 ## Public file page performance
 
@@ -1561,9 +1562,14 @@ workspace prefix included. A row means block. The lookup uses
 `DB.withSession("first-unconstrained")` when the binding supports sessions.
 A decision is cached in the Cache API for 30 seconds, on that request's
 host, under `/__read-gate/<key>`. A request for that path 404s in the Worker
-and is not forwarded to R2. A D1 error fails open and is not cached. OPTIONS
-skips the lookup. Anything else returns `fetch(request)`, so R2 keeps Range,
-validators, content type, and CORS. The Worker appends `must-revalidate`
+and is not forwarded to R2. A D1 error fails open and is not cached. The
+Worker answers OPTIONS for a hosted host. The preflight allows GET and HEAD
+from any origin, echoes `Access-Control-Request-Headers`, and sets
+`Access-Control-Max-Age` to 86400. It does not read D1 and it does not
+forward the request. GET and HEAD responses include
+`Access-Control-Allow-Origin: *`, including a held image and a held 404.
+Anything else returns `fetch(request)`, so R2 keeps Range, validators, and
+content type. The Worker appends `must-revalidate`
 and keeps the object's `max-age`. A response that already says `no-store`
 or `must-revalidate` is unchanged. The `embed.uploads.sh` zone rule still
 sets `no-store` on the response the client sees. That rule does not
