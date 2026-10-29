@@ -167,6 +167,7 @@ function thumbSrc(entry: PublicFeedItem): string | null {
               return (
                 <a
                   href={itemPath(entry)}
+                  data-item-prefetch
                   class={entry.id === item.id ? "current" : undefined}
                   aria-current={entry.id === item.id ? "page" : undefined}
                   aria-label={`${entry.filename} (${entryIndex + 1} of ${strip.length})`}
