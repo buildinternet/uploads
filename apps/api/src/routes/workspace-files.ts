@@ -416,8 +416,9 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     },
   )
 
-  // Toggle a file's `visibility` custom-metadata flag. See the module
-  // docblock above for why the key stays a query param here.
+  // Toggle a file's visibility. A hosted lane writes `ai.visibility`.
+  // A bring-your-own bucket still rewrites object metadata. The key stays
+  // a query param; see the module docblock above.
   .patch(
     "/:workspace/files/visibility",
     dualWorkspaceAuth(),
@@ -440,7 +441,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       }
 
       const store = await storage(c.env, record);
-      await setObjectVisibility(store, key, requested as "public" | "private");
+      await setObjectVisibility(
+        c.env,
+        record,
+        c.get("workspaceName"),
+        store,
+        key,
+        requested as "public" | "private",
+      );
 
       return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
     },

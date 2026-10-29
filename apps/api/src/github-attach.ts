@@ -34,6 +34,7 @@ import {
   putObject,
   putOptsFromStoredObject,
   sanitizeKeyBasename,
+  visibilityForStoredObject,
 } from "./files-core";
 import {
   classifierRowsOf,
@@ -232,8 +233,10 @@ export async function attachExistingObject(
   // lossy the way a plain key's sanitized owner/name segments are. Never
   // derived from the gh.* metadata stamped below: that bag is
   // client-influenced on the source object.
+  const copied = putOptsFromStoredObject(source);
   const put = await putObject(env, ws, destKey, bytes, workspaceName, {
-    ...putOptsFromStoredObject(source),
+    ...copied,
+    visibility: await visibilityForStoredObject(env, ws, workspaceName, sourceKey, source.metadata),
     surface: "attach",
     attachment: { source: opts?.indexSource ?? "attach", repo: req.target.repo },
   });

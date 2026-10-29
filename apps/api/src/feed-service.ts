@@ -10,7 +10,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-read";
-import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
+import { getMetadataForKeys, publicFileMetadata, readVisibilityRows } from "./file-metadata";
 import {
   encodePublicFeedCursor,
   feedRecordScope,
@@ -34,11 +34,11 @@ import type {
   PublicFeedItemDto,
   PublicFeedItemPage,
 } from "./scope-wire";
-import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
+import { createLaneResolver, isSharedLane, objectPublicUrls, type LaneResolver } from "./storage";
 import type { FileInfo, StorageConfig } from "@uploads/storage";
 import { HELD_FILENAME } from "./upload-hold";
 import { heldKeysAmong } from "./upload-hold-read";
-import { objectVisibility } from "./visibility";
+import { applyVisibilityOverride, objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import { FEED_ITEM_ID_RE, feedItemIdFor } from "@uploads/comment-render/scope";
 import { type WorkspaceRecord } from "./workspace";
@@ -253,6 +253,13 @@ export async function hydrateFeedItems(
           matches.map((match) => match.key),
         )
       : new Set<string>();
+  const visibilityRows = workspace.name
+    ? await readVisibilityRows(
+        dbFor(env),
+        workspace.name,
+        matches.map((match) => match.key),
+      )
+    : new Map<string, "public" | "private">();
   const hydrated = await mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
     let meta: FileInfo | null;
     let itemConfig: StorageConfig | null = null;
@@ -271,7 +278,11 @@ export async function hydrateFeedItems(
         cause,
       });
     }
-    const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
+    const visibilityMeta =
+      meta && itemConfig && isSharedLane(itemConfig)
+        ? applyVisibilityOverride(meta.metadata, visibilityRows.get(match.key))
+        : meta?.metadata;
+    const isPrivate = meta ? objectVisibility(visibilityMeta) === "private" : false;
     if (isPrivate) opts.privateKeys?.add(match.key);
     const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(match.key));
     const urls =
@@ -348,8 +359,8 @@ export const PRIVATE_COUNT_PROBE_CAP = 300;
 /**
  * How many of `keys` are private: objects whose R2 custom metadata says
  * `visibility: private`. A live link renders the same objects as `withheld`.
- * Visibility lives only in R2 custom metadata (`visibility.ts`; D1 rejects
- * the key), so the count needs storage reads:
+ * Object metadata carries the flag. A hosted lane can also store it as
+ * `ai.visibility`, so the count still needs a storage read plus that row:
  *
  * - Keys the page already HEADed (`seen.checked`) are free. They count from
  *   `seen.privateKeys`.
@@ -374,13 +385,19 @@ export async function countPrivateScopeItems(
   if (unchecked.length === 0) return known;
   if (unchecked.length > PRIVATE_COUNT_PROBE_CAP) return null;
   const resolver = createLaneResolver(env, workspace);
+  const visibilityRows = workspace.name
+    ? await readVisibilityRows(dbFor(env), workspace.name, unchecked)
+    : new Map<string, "public" | "private">();
   let flags: boolean[];
   try {
     flags = await mapBounded(unchecked, 8, async (key) => {
       const lane = await resolver.resolve(key);
       if (!lane) return false;
       const head = await lane.store.head(key);
-      return objectVisibility(head.metadata) === "private";
+      const metadata = isSharedLane(lane.config)
+        ? applyVisibilityOverride(head.metadata, visibilityRows.get(key))
+        : head.metadata;
+      return objectVisibility(metadata) === "private";
     });
   } catch (cause) {
     throw new ServiceUnavailableError("Feed storage unavailable.", {

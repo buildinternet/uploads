@@ -17,7 +17,12 @@ import { ForbiddenError, UnsupportedMediaTypeError } from "@uploads/errors";
 import { githubAppConfig, installationForRepo, prHeadBranch, repoIsPrivate } from "./github-app";
 import { checkRepoAuthorization, postManagedComment } from "./github-comment-service";
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
-import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
+import {
+  deleteObject,
+  putObject,
+  putOptsFromStoredObject,
+  visibilityForStoredObject,
+} from "./files-core";
 import { COPIED_FROM_META_KEY, deleteFileMetadata } from "./file-metadata";
 import { copyHeldObject, deleteHeldCopy, heldBucket } from "./held-storage";
 import { hostedGateObjectKeys, readGateInserts } from "./read-gate";
@@ -269,10 +274,20 @@ export async function rotatePrivatePrefix(
 
           const source = await store.download(item.key);
           const bytes = new Uint8Array(await source.arrayBuffer());
+          // The copy stays: the new prefix is the new URL, and deleting the
+          // old key is what makes that URL 404. A metadata row cannot do that.
           // `surface: "rotate"` does not place a hold. Write the gate before
           // the new object exists, and do not store it if that write fails.
           const held = await isKeyHeld(env, workspaceName, item.key);
           if (held) await gateRotatedHold(env, ws, workspaceName, newKey);
+          const copied = putOptsFromStoredObject(source);
+          const visibility = await visibilityForStoredObject(
+            env,
+            ws,
+            workspaceName,
+            item.key,
+            source.metadata,
+          );
           // Not a byte-for-byte metadata copy: `putObject` runs its normal
           // write path on `provenance: source.metadata` — `sanitizeProvenance`
           // strips it to the client-safe subset, `content-sha256` is
@@ -288,7 +303,8 @@ export async function rotatePrivatePrefix(
           // function's own rename below runs.
           try {
             await putObject(env, ws, newKey, bytes, workspaceName, {
-              ...putOptsFromStoredObject(source),
+              ...copied,
+              visibility,
               surface: "rotate",
               ...(held ? { keepReadGate: true } : {}),
             });

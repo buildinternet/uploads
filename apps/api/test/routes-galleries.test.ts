@@ -1119,4 +1119,23 @@ describe("private gallery items are withheld from the public surfaces", () => {
       items: [{ id: privateItem.id, status: "available", url: expect.any(String) }],
     });
   });
+
+  it("withholds a hosted item when ai.visibility is private and the object metadata is not", async () => {
+    db.prepare(
+      `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)`,
+    ).run("alpha", "screenshots/one.png", "ai.visibility", "private", "2026-10-29T00:00:00.000Z");
+    const gallery = await create();
+    const item = (await (
+      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+      })
+    ).json()) as { id: string };
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicGallery.status).toBe(200);
+    const body = (await publicGallery.json()) as { items: { id: string; status: string }[] };
+    expect(body.items.find((entry) => entry.id === item.id)).toMatchObject({
+      status: "withheld",
+    });
+  });
 });

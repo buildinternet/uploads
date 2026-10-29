@@ -17,9 +17,9 @@ import { displayTitle, getFileMetadata, publicFileMetadata } from "../file-metad
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster-presentation";
-import { objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
+import { isSharedLane, objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
 import { effectiveHold, isKeyHeld } from "../upload-hold-read";
-import { objectVisibility } from "../visibility";
+import { applyVisibilityOverride, objectVisibility, VISIBILITY_ROW_KEY } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
 import { dbFor } from "../db-session";
@@ -152,14 +152,15 @@ async function resolvePublicObject(
 
   const meta = lane.head;
 
-  if (objectVisibility(meta.metadata ?? undefined)) {
-    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
-  }
-  // One fresh D1 read supplies both the hold gate and the response metadata.
-  // Keep it after the private-object gate; nothing from either check is cached.
+  // One fresh D1 read supplies the hosted visibility row, the hold gate, and
+  // the response metadata. Nothing from either check is cached.
   const metadata = await measure("file_metadata", () =>
     getFileMetadata(dbFor(env), workspace, key),
   );
+  const visibilityRow = isSharedLane(lane.config) ? metadata[VISIBILITY_ROW_KEY] : undefined;
+  if (objectVisibility(applyVisibilityOverride(meta.metadata, visibilityRow))) {
+    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+  }
   // A held upload (`upload-hold.ts`) gets the same answer as a private one.
   if ((await effectiveHold(env, workspace, key, metadata)).hold === "pending") {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
@@ -261,9 +262,12 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
         if (counterpartLane) {
           const counterpartMeta = counterpartLane.head;
           const counterpartType = counterpartMeta.contentType ?? "application/octet-stream";
+          const counterpartRow = isSharedLane(counterpartLane.config)
+            ? (await getFileMetadata(dbFor(c.env), workspace, candidate.key))[VISIBILITY_ROW_KEY]
+            : undefined;
           if (
             isPairableImageContentType(counterpartType) &&
-            !objectVisibility(counterpartMeta.metadata ?? undefined) &&
+            !objectVisibility(applyVisibilityOverride(counterpartMeta.metadata, counterpartRow)) &&
             !(await isKeyHeld(env, workspace, candidate.key))
           ) {
             const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);

@@ -16,7 +16,12 @@ import {
   putObject,
   reconcileInterruptedUpload,
 } from "../files-core";
-import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
+import {
+  getFileMetadata,
+  META_MAX_KEYS,
+  readVisibilityRows,
+  setFileMetadata,
+} from "../file-metadata";
 import {
   checkDeclaredLength,
   isGatedContentType,
@@ -27,10 +32,16 @@ import {
   uploadLimits,
 } from "../guards";
 import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
-import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
+import {
+  createLaneResolver,
+  isSharedLane,
+  objectPublicUrls,
+  resolveObjectLane,
+  storage,
+} from "../storage";
 import { withUploaderTags } from "../uploader-identity";
 import { putObjectIdempotently } from "../upload-idempotency";
-import { sanitizeVisibility } from "../visibility";
+import { applyVisibilityOverride, sanitizeVisibility } from "../visibility";
 import { parseCliUserAgent } from "../client-activity";
 import { clientCanApprove, projectHold } from "../upload-hold";
 import { effectiveHold } from "../upload-hold-read";
@@ -345,8 +356,19 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   if (!lane) throw new NotFoundError();
 
   const meta = await lane.store.head(key);
+  const hosted = isSharedLane(lane.config);
+  const override = hosted
+    ? (await readVisibilityRows(dbFor(c.env), c.get("workspaceName"), [key])).get(key)
+    : undefined;
   const urls = objectPublicUrls(c.env, lane.config, key);
-  return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
+  return c.json(
+    headObjectJson(
+      key,
+      { ...meta, metadata: applyVisibilityOverride(meta.metadata, override) },
+      urls.url,
+      urls.embedUrl,
+    ),
+  );
 }
 
 export async function deleteFileHandler(c: Context<WorkspaceVars>) {

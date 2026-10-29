@@ -1523,6 +1523,18 @@ whose bytes stayed public gets `ai.hold` and `read_gate` rows on the new
 key before that object is stored. A failed write stops that key's rotation.
 `surface: "rotate"` does not place a hold.
 
+The copy to the new prefix stays. The new key is the new URL, and deleting
+the old key is what makes the old URL 404. A metadata row cannot do that.
+
+A hosted visibility toggle does not copy bytes. It writes `ai.visibility`
+(`private` or `public`) and leaves the object where it is. The public page,
+galleries, feeds, listings, and member HEAD read that row. When the row is
+absent, object metadata still decides, so an upload stored as private stays
+private. `public` shows the file again even when that metadata still says
+private. The read gate does not read `ai.visibility`. Private files stay
+cookie-less public reads. A bring-your-own bucket still rewrites object
+metadata to flip the flag. That lane has no read gate.
+
 Promote and attach store `ai.copied-from` on the new key (the source object
 key) when the source is not held. A held source is not copied. Promote
 reports it as skipped with reason `held`. Attach answers 400 `held`. The

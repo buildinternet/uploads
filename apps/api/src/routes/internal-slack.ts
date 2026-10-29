@@ -45,10 +45,11 @@ import { getMetadataForKeys } from "../file-metadata";
 import { SEARCH_NAME_MAX } from "../file-search";
 import { badKey } from "../files-core";
 import { memberWorkspaceOr404 } from "../org-workspaces";
-import { objectPublicUrls, resolveObjectLaneWithHead, storage } from "../storage";
+import { isSharedLane, objectPublicUrls, resolveObjectLaneWithHead, storage } from "../storage";
 import { heldKeysAmong } from "../upload-hold-read";
 import { approveUpload, memberName } from "../upload-hold-service";
-import { objectVisibility } from "../visibility";
+import { readVisibilityRows } from "../file-metadata";
+import { applyVisibilityOverride, objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 
 export const INTERNAL_API_HOST = "api.internal";
@@ -254,22 +255,30 @@ export const internalSlack = new Hono<WorkspaceVars>()
           }
           found.sort((a, b) => b.uploaded - a.uploaded);
         }
+        const shortlist = found.slice(0, candidates);
         const held = await heldKeysAmong(
           c.env,
           workspace,
-          found.slice(0, candidates).map((m) => m.key),
+          shortlist.map((m) => m.key),
+        );
+        const visibilityRows = await readVisibilityRows(
+          db,
+          workspace,
+          shortlist.map((m) => m.key),
         );
         // Same gate as the public share page: it must have a public URL and
         // not be marked private. One HEAD per candidate.
         const visible = await Promise.all(
-          found
-            .slice(0, candidates)
+          shortlist
             .filter((m) => !held.has(m.key))
             .map(async (m) => {
               const lane = await resolveObjectLaneWithHead(c.env, record, m.key);
               if (!lane) return null;
               const urls = objectPublicUrls(c.env, lane.config, m.key);
-              if (!urls.url || objectVisibility(lane.head.metadata ?? undefined)) return null;
+              const metadata = isSharedLane(lane.config)
+                ? applyVisibilityOverride(lane.head.metadata, visibilityRows.get(m.key))
+                : lane.head.metadata;
+              if (!urls.url || objectVisibility(metadata)) return null;
               const hit: SlackSearchResult = { workspace, key: m.key };
               if (lane.head.contentType.startsWith("image/"))
                 hit.imageUrl = urls.embedUrl ?? urls.url;

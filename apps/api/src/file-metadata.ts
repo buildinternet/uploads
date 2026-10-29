@@ -10,6 +10,7 @@ import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
 import { fileSurfaceSql, fileTypeSql } from "./file-type-sql";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
+import { applyVisibilityOverride, VISIBILITY_ROW_KEY } from "./visibility";
 import { type D1Queryable } from "./db-session";
 
 /** Lowercase key, optionally namespaced with dots (e.g. `gh.repo`). */
@@ -29,7 +30,8 @@ export function canonicalMetaValue(key: string, value: string): string {
 /**
  * Reserved keys: server-set provenance (a custom row would be a spoofable
  * shadow of a server-vouched value) and `visibility` (would look like an
- * access setting on the public /f/ panel). `gh.*` is not reserved.
+ * access setting on the public /f/ panel). The hosted access row is
+ * `ai.visibility`, which this set does not name. `gh.*` is not reserved.
  */
 const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibility"]);
 
@@ -1192,6 +1194,73 @@ export async function setServerFileMetadata(
 
   const now = new Date().toISOString();
   await db.batch(upsertStatements(db, workspace, objectKey, metadata, now));
+}
+
+/** Hosted `ai.visibility` rows for these keys. Unknown values are ignored. */
+export async function readVisibilityRows(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<Map<string, "public" | "private">> {
+  const found = await getMetadataForKeys(db, workspace, keys, {
+    metaKeys: [VISIBILITY_ROW_KEY],
+  });
+  const out = new Map<string, "public" | "private">();
+  for (const [key, meta] of found) {
+    const value = meta[VISIBILITY_ROW_KEY];
+    if (value === "public" || value === "private") out.set(key, value);
+  }
+  return out;
+}
+
+/** Upsert `ai.visibility` on each key. Empty `keys` is a no-op. */
+export async function writeVisibilityRows(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+  visibility: "public" | "private",
+): Promise<void> {
+  if (keys.length === 0) return;
+  const now = new Date().toISOString();
+  await db.batch(
+    keys.flatMap((key) =>
+      upsertStatements(db, workspace, key, { [VISIBILITY_ROW_KEY]: visibility }, now),
+    ),
+  );
+}
+
+/** Drop `ai.visibility` on each key. Empty `keys` is a no-op. */
+export async function deleteVisibilityRows(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  await db.batch(
+    keys.map((key) =>
+      db
+        .prepare(
+          `DELETE FROM file_metadata WHERE workspace = ? AND object_key = ? AND meta_key = ?`,
+        )
+        .bind(workspace, key, VISIBILITY_ROW_KEY),
+    ),
+  );
+}
+
+/**
+ * Object metadata plus the hosted override, when `hosted` is set.
+ * A bring-your-own lane ignores the row.
+ */
+export async function withVisibilityMetadata(
+  db: D1Queryable,
+  workspace: string,
+  hosted: boolean,
+  key: string,
+  metadata: Record<string, string> | undefined | null,
+): Promise<Record<string, string> | undefined> {
+  if (!hosted) return metadata ?? undefined;
+  const row = (await readVisibilityRows(db, workspace, [key])).get(key);
+  return applyVisibilityOverride(metadata, row);
 }
 
 /** Drop specific server-owned rows — used to clear a stale poster pointer. */
