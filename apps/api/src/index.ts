@@ -21,6 +21,7 @@ import { workspaceMembers } from "./routes/workspace-members";
 import { workspaceServiceTokens } from "./routes/workspace-service-tokens";
 import { workspaceSettings } from "./routes/workspace-settings";
 import { me } from "./routes/me";
+import { runClassifierRetrySweep } from "./classifier-retry-sweep";
 import { runRetentionSweep } from "./retention-sweep";
 import { runUsageAlertSweep } from "./usage-alert-sweep";
 import { runActiveContentHostSweep } from "./active-content-hosts";
@@ -280,6 +281,11 @@ export default {
     );
     ctx.waitUntil(
       runUsageAlertSweep(env).catch((err) => {
+        reportHandledError(err);
+      }),
+    );
+    ctx.waitUntil(
+      runClassifierRetrySweep(env).catch((err) => {
         reportHandledError(err);
       }),
     );

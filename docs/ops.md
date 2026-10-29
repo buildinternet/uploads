@@ -312,7 +312,9 @@ the only deletion-capable cron task on the worker — branch-staged GitHub
 attachments have no dedicated cleanup by design (a `promoted-at`+7d reaper
 shipped in #314 and was retired in #421; see `docs/deletion.md`). The
 scheduled handler also runs `runObservabilityRetention` (telemetry/enrollment
-row purge, not object storage) alongside the sweep.
+row purge, not object storage) alongside the sweep. The same run retries files
+marked `ai.classifier=failed`. [Failed classifications](#failed-classifications)
+describes that pass.
 
 That same daily run emails a workspace's admins and owners when storage or
 monthly uploads cross 50%, 90%, or 100% of the cap. The preference is
@@ -1359,9 +1361,10 @@ cd apps/api && pnpm exec wrangler secret put OPENROUTER_API_KEY
 The key is billed on the OpenRouter account. Output tokens are free. Jev
 Latest costs about half of Luna Decisions on input tokens; the model pages
 have the current price. The worker log records the model and the confidences
-only. A missing key, a 4xx from an image Jev cannot take, or any other
-provider error fails open: the upload succeeds, and that file gets no `ai.*`
-rows. A thrown evaluation of `llm-file-classifier-luna` stays on Jev Latest.
+only. A missing key skips classification, and the file gets no `ai.*` rows.
+A timeout, a provider error, or an empty answer writes `ai.classifier=failed`
+and `ai.error`. The upload still succeeds. The daily sweep retries that file.
+A thrown evaluation of `llm-file-classifier-luna` stays on Jev Latest.
 
 Jev reports a calibrated confidence per answer. An answer under **0.5**
 (`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
@@ -1405,7 +1408,18 @@ Image bytes sent to the model are capped at 512 KiB after any resize.
 The resize times out at 8s (`CLASSIFIER_RESIZE_TIMEOUT_MS`). The
 Decisions call times out at 8s (`CLASSIFIER_TIMEOUT_MS`). The two budgets
 are separate, so a slow resize cannot spend the model's time. A resize
-timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
+timeout writes `ai.skip=resize_timeout`. A model timeout writes
+`ai.classifier=failed` and `ai.error=timeout`.
+
+### Failed classifications
+
+The daily cron (`0 6 * * *` UTC) retries files with `ai.classifier=failed`.
+It reads the oldest rows first and classifies at most 25 of them. Each retry
+uses the same path as an upload, including a hold when the decision calls
+for one. A retry that fails stays `failed`, and its timestamp moves back so
+the next run can reach other files. A missing object, a deleted workspace,
+or classification that is turned off stays `failed` and moves back the same
+way. The log line is `classifier_retry_sweep`.
 
 ### Reuse
 
