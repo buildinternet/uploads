@@ -26,7 +26,7 @@ import {
   revokeMemberWorkspaceTokens,
 } from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
-import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
+import { notifyAdminsOfUsageAlert, notifyOperatorOfStorageAlert } from "./notify-usage-alert";
 import { sendCliUpgradeEmails, type CliUpgradeMessage } from "./notify-product-updates";
 import { sendWeeklyDigests, type DigestSendEnv } from "./notify-weekly-digest";
 import { signingSecret } from "./digest-token";
@@ -1222,12 +1222,15 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   })
   // Usage-limit alerts: the API worker's daily sweep detects a workspace
   // crossing a 50/90/100% storage or uploads band and calls this to fan the
-  // email out to admins/owners whose `notifyUsageLimits` pref is on. The pref
+  // email out to admins/owners whose `notifyUsageLimits` pref is on. A
+  // storage band at 90% or 100% also FYIs OPERATOR_ALERT_EMAIL. The pref
   // and the member roster live only here, so filtering + send happen here.
   .post("/usage-alerts/notify", async (c) => {
     const body = await c.req
-      .json<{ slug?: unknown; events?: unknown; plan?: unknown }>()
-      .catch(() => ({}) as { slug?: unknown; events?: unknown; plan?: unknown });
+      .json<{ slug?: unknown; events?: unknown; plan?: unknown; storageMode?: unknown }>()
+      .catch(
+        () => ({}) as { slug?: unknown; events?: unknown; plan?: unknown; storageMode?: unknown },
+      );
     const slug = typeof body.slug === "string" ? body.slug.trim() : "";
     if (!slug) {
       return c.json(errorJson("invalid_request", "slug is required"), 400);
@@ -1239,6 +1242,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       return c.json(errorJson("invalid_request", "at least one valid event is required"), 400);
     }
     const plan = typeof body.plan === "string" ? body.plan : undefined;
+    const storageMode =
+      body.storageMode === "hosted" || body.storageMode === "byo" ? body.storageMode : undefined;
 
     const db = drizzle(c.env.DB, { schema });
     const [org] = await db
@@ -1256,6 +1261,13 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       organizationSlug: org.slug,
       events,
       plan,
+    });
+    await notifyOperatorOfStorageAlert(c.env, db, {
+      organizationId: org.id,
+      organizationName: org.name,
+      organizationSlug: org.slug,
+      events,
+      storageMode,
     });
     return c.json({ ok: true }, 200);
   })

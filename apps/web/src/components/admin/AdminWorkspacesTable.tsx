@@ -35,6 +35,7 @@ import {
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import { makeAdminApi, type AdminWorkspaceSummary } from "../../lib/admin-api";
+import { workspaceFromAdminSearch } from "../../lib/admin-workspace-link";
 import { formatAdminDate } from "../../lib/admin-ui";
 import {
   DEFAULT_SORT_DIR,
@@ -131,6 +132,16 @@ function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
       alive = false;
     };
   }, [api]);
+
+  // `?workspace=` is how the storage operator FYI opens this drawer. Read it
+  // after load so the server render and the first client render both stay closed.
+  useEffect(() => {
+    if (state.status !== "ok" || typeof window === "undefined") return;
+    const wanted = workspaceFromAdminSearch(window.location.search);
+    if (!wanted) return;
+    const match = state.workspaces.find((ws) => ws.workspace === wanted);
+    if (match) setSelected(match);
+  }, [state]);
 
   if (state.status === "loading") {
     return <p className="text-(length:--text-meta) text-muted-foreground">Loading…</p>;

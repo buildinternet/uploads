@@ -54,4 +54,10 @@ interface Env {
    * routes/internal-billing.ts and wrangler.jsonc comment there). Fail-closed
    * when unset: billing-bridge.ts no-ops rather than sending an empty header. */
   BILLING_INTERNAL_KEY?: string;
+  /**
+   * Address for the storage near-limit FYI (90% and 100% bands). Set with
+   * `wrangler secret put OPERATOR_ALERT_EMAIL` on uploads-auth. Unset or
+   * blank skips that mail; the customer usage alert still sends.
+   */
+  OPERATOR_ALERT_EMAIL?: string;
 }

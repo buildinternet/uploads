@@ -577,6 +577,8 @@ export type AuthEnv = GitHubCredentialsEnv &
   RateLimitBindings & {
     DB: D1Database;
     EMAIL?: import("./email").EmailBinding;
+    /** Operator FYI for a storage band at 90% or 100%. Unset skips that mail. */
+    OPERATOR_ALERT_EMAIL?: string;
     BETTER_AUTH_URL?: string;
     BETTER_AUTH_SECRET?: string;
     WEB_ORIGIN?: string;

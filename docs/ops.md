@@ -314,6 +314,25 @@ shipped in #314 and was retired in #421; see `docs/deletion.md`). The
 scheduled handler also runs `runObservabilityRetention` (telemetry/enrollment
 row purge, not object storage) alongside the sweep.
 
+That same daily run emails a workspace's admins and owners when storage or
+monthly uploads cross 50%, 90%, or 100% of the cap. The preference is
+`notifyUsageLimits`, on by default, under Account → Email notifications. A KV
+marker stores the highest band already sent (`usage:alert:<workspace>:storage`,
+and a month-scoped key for uploads). Each rise sends once. Usage that falls
+below a band lowers the marker and arms the next rise.
+
+When storage crosses 90% or 100%, the auth worker also sends a short FYI if
+`OPERATOR_ALERT_EMAIL` is set on `uploads-auth`. The message names the
+workspace, the org id, usage against the cap, whether storage is hosted or
+bring-your-own, and the owner email. It links to that workspace in admin
+(`/admin?workspace=<name>`). Unset, the FYI is skipped. The customer mail still
+sends. A rejected upload does not send its own FYI. The 100% band is the
+limit-reached notice, on the next daily run after stored usage reaches the cap.
+
+```bash
+pnpm --filter @uploads/auth exec wrangler secret put OPERATOR_ALERT_EMAIL
+```
+
 A second cron, Monday 14:00 UTC (`0 14 * * 1`), sends the optional weekly
 digest. It does not delete anything. The handler dispatches on the cron
 string, so the Monday run does not repeat the daily sweeps. Mail goes out
@@ -331,6 +350,8 @@ and the seven-day range, for example `Your week in Acme (Oct 5–11)` or
 `Acme admin pulse (Oct 5–11)`. The range starts on the previous Monday and
 ends on Sunday. An unsubscribe link turns off that workspace and that kind
 only. A quiet workspace is left out. The other workspaces still send.
+When storage is at or above 80% of the cap, the admin pulse adds a footnote,
+`Storage is at N% of the plan`, with a link to that workspace's billing tab.
 
 Jev may pick the one highlight screenshot from its caption. If the `AI`
 binding is missing, or Jev declines, the highlight is the newest screenshot.
@@ -715,6 +736,7 @@ reading a secret.
 | `GITHUB_APP_PRIVATE_KEY`         | **`uploads-api` + `uploads-mcp`**  | GitHub App identity (PKCS#8 PEM). Both Workers post managed comments in-process.                  |
 | `BILLING_INTERNAL_KEY`           | **`uploads-api` + `uploads-auth`** | Shared key gating `POST /internal/billing/plan`. The two values must match.                       |
 | `ADMIN_TOKEN`                    | `uploads-api`                      | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md)) |
+| `OPERATOR_ALERT_EMAIL`           | `uploads-auth`                     | Optional address for the storage FYI at 90% and 100%. Unset skips that mail.                      |
 | `ANALYTICS_API_TOKEN`            | `uploads-api`                      | Analytics Engine SQL API token for the `/admin/metrics` breakdown panel                           |
 | `GITHUB_APP_WEBHOOK_SECRET`      | `uploads-api`                      | HMAC secret for GitHub App webhook deliveries (`X-Hub-Signature-256`)                             |
 | `OPENAI_APPS_CHALLENGE`          | `uploads-mcp`                      | Domain-verification token served at `/.well-known/openai-apps-challenge`                          |
