@@ -150,6 +150,22 @@ export function uploadBudgetDenial(
   };
 }
 
+const HOSTED_WEB_ORIGIN = "https://uploads.sh";
+
+/**
+ * What a customer can do about a full storage cap. Billing upgrades the plan.
+ * The Storage tab's bucket section connects a bucket you already pay for.
+ * No slug (shouldn't happen on a real ledger row) falls back to the limits doc.
+ */
+function storageQuotaMessage(workspace: string): string {
+  const slug = workspace.trim();
+  const remedy = slug
+    ? `${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}/billing / ${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}/storage#bucket`
+    : `${HOSTED_WEB_ORIGIN}/docs/limits`;
+  const who = slug || "this workspace";
+  return `Storage full: ${who} is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: ${remedy}`;
+}
+
 /** The 507 storage-quota denial, shared by the read-side check and
  * the atomic reservation path (usage.ts reserveStorageBytes). */
 export function storageBudgetDenial(
@@ -161,7 +177,7 @@ export function storageBudgetDenial(
   return {
     code: "storage_quota_exceeded",
     status: 507,
-    message: `storage quota exceeded (${usageBytes} + ${deltaBytes} > ${maxStorageBytes} bytes)`,
+    message: storageQuotaMessage(usage.workspace),
     detail: {
       bytes: usageBytes,
       deltaBytes,

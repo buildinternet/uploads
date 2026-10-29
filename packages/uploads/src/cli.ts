@@ -166,11 +166,14 @@ export function outputFormat(argv: string[]): OutputFormat {
   return "human";
 }
 
-const QUOTA_HINT =
-  "hint: run `uploads usage` then delete objects or raise limits (`pnpm workspace:limits`)\n";
+const STORAGE_QUOTA_HINT =
+  "hint: Out of storage. Free up space by deleting old files (`uploads usage` shows what's using it), or upgrade or connect your own bucket: https://uploads.sh/docs/limits\n";
+// A monthly upload cap is a count. Deleting files or a bucket does not lower it.
+const UPLOAD_BUDGET_HINT =
+  "hint: Out of uploads for this month. Run `uploads usage` for details, or upgrade: https://uploads.sh/docs/limits\n";
 const ERROR_HINTS: Partial<Record<UploadsError["code"], string>> = {
-  STORAGE_QUOTA: QUOTA_HINT,
-  UPLOAD_BUDGET: QUOTA_HINT,
+  STORAGE_QUOTA: STORAGE_QUOTA_HINT,
+  UPLOAD_BUDGET: UPLOAD_BUDGET_HINT,
   KEY_POLICY:
     "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
   UNAUTHORIZED: "hint: run `uploads login` to sign in again, or check UPLOADS_TOKEN / --token\n",

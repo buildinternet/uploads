@@ -92,7 +92,7 @@ describe("notifyAdminsOfUsageAlert", () => {
     const recipients = send.mock.calls.map((c) => c[0].to).sort();
     expect(recipients).toEqual([admin.email, owner.email].sort());
     // The usage template rode through, not some other email.
-    expect(send.mock.calls[0]?.[0].subject).toContain("90%");
+    expect(send.mock.calls[0]?.[0].subject).toBe("Acme is almost out of storage");
   });
 
   it("skips recipients who turned the preference off", async () => {

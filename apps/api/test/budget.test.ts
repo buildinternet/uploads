@@ -43,6 +43,11 @@ describe("checkPutBudget", () => {
     );
     expect(denial?.code).toBe("storage_quota_exceeded");
     expect(denial?.status).toBe(507);
+    expect(denial?.message).toContain("Storage full: acme is out of space");
+    expect(denial?.message).toContain(
+      "https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket",
+    );
+    expect(denial?.message).not.toContain("900 + 200");
     expect(denial?.detail).toMatchObject({
       bytes: 900,
       deltaBytes: 200,

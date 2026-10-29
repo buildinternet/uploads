@@ -182,7 +182,7 @@ describe("weekly digest assembly", () => {
       { text: "Ada's first upload" },
     ]);
     expect(pulse?.storageNote).toEqual({
-      text: "Storage is at 86% of the plan",
+      text: "Acme is using 86% of its storage. Upgrade or connect a bucket when you're ready",
       href: "/account/workspaces/acme/billing",
     });
   });
@@ -228,7 +228,9 @@ describe("weekly digest assembly", () => {
     expect(draft?.user).toBeUndefined();
     expect(draft?.unsubscribes).toEqual(["workspace"]);
     expect(draft?.pulses[0]?.pulse.notes).toEqual([]);
-    expect(draft?.pulses[0]?.pulse.storageNote?.text).toBe("Storage is at 88% of the plan");
+    expect(draft?.pulses[0]?.pulse.storageNote?.text).toBe(
+      "Acme is using 88% of its storage. Upgrade or connect a bucket when you're ready",
+    );
     expect(draft?.pulses[0]?.pulse.storageNote?.href).toBe("/account/workspaces/acme/billing");
   });
 

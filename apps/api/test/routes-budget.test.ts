@@ -65,11 +65,25 @@ describe("workspace budget enforcement", () => {
     const res = await put(env);
     expect(res.status).toBe(507);
     const body = (await res.json()) as {
-      error: { code: string; type: string; message: string; details: { maxStorageBytes: number } };
+      error: {
+        code: string;
+        type: string;
+        message: string;
+        details: { bytes: number; deltaBytes: number; maxStorageBytes: number };
+      };
     };
     expect(body.error.code).toBe("storage_quota_exceeded");
     expect(body.error.type).toBe("insufficient_storage");
     expect(body.error.details.maxStorageBytes).toBe(PNG.byteLength - 1);
+    expect(body.error.message).toContain("Storage full: default is out of space");
+    expect(body.error.message).toContain(
+      "https://uploads.sh/account/workspaces/default/billing / https://uploads.sh/account/workspaces/default/storage#bucket",
+    );
+    expect(body.error.message).not.toMatch(/\d+ \+ \d+/);
+    expect(body.error.details).toMatchObject({
+      maxStorageBytes: PNG.byteLength - 1,
+      deltaBytes: PNG.byteLength,
+    });
   });
 
   it("returns 429 when monthly upload budget is spent", async () => {
