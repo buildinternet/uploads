@@ -234,6 +234,32 @@ describe("DB-backed behavior", () => {
       const recipients = send.mock.calls.map((c) => c[0].to).sort();
       expect(recipients).toEqual([admin.email, owner.email].sort());
     });
+
+    it("also FYIs the operator on a storage band of 90 or 100", async () => {
+      const org = await seedOrg({ slug: "acme", name: "Acme" });
+      const owner = await seedUser({ email: "owner@example.com" });
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: owner.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+      const send = vi.fn().mockResolvedValue({});
+
+      const res = await notify(
+        { slug: org.slug, events: [storageEvent], storageMode: "byo" },
+        { EMAIL: { send }, OPERATOR_ALERT_EMAIL: "ops@uploads.sh" },
+      );
+
+      expect(res.status).toBe(200);
+      const operator = send.mock.calls.find((c) => c[0].to === "ops@uploads.sh");
+      expect(operator?.[0].subject).toContain("90%");
+      expect(operator?.[0].text).toContain("Owner: owner@example.com");
+      expect(operator?.[0].text).toContain("BYO");
+      expect(operator?.[0].text).toContain(`Id: ${org.id}`);
+      expect(operator?.[0].text).toContain("https://uploads.sh/admin?workspace=acme");
+    });
   });
 
   describe("POST /internal/promote-admin", () => {

@@ -46,3 +46,8 @@ AUTH_RATE_LIMIT_DISABLED=true
 # locally — magic link alone is enough for most dev flows.
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
+
+# Optional. Storage FYI at 90% and 100% of a workspace cap. Unset skips it.
+# The customer usage-limit mail still sends. Install in production with
+# `wrangler secret put OPERATOR_ALERT_EMAIL` on uploads-auth.
+# OPERATOR_ALERT_EMAIL=

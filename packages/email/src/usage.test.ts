@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderUsageAlertEmail } from "./usage";
+import { renderStorageOperatorAlertEmail, renderUsageAlertEmail } from "./usage";
 
 const BILLING = "https://uploads.sh/account/workspaces/acme/billing";
 const BUCKET = "https://uploads.sh/account/workspaces/acme/storage#bucket";
@@ -144,5 +144,54 @@ describe("renderUsageAlertEmail", () => {
     expect(email.text).not.toContain("upgrade");
     expect(email.text).toContain(`connect your own bucket (${BUCKET}) (it isn't metered).`);
     expect(email.html).toContain("Get more storage →");
+  });
+});
+
+describe("renderStorageOperatorAlertEmail", () => {
+  it("names the workspace, usage, hosted mode, owner, and admin link", () => {
+    const email = renderStorageOperatorAlertEmail({
+      organizationName: "Acme",
+      organizationSlug: "acme",
+      organizationId: "org-1",
+      event: { cap: "storage", threshold: 90, used: 225_000_000, limit: 250_000_000 },
+      storageMode: "hosted",
+      ownerEmails: ["owner@example.com"],
+      webOrigin: "https://uploads.sh",
+    });
+    expect(email.subject).toBe("[storage] Acme is at 90% of its storage limit");
+    expect(email.text).toContain("Workspace: Acme (acme)");
+    expect(email.text).toContain("Id: org-1");
+    expect(email.text).toContain("Usage: 225 MB of 250 MB (90%)");
+    expect(email.text).toContain("Storage: hosted");
+    expect(email.text).toContain("Owner: owner@example.com");
+    expect(email.text).toContain("Admin: https://uploads.sh/admin?workspace=acme");
+    expect(email.html).toContain("https://uploads.sh/admin?workspace=acme");
+  });
+
+  it("says the limit is reached at 100% and marks a BYO workspace", () => {
+    const email = renderStorageOperatorAlertEmail({
+      organizationName: "Acme",
+      organizationSlug: "acme",
+      organizationId: "org-1",
+      event: { cap: "storage", threshold: 100, used: 250_000_000, limit: 250_000_000 },
+      storageMode: "byo",
+      ownerEmails: ["a@example.com", "b@example.com"],
+    });
+    expect(email.subject).toBe("[storage] Acme reached its storage limit");
+    expect(email.text).toContain("Usage: 250 MB of 250 MB (100%)");
+    expect(email.text).toContain("Storage: BYO (the cap counts hosted files only)");
+    expect(email.text).toContain("Owner: a@example.com, b@example.com");
+  });
+
+  it("says none when the workspace has no owner", () => {
+    const email = renderStorageOperatorAlertEmail({
+      organizationName: "Acme",
+      organizationSlug: "acme",
+      organizationId: "org-1",
+      event: { cap: "storage", threshold: 90, used: 225_000_000, limit: 250_000_000 },
+      ownerEmails: [],
+    });
+    expect(email.text).toContain("Owner: none");
+    expect(email.text).toContain("Storage: unknown");
   });
 });

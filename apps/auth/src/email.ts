@@ -10,10 +10,12 @@ import {
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
   renderPasswordResetEmail,
+  renderStorageOperatorAlertEmail,
   renderUsageAlertEmail,
   renderWelcomeEmail,
   type RenderedEmail,
   type UsageAlertEvent,
+  type WorkspaceStorageMode,
 } from "@uploads/email";
 
 const FROM = { name: "uploads.sh", email: "noreply@uploads.sh" } as const;
@@ -32,6 +34,8 @@ export type SendAuthEmailEnv = {
   EMAIL?: EmailBinding;
   ENVIRONMENT?: string;
   WEB_ORIGIN?: string;
+  /** Operator FYI for a storage band at 90% or 100%. Unset skips that mail. */
+  OPERATOR_ALERT_EMAIL?: string;
 };
 
 export type SendAuthEmailArgs =
@@ -64,6 +68,18 @@ export type SendAuthEmailArgs =
     }
   | {
       to: string;
+      template: "storage-operator-alert";
+      context: {
+        organizationName: string;
+        organizationSlug: string;
+        organizationId: string;
+        event: UsageAlertEvent;
+        storageMode?: WorkspaceStorageMode;
+        ownerEmails: string[];
+      };
+    }
+  | {
+      to: string;
       template: "welcome";
       context: { workspaceName?: string };
     };
@@ -82,6 +98,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
       return renderMemberJoinAdminNoticeEmail({ ...args.context, webOrigin });
     case "usage-limit-alert":
       return renderUsageAlertEmail({ ...args.context, webOrigin });
+    case "storage-operator-alert":
+      return renderStorageOperatorAlertEmail({ ...args.context, webOrigin });
     case "welcome":
       return renderWelcomeEmail({ ...args.context, webOrigin });
   }

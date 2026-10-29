@@ -247,3 +247,62 @@ export function renderUsageAlertEmail(ctx: {
     webOrigin: ctx.webOrigin,
   });
 }
+
+/** Hosted platform storage, or a customer bucket. Absent when the sweep didn't say. */
+export type WorkspaceStorageMode = "hosted" | "byo";
+
+/** Admin workspaces list, opened on this workspace's drawer (`?workspace=`). */
+function adminWorkspaceUrl(webOrigin: string | undefined, slug: string): string {
+  const origin = resolveWebOrigin(webOrigin);
+  return `${origin}/admin?workspace=${encodeURIComponent(slug)}`;
+}
+
+function storageModeLine(mode: WorkspaceStorageMode | undefined): string {
+  if (mode === "byo") return "BYO (the cap counts hosted files only)";
+  if (mode === "hosted") return "hosted";
+  return "unknown";
+}
+
+/**
+ * Short FYI for the uploads.sh operator when a workspace's storage crosses
+ * 90% or 100%. The auth worker sends this; the template only formats.
+ */
+export function renderStorageOperatorAlertEmail(ctx: {
+  organizationName: string;
+  organizationSlug: string;
+  organizationId: string;
+  event: UsageAlertEvent;
+  storageMode?: WorkspaceStorageMode;
+  /** Owner addresses. Empty means the org has no owner on file. */
+  ownerEmails: string[];
+  webOrigin?: string;
+}): RenderedEmail {
+  const origin = resolveWebOrigin(ctx.webOrigin);
+  const adminUrl = adminWorkspaceUrl(origin, ctx.organizationSlug);
+  const pct = displayPct(ctx.event);
+  const reached = ctx.event.threshold >= 100;
+  const name = ctx.organizationName.trim() || ctx.organizationSlug;
+  const subject = reached
+    ? `[storage] ${name} reached its storage limit`
+    : `[storage] ${name} is at ${pct}% of its storage limit`;
+  const owners = ctx.ownerEmails.map((email) => email.trim()).filter((email) => email.length > 0);
+  const ownerLine = owners.length > 0 ? owners.join(", ") : "none";
+  const lines = [
+    `Workspace: ${name} (${ctx.organizationSlug})`,
+    `Id: ${ctx.organizationId}`,
+    `Usage: ${usageOf(ctx.event)} (${pct}%)`,
+    `Storage: ${storageModeLine(ctx.storageMode)}`,
+    `Owner: ${ownerLine}`,
+  ];
+  return renderEmailCard({
+    subject,
+    preheader: subject,
+    eyebrow: "Storage",
+    title: reached ? "Storage limit reached" : "Storage nearing its limit",
+    bodyHtml: lines.map((line) => escapeHtml(line)).join("<br>"),
+    text: [...lines, "", `Admin: ${adminUrl}`].join("\n"),
+    cta: { url: adminUrl, label: "Open in admin →" },
+    footNoteHtml: "Internal FYI for the uploads.sh operator.",
+    webOrigin: origin,
+  });
+}

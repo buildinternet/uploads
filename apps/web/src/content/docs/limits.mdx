@@ -52,6 +52,10 @@ Each plan has one file cap: videos get the same ceiling as everything else,
 
 - **Oversized file.** The upload is rejected before any bytes land, with an error that names the cap.
   Nothing counts against your storage.
+- **Nearing a cap.** Admins and owners get one email when storage or monthly uploads cross 50%, 90%,
+  or 100%. The mail says how full you are. It links an upgrade on the billing tab, or your own bucket
+  on the Storage tab when the cap is storage. It sends again only after usage drops and crosses that
+  level once more. Turn it off under Account → Email notifications.
 - **Storage full.** New uploads are rejected until you free space. Existing files keep serving. Run
   `uploads usage`, then `uploads list` and `uploads delete` to clear room. Upgrade on the billing
   tab, or connect your own bucket on the Storage tab.

@@ -11,7 +11,10 @@
  * alert again on the new plan. Send + per-user preference filtering happen in
  * the auth worker (the pref and member roster live only there); this module
  * only detects and dedups, then POSTs crossings to `/internal/usage-alerts/notify`.
+ * That same post carries hosted vs BYO so the auth worker can FYI the operator
+ * on a storage band of 90 or 100, once per rise, using this marker.
  */
+import type { UsageAlertEvent, UsageAlertThreshold, WorkspaceStorageMode } from "@uploads/email";
 import { enforcedMaxStorageBytes, enforcedStorageUsageBytes, resolveBudgetLimits } from "./budget";
 import { dbFor } from "./db-session";
 import { getWorkspaceUsage, usagePeriodStart } from "./usage";
@@ -21,7 +24,7 @@ import {
   type PurgedTombstone,
   type WorkspaceRecord,
 } from "./workspace";
-import type { UsageAlertEvent, UsageAlertThreshold } from "@uploads/email";
+import { isByoRecord } from "./workspace-byob";
 
 const INTERNAL_ORIGIN = "https://auth.internal";
 const THRESHOLDS: readonly UsageAlertThreshold[] = [50, 90, 100];
@@ -102,11 +105,12 @@ async function postUsageAlert(
   slug: string,
   events: UsageAlertEvent[],
   plan: string | undefined,
+  storageMode: WorkspaceStorageMode,
 ): Promise<boolean> {
   const res = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/usage-alerts/notify`, {
     method: "POST",
     headers: { "x-uploads-internal": "1", "content-type": "application/json" },
-    body: JSON.stringify({ slug, events, plan }),
+    body: JSON.stringify({ slug, events, plan, storageMode }),
   });
   if (!res.ok) {
     console.warn(
@@ -180,7 +184,13 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
       }
 
       if (crossed.length > 0) {
-        const delivered = await postUsageAlert(env, name, crossed, record.plan);
+        const delivered = await postUsageAlert(
+          env,
+          name,
+          crossed,
+          record.plan,
+          isByoRecord(record) ? "byo" : "hosted",
+        );
         if (delivered) {
           // Only now commit the raised markers, so a failed delivery retries.
           for (const commit of pendingRaises) await commit();
