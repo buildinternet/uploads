@@ -157,13 +157,13 @@ const HOSTED_WEB_ORIGIN = "https://uploads.sh";
  * The Storage tab's bucket section connects a bucket you already pay for.
  * No slug (shouldn't happen on a real ledger row) falls back to the limits doc.
  */
-function storageQuotaRemedy(workspace: string): string {
+function storageQuotaMessage(workspace: string): string {
   const slug = workspace.trim();
-  if (!slug) {
-    return `Upgrade your plan or connect your own bucket: ${HOSTED_WEB_ORIGIN}/docs/limits`;
-  }
-  const base = `${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}`;
-  return `Upgrade your plan (${base}/billing) or connect your own bucket (${base}/storage#bucket).`;
+  const remedy = slug
+    ? `${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}/billing / ${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}/storage#bucket`
+    : `${HOSTED_WEB_ORIGIN}/docs/limits`;
+  const who = slug || "this workspace";
+  return `Storage full: ${who} is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: ${remedy}`;
 }
 
 /** The 507 storage-quota denial, shared by the read-side check and
@@ -177,7 +177,7 @@ export function storageBudgetDenial(
   return {
     code: "storage_quota_exceeded",
     status: 507,
-    message: `storage quota exceeded (${usageBytes} + ${deltaBytes} > ${maxStorageBytes} bytes). ${storageQuotaRemedy(usage.workspace)}`,
+    message: storageQuotaMessage(usage.workspace),
     detail: {
       bytes: usageBytes,
       deltaBytes,

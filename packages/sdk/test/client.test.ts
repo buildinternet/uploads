@@ -78,7 +78,7 @@ describe("createUploadsClient", () => {
 
   it("keeps a storage-quota remedy in the error message", async () => {
     const message =
-      "storage quota exceeded (1 + 2 > 3 bytes). Upgrade your plan (https://uploads.sh/account/workspaces/ws/billing) or connect your own bucket (https://uploads.sh/account/workspaces/ws/storage#bucket).";
+      "Storage full: ws is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/account/workspaces/ws/billing / https://uploads.sh/account/workspaces/ws/storage#bucket";
     const { fetch } = fakeFetch(
       json(
         {

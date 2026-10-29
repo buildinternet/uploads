@@ -1,4 +1,4 @@
-import { escapeHtml, renderEmailCard, resolveWebOrigin, strong, type RenderedEmail } from "./card";
+import { escapeHtml, renderEmailCard, resolveWebOrigin, type RenderedEmail } from "./card";
 
 /** Which cap a usage alert is about. Storage is cumulative; uploads reset monthly. */
 export type UsageAlertCap = "storage" | "uploads";
@@ -43,81 +43,154 @@ function displayPct(event: UsageAlertEvent): number {
   return Math.min(100, Math.max(0, Math.floor((event.used / event.limit) * 100)));
 }
 
-function capNoun(cap: UsageAlertCap): string {
-  return cap === "storage" ? "storage" : "monthly uploads";
-}
-
-function capLabel(cap: UsageAlertCap): string {
-  return cap === "storage" ? "Storage" : "Monthly uploads";
-}
-
+/** "225 MB of 250 MB", or an upload count. The operator FYI uses this too. */
 function usageOf(event: UsageAlertEvent): string {
   return event.cap === "storage"
     ? `${formatBytes(event.used)} of ${formatBytes(event.limit)}`
     : `${formatCount(event.used)} of ${formatCount(event.limit)} uploads this month`;
 }
 
-/** One "Storage — 90% used (225 MB of 250 MB)" line for the card body. */
-function eventLineHtml(event: UsageAlertEvent): string {
-  const state = event.threshold >= 100 ? "limit reached" : `${displayPct(event)}% used`;
-  return `${strong(capLabel(event.cap))} — ${escapeHtml(`${state} (${usageOf(event)})`)}`;
-}
-
-function eventLineText(event: UsageAlertEvent): string {
-  const state = event.threshold >= 100 ? "limit reached" : `${displayPct(event)}% used`;
-  return `${capLabel(event.cap)} — ${state} (${usageOf(event)})`;
-}
-
-/** "a", "a or b", "a, b or c". */
-function joinOr(parts: string[]): string {
-  if (parts.length <= 1) return parts[0] ?? "";
-  return `${parts.slice(0, -1).join(", ")} or ${parts[parts.length - 1]}`;
-}
-
 function remedyLink(href: string, label: string): string {
   return `<a href="${escapeHtml(href)}" style="color:#b9b0cf;">${label}</a>`;
 }
 
-/**
- * The actionable next step. Which remedies apply depends on the caps that
- * crossed and the plan:
- * - Upgrading to a paid plan raises both caps — but only offer it when the
- *   workspace isn't already on the top paid plan (`pro`).
- * - Connecting your own storage bucket lifts the *storage* cap only; it does
- *   not change the monthly upload-count allowance, so only offer it for storage.
- * When neither applies (a `pro` workspace that hit only its upload cap), the
- * honest next step is that the count resets next month.
- */
-function remedy(opts: {
-  hasStorage: boolean;
-  hasUploads: boolean;
+/** The template does not receive a calendar date. Counts reset on the UTC month. */
+const UPLOAD_RESET = "They reset at the start of next month";
+
+interface RemedyUrls {
   plan?: string;
   billingUrl: string;
   storageUrl: string;
-}): { html: string; text: string } {
-  const subject =
-    opts.hasStorage && opts.hasUploads
-      ? "these limits"
-      : opts.hasStorage
-        ? "your storage limit"
-        : "your monthly upload limit";
-  const htmlParts: string[] = [];
-  const textParts: string[] = [];
-  if (opts.plan !== "pro") {
-    htmlParts.push(remedyLink(opts.billingUrl, "upgrade to a paid plan"));
-    textParts.push(`upgrade to a paid plan (${opts.billingUrl})`);
-  }
-  if (opts.hasStorage) {
-    htmlParts.push(remedyLink(opts.storageUrl, "connect your own storage bucket"));
-    textParts.push(`connect your own storage bucket (${opts.storageUrl})`);
-  }
-  if (htmlParts.length === 0) {
-    const fallback = "Your monthly upload count resets at the start of next month.";
-    return { html: fallback, text: fallback };
-  }
+}
+
+function canUpgrade(urls: RemedyUrls): boolean {
+  return urls.plan !== "pro";
+}
+
+function storageSubject(name: string, event: UsageAlertEvent): string {
+  if (event.threshold >= 100) return `${name}'s storage is full`;
+  if (event.threshold <= 50) return `${name} has used half its storage`;
+  return `${name} is almost out of storage`;
+}
+
+function storageHeadline(event: UsageAlertEvent): string {
+  return event.threshold >= 100 ? "Your storage is full" : "You're running low on storage";
+}
+
+function uploadsSubject(name: string, event: UsageAlertEvent): string {
+  if (event.threshold >= 100) return `${name} hit this month's upload limit`;
+  if (event.threshold <= 50) return `${name} has used half its uploads this month`;
+  return `${name} is close to this month's upload limit`;
+}
+
+function uploadsHeadline(event: UsageAlertEvent): string {
+  return event.threshold >= 100
+    ? "You've hit this month's upload limit"
+    : "You're close to this month's upload limit";
+}
+
+/** Mid-sentence "upgrade your plan", or a capital start when it opens the sentence. */
+function upgradePhrase(urls: RemedyUrls, label: string): { html: string; text: string } | null {
+  if (!canUpgrade(urls)) return null;
   return {
-    html: `To raise ${subject}, ${joinOr(htmlParts)}.`,
-    text: `To raise ${subject}, ${joinOr(textParts)}.`,
+    html: remedyLink(urls.billingUrl, label),
+    text: `${label} (${urls.billingUrl})`,
+  };
+}
+
+function bucketPhrase(urls: RemedyUrls, label: string): { html: string; text: string } {
+  return {
+    html: remedyLink(urls.storageUrl, label),
+    text: `${label} (${urls.storageUrl})`,
+  };
+}
+
+function storageBody(
+  name: string,
+  event: UsageAlertEvent,
+  urls: RemedyUrls,
+): { html: string; text: string } {
+  const limit = formatBytes(event.limit);
+  if (event.threshold >= 100) {
+    const fact = `${name} has used all ${limit}, so new uploads are paused. Everything you've already uploaded is safe and still works.`;
+    const upgrade = upgradePhrase(urls, "Upgrade your plan");
+    const bucket = bucketPhrase(
+      urls,
+      upgrade ? "connect your own bucket" : "Connect your own bucket",
+    );
+    const action = upgrade
+      ? `${upgrade.text} or ${bucket.text} to start uploading again.`
+      : `${bucket.text} to start uploading again.`;
+    const actionHtml = upgrade
+      ? `${upgrade.html} or ${bucket.html} to start uploading again.`
+      : `${bucket.html} to start uploading again.`;
+    return { html: `${escapeHtml(fact)} ${actionHtml}`, text: `${fact} ${action}` };
+  }
+  const fact = `${name} has used ${formatBytes(event.used)} of its ${limit}. Uploads keep working until it's full.`;
+  const upgrade = upgradePhrase(urls, "upgrade your plan");
+  const bucket = bucketPhrase(urls, "connect your own bucket");
+  const action = upgrade
+    ? `To get more room, ${upgrade.text} or ${bucket.text} (it isn't metered).`
+    : `To get more room, ${bucket.text} (it isn't metered).`;
+  const actionHtml = upgrade
+    ? `To get more room, ${upgrade.html} or ${bucket.html} (it isn't metered).`
+    : `To get more room, ${bucket.html} (it isn't metered).`;
+  return { html: `${escapeHtml(fact)} ${actionHtml}`, text: `${fact} ${action}` };
+}
+
+function uploadsBody(
+  name: string,
+  event: UsageAlertEvent,
+  urls: RemedyUrls,
+): { html: string; text: string } {
+  const fact =
+    event.threshold >= 100
+      ? `${name} has used all its uploads for this month.`
+      : `${name} has used ${formatCount(event.used)} of its ${formatCount(event.limit)} uploads this month.`;
+  const upgrade = upgradePhrase(urls, "upgrade now");
+  const rest = upgrade
+    ? `${UPLOAD_RESET}, or you can ${upgrade.text} to keep going.`
+    : `${UPLOAD_RESET}.`;
+  const restHtml = upgrade
+    ? `${UPLOAD_RESET}, or you can ${upgrade.html} to keep going.`
+    : `${UPLOAD_RESET}.`;
+  return { html: `${escapeHtml(fact)} ${restHtml}`, text: `${fact} ${rest}` };
+}
+
+/**
+ * One sweep can cross storage and uploads together. The subject follows the
+ * fuller problem. The body states both, and still withholds an upgrade on Pro
+ * and a bucket when only the upload count is involved.
+ */
+function alertCopy(
+  name: string,
+  events: UsageAlertEvent[],
+  urls: RemedyUrls,
+): { subject: string; title: string; html: string; text: string } {
+  const storage = events.find((event) => event.cap === "storage");
+  const uploads = events.find((event) => event.cap === "uploads");
+  if (storage && uploads) {
+    const storagePart = storageBody(name, storage, urls);
+    const uploadsPart = uploadsBody(name, uploads, urls);
+    const lead = storage.threshold >= 100 ? storage : uploads.threshold >= 100 ? uploads : storage;
+    return {
+      subject: lead.cap === "storage" ? storageSubject(name, lead) : uploadsSubject(name, lead),
+      title: lead.cap === "storage" ? storageHeadline(lead) : uploadsHeadline(lead),
+      html: `${storagePart.html} ${uploadsPart.html}`,
+      text: `${storagePart.text} ${uploadsPart.text}`,
+    };
+  }
+  const only = storage ?? uploads;
+  if (!only) {
+    return { subject: name, title: "Usage", html: "", text: "" };
+  }
+  const body =
+    only.cap === "storage" ? storageBody(name, only, urls) : uploadsBody(name, only, urls);
+  return {
+    subject: only.cap === "storage" ? storageSubject(name, only) : uploadsSubject(name, only),
+    title: only.cap === "storage" ? storageHeadline(only) : uploadsHeadline(only),
+    html: body.html,
+    text: body.text,
   };
 }
 
@@ -144,54 +217,32 @@ export function renderUsageAlertEmail(ctx: {
   const settingsUrl = `${origin}/account/profile`;
 
   const events = ctx.events.slice(0, 2);
-  const anyReached = events.some((e) => e.threshold >= 100);
-  const single = events.length === 1;
-  const only = events[0];
-
-  // Subject / title / lead vary by whether a hard limit was hit and whether one
-  // cap or both crossed. Single-cap subjects name the cap; multi-cap generalize.
-  const noun = single ? capNoun(only.cap) : "usage";
-  const subject = anyReached
-    ? `${ctx.organizationName} has reached its ${noun} limit on uploads.sh`
-    : single
-      ? `${ctx.organizationName} is at ${displayPct(only)}% of its ${noun} limit on uploads.sh`
-      : `${ctx.organizationName} is approaching its ${noun} limits on uploads.sh`;
-  const title = anyReached ? "Usage limit reached" : "Approaching a usage limit";
-  const lead = anyReached
-    ? `${ctx.organizationName} has reached a usage limit on uploads.sh.`
-    : `${ctx.organizationName} is approaching a usage limit on uploads.sh.`;
-
-  const fix = remedy({
-    hasStorage: events.some((e) => e.cap === "storage"),
-    hasUploads: events.some((e) => e.cap === "uploads"),
-    plan: ctx.plan,
-    billingUrl,
-    storageUrl,
-  });
-
-  const linesHtml = events.map((e) => `<br>${eventLineHtml(e)}`).join("");
-  const bodyHtml = `${escapeHtml(lead)}${linesHtml}<br><br>${fix.html}`;
+  const name = ctx.organizationName.trim() || ctx.organizationSlug;
+  const urls = { plan: ctx.plan, billingUrl, storageUrl };
+  const copy = alertCopy(name, events, urls);
+  const hasStorage = events.some((event) => event.cap === "storage");
+  const ctaLabel = hasStorage
+    ? "Get more storage →"
+    : canUpgrade(urls)
+      ? "Upgrade your plan →"
+      : "View billing →";
 
   return renderEmailCard({
-    subject,
-    preheader: lead,
+    subject: copy.subject,
+    preheader: copy.text,
     eyebrow: "Usage",
-    title,
-    bodyHtml,
+    title: copy.title,
+    bodyHtml: copy.html,
     text: [
-      lead,
+      copy.text,
       "",
-      ...events.map(eventLineText),
-      "",
-      fix.text,
-      "",
-      `View billing: ${billingUrl}`,
+      `${ctaLabel.replace(/ →$/u, "")}: ${billingUrl}`,
       "",
       "—",
       "uploads.sh · a Build Internet project",
       `Turn this notification off in your account settings: ${settingsUrl}`,
     ].join("\n"),
-    cta: { url: billingUrl, label: "View billing →" },
+    cta: { url: billingUrl, label: ctaLabel },
     footNoteHtml: `You administer this workspace. <a href="${escapeHtml(settingsUrl)}" style="color:#b9b0cf;">Manage notifications</a> to turn this off.`,
     webOrigin: ctx.webOrigin,
   });

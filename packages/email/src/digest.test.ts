@@ -43,7 +43,7 @@ const pulse: WeeklyDigestPulseBlock = {
       { text: "Ada's first upload", href: "/account/workspaces/acme/files" },
     ],
     storageNote: {
-      text: "Storage is at 86% of the plan",
+      text: "Acme is using 86% of its storage. Upgrade or connect a bucket when you're ready",
       href: "/account/workspaces/acme/billing",
     },
   },
@@ -96,15 +96,15 @@ describe("renderWeeklyDigestEmail", () => {
     const list = email.html.slice(email.html.indexOf("<ul"), email.html.indexOf("</ul>"));
     expect(list).not.toContain("<a");
     expect(list).toContain("got busy");
-    expect(email.html).toContain("Storage is at 86% of the plan.");
-    expect(email.html).toContain("View billing");
-    expect(email.html).toContain("connect a bucket");
+    expect(email.html).toContain("Acme is using 86% of its storage.");
+    expect(email.html).toContain(">Upgrade</a>");
+    expect(email.html).toContain(">connect a bucket</a>");
     expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/billing");
     expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/storage#bucket");
     expect(email.text).toContain(
-      "Storage is at 86% of the plan. View billing: https://uploads.sh/account/workspaces/acme/billing or connect a bucket: https://uploads.sh/account/workspaces/acme/storage#bucket",
+      "Acme is using 86% of its storage. Upgrade: https://uploads.sh/account/workspaces/acme/billing or connect a bucket: https://uploads.sh/account/workspaces/acme/storage#bucket when you're ready.",
     );
-    expect(email.html).not.toMatch(/<a[^>]*>Storage is at 86%/);
+    expect(email.html).not.toMatch(/<a[^>]*>Acme is using 86%/);
     expect(email.html).toContain("See your full week");
     expect(email.text).toContain("- acme/web got busy — 8 files, up from 1");
     expect(email.text).toContain("- Ada's first upload");

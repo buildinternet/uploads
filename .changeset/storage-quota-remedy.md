@@ -2,4 +2,4 @@
 "@buildinternet/uploads": patch
 ---
 
-A storage-quota error tells you to check usage, delete objects, or upgrade or connect your own bucket. The monthly upload cap points at an upgrade only.
+A full workspace says it is out of storage and where to upgrade or connect a bucket. The monthly upload hint points at usage or an upgrade.

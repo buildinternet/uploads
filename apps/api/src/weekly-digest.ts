@@ -280,13 +280,17 @@ function activityNotes(source: WorkspaceDigestSource): WeeklyDigestNote[] {
   return notes.slice(0, DIGEST_MAX_NOTES);
 }
 
-function storageNoteFor(source: WorkspaceDigestSource): WeeklyDigestNote | undefined {
+function storageNoteFor(source: WorkspaceDigestSource, name: string): WeeklyDigestNote | undefined {
   const percent = storagePressurePercent(source.storageBytes, source.storageLimitBytes);
   if (percent === null) return undefined;
-  return { text: `Storage is at ${percent}% of the plan`, href: billingPath(source.slug) };
+  const who = name.trim() || source.slug;
+  return {
+    text: `${who} is using ${percent}% of its storage. Upgrade or connect a bucket when you're ready`,
+    href: billingPath(source.slug),
+  };
 }
 
-function pulseFrom(source: WorkspaceDigestSource): WeeklyDigestPulse {
+function pulseFrom(source: WorkspaceDigestSource, name: string): WeeklyDigestPulse {
   return {
     uploads: source.uploads,
     uploadsDelta: source.uploads - source.prevUploads,
@@ -295,7 +299,7 @@ function pulseFrom(source: WorkspaceDigestSource): WeeklyDigestPulse {
     storageBytes: source.storageBytes,
     storageDeltaBytes: source.bytesAdded - source.bytesDeleted,
     notes: activityNotes(source),
-    storageNote: storageNoteFor(source),
+    storageNote: storageNoteFor(source, name),
   };
 }
 
@@ -329,7 +333,7 @@ function buildPulseForWorkspace(
   return {
     slug: source.slug,
     name: membership.orgName || membership.slug,
-    pulse: pulseFrom(source),
+    pulse: pulseFrom(source, membership.orgName || membership.slug),
   };
 }
 

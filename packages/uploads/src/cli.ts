@@ -167,11 +167,10 @@ export function outputFormat(argv: string[]): OutputFormat {
 }
 
 const STORAGE_QUOTA_HINT =
-  "hint: run `uploads usage`, delete objects, or upgrade your plan or connect your own bucket: https://uploads.sh/docs/limits\n";
-// A monthly upload cap is a count. Deleting objects and a bring-your-own
-// bucket do not lower it. Upgrade does.
+  "hint: Out of storage. Free up space by deleting old files (`uploads usage` shows what's using it), or upgrade or connect your own bucket: https://uploads.sh/docs/limits\n";
+// A monthly upload cap is a count. Deleting files or a bucket does not lower it.
 const UPLOAD_BUDGET_HINT =
-  "hint: run `uploads usage`, or upgrade your plan: https://uploads.sh/docs/limits\n";
+  "hint: Out of uploads for this month. Run `uploads usage` for details, or upgrade: https://uploads.sh/docs/limits\n";
 const ERROR_HINTS: Partial<Record<UploadsError["code"], string>> = {
   STORAGE_QUOTA: STORAGE_QUOTA_HINT,
   UPLOAD_BUDGET: UPLOAD_BUDGET_HINT,
