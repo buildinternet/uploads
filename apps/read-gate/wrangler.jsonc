@@ -11,6 +11,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "uploads-read-gate",
   "main": "src/index.ts",
+  // Held-image card. A PNG import is the file's bytes, not a URL.
+  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": false }],
   "compatibility_date": "2026-07-06",
   "workers_dev": false,
   "preview_urls": false,

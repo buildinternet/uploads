@@ -177,9 +177,10 @@ return `embedUrl` alongside `url` — prefer embed for PR/issue markdown. See
 [docs/ops.md](docs/ops.md#dual-public-hosts-stable-vs-embed--github-camo).
 
 Those hosted hosts are R2 custom domains, served through `uploads-read-gate`
-(`apps/read-gate`). The Worker 404s safety holds only. Private-repo images
-stay cookie-less public reads. A bring-your-own bucket is not on this
-Worker. See [docs/ops.md](docs/ops.md#hosted-read-gate).
+(`apps/read-gate`). A held image gets a "Held for review" card. Any other
+safety hold is a 404. Private-repo images stay cookie-less public reads. A
+bring-your-own bucket is not on this Worker. See
+[docs/ops.md](docs/ops.md#hosted-read-gate).
 
 Bring-your-own-bucket is the advanced case: register with `--bucket` and the
 record points at a dedicated bucket (own binding or S3 credentials, own

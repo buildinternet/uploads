@@ -1,14 +1,20 @@
 /**
  * Route in front of the hosted bucket (embed, storage, store, and any
- * EXTRA_HOSTED_HOSTS). A held key 404s with the API's not-found envelope.
- * Everything else is the original request, so R2 keeps Range, validators,
- * content type, and CORS. That pass-through adds `must-revalidate` so a
- * cached `/cdn-cgi/image/` variant follows the object's max-age (60s on
- * hosted uploads) instead of Cloudflare Images' one-hour minimum.
- * OPTIONS skips the gate. A D1 error serves the object. That is a choice,
- * the same as the classifier's fail-open: a lookup outage must not hide
- * the public bucket. This Worker does not bind the held bucket.
+ * EXTRA_HOSTED_HOSTS). A held image returns a static "Held for review" PNG
+ * with `no-store`. Status 200 keeps the zone's branded 404 page from
+ * replacing the body, so a GitHub embed shows the card, and `no-store`
+ * drops it once the hold lifts. Any other held key 404s with the API's
+ * not-found envelope. Everything else is the original request, so R2 keeps
+ * Range, validators, content type, and CORS. That pass-through adds
+ * `must-revalidate` so a cached `/cdn-cgi/image/` variant follows the
+ * object's max-age (60s on hosted uploads) instead of Cloudflare Images'
+ * one-hour minimum. OPTIONS skips the gate. A D1 error serves the object.
+ * That is a choice, the same as the classifier's fail-open: a lookup
+ * outage must not hide the public bucket. This Worker does not bind the
+ * held bucket.
  */
+
+import placeholder from "./held-placeholder.png";
 
 /** Same lane string as `HOSTED_READ_LANE` in apps/api/src/read-gate.ts. */
 const HOSTED_LANE = "hosted";
@@ -24,6 +30,9 @@ const HOSTED_CACHE_CONTROL = "public, max-age=60, must-revalidate";
 const NOT_FOUND_BODY = JSON.stringify({
   error: { code: "not_found", type: "not_found", message: "Not found." },
 });
+
+/** Raster types an embed actually renders. Same set as the upload allowlist. */
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif"]);
 
 export interface ReadGateEnv {
   DB: D1Database;
@@ -173,6 +182,31 @@ function heldNotFound(): Response {
   });
 }
 
+/** True when the object key is a raster image an embed would try to draw. */
+export function isHeldImageKey(objectKey: string): boolean {
+  const slash = objectKey.lastIndexOf("/");
+  const name = slash === -1 ? objectKey : objectKey.slice(slash + 1);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return false;
+  return IMAGE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
+
+/**
+ * The zone custom error rule replaces a 404 body with the branded HTML
+ * page. A 200 image is what GitHub and Slack can draw. `no-store` so the
+ * card is not the response after the hold lifts. PNG, not the source SVG:
+ * GitHub Camo does not render SVG.
+ */
+function heldImage(method: string): Response {
+  return new Response(method === "HEAD" ? null : placeholder.slice(0), {
+    status: 200,
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "no-store",
+    },
+  });
+}
+
 /** The Cache API key lives on the public host. Never forward that path to R2. */
 function isReservedGatePath(pathname: string): boolean {
   return pathname === "/__read-gate" || pathname.startsWith("/__read-gate/");
@@ -188,7 +222,9 @@ export async function handleReadGate(
   if (request.method === "OPTIONS") return fetch(request);
   const objectKey = objectKeyFromUrl(request.url, env);
   if (!objectKey) return fetch(request);
-  if (await isBlocked(env, ctx, url.hostname, objectKey)) return heldNotFound();
+  if (await isBlocked(env, ctx, url.hostname, objectKey)) {
+    return isHeldImageKey(objectKey) ? heldImage(request.method) : heldNotFound();
+  }
   return withMustRevalidate(await fetch(request));
 }
 

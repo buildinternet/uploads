@@ -146,9 +146,10 @@ The prefix is applied in exactly one place — `createStorage()` in
 | `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
 
 Public reads on `store.uploads.sh`, `storage.uploads.sh`, and
-`embed.uploads.sh` go through `uploads-read-gate` (`apps/read-gate`). The
-Worker 404s a safety hold. It does not hide a private file, and it does not
-run on a bring-your-own-bucket domain. Details are in
+`embed.uploads.sh` go through `uploads-read-gate` (`apps/read-gate`). A held
+image gets a "Held for review" card. Any other safety hold is a 404. It
+does not hide a private file, and it does not run on a
+bring-your-own-bucket domain. Details are in
 [ops.md](ops.md#hosted-read-gate).
 
 ## Self-serve workspaces
