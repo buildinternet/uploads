@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { objectVisibility, sanitizeVisibility, VISIBILITY_META_KEY } from "../src/visibility";
+import {
+  applyVisibilityOverride,
+  objectVisibility,
+  sanitizeVisibility,
+  VISIBILITY_META_KEY,
+} from "../src/visibility";
 
 describe("sanitizeVisibility", () => {
   it("passes through exactly 'private'", () => {
@@ -24,5 +29,18 @@ describe("objectVisibility", () => {
     expect(objectVisibility({})).toBeUndefined();
     expect(objectVisibility(undefined)).toBeUndefined();
     expect(objectVisibility({ [VISIBILITY_META_KEY]: "nope" })).toBeUndefined();
+  });
+});
+
+describe("applyVisibilityOverride", () => {
+  it("lets a hosted row win over object metadata", () => {
+    expect(applyVisibilityOverride({ [VISIBILITY_META_KEY]: "private" }, "public")).toEqual({});
+    expect(applyVisibilityOverride({}, "private")).toEqual({ [VISIBILITY_META_KEY]: "private" });
+    expect(applyVisibilityOverride({ [VISIBILITY_META_KEY]: "private" }, undefined)).toEqual({
+      [VISIBILITY_META_KEY]: "private",
+    });
+    expect(applyVisibilityOverride({ [VISIBILITY_META_KEY]: "private" }, "nope")).toEqual({
+      [VISIBILITY_META_KEY]: "private",
+    });
   });
 });

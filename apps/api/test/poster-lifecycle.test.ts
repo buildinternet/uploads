@@ -44,26 +44,33 @@ describe("poster lifecycle", () => {
 
   it("flips the poster to private when the video is made private", async () => {
     // THE security case: otherwise a private video keeps a publicly
-    // fetchable frame.
-    const { env, ws } = makePosterEnv();
+    // described frame on the file page. Hosted toggles write a row. The
+    // poster bytes stay put.
+    const { env, bucket, db, ws } = makePosterEnv();
     const put = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
     const posterKey = posterKeyFor(put.key);
     const store = await storage(env, ws);
+    const before = bucket.store.get(`default/${posterKey}`)?.data;
 
-    await setObjectVisibility(store, put.key, "private");
+    await setObjectVisibility(env, ws, WORKSPACE, store, put.key, "private");
     const posterHead = await store.head(posterKey);
-    expect(objectVisibility(posterHead.metadata)).toBe("private");
+    expect(objectVisibility(posterHead.metadata)).toBeUndefined();
+    expect(db.fileMetadata.get(`${WORKSPACE} ${put.key}`)?.get("ai.visibility")).toBe("private");
+    expect(db.fileMetadata.get(`${WORKSPACE} ${posterKey}`)?.get("ai.visibility")).toBe("private");
+    expect(bucket.store.get(`default/${posterKey}`)?.data).toEqual(before);
   });
 
   it("flips the poster back to public when the video is made public", async () => {
-    const { env, ws } = makePosterEnv();
+    const { env, ws, db } = makePosterEnv();
     const put = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
     const posterKey = posterKeyFor(put.key);
     const store = await storage(env, ws);
 
-    await setObjectVisibility(store, put.key, "private");
-    await setObjectVisibility(store, put.key, "public");
+    await setObjectVisibility(env, ws, WORKSPACE, store, put.key, "private");
+    await setObjectVisibility(env, ws, WORKSPACE, store, put.key, "public");
     const posterHead = await store.head(posterKey);
     expect(objectVisibility(posterHead.metadata)).toBeUndefined();
+    expect(db.fileMetadata.get(`${WORKSPACE} ${put.key}`)?.get("ai.visibility")).toBe("public");
+    expect(db.fileMetadata.get(`${WORKSPACE} ${posterKey}`)?.get("ai.visibility")).toBe("public");
   });
 });

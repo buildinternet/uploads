@@ -24,11 +24,14 @@ import {
 import {
   deleteFileMetadata,
   deleteServerFileMetadataKeys,
+  deleteVisibilityRows,
   mergeWithinMetadataCaps,
+  readVisibilityRows,
   replaceFileMetadata,
   CLASSIFIER_ROW_KEYS,
   setServerFileMetadata,
   validateMetadataEntries,
+  writeVisibilityRows,
 } from "./file-metadata";
 import {
   applyInheritedMetaAdditively,
@@ -108,7 +111,12 @@ import {
   reserveStorageBytes,
   reserveUploads,
 } from "./usage";
-import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
+import {
+  applyVisibilityOverride,
+  objectVisibility,
+  VISIBILITY_META_KEY,
+  type Visibility,
+} from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
@@ -498,6 +506,46 @@ export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "t
 }
 
 /**
+ * Visibility a server-side copy should store. A hosted row wins over object
+ * metadata. A bring-your-own lane reads object metadata only.
+ */
+export async function visibilityForStoredObject(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  metadata: Record<string, string> | undefined | null,
+): Promise<Visibility | undefined> {
+  const hosted = isSharedLane(ws);
+  const row = hosted
+    ? (await readVisibilityRows(dbFor(env), workspaceName, [key])).get(key)
+    : undefined;
+  return objectVisibility(applyVisibilityOverride(metadata, hosted ? row : undefined));
+}
+
+/**
+ * Point the hosted visibility row at this upload. A public upload deletes
+ * the row so object metadata (rewritten by this put) is the source of truth.
+ * A private upload writes the row after that delete, so a leftover `public`
+ * override cannot outlive a failed insert. Bring-your-own uploads only delete
+ * a row left over from a hosted lane.
+ */
+async function syncPutVisibility(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  visibility: Visibility | undefined,
+): Promise<void> {
+  const db = dbFor(env);
+  const keys = [key, posterKeyFor(key)];
+  await deleteVisibilityRows(db, workspaceName, keys);
+  if (isSharedLane(ws) && visibility === "private") {
+    await writeVisibilityRows(db, workspaceName, keys, "private");
+  }
+}
+
+/**
  * Upload with the workspace's guardrails (size cap, content-type allowlist,
  * content type sniffed from the bytes; see guards.ts), then update the usage
  * ledger. Metering is best-effort and never fails the upload.
@@ -829,6 +877,9 @@ export async function putObject(
       : [...CLASSIFIER_ROW_KEYS];
     await deleteServerFileMetadataKeys(db, workspaceName, finalKey, drop);
   }
+  // After the metadata replace: that replace drops every non-classifier row,
+  // including a hosted visibility override. This put's own decision lands last.
+  await syncPutVisibility(env, ws, workspaceName, finalKey, storedVisibility);
 
   // After the metadata replace, never before: replaceFileMetadata deletes
   // client rows and would wipe the server-owned video.*/image.* rows.
@@ -946,16 +997,21 @@ export async function reconcileInterruptedUpload(
 }
 
 /**
- * Toggle an object's `visibility` flag. R2 custom metadata is immutable, so
- * this re-uploads under the same key, after a head to enforce the size cap
- * (the rewrite buffers the body). Throws `NotFoundError` or
- * `ValidationError` (`file_too_large`).
+ * Toggle an object's `visibility` flag. Throws `NotFoundError`. A
+ * bring-your-own bucket also throws `ValidationError` (`file_too_large`)
+ * when the rewrite would buffer more than `maxBytes`.
  *
- * Known race: download→upload isn't compare-and-swap (files-sdk has no
- * conditional writes), so a concurrent upload in between is overwritten.
- * Acceptable: toggles are rare and rate-limited.
+ * A hosted lane writes `ai.visibility` and does not download the body. The
+ * read gate does not consult that row. A bring-your-own lane still
+ * re-uploads, because R2 custom metadata cannot be patched. That
+ * download→upload is not compare-and-swap (files-sdk has no conditional
+ * writes), so a concurrent upload in between is overwritten. Toggles are
+ * rare and rate-limited.
  */
 export async function setObjectVisibility(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
   store: Files,
   key: string,
   visibility: Visibility,
@@ -963,6 +1019,21 @@ export async function setObjectVisibility(
 ): Promise<void> {
   const meta = await store.head(key).catch(() => null);
   if (!meta) throw new NotFoundError();
+
+  const posterKey = posterKeyFor(key);
+  const posterExists = await store.head(posterKey).catch(() => null);
+  const db = dbFor(env);
+
+  if (isSharedLane(ws)) {
+    // The still and the file land in one batch when the still exists.
+    if (posterExists) await writeVisibilityRows(db, workspaceName, [key, posterKey], visibility);
+    else {
+      await deleteVisibilityRows(db, workspaceName, [posterKey]);
+      await writeVisibilityRows(db, workspaceName, [key], visibility);
+    }
+    return;
+  }
+
   if (meta.size > maxBytes) {
     throw new ValidationError("file too large to change visibility", {
       code: "file_too_large",
@@ -971,11 +1042,9 @@ export async function setObjectVisibility(
 
   // The poster flips first, so a crash in between can never leave a private
   // video with a public poster frame.
-  const posterKey = posterKeyFor(key);
-  const posterExists = await store.head(posterKey).catch(() => null);
   if (posterExists) await rewriteVisibility(store, posterKey, visibility);
-
   await rewriteVisibility(store, key, visibility);
+  await deleteVisibilityRows(db, workspaceName, posterExists ? [key, posterKey] : [key]);
 }
 
 /** Download, flip `visibility`, re-upload. Shared by the object and its poster. */
@@ -1125,6 +1194,37 @@ interface LaneFetch {
 
 const ACTIVE_LANE_CURSOR_KEY = "active";
 
+/** Hosted `ai.visibility` wins over the object-metadata flag on a list page. */
+async function overlayListedVisibility(
+  env: Env,
+  ws: WorkspaceRecord,
+  entries: { item: ListedObject; shared: boolean }[],
+): Promise<ListedObject[]> {
+  const name = ws.name;
+  // List fixtures and some callers have a slug and no D1 binding. Same as a
+  // missing name: leave the page as the provider listed it.
+  if (!name || !dbFor(env)) return entries.map((entry) => entry.item);
+  const keys = entries.filter((entry) => entry.shared).map((entry) => entry.item.key);
+  if (keys.length === 0) return entries.map((entry) => entry.item);
+  const rows = await readVisibilityRows(dbFor(env), name, keys);
+  return entries.map(({ item, shared }) => {
+    if (!shared) return item;
+    const row = rows.get(item.key);
+    if (!row) return item;
+    const visibility = objectVisibility(
+      applyVisibilityOverride(
+        item.visibility === "private" ? { [VISIBILITY_META_KEY]: "private" } : undefined,
+        row,
+      ),
+    );
+    if (visibility === "private") return { ...item, visibility };
+    if (!item.visibility) return item;
+    const next = { ...item };
+    delete next.visibility;
+    return next;
+  });
+}
+
 export async function listObjects(
   env: Env,
   ws: WorkspaceRecord,
@@ -1148,12 +1248,17 @@ export async function listObjects(
       limit,
       cursor: opts.cursor,
     });
+    const shared = isSharedLane(cfg);
     return {
       // Server-owned artifacts are never rows. `limit` applies before this
       // filter, so a short page can still have a cursor; follow the cursor.
-      items: result.items
-        .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
-        .map((item) => projectListedObject(env, ws, cfg, item)),
+      items: await overlayListedVisibility(
+        env,
+        ws,
+        result.items
+          .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
+          .map((item) => ({ item: projectListedObject(env, ws, cfg, item), shared })),
+      ),
       cursor: result.cursor ?? null,
       ...(result.prefixes ? { prefixes: result.prefixes } : {}),
     };
@@ -1235,7 +1340,14 @@ export async function listObjects(
   const allDone = Object.values(nextLanes).every((v) => v === LANE_DONE);
 
   return {
-    items: merged.items.map((raw) => projectListedObject(env, ws, raw.__cfg, raw)),
+    items: await overlayListedVisibility(
+      env,
+      ws,
+      merged.items.map((raw) => ({
+        item: projectListedObject(env, ws, raw.__cfg, raw),
+        shared: isSharedLane(raw.__cfg),
+      })),
+    ),
     cursor: allDone
       ? null
       : encodeLaneCursor({
@@ -1381,6 +1493,7 @@ export async function deleteObject(
       }
     }
     if (posterFailures.length > 0) throw posterFailures[0];
+    await deleteVisibilityRows(dbFor(env), workspaceName, [posterKey]);
   } catch (err) {
     console.error({ event: "poster_delete_failed", workspace: workspaceName, key, err });
   }

@@ -4,9 +4,10 @@ import { Hono } from "hono";
 import { downloadResponse } from "../files-read";
 import { listGalleryItems, resolvePublicGallery } from "../galleries";
 import { hydratePublicGallery } from "../gallery-service";
-import { createLaneResolver, objectPublicUrls } from "../storage";
+import { createLaneResolver, isSharedLane, objectPublicUrls } from "../storage";
 import { isKeyHeld } from "../upload-hold-read";
-import { objectVisibility } from "../visibility";
+import { applyVisibilityOverride, objectVisibility } from "../visibility";
+import { readVisibilityRows } from "../file-metadata";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
@@ -72,7 +73,14 @@ export const publicGalleries = new Hono<WorkspaceVars>()
           withGalleryStorageErrors(() => store.head(item.object_key)),
           isKeyHeld(c.env, record.workspace, item.object_key),
         ]);
-        if (objectVisibility((head as { metadata?: Record<string, string> } | null)?.metadata)) {
+        const headMeta = (head as { metadata?: Record<string, string> } | null)?.metadata;
+        const hosted = isSharedLane(config);
+        const row = hosted
+          ? (await readVisibilityRows(dbFor(c.env), record.workspace, [item.object_key])).get(
+              item.object_key,
+            )
+          : undefined;
+        if (objectVisibility(applyVisibilityOverride(headMeta, hosted ? row : undefined))) {
           throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
         }
         // A held upload (`upload-hold.ts`) is withheld the same way.

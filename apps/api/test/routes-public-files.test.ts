@@ -5,7 +5,7 @@ import { GITHUB_APP_CFG_ENV } from "./github-app-env";
 import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
-import { setFileMetadata, setServerFileMetadata } from "../src/file-metadata";
+import { setFileMetadata, setServerFileMetadata, writeVisibilityRows } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { PASSWORD_PROTECTED_PDF } from "./pdf-fixture";
 
@@ -486,6 +486,42 @@ describe("GET /public/files/:workspace/:key", () => {
     await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
       "ai.hold": "approved",
     });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+  });
+
+  it("hides a hosted file from a visibility row without rewriting bytes", async () => {
+    const db = makeFakeDB();
+    const { env, bucket } = await makeEnv({}, { db });
+    await seedShot(env);
+    const storedKey = "default/screenshots/shot.png";
+    const before = bucket.store.get(storedKey);
+    await writeVisibilityRows(db as never, "default", ["screenshots/shot.png"], "private");
+
+    const hidden = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(hidden.status).toBe(401);
+    expect((await hidden.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "auth_required" },
+    });
+    expect(bucket.store.get(storedKey)?.data).toEqual(before?.data);
+    expect(bucket.store.get(storedKey)?.customMetadata?.visibility).toBeUndefined();
+
+    await writeVisibilityRows(db as never, "default", ["screenshots/shot.png"], "public");
+    await bucket.put(storedKey, before!.data, {
+      httpMetadata: { contentType: before?.contentType },
+      customMetadata: { ...before?.customMetadata, visibility: "private" },
+    });
+    const shown = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(shown.status).toBe(200);
+  });
+
+  it("clears a hosted visibility row when the file is uploaded again as public", async () => {
+    const db = makeFakeDB();
+    const { env } = await makeEnv({}, { db });
+    await seedShot(env);
+    await writeVisibilityRows(db as never, "default", ["screenshots/shot.png"], "private");
+    await seedShot(env);
 
     const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
     expect(res.status).toBe(200);

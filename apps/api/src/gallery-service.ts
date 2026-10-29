@@ -5,7 +5,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-read";
-import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
+import { getMetadataForKeys, publicFileMetadata, readVisibilityRows } from "./file-metadata";
 import {
   isDerivedPosterContentType,
   videoPresentation,
@@ -24,11 +24,11 @@ import {
   listExternalReferencesForGalleries,
   projectPublicGallery,
 } from "./galleries";
-import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
+import { createLaneResolver, isSharedLane, objectPublicUrls, type LaneResolver } from "./storage";
 import type { FileInfo, StorageConfig } from "@uploads/storage";
 import { HELD_FILENAME } from "./upload-hold";
 import { heldKeysAmong } from "./upload-hold-read";
-import { objectVisibility } from "./visibility";
+import { applyVisibilityOverride, objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
@@ -288,6 +288,16 @@ export async function hydrateGalleryItems(
           items.map((item) => item.object_key),
         )
       : new Set<string>();
+  // A public gallery withholds a private item. The owner view shows it, so
+  // only the public read loads the override.
+  const visibilityRows =
+    opts.audience === "public" && workspace.name
+      ? await readVisibilityRows(
+          dbFor(env),
+          workspace.name,
+          items.map((item) => item.object_key),
+        )
+      : new Map<string, "public" | "private">();
   for (const key of heldKeys) opts.heldOut?.add(key);
   const hydrated = await mapBounded(
     items,
@@ -310,7 +320,12 @@ export async function hydrateGalleryItems(
           cause,
         });
       }
-      const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
+      const hosted = Boolean(meta && itemConfig && isSharedLane(itemConfig));
+      const visibilityMeta = applyVisibilityOverride(
+        meta?.metadata,
+        hosted ? visibilityRows.get(item.object_key) : undefined,
+      );
+      const isPrivate = meta ? objectVisibility(visibilityMeta) === "private" : false;
       const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(item.object_key));
       const urls =
         meta && !withheld && itemConfig

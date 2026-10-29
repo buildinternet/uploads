@@ -26,7 +26,7 @@ import {
   setFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
-import { putObject, putOptsFromStoredObject } from "./files-core";
+import { putObject, putOptsFromStoredObject, visibilityForStoredObject } from "./files-core";
 import { isKeyHeld } from "./upload-hold-read";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
@@ -417,8 +417,10 @@ export async function promoteBranchAttachments(
 
       // A full replace (opts.metadata): the copy gets a fresh, self-contained
       // gh.* tag set rather than inheriting the staged original's tags.
+      const copied = putOptsFromStoredObject(source);
       await putObject(env, ws, destKey, bytes, workspaceName, {
-        ...putOptsFromStoredObject(source),
+        ...copied,
+        visibility: await visibilityForStoredObject(env, ws, workspaceName, key, source.metadata),
         metadata: {
           // Uploader attribution (issue #340) survives promotion: the copy is
           // written by the server, so the staged original's tags are the only

@@ -1345,10 +1345,11 @@ describe("PATCH /me/workspaces/:name/files/visibility", () => {
     expect(stored?.customMetadata).toEqual({
       "source-name": "a.png",
       "content-sha256": "abc123",
-      visibility: "private",
     });
     expect(stored?.contentType).toBe("image/png");
     expect(Array.from(stored!.data)).toEqual([1, 2, 3]);
+    const db = env.DB as unknown as UsageFakeD1;
+    expect(db.fileMetadata.get("acme a.png")?.get("ai.visibility")).toBe("private");
 
     const toPublic = await patchVisibility("acme", "a.png", "public", env);
     expect(toPublic.status).toBe(200);
@@ -1359,6 +1360,8 @@ describe("PATCH /me/workspaces/:name/files/visibility", () => {
       "source-name": "a.png",
       "content-sha256": "abc123",
     });
+    expect(Array.from(storedAgain!.data)).toEqual([1, 2, 3]);
+    expect(db.fileMetadata.get("acme a.png")?.get("ai.visibility")).toBe("public");
   });
 
   it("429s when the workspace write limiter is over budget", async () => {

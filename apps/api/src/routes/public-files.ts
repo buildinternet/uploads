@@ -13,13 +13,18 @@ import {
   type BeforeAfterState,
 } from "../before-after";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-read";
-import { displayTitle, getFileMetadata, publicFileMetadata } from "../file-metadata";
+import {
+  displayTitle,
+  getFileMetadata,
+  publicFileMetadata,
+  readVisibilityRows,
+} from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster-presentation";
-import { objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
+import { isSharedLane, objectPublicUrls, resolveObjectLaneWithHead } from "../storage";
 import { effectiveHold, isKeyHeld } from "../upload-hold-read";
-import { objectVisibility } from "../visibility";
+import { applyVisibilityOverride, objectVisibility, VISIBILITY_ROW_KEY } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
 import { dbFor } from "../db-session";
@@ -152,14 +157,19 @@ async function resolvePublicObject(
 
   const meta = lane.head;
 
-  if (objectVisibility(meta.metadata ?? undefined)) {
-    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
-  }
-  // One fresh D1 read supplies both the hold gate and the response metadata.
-  // Keep it after the private-object gate; nothing from either check is cached.
+  // One fresh D1 read supplies the hosted visibility row, the hold gate, and
+  // the response metadata. Nothing from either check is cached.
   const metadata = await measure("file_metadata", () =>
     getFileMetadata(dbFor(env), workspace, key),
   );
+  const hosted = isSharedLane(lane.config);
+  if (
+    objectVisibility(
+      applyVisibilityOverride(meta.metadata, hosted ? metadata[VISIBILITY_ROW_KEY] : undefined),
+    )
+  ) {
+    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+  }
   // A held upload (`upload-hold.ts`) gets the same answer as a private one.
   if ((await effectiveHold(env, workspace, key, metadata)).hold === "pending") {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
@@ -261,9 +271,20 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
         if (counterpartLane) {
           const counterpartMeta = counterpartLane.head;
           const counterpartType = counterpartMeta.contentType ?? "application/octet-stream";
+          const counterpartHosted = isSharedLane(counterpartLane.config);
+          const counterpartRow = counterpartHosted
+            ? (await readVisibilityRows(dbFor(c.env), workspace, [candidate.key])).get(
+                candidate.key,
+              )
+            : undefined;
           if (
             isPairableImageContentType(counterpartType) &&
-            !objectVisibility(counterpartMeta.metadata ?? undefined) &&
+            !objectVisibility(
+              applyVisibilityOverride(
+                counterpartMeta.metadata,
+                counterpartHosted ? counterpartRow : undefined,
+              ),
+            ) &&
             !(await isKeyHeld(env, workspace, candidate.key))
           ) {
             const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);

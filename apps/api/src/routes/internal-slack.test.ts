@@ -26,6 +26,7 @@ vi.mock("../upload-hold-read", () => ({
 /** Objects by key: whether each is private. Missing keys resolve to no lane. */
 const objects = new Map<string, { private: boolean }>();
 vi.mock("../storage", () => ({
+  isSharedLane: () => false,
   storage: async () => ({
     async *search(term: string) {
       yield* walk(term);
