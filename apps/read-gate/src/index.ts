@@ -4,11 +4,15 @@
  * with `no-store`. Status 200 keeps the zone's branded 404 page from
  * replacing the body, so a GitHub embed shows the card, and `no-store`
  * drops it once the hold lifts. Any other held key 404s with the API's
- * not-found envelope. Everything else is the original request, so R2 keeps
- * Range, validators, content type, and CORS. That pass-through adds
- * `must-revalidate` so a cached `/cdn-cgi/image/` variant follows the
- * object's max-age (60s on hosted uploads) instead of Cloudflare Images'
- * one-hour minimum. OPTIONS skips the gate. A D1 error serves the object.
+ * not-found envelope. GET and HEAD on a hosted host include
+ * `Access-Control-Allow-Origin: *`. OPTIONS on a hosted host is the
+ * preflight for those methods from any origin. It does not read D1 and
+ * it does not reach R2. A `/__read-gate/` request still 404s first.
+ * Everything else is the original request, so R2 keeps Range, validators,
+ * and content type. That pass-through adds `must-revalidate` so a cached
+ * `/cdn-cgi/image/` variant follows the object's max-age (60s on hosted
+ * uploads) instead of Cloudflare Images' one-hour minimum. A D1 error
+ * serves the object.
  * That is a choice, the same as the classifier's fail-open: a lookup
  * outage must not hide the public bucket. This Worker does not bind the
  * held bucket.
@@ -30,6 +34,11 @@ const HOSTED_CACHE_CONTROL = "public, max-age=60, must-revalidate";
 const NOT_FOUND_BODY = JSON.stringify({
   error: { code: "not_found", type: "not_found", message: "Not found." },
 });
+
+/** Public reads. Any origin, no credentials. */
+const READ_CORS_ORIGIN = "*";
+const READ_CORS_METHODS = "GET, HEAD";
+const READ_CORS_MAX_AGE = "86400";
 
 /** Raster types an embed actually renders. Same set as the upload allowlist. */
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif"]);
@@ -212,6 +221,41 @@ function isReservedGatePath(pathname: string): boolean {
   return pathname === "/__read-gate" || pathname.startsWith("/__read-gate/");
 }
 
+function isReadMethod(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
+/** Preflight for a public hosted read: GET and HEAD from any origin. */
+function readPreflight(request: Request): Response {
+  const headers = new Headers({
+    "access-control-allow-origin": READ_CORS_ORIGIN,
+    "access-control-allow-methods": READ_CORS_METHODS,
+    "access-control-max-age": READ_CORS_MAX_AGE,
+    vary: "Access-Control-Request-Headers",
+  });
+  const requestedHeaders = request.headers.get("access-control-request-headers");
+  if (requestedHeaders) headers.set("access-control-allow-headers", requestedHeaders);
+  return new Response(null, { status: 204, headers });
+}
+
+/** Same origin policy as the preflight, on the GET or HEAD a browser follows it with. */
+function withPublicReadCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", READ_CORS_ORIGIN);
+  // A wildcard origin does not vary by the request Origin.
+  if (headers.get("vary")?.trim().toLowerCase() === "origin") headers.delete("vary");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function finishRead(hosted: boolean, request: Request, response: Response): Response {
+  if (!hosted || !isReadMethod(request.method)) return response;
+  return withPublicReadCors(response);
+}
+
 export async function handleReadGate(
   request: Request,
   env: ReadGateEnv,
@@ -219,13 +263,15 @@ export async function handleReadGate(
 ): Promise<Response> {
   const url = new URL(request.url);
   if (isReservedGatePath(url.pathname)) return heldNotFound();
-  if (request.method === "OPTIONS") return fetch(request);
+  const hosted = isHostedHost(url.hostname, env.EXTRA_HOSTED_HOSTS);
+  if (request.method === "OPTIONS") return hosted ? readPreflight(request) : fetch(request);
   const objectKey = objectKeyFromUrl(request.url, env);
-  if (!objectKey) return fetch(request);
+  if (!objectKey) return finishRead(hosted, request, await fetch(request));
   if (await isBlocked(env, ctx, url.hostname, objectKey)) {
-    return isHeldImageKey(objectKey) ? heldImage(request.method) : heldNotFound();
+    const response = isHeldImageKey(objectKey) ? heldImage(request.method) : heldNotFound();
+    return finishRead(hosted, request, response);
   }
-  return withMustRevalidate(await fetch(request));
+  return finishRead(hosted, request, withMustRevalidate(await fetch(request)));
 }
 
 export default {

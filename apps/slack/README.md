@@ -83,28 +83,12 @@ description) are in the side panel. A feed with no image keeps its fields.
 Clicking a card's image can open Slack's full-size viewer
 (`attributes.full_size_preview`), but only for PNG, JPEG, GIF, and WebP
 images and PDFs on a host listed in `SLACK_FULL_SIZE_HOSTS`. Slack's viewer
-doesn't take video. Slack loads the file
-from `app.slack.com`, so each listed host must answer CORS for that origin.
-For the hosted R2 domains that's a bucket CORS rule on `uploads-default`:
-
-```json
-{
-  "rules": [
-    {
-      "allowed": { "origins": ["https://app.slack.com"], "methods": ["GET", "HEAD"] },
-      "maxAgeSeconds": 3600
-    }
-  ]
-}
-```
-
-```bash
-wrangler r2 bucket cors set uploads-default --file slack-cors.json
-```
-
-Then add `storage.uploads.sh` (and `store.uploads.sh`) to
-`SLACK_FULL_SIZE_HOSTS`. Images on other hosts (BYO buckets) keep the
-thumbnail only.
+doesn't take video. Slack loads the file from `app.slack.com`, so each listed host must answer
+CORS for that origin. `storage.uploads.sh`, `store.uploads.sh`, and
+`embed.uploads.sh` do: `uploads-read-gate` allows GET and HEAD from any
+origin. A bring-your-own host in `SLACK_FULL_SIZE_HOSTS` needs its own rule
+that allows `https://app.slack.com` for GET and HEAD. Images on a host that
+does not answer that CORS keep the thumbnail only.
 
 Each entity's `external_ref` is fixed per link (the file key, feed id,
 gallery id, or collection id plus item id), which Slack uses to list the
