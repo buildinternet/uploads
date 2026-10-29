@@ -18,10 +18,12 @@ export { renderUploadHeldEmail } from "./holds";
 export { CLI_INSTALL_COMMAND, renderCliUpgradeEmail } from "./updates";
 export { renderAbuseReportEmail, type AbuseReportEmailInput } from "./abuse";
 export {
+  renderStorageOperatorAlertEmail,
   renderUsageAlertEmail,
   type UsageAlertCap,
   type UsageAlertEvent,
   type UsageAlertThreshold,
+  type WorkspaceStorageMode,
 } from "./usage";
 export {
   digestDeliveryId,

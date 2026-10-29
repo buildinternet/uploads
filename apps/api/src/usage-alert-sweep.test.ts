@@ -3,7 +3,7 @@ import type { UsageAlertEvent } from "@uploads/email";
 import { runUsageAlertSweep } from "./usage-alert-sweep";
 import { usagePeriodStart } from "./usage";
 
-type UsageSeed = { bytes?: number; uploads?: number };
+type UsageSeed = { bytes?: number; uploads?: number; sharedBytes?: number };
 
 /** Minimal D1 double for getWorkspaceUsage: prepare().bind(ws).first(). */
 function fakeDb(usage: Record<string, UsageSeed>) {
@@ -19,7 +19,7 @@ function fakeDb(usage: Record<string, UsageSeed>) {
                 workspace: ws,
                 bytes: u.bytes ?? 0,
                 objects: 0,
-                shared_bytes: 0,
+                shared_bytes: u.sharedBytes ?? 0,
                 shared_objects: 0,
                 uploads_in_period: u.uploads ?? 0,
                 period_start: usagePeriodStart(),
@@ -57,7 +57,12 @@ function fakeRegistry(records: Record<string, unknown>, markers = new Map<string
 }
 
 function fakeAuth(statuses: number[] = []) {
-  const posts: Array<{ slug: string; events: UsageAlertEvent[]; plan?: string }> = [];
+  const posts: Array<{
+    slug: string;
+    events: UsageAlertEvent[];
+    plan?: string;
+    storageMode?: "hosted" | "byo";
+  }> = [];
   let call = 0;
   return {
     posts,
@@ -113,6 +118,7 @@ describe("runUsageAlertSweep", () => {
     expect(AUTH.posts[0]).toEqual({
       slug: "acme",
       events: [{ cap: "storage", threshold: 90, used: 230_000_000, limit: 250_000_000 }],
+      storageMode: "hosted",
     });
     expect(setup.markers.get("usage:alert:acme:storage")).toBe("90");
 
@@ -147,6 +153,25 @@ describe("runUsageAlertSweep", () => {
     await runUsageAlertSweep(ok.env);
     expect(ok.AUTH.posts).toHaveLength(1);
     expect(markers.get("usage:alert:acme:storage")).toBe("90");
+  });
+
+  it("marks a customer-credential workspace as BYO and meters hosted residue", async () => {
+    const { env, AUTH } = makeEnv({
+      records: {
+        "ws:acme": wsRecord({
+          accountId: "a".repeat(32),
+          accessKeyId: "key",
+          secretAccessKey: "secret",
+        }),
+      },
+      // Total bytes are the customer's bucket. The cap meters sharedBytes.
+      usage: { acme: { bytes: 9_000_000_000, sharedBytes: 230_000_000 } },
+    });
+    await runUsageAlertSweep(env);
+    expect(AUTH.posts[0].storageMode).toBe("byo");
+    expect(AUTH.posts[0].events).toEqual([
+      { cap: "storage", threshold: 90, used: 230_000_000, limit: 250_000_000 },
+    ]);
   });
 
   it("forwards the workspace plan so the email copy can stay plan-accurate", async () => {
