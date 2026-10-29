@@ -317,7 +317,11 @@ describe("handleWebhook pull_request auto-promotion", () => {
       throw new Error("boom");
     }) as typeof bucket.get;
     try {
-      await expect(handleWebhook(env, "pull_request", prPayload())).resolves.toBeUndefined();
+      // Comment sync calls GitHub. Mock it so a slow API connection cannot
+      // hold this test open. The assertion is that the R2 failure does not escape.
+      await withMockPost(async () => {
+        await expect(handleWebhook(env, "pull_request", prPayload())).resolves.toBeUndefined();
+      });
     } finally {
       bucket.get = realGet;
     }
