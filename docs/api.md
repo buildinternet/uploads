@@ -301,11 +301,16 @@ X-Uploads-Meta-keep-exif: 1
 `optimized`, `frame`, `keep-exif`. Values are printable ASCII, max 128 chars.
 Never send tokens, workspace secrets, or PII.
 
-**Server-only:** every put also stores `content-sha256` (lowercase hex SHA-256 of
-the **final stored body**). Client-supplied `content-sha256` headers are ignored.
+**Server-only:** every API put stores the SHA-256 of the final stored body in
+`file_content_hash`. When that hash is known before the write, the same put
+also stores it on the object as `content-sha256`. A streamed body is hashed
+as it is written, so its digest stays in `file_content_hash` only.
+Client-supplied `content-sha256` headers are ignored. Hold fan-out reads
+`file_content_hash`. A presigned upload (`POST …/files/sign`) does not
+record a hash. The API does not see those bytes.
 
-Put and head responses always include `provenance` with at least
-`content-sha256`. The CLI/`uploads mcp` set the client fields automatically from
+Put and head include `content-sha256` in `provenance` when the object carries
+that stamp. The CLI/`uploads mcp` set the client fields automatically from
 optimize/frame options.
 
 **Two bags, two names.** `provenance` is this R2 bag. `metadata` always means
@@ -365,8 +370,9 @@ approve; other uploads log `upload_hold_skipped` and are left alone. The managed
 adds one line with the held count and `uploads approve --pr <n>`. Public
 feeds and galleries return it as `withheld`, and `GET /public/files/...`
 answers 401 `auth_required`. On hosted storage the hold writes a read-gate
-row and the raw URL returns 404 until approval deletes that row. The bytes
-stay in the public bucket. A hold that already moved its bytes to the held
+row. An image URL returns a "Held for review" card until approval deletes
+that row. Any other raw URL returns 404. The bytes stay in the public
+bucket. A hold that already moved its bytes to the held
 bucket is copied back on approval. A BYO bucket's domain keeps serving. A
 moved file is absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held-bucket copy when one

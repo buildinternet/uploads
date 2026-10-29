@@ -3,9 +3,10 @@
  * personal data, with high confidence, is held for approval. A held file
  * works like a staged file: no surface this service publishes shows it (the
  * managed PR comment, a public feed or gallery, the public `/f/` page). On
- * hosted storage the read-gate Worker 404s the raw URL from a `read_gate`
- * row. The bytes stay in the public bucket. A hold that already moved its
- * bytes (`ai.hold.moved`) is copied back from the held bucket on release.
+ * hosted storage the read-gate Worker serves a "Held for review" card for
+ * an image URL and 404s every other raw URL, from a `read_gate` row. The
+ * bytes stay in the public bucket. A hold that already moved its bytes
+ * (`ai.hold.moved`) is copied back from the held bucket on release.
  * A workspace member approves it with
  * `POST /v1/workspaces/:workspace/files/approve`.
  *

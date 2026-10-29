@@ -1,11 +1,26 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   cacheRequest,
   handleReadGate,
+  isHeldImageKey,
   objectKeyFromUrl,
   withMustRevalidate,
   type ReadGateEnv,
 } from "./index";
+
+const PLACEHOLDER = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "held-placeholder.png"),
+);
+
+async function expectPlaceholder(response: Response): Promise<void> {
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("image/png");
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(PLACEHOLDER));
+}
 
 function ctx() {
   const pending: Promise<unknown>[] = [];
@@ -44,8 +59,36 @@ describe("objectKeyFromUrl", () => {
   });
 });
 
+describe("isHeldImageKey", () => {
+  it("matches raster extensions and ignores every other key", () => {
+    for (const key of [
+      "acme/shot.png",
+      "acme/shot.JPEG",
+      "acme/shot.jpg",
+      "acme/shot.jpeg",
+      "acme/shot.gif",
+      "acme/shot.webp",
+      "acme/shot.avif",
+      "_internal/posters/acme/clip.mp4.jpg",
+    ]) {
+      expect(isHeldImageKey(key)).toBe(true);
+    }
+    for (const key of [
+      "acme/clip.mp4",
+      "acme/notes.pdf",
+      "acme/page.svg",
+      "acme/readme.md",
+      "acme/noext",
+      "acme/.png",
+      "acme/shot.png.",
+    ]) {
+      expect(isHeldImageKey(key)).toBe(false);
+    }
+  });
+});
+
 describe("handleReadGate", () => {
-  it("404s a held key, including its Slack PNG, and passes other keys through", async () => {
+  it("returns the held card for an image, including its Slack PNG, and 404s other keys", async () => {
     const origin = vi.fn(async () => new Response("bytes", { status: 200 }));
     vi.stubGlobal("fetch", origin);
     const { env } = db(async () => ({ hit: 1 }));
@@ -53,14 +96,18 @@ describe("handleReadGate", () => {
     const png = new Request(
       "https://storage.uploads.sh/cdn-cgi/image/width=1600,fit=scale-down,format=png/acme/shot.avif",
     );
+    const pdf = new Request("https://store.uploads.sh/acme/notes.pdf");
     const held = await handleReadGate(blocked, env, ctx());
     const transformed = await handleReadGate(png, env, ctx());
-    expect(held.status).toBe(404);
-    expect(held.headers.get("cache-control")).toBe("no-store");
-    expect(await held.json()).toEqual({
+    const otherFile = await handleReadGate(pdf, env, ctx());
+    await expectPlaceholder(held);
+    await expectPlaceholder(transformed);
+    expect(otherFile.status).toBe(404);
+    expect(otherFile.headers.get("content-type")).toBe("application/json");
+    expect(otherFile.headers.get("cache-control")).toBe("no-store");
+    expect(await otherFile.json()).toEqual({
       error: { code: "not_found", type: "not_found", message: "Not found." },
     });
-    expect(transformed.status).toBe(404);
     expect(origin).not.toHaveBeenCalled();
 
     const { env: open } = db(async () => null);
@@ -156,10 +203,7 @@ describe("handleReadGate", () => {
       env,
       ctx(),
     );
-    expect(gated.status).toBe(404);
-    expect(await gated.json()).toEqual({
-      error: { code: "not_found", type: "not_found", message: "Not found." },
-    });
+    await expectPlaceholder(gated);
     expect(origin).not.toHaveBeenCalled();
 
     const unknown = new Request("https://other.uploads.sh/acme/shot.avif");
@@ -269,8 +313,51 @@ describe("handleReadGate", () => {
       env,
       ctx(),
     );
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(lookups).toBe(1);
+    expect(origin).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("serves the same card twice, an empty HEAD, and still 404s a held video or SVG", async () => {
+    const origin = vi.fn(async () => new Response("bytes", { status: 200 }));
+    vi.stubGlobal("fetch", origin);
+    const { env } = db(async () => ({ hit: 1 }));
+    const gate = ctx();
+    const first = await handleReadGate(
+      new Request("https://embed.uploads.sh/acme/Shot.JPEG?download=1"),
+      env,
+      gate,
+    );
+    const second = await handleReadGate(
+      new Request("https://storage.uploads.sh/acme/Shot.JPEG"),
+      env,
+      gate,
+    );
+    await expectPlaceholder(first);
+    await expectPlaceholder(second);
+    const head = await handleReadGate(
+      new Request("https://store.uploads.sh/acme/shot.png", { method: "HEAD" }),
+      env,
+      gate,
+    );
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-type")).toBe("image/png");
+    expect(head.headers.get("cache-control")).toBe("no-store");
+    expect((await head.arrayBuffer()).byteLength).toBe(0);
+    for (const url of [
+      "https://embed.uploads.sh/acme/clip.mp4",
+      "https://embed.uploads.sh/acme/mark.svg",
+    ]) {
+      const response = await handleReadGate(new Request(url), env, gate);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toBe("application/json");
+      expect(await response.json()).toEqual({
+        error: { code: "not_found", type: "not_found", message: "Not found." },
+      });
+    }
     expect(origin).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

@@ -2,13 +2,20 @@
 
 Pass-through Worker (`uploads-read-gate`) in front of the hosted R2 custom
 domains: `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`.
-A safety hold returns 404. The API records the hold in D1 `read_gate`.
-This Worker reads that table. A D1 error serves the object, by choice, the
-same as the classifier's fail-open. Every other
-request is `fetch(request)`, so R2 keeps Range, validators, content type,
-and CORS. The pass-through adds `must-revalidate` so a cached image
-transform follows the object's max-age instead of Cloudflare Images'
-one-hour minimum.
+A safety hold on an image (`png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`)
+returns the "Held for review" card in `src/held-placeholder.png`. That file
+is a PNG of `apps/web/public/placeholders/image-held.svg`. The response is
+status 200 and `cache-control: no-store`. Status 200 matters: the zone
+custom error rule replaces a 404 with the branded missing-file page, and
+that page is what a GitHub embed was showing as a broken image. `no-store`
+keeps the card from sticking after the hold lifts. A hold on any other
+file still returns 404 with the API not-found envelope. The API records
+the hold in D1 `read_gate`. This Worker reads that table. A D1 error
+serves the object, by choice, the same as the classifier's fail-open.
+Every other request is `fetch(request)`, so R2 keeps Range, validators,
+content type, and CORS. The pass-through adds `must-revalidate` so a
+cached image transform follows the object's max-age instead of Cloudflare
+Images' one-hour minimum.
 
 It does not gate private files. Private-repo images stay cookie-less public
 reads. It does not run on a bring-your-own-bucket domain. It does not bind

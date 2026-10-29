@@ -249,10 +249,11 @@ plus peer deps, no API changes.
 
 Hosted file bytes stay on the shared `uploads-default` bucket.
 `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh` are served
-through `uploads-read-gate` (`apps/read-gate`). The Worker 404s a safety
-hold and passes every other request through to R2. It does not gate private
-files, and it does not run for a bring-your-own bucket. Operator notes are
-in [docs/ops.md](docs/ops.md#hosted-read-gate).
+through `uploads-read-gate` (`apps/read-gate`). A held image gets a "Held
+for review" card. Any other safety hold is a 404. Every other request
+passes through to R2. It does not gate private files, and it does not run
+for a bring-your-own bucket. Operator notes are in
+[docs/ops.md](docs/ops.md#hosted-read-gate).
 
 ## Docs
 
