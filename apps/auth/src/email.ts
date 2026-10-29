@@ -12,6 +12,7 @@ import {
   renderPasswordResetEmail,
   renderStorageOperatorAlertEmail,
   renderUsageAlertEmail,
+  renderWebhookDlqAlertEmail,
   renderWelcomeEmail,
   type RenderedEmail,
   type UsageAlertEvent,
@@ -34,7 +35,7 @@ export type SendAuthEmailEnv = {
   EMAIL?: EmailBinding;
   ENVIRONMENT?: string;
   WEB_ORIGIN?: string;
-  /** Operator FYI for a storage band at 90% or 100%. Unset skips that mail. */
+  /** Operator FYI. Storage at 90% or 100%, and a webhook dead-letter batch. Unset skips that mail. */
   OPERATOR_ALERT_EMAIL?: string;
 };
 
@@ -80,6 +81,11 @@ export type SendAuthEmailArgs =
     }
   | {
       to: string;
+      template: "webhook-dlq-alert";
+      context: { events: readonly unknown[] };
+    }
+  | {
+      to: string;
       template: "welcome";
       context: { workspaceName?: string };
     };
@@ -100,6 +106,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
       return renderUsageAlertEmail({ ...args.context, webOrigin });
     case "storage-operator-alert":
       return renderStorageOperatorAlertEmail({ ...args.context, webOrigin });
+    case "webhook-dlq-alert":
+      return renderWebhookDlqAlertEmail(args.context);
     case "welcome":
       return renderWelcomeEmail({ ...args.context, webOrigin });
   }

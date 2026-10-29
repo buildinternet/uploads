@@ -58,6 +58,40 @@ describe("POST /v1/github/webhook", () => {
     expect(kv.store.has("ghref:pub:owner/repo#7")).toBe(false);
   });
 
+  it("enqueues the GitHub delivery id and leaves the cache for the consumer", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:owner/repo#7", { value: "{}" });
+    const sent: unknown[] = [];
+    const env = {
+      GITHUB_APP_WEBHOOK_SECRET: SECRET,
+      GITHUB_CACHE: kv,
+      GITHUB_WEBHOOK_QUEUE: {
+        async send(body: unknown) {
+          sent.push(body);
+        },
+      },
+    } as unknown as Env;
+    const body = JSON.stringify({
+      action: "edited",
+      repository: { full_name: "Owner/Repo" },
+      issue: { number: 7 },
+    });
+    const res = await post(
+      body,
+      {
+        "x-hub-signature-256": sign(body),
+        "x-github-event": "issues",
+        "x-github-delivery": "delivery-1",
+      },
+      env,
+    );
+    expect(res.status).toBe(204);
+    expect(sent).toEqual([
+      { keys: ["ghref:owner/repo#7", "ghref:pub:owner/repo#7"], deliveryId: "delivery-1" },
+    ]);
+    expect(kv.store.has("ghref:owner/repo#7")).toBe(true);
+  });
+
   it("204s a ping without touching the cache", async () => {
     const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
     const body = "{}";

@@ -49,6 +49,12 @@ githubWebhook.post("/", async (c) => {
     executionCtx = undefined;
   }
 
-  await handleWebhook(c.env, c.req.header("x-github-event") ?? "", payload, executionCtx);
+  await handleWebhook(
+    c.env,
+    c.req.header("x-github-event") ?? "",
+    payload,
+    executionCtx,
+    c.req.header("x-github-delivery"),
+  );
   return c.body(null, 204);
 });

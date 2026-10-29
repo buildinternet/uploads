@@ -328,6 +328,8 @@ bring-your-own, and the owner email. It links to that workspace in admin
 (`/admin?workspace=<name>`). Unset, the FYI is skipped. The customer mail still
 sends. A rejected upload does not send its own FYI. The 100% band is the
 limit-reached notice, on the next daily run after stored usage reaches the cap.
+The same address receives one email when a GitHub webhook batch is
+dead-lettered. See [GitHub webhook dead letters](#github-webhook-dead-letters).
 
 ```bash
 pnpm --filter @uploads/auth exec wrangler secret put OPERATOR_ALERT_EMAIL
@@ -378,6 +380,36 @@ soft-deleted workspace still inside its grace window is never treated as an
 orphan. The sweep isolates an AUTH outage or a single org's delete failure
 (logged, sweep continues) rather than failing the run. Results roll up into the
 sweep's `orgsSwept` field.
+
+## GitHub webhook dead letters
+
+`uploads-github-webhook` retries a compact webhook event 6 times. It then
+moves the event to `uploads-github-webhook-dlq`.
+
+The DLQ consumer writes one structured log line per event and acks it. The
+line includes the full compact event and the GitHub delivery id
+(`X-GitHub-Delivery`).
+
+```json
+{"message":"github webhook event dead-lettered","deliveryId":"…","event":{…}}
+```
+
+One dead-letter batch sends one email to `OPERATOR_ALERT_EMAIL` on
+`uploads-auth`. The mail contains the events as a JSON array. When the
+address is unset, the mail is skipped. The log line is still written.
+
+Save that JSON and put the events back on `uploads-github-webhook`:
+
+```bash
+node --env-file=.env apps/api/scripts/replay-github-webhook-dlq.mjs events.json
+node --env-file=.env apps/api/scripts/replay-github-webhook-dlq.mjs --dry-run events.json
+```
+
+The script reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the
+environment. The token needs Queues Write. A file can be one event, a JSON
+array of events, or one log line per line. `--dry-run` prints the count and
+sends nothing. The main queue processes a replay the same way as a new
+delivery.
 
 ## Inspecting a workspace
 
@@ -729,18 +761,18 @@ on both, with byte-identical values. Nothing in Cloudflare enforces that, so thi
 table is the source of truth. Keep it current when a Worker starts or stops
 reading a secret.
 
-| Secret                           | Workers                            | Purpose                                                                                           |
-| -------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `WORKSPACE_SECRETS_KEY`          | **`uploads-api` + `uploads-mcp`**  | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                                            |
-| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **`uploads-api` + `uploads-mcp`**  | **Previous** KEK during rotation only (decrypt fallback, then remove from both)                   |
-| `GITHUB_APP_PRIVATE_KEY`         | **`uploads-api` + `uploads-mcp`**  | GitHub App identity (PKCS#8 PEM). Both Workers post managed comments in-process.                  |
-| `BILLING_INTERNAL_KEY`           | **`uploads-api` + `uploads-auth`** | Shared key gating `POST /internal/billing/plan`. The two values must match.                       |
-| `ADMIN_TOKEN`                    | `uploads-api`                      | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md)) |
-| `OPERATOR_ALERT_EMAIL`           | `uploads-auth`                     | Optional address for the storage FYI at 90% and 100%. Unset skips that mail.                      |
-| `ANALYTICS_API_TOKEN`            | `uploads-api`                      | Analytics Engine SQL API token for the `/admin/metrics` breakdown panel                           |
-| `GITHUB_APP_WEBHOOK_SECRET`      | `uploads-api`                      | HMAC secret for GitHub App webhook deliveries (`X-Hub-Signature-256`)                             |
-| `OPENAI_APPS_CHALLENGE`          | `uploads-mcp`                      | Domain-verification token served at `/.well-known/openai-apps-challenge`                          |
-| The eight in `secrets.required`  | `uploads-auth`                     | Better Auth, GitHub OAuth, Stripe, billing — listed in `apps/auth/wrangler.jsonc`                 |
+| Secret                           | Workers                            | Purpose                                                                                                                        |
+| -------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `WORKSPACE_SECRETS_KEY`          | **`uploads-api` + `uploads-mcp`**  | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                                                                         |
+| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **`uploads-api` + `uploads-mcp`**  | **Previous** KEK during rotation only (decrypt fallback, then remove from both)                                                |
+| `GITHUB_APP_PRIVATE_KEY`         | **`uploads-api` + `uploads-mcp`**  | GitHub App identity (PKCS#8 PEM). Both Workers post managed comments in-process.                                               |
+| `BILLING_INTERNAL_KEY`           | **`uploads-api` + `uploads-auth`** | Shared key gating `POST /internal/billing/plan`. The two values must match.                                                    |
+| `ADMIN_TOKEN`                    | `uploads-api`                      | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md))                              |
+| `OPERATOR_ALERT_EMAIL`           | `uploads-auth`                     | Optional address for operator FYIs: storage at 90% or 100%, and one mail per webhook dead-letter batch. Unset skips that mail. |
+| `ANALYTICS_API_TOKEN`            | `uploads-api`                      | Analytics Engine SQL API token for the `/admin/metrics` breakdown panel                                                        |
+| `GITHUB_APP_WEBHOOK_SECRET`      | `uploads-api`                      | HMAC secret for GitHub App webhook deliveries (`X-Hub-Signature-256`)                                                          |
+| `OPENAI_APPS_CHALLENGE`          | `uploads-mcp`                      | Domain-verification token served at `/.well-known/openai-apps-challenge`                                                       |
+| The eight in `secrets.required`  | `uploads-auth`                     | Better Auth, GitHub OAuth, Stripe, billing — listed in `apps/auth/wrangler.jsonc`                                              |
 
 `uploads-web` reads no secrets. Absence behavior for each of the above is in
 [Minimal-binding profile](#minimal-binding-profile-self-hosting-uploads754-item-3).
@@ -1016,7 +1048,7 @@ recommend removing.
 | `INVITE_LIMITER`                                                               | api       | No per-recipient/IP rate limit on invite emails, invite lookup/exchange, or CLI report/abuse endpoints.                                                                                                                                                                                                                                                                                                 |
 | `POSTER_LIMITER`                                                               | api       | **Fails closed, not open** — unlike every other limiter above, an absent `POSTER_LIMITER` disables poster generation entirely rather than removing its burst cap, since posters are a metered, billable operation.                                                                                                                                                                                      |
 | `EMAIL`                                                                        | api       | Welcome emails, abuse-report notifications, and invite-code emails are skipped (logged instead); the underlying record/report/enrollment is still created.                                                                                                                                                                                                                                              |
-| `EMAIL`                                                                        | auth      | Magic-link, invitation, member-joined, welcome, and weekly-digest emails are skipped (logged instead, with the link itself logged for invitations). GitHub OAuth sign-in is unaffected — it has no dependency on `EMAIL`. A deployment with neither `EMAIL` nor GitHub OAuth configured has no working sign-in method; that's a configuration gap, not a crash.                                         |
+| `EMAIL`                                                                        | auth      | Magic-link, invitation, member-joined, welcome, weekly-digest, and operator FYI emails are skipped (logged instead, with the link itself logged for invitations). GitHub OAuth sign-in is unaffected — it has no dependency on `EMAIL`. A deployment with neither `EMAIL` nor GitHub OAuth configured has no working sign-in method; that's a configuration gap, not a crash.                           |
 | `ADMIN_TOKEN`                                                                  | api       | The static break-glass admin token is disabled; scoped operator tokens (minted through the normal admin flow) still work.                                                                                                                                                                                                                                                                               |
 | `BILLING_INTERNAL_KEY`                                                         | api, auth | Fails closed by design: `/internal/billing/plan` always 401s and the auth→api plan-sync bridge no-ops (queues a retry) instead of sending an unauthenticated request.                                                                                                                                                                                                                                   |
 | `GITHUB_APP_WEBHOOK_SECRET`                                                    | api       | The GitHub webhook endpoint 503s.                                                                                                                                                                                                                                                                                                                                                                       |

@@ -17,6 +17,7 @@ export { renderWelcomeEmail } from "./welcome";
 export { renderUploadHeldEmail } from "./holds";
 export { CLI_INSTALL_COMMAND, renderCliUpgradeEmail } from "./updates";
 export { renderAbuseReportEmail, type AbuseReportEmailInput } from "./abuse";
+export { renderWebhookDlqAlertEmail } from "./webhook-dlq";
 export {
   renderStorageOperatorAlertEmail,
   renderUsageAlertEmail,

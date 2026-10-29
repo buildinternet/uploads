@@ -438,6 +438,9 @@ export interface WebhookEvent {
    * url → re-sync the check, which counts those links too. Edits already
    * re-sync through `ingest`. */
   recheck?: { repo: string; num: number };
+  /** GitHub `X-GitHub-Delivery`, when the route had one. Older queued
+   * events omit it. Processing ignores it. The dead-letter log keeps it. */
+  deliveryId?: string;
 }
 
 /**
@@ -727,19 +730,36 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
   }
 }
 
+/** GitHub's delivery id, or undefined when the header is missing or unusable. */
+function webhookDeliveryId(header: string | null | undefined): string | undefined {
+  const id = header?.trim();
+  if (!id || id.length > 128) return undefined;
+  // Reject control characters so the dead-letter log stays one line.
+  for (let i = 0; i < id.length; i++) {
+    const code = id.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return undefined;
+  }
+  return id;
+}
+
 /**
  * Handle one verified delivery: enqueue the compact event, or run it inline
  * via `waitUntil` without a queue or on a failed send. The inline path
  * swallows failures so the route still returns 204.
+ * `deliveryId` is the `X-GitHub-Delivery` header. It rides on the compact
+ * event so a dead letter can be replayed. Processing ignores it.
  */
 export async function handleWebhook(
   env: Env,
   eventType: string,
   payload: unknown,
   ctx?: Pick<ExecutionContext, "waitUntil">,
+  deliveryId?: string | null,
 ): Promise<void> {
-  const ev = extractWebhookEvent(eventType, payload);
-  if (!ev) return;
+  const extracted = extractWebhookEvent(eventType, payload);
+  if (!extracted) return;
+  const id = webhookDeliveryId(deliveryId);
+  const ev = id ? { ...extracted, deliveryId: id } : extracted;
 
   // A local cast: an optional env.d.ts declaration would conflict with the
   // generated one, and builds without the queue must still typecheck.
