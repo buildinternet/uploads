@@ -278,10 +278,11 @@ export async function hydrateFeedItems(
         cause,
       });
     }
-    const visibilityMeta =
-      meta && itemConfig && isSharedLane(itemConfig)
-        ? applyVisibilityOverride(meta.metadata, visibilityRows.get(match.key))
-        : meta?.metadata;
+    const hosted = Boolean(meta && itemConfig && isSharedLane(itemConfig));
+    const visibilityMeta = applyVisibilityOverride(
+      meta?.metadata,
+      hosted ? visibilityRows.get(match.key) : undefined,
+    );
     const isPrivate = meta ? objectVisibility(visibilityMeta) === "private" : false;
     if (isPrivate) opts.privateKeys?.add(match.key);
     const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(match.key));
@@ -394,10 +395,12 @@ export async function countPrivateScopeItems(
       const lane = await resolver.resolve(key);
       if (!lane) return false;
       const head = await lane.store.head(key);
-      const metadata = isSharedLane(lane.config)
-        ? applyVisibilityOverride(head.metadata, visibilityRows.get(key))
-        : head.metadata;
-      return objectVisibility(metadata) === "private";
+      const hosted = isSharedLane(lane.config);
+      return (
+        objectVisibility(
+          applyVisibilityOverride(head.metadata, hosted ? visibilityRows.get(key) : undefined),
+        ) === "private"
+      );
     });
   } catch (cause) {
     throw new ServiceUnavailableError("Feed storage unavailable.", {

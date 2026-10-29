@@ -10,7 +10,7 @@ import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import type { FileSurface, FileTypeClass } from "@uploads/comment-render/scope";
 import { fileSurfaceSql, fileTypeSql } from "./file-type-sql";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
-import { applyVisibilityOverride, VISIBILITY_ROW_KEY } from "./visibility";
+import { VISIBILITY_ROW_KEY } from "./visibility";
 import { type D1Queryable } from "./db-session";
 
 /** Lowercase key, optionally namespaced with dots (e.g. `gh.repo`). */
@@ -1245,22 +1245,6 @@ export async function deleteVisibilityRows(
         .bind(workspace, key, VISIBILITY_ROW_KEY),
     ),
   );
-}
-
-/**
- * Object metadata plus the hosted override, when `hosted` is set.
- * A bring-your-own lane ignores the row.
- */
-export async function withVisibilityMetadata(
-  db: D1Queryable,
-  workspace: string,
-  hosted: boolean,
-  key: string,
-  metadata: Record<string, string> | undefined | null,
-): Promise<Record<string, string> | undefined> {
-  if (!hosted) return metadata ?? undefined;
-  const row = (await readVisibilityRows(db, workspace, [key])).get(key);
-  return applyVisibilityOverride(metadata, row);
 }
 
 /** Drop specific server-owned rows — used to clear a stale poster pointer. */

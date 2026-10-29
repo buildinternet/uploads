@@ -275,10 +275,17 @@ export const internalSlack = new Hono<WorkspaceVars>()
               const lane = await resolveObjectLaneWithHead(c.env, record, m.key);
               if (!lane) return null;
               const urls = objectPublicUrls(c.env, lane.config, m.key);
-              const metadata = isSharedLane(lane.config)
-                ? applyVisibilityOverride(lane.head.metadata, visibilityRows.get(m.key))
-                : lane.head.metadata;
-              if (!urls.url || objectVisibility(metadata)) return null;
+              const hosted = isSharedLane(lane.config);
+              if (
+                !urls.url ||
+                objectVisibility(
+                  applyVisibilityOverride(
+                    lane.head.metadata,
+                    hosted ? visibilityRows.get(m.key) : undefined,
+                  ),
+                )
+              )
+                return null;
               const hit: SlackSearchResult = { workspace, key: m.key };
               if (lane.head.contentType.startsWith("image/"))
                 hit.imageUrl = urls.embedUrl ?? urls.url;

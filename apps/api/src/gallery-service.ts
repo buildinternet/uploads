@@ -288,13 +288,16 @@ export async function hydrateGalleryItems(
           items.map((item) => item.object_key),
         )
       : new Set<string>();
-  const visibilityRows = workspace.name
-    ? await readVisibilityRows(
-        dbFor(env),
-        workspace.name,
-        items.map((item) => item.object_key),
-      )
-    : new Map<string, "public" | "private">();
+  // A public gallery withholds a private item. The owner view shows it, so
+  // only the public read loads the override.
+  const visibilityRows =
+    opts.audience === "public" && workspace.name
+      ? await readVisibilityRows(
+          dbFor(env),
+          workspace.name,
+          items.map((item) => item.object_key),
+        )
+      : new Map<string, "public" | "private">();
   for (const key of heldKeys) opts.heldOut?.add(key);
   const hydrated = await mapBounded(
     items,
@@ -317,10 +320,11 @@ export async function hydrateGalleryItems(
           cause,
         });
       }
-      const visibilityMeta =
-        meta && itemConfig && isSharedLane(itemConfig)
-          ? applyVisibilityOverride(meta.metadata, visibilityRows.get(item.object_key))
-          : meta?.metadata;
+      const hosted = Boolean(meta && itemConfig && isSharedLane(itemConfig));
+      const visibilityMeta = applyVisibilityOverride(
+        meta?.metadata,
+        hosted ? visibilityRows.get(item.object_key) : undefined,
+      );
       const isPrivate = meta ? objectVisibility(visibilityMeta) === "private" : false;
       const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(item.object_key));
       const urls =

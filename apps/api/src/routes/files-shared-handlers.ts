@@ -364,7 +364,7 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   return c.json(
     headObjectJson(
       key,
-      { ...meta, metadata: applyVisibilityOverride(meta.metadata, override) },
+      { ...meta, metadata: applyVisibilityOverride(meta.metadata, hosted ? override : undefined) },
       urls.url,
       urls.embedUrl,
     ),

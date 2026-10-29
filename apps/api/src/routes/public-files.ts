@@ -13,7 +13,12 @@ import {
   type BeforeAfterState,
 } from "../before-after";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-read";
-import { displayTitle, getFileMetadata, publicFileMetadata } from "../file-metadata";
+import {
+  displayTitle,
+  getFileMetadata,
+  publicFileMetadata,
+  readVisibilityRows,
+} from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster-presentation";
@@ -157,8 +162,12 @@ async function resolvePublicObject(
   const metadata = await measure("file_metadata", () =>
     getFileMetadata(dbFor(env), workspace, key),
   );
-  const visibilityRow = isSharedLane(lane.config) ? metadata[VISIBILITY_ROW_KEY] : undefined;
-  if (objectVisibility(applyVisibilityOverride(meta.metadata, visibilityRow))) {
+  const hosted = isSharedLane(lane.config);
+  if (
+    objectVisibility(
+      applyVisibilityOverride(meta.metadata, hosted ? metadata[VISIBILITY_ROW_KEY] : undefined),
+    )
+  ) {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
   // A held upload (`upload-hold.ts`) gets the same answer as a private one.
@@ -262,12 +271,20 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
         if (counterpartLane) {
           const counterpartMeta = counterpartLane.head;
           const counterpartType = counterpartMeta.contentType ?? "application/octet-stream";
-          const counterpartRow = isSharedLane(counterpartLane.config)
-            ? (await getFileMetadata(dbFor(c.env), workspace, candidate.key))[VISIBILITY_ROW_KEY]
+          const counterpartHosted = isSharedLane(counterpartLane.config);
+          const counterpartRow = counterpartHosted
+            ? (await readVisibilityRows(dbFor(c.env), workspace, [candidate.key])).get(
+                candidate.key,
+              )
             : undefined;
           if (
             isPairableImageContentType(counterpartType) &&
-            !objectVisibility(applyVisibilityOverride(counterpartMeta.metadata, counterpartRow)) &&
+            !objectVisibility(
+              applyVisibilityOverride(
+                counterpartMeta.metadata,
+                counterpartHosted ? counterpartRow : undefined,
+              ),
+            ) &&
             !(await isKeyHeld(env, workspace, candidate.key))
           ) {
             const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);

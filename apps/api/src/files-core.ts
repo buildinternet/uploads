@@ -31,7 +31,6 @@ import {
   CLASSIFIER_ROW_KEYS,
   setServerFileMetadata,
   validateMetadataEntries,
-  withVisibilityMetadata,
   writeVisibilityRows,
 } from "./file-metadata";
 import {
@@ -517,9 +516,11 @@ export async function visibilityForStoredObject(
   key: string,
   metadata: Record<string, string> | undefined | null,
 ): Promise<Visibility | undefined> {
-  return objectVisibility(
-    await withVisibilityMetadata(dbFor(env), workspaceName, isSharedLane(ws), key, metadata),
-  );
+  const hosted = isSharedLane(ws);
+  const row = hosted
+    ? (await readVisibilityRows(dbFor(env), workspaceName, [key])).get(key)
+    : undefined;
+  return objectVisibility(applyVisibilityOverride(metadata, hosted ? row : undefined));
 }
 
 /**
@@ -1200,7 +1201,9 @@ async function overlayListedVisibility(
   entries: { item: ListedObject; shared: boolean }[],
 ): Promise<ListedObject[]> {
   const name = ws.name;
-  if (!name) return entries.map((entry) => entry.item);
+  // List fixtures and some callers have a slug and no D1 binding. Same as a
+  // missing name: leave the page as the provider listed it.
+  if (!name || !dbFor(env)) return entries.map((entry) => entry.item);
   const keys = entries.filter((entry) => entry.shared).map((entry) => entry.item.key);
   if (keys.length === 0) return entries.map((entry) => entry.item);
   const rows = await readVisibilityRows(dbFor(env), name, keys);
