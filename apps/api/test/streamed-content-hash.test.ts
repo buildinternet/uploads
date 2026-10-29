@@ -29,7 +29,7 @@ function chunked(bytes: Uint8Array, chunkSize: number): ReadableStream<Uint8Arra
 }
 
 describe("streamed upload content hash", () => {
-  it("stamps content-sha256 on the object and in file_content_hash", async () => {
+  it("records the digest in file_content_hash and puts the object once", async () => {
     const { env, bucket, db, ws } = makePosterEnv();
     const bytes = new Uint8Array(70 * 1024);
     bytes.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
@@ -43,15 +43,17 @@ describe("streamed upload content hash", () => {
       { provenance: { client: "uploads-cli" } },
     );
 
-    expect(result.provenance).toMatchObject({ client: "uploads-cli", "content-sha256": hash });
+    expect(result.provenance).toMatchObject({ client: "uploads-cli" });
+    expect(result.provenance).not.toHaveProperty("content-sha256");
     const stored = bucket.store.get(`default/${result.key}`);
     expect(stored?.data).toEqual(bytes);
-    expect(stored?.customMetadata?.["content-sha256"]).toBe(hash);
+    expect(stored?.customMetadata).not.toHaveProperty("content-sha256");
     expect(stored?.customMetadata?.client).toBe("uploads-cli");
     expect(stored?.cacheControl).toBe("public, max-age=60");
     expect(await contentHashForKey(env.DB, WORKSPACE, result.key)).toBe(hash);
     expect(db.usage.get(WORKSPACE)?.uploads_in_period).toBe(1);
     expect(db.usage.get(WORKSPACE)?.objects).toBe(1);
+    expect(bucket.putCalls).toBe(1);
     expect(bucket.listCalls).toBe(0);
   });
 
@@ -77,9 +79,10 @@ describe("streamed upload content hash", () => {
 
     const source = await putObject(env, ws, "videos/a.mp4", body(), "acme");
     const copy = await putObject(env, ws, "videos/b.mp4", body(), "acme");
-    const sha = source.provenance?.["content-sha256"];
+    const sha = await contentHashForKey(db, "acme", source.key);
     expect(sha).toMatch(/^[0-9a-f]{64}$/);
-    expect(copy.provenance?.["content-sha256"]).toBe(sha);
+    expect(await contentHashForKey(db, "acme", copy.key)).toBe(sha);
+    expect(bucket.putCalls).toBe(2);
     await setServerFileMetadata(db, "acme", copy.key, { "ai.copied-from": source.key });
 
     expect(

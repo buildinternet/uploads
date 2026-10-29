@@ -1585,9 +1585,10 @@ being held, every other key in the workspace that shares its content hash
 and already has its own `ai.hold` row, and promote or attach copies of this
 upload (`ai.copied-from`) that still have that hash, plus each poster
 (`posterKeyFor`, which is also the PDF preview). The hash is the SHA-256
-recorded at upload in `file_content_hash`. The same digest is stored on the
-object as `content-sha256`. An API put records both. A presigned
-direct-to-bucket upload records neither. Fan-out stops at 32 direct copies.
+recorded at upload in `file_content_hash`. A put that knows the hash before
+it writes also stores that digest on the object as `content-sha256`. A
+streamed put records the index row only. A presigned direct-to-bucket upload
+records neither. Fan-out stops at 32 direct copies.
 A Slack PNG is not its own object. Deleting
 the file removes the rows. The retention purge deletes them by primary key
 in the same batch as metadata and content hashes. Workspace teardown deletes

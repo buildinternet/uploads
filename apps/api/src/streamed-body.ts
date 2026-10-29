@@ -82,7 +82,7 @@ export async function openStreamedBody(body: StreamedBody): Promise<{
   let digest: string | undefined;
   return {
     head,
-    stream: fixedLengthStream(source, body.size),
+    stream: knownLength(source, body.size),
     sha256: () => (digest ??= hash.digest("hex")),
   };
 }
@@ -92,10 +92,7 @@ export async function openStreamedBody(body: StreamedBody): Promise<{
  * readable side of a Workers `FixedLengthStream`. Node (tests) has no
  * `FixedLengthStream` and the fake bucket reads any stream.
  */
-export function fixedLengthStream(
-  stream: ReadableStream<Uint8Array>,
-  size: number,
-): ReadableStream<Uint8Array> {
+function knownLength(stream: ReadableStream<Uint8Array>, size: number): ReadableStream<Uint8Array> {
   const Fixed = (globalThis as { FixedLengthStream?: new (n: number) => TransformStream })
     .FixedLengthStream;
   return Fixed ? stream.pipeThrough(new Fixed(size)) : stream;

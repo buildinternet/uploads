@@ -237,6 +237,17 @@ describe("blob hold", () => {
       .bind("acme", SHA)
       .first<{ state: string }>();
     expect(blob?.state).toBe("released");
+
+    expect(await holdAgain(env, ws, "acme", "a.png", "Member")).toEqual({ held: true });
+    const gated = await db
+      .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' ORDER BY object_key`)
+      .all<{ object_key: string }>();
+    expect((gated.results ?? []).map((row) => row.object_key)).toEqual([
+      "acme/_internal/posters/a.png.jpg",
+      "acme/_internal/posters/b.png.jpg",
+      "acme/a.png",
+      "acme/b.png",
+    ]);
     sqlite.close();
   });
 

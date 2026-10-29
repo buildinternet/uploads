@@ -18,6 +18,8 @@ export class FakeR2Bucket {
   /** Test helper: incremented on every `list()` call, so tests can assert
    * storage was (or wasn't) walked. */
   listCalls = 0;
+  /** Test helper: incremented on every `put()` call. */
+  putCalls = 0;
 
   private meta(key: string, obj: StoredObject) {
     return {
@@ -43,6 +45,7 @@ export class FakeR2Bucket {
       customMetadata?: Record<string, string>;
     },
   ) {
+    this.putCalls += 1;
     let data: Uint8Array;
     if (typeof value === "string") data = new TextEncoder().encode(value);
     else if (value instanceof ArrayBuffer) data = new Uint8Array(value);
