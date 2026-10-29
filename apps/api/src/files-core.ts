@@ -79,8 +79,9 @@ import {
 } from "./classifier";
 
 export type { ClassifierHandoff };
-import { holdPolicyEnabled } from "./upload-hold";
+import { HOLD_META_KEY, holdPolicyEnabled } from "./upload-hold";
 import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
+import { isKeyHeld } from "./upload-hold-read";
 import { deleteReadGateKeys, gateObjectKeysOnLane, hostedGateObjectKeys } from "./read-gate";
 import {
   contentSha256Hex,
@@ -562,6 +563,12 @@ export async function putObject(
      * would-be hold is only logged.
      */
     enforceHold?: boolean;
+    /**
+     * Rotation of a held key writes `read_gate` and `ai.hold` before this
+     * put. New bytes would otherwise delete both. Classification on
+     * `surface: "rotate"` does not place a hold, so those rows have to stay.
+     */
+    keepReadGate?: boolean;
     /** Classify on another worker instead (`ClassifierHandoff`): the hosted MCP. */
     classifierHandoff?: ClassifierHandoff;
   },
@@ -817,7 +824,10 @@ export async function putObject(
   // Last and best-effort: a failed index write only costs later inheritance.
   await recordContentHash(db, workspaceName, finalKey, contentSha256);
   if (!sameBytes && (await contentHashForKey(db, workspaceName, finalKey)) === contentSha256) {
-    await deleteServerFileMetadataKeys(db, workspaceName, finalKey, [...CLASSIFIER_ROW_KEYS]);
+    const drop = opts?.keepReadGate
+      ? [...CLASSIFIER_ROW_KEYS].filter((metaKey) => metaKey !== HOLD_META_KEY)
+      : [...CLASSIFIER_ROW_KEYS];
+    await deleteServerFileMetadataKeys(db, workspaceName, finalKey, drop);
   }
 
   // After the metadata replace, never before: replaceFileMetadata deletes
@@ -836,14 +846,14 @@ export async function putObject(
     );
   }
 
-  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so this
-  // object goes straight back out of the public bucket. New bytes end the
-  // hold, so the old held copy is deleted, after the response when possible.
+  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so the
+  // gate rows go back on. New bytes end the hold: drop the gate row now, and
+  // delete a legacy held-bucket copy after the response when possible.
   const logHeldError = (err: unknown) =>
     console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
   if (sameBytes) {
     await reholdIfHeld(env, ws, workspaceName, finalKey).catch(logHeldError);
-  } else {
+  } else if (!opts?.keepReadGate) {
     // New bytes are not the held object. Drop a gate row before classification
     // decides whether these bytes should be held.
     await deleteReadGateKeys(dbFor(env), gateObjectKeysOnLane(cfg, [finalKey])).catch(logHeldError);
@@ -1315,7 +1325,12 @@ export async function deleteObject(
   const gateKeys = await hostedGateObjectKeys(env, ws, [key]);
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
-  // A held upload's bytes may be in the held bucket. Its size still counts.
+  // A held upload's bytes may be in the held bucket. Its size still counts
+  // when the public lanes had nothing to measure.
+  const wasHeld = await isKeyHeld(env, workspaceName, key).catch((err: unknown) => {
+    console.error({ event: "held_delete_check_failed", workspace: workspaceName, err });
+    return false;
+  });
   const heldSize = await deleteHeldCopy(env, workspaceName, key, {
     measure: hits.length === 0,
   }).catch((err: unknown) => {
@@ -1327,7 +1342,7 @@ export async function deleteObject(
   await deleteContentHashes(dbFor(env), workspaceName, [key]);
   await deleteReadGateKeys(dbFor(env), gateKeys);
   // A held file going away ends its hold: rewrite the Slack DMs about it.
-  if (heldSize !== null) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
+  if (wasHeld) await notifySlackHoldResolved(env, workspaceName, key, "deleted");
 
   if (hits.length > 0) {
     // Concurrent DELETEs can both get here; only the first claimer debits the

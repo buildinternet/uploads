@@ -1086,16 +1086,15 @@ if (timingsEnabled)
             document.getElementById("held-reason").textContent = reason[0];
             document.getElementById("held-reason-row").textContent = reason[1];
           }
-          // A hold that never moved (your own bucket) has no held copy.
-          if (!item.moved) {
-            document.getElementById("held-nopreview").textContent = "No preview for this file.";
-          }
-          if (item.moved) {
-            const download = document.getElementById("held-download");
-            download.href = filesEndpoint(`/held/download?key=${encodeURIComponent(key)}`);
-            download.hidden = false;
-            void showHeldPreview(download.href, item.area);
-          }
+          const download = document.getElementById("held-download");
+          download.href = filesEndpoint(`/held/download?key=${encodeURIComponent(key)}`);
+          // A legacy hold streams from the held bucket. A hosted hold that
+          // never moved streams the public object from the same route, and
+          // the preview unhides the download once those bytes load. A
+          // bring-your-own bucket has neither, so the no-preview line stays.
+          if (item.moved) download.hidden = false;
+          else document.getElementById("held-nopreview").textContent = "No preview for this file.";
+          void showHeldPreview(download.href, item.area);
           void showHoldSettingsLinks();
           const approve = document.getElementById("held-approve");
           const error = document.getElementById("held-error");
@@ -1149,6 +1148,7 @@ if (timingsEnabled)
         try {
           const response = await fetch(href, { credentials: "include", cache: "no-store" });
           if (!response.ok) return;
+          document.getElementById("held-download").hidden = false;
           const blob = await response.blob();
           if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") return;
           const image = document.getElementById("held-image");

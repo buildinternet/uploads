@@ -1442,12 +1442,17 @@ when the key is a PR or issue attachment. A held file is left out of the
 comment (a count line replaces it), withheld from public feeds and
 galleries, and 401s on `/public/files`.
 
-On a hosted (shared-lane) key the hold copies the object and its poster into
-`UPLOADS_HELD` (bucket `uploads-held`, preview `uploads-preview-held`) at
-`<workspace>/<key>`, deletes the public copy, and writes `ai.hold.moved=1`
-(`held-storage.ts`). That byte move stays as defense in depth. The read-gate
-Worker fails open when D1 errors, and it does not bind the held bucket.
-`moveToHeld` still runs after the gate rows are written.
+On a hosted (shared-lane) key the hold writes `read_gate` rows and leaves
+the bytes in the public bucket. It does not write `ai.hold.moved`. The
+read-gate Worker 404s the URL. It fails open when D1 errors, and it does
+not bind the held bucket.
+
+A hold that already sits in `UPLOADS_HELD` (bucket `uploads-held`, preview
+`uploads-preview-held`) at `<workspace>/<key>` keeps `ai.hold.moved=1`.
+Release of that key copies the bytes back to the same public key and
+deletes the held copy. A hold that never moved has nothing to copy back.
+Release reads that one key's `ai.hold.moved` row. It does not scan the
+bucket.
 
 Never give the held bucket a custom domain or an r2.dev URL. The edge may
 serve its cached copy for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's
@@ -1459,14 +1464,27 @@ get a `read_gate` row. uploads.sh still hides it on the comment, feeds,
 galleries, and the public file page. The URL on the customer's domain keeps
 serving the bytes. The Worker never runs there.
 
-Approval copies the bytes back to the same key before it records the
-release, so links work again. An identical re-upload of a held key is
-moved straight back out. An identical re-upload of a released key stays
-in the public bucket. New bytes drop the held copy. Delete removes the
-held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
-lists held keys (a moved one is absent from `list`), and
-`…/files/held/download?key=` streams the held copy to a member. Private
-prefix rotation does not move held copies.
+Approval deletes the gate rows. When `ai.hold.moved=1`, it copies the bytes
+back first. An identical re-upload of a held key puts the gate rows back
+and leaves the bytes where they are. New bytes drop the gate row and delete
+a legacy held copy. Delete does the same and debits the held copy's size
+when one exists. `GET /v1/workspaces/:workspace/files/held` lists held keys
+(a moved one is absent from `list`). `…/files/held/download?key=` streams
+the held-bucket copy when one exists, and otherwise the public object of a
+hosted hold. The file page uses that download for the preview. Private
+prefix rotation re-keys a legacy object inside the held bucket. A hold
+whose bytes stayed public gets `ai.hold` and `read_gate` rows on the new
+key before that object is stored. A failed write stops that key's rotation.
+`surface: "rotate"` does not place a hold.
+
+Promote and attach store `ai.copied-from` on the new key (the source object
+key) when the source is not held. A held source is not copied. Promote
+reports it as skipped with reason `held`. Attach answers 400 `held`. The
+hold gates copies that already exist, when they still have the same content
+hash, and writes `ai.hold=pending` on them, up to 32 keys. Hitting that cap
+logs `upload_hold_copy_cap`. An unrelated upload with the same hash and no
+`ai.copied-from` row is not held. A copy of a copy is gated only when its
+direct source is the key being held.
 
 ### Hosted read gate
 
@@ -1517,17 +1535,19 @@ through this Worker.
 
 The API writes and deletes `read_gate` rows in the same D1 batch as the hold
 change (`applyUploadHold`, approve, and hold-again). The rows cover the key
-being held and every other key in the workspace that shares its content hash
-and already has its own `ai.hold` row, plus each poster (`posterKeyFor`,
-which is also the PDF preview). A Slack PNG is not its own object. Deleting
+being held, every other key in the workspace that shares its content hash
+and already has its own `ai.hold` row, and promote or attach copies of this
+upload (`ai.copied-from`) that still have that hash, plus each poster
+(`posterKeyFor`, which is also the PDF preview). A Slack PNG is not its own
+object. Deleting
 the file removes the rows. The retention purge deletes them by primary key
 in the same batch as metadata and content hashes. Workspace teardown deletes
 the workspace's prefix. The object key includes the workspace prefix
 (`<workspace>/<key>`).
 
 A key left in the shared bucket after a switch to BYO still gets a row. Lane
-resolution is the same lookup `moveToHeld` uses. A key that resolves on a
-BYO lane does not.
+resolution is the same lookup a legacy move into the held bucket uses. A key
+that resolves on a BYO lane does not.
 
 The three hosts are zone routes on R2 custom domains that already exist.
 `apps/read-gate/wrangler.jsonc` has no `routes` array. `wrangler deploy`
@@ -1562,10 +1582,11 @@ the hold as it is.
 `POST /v1/workspaces/:workspace/files/approve?key=` appends a release
 override and a `blob_hold` row for the content hash (`upload_approved`).
 It does not write `ai.hold`. The hash is the object's `content-sha256`, or
-the hash of the body copied back from the held bucket. A file with neither
-fails the approve. `expected_sha` must match that hash or the call answers 409. A later hold override sets the same hash back to `held` and moves
-every key that has its own hold row. Gates and the held list count a key
-only when it has an `ai.hold` row and the blob is `held`. Deleting the file,
+the hash of a legacy body copied back from the held bucket. A file with neither
+fails the approve. `expected_sha` must match that hash or the call answers 409.
+A later hold override sets the same hash back to `held` and gates every key
+that has its own hold row. It does not move bytes. Gates and the held list
+count a key only when it has an `ai.hold` row and the blob is `held`. Deleting the file,
 or the retention sweep, drops its content hash, so it leaves that list.
 Classification appends `classified`,
 `reused_exact`, `reused_perceptual`, `skipped`, or `failed` the same way.
@@ -1641,8 +1662,8 @@ thrown evaluation are all off.
    To release files already held, use **Held uploads** on
    `/admin/classifier`: per-workspace counts, a per-workspace Release, and
    "Release all holds" (`POST /admin-ui/classifier/holds/release`, batches
-   of 25 through the same path as a member approval, so bytes move back and
-   comments re-sync). A file whose held copy cannot be restored is counted
+   of 25 through the same path as a member approval, so comments re-sync and
+   a legacy held copy is restored). A file whose held copy cannot be restored is counted
    as failed and stays held.
 
 4. **Workspace switches (admins)** — the workspace settings page's **AI

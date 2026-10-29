@@ -86,6 +86,8 @@ export class UsageFakeD1 {
   }
   /** `${workspace} ${objectKey}` → stored-body hash. Backs `file_content_hash`. */
   private contentHashes = new Map<string, { hash: string; updatedAt: string }>();
+  /** `${workspace} ${sha}` → hold state. Backs `blob_hold`. */
+  private blobHolds = new Map<string, { state: string; actor: string | null; at: string | null }>();
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -143,6 +145,29 @@ export class UsageFakeD1 {
         // only care that "no galleries" doesn't blow up.
         if (normalized.includes("FROM galleries") || normalized.includes("gallery_")) {
           return { success: true as const, results: [] as T[], meta: {} };
+        }
+        if (normalized.startsWith("SELECT object_key, content_sha256 FROM file_content_hash")) {
+          const [workspace, ...objectKeys] = values as string[];
+          const results: { object_key: string; content_sha256: string }[] = [];
+          for (const objectKey of objectKeys) {
+            const row = this.contentHashes.get(`${workspace} ${objectKey}`);
+            if (row) results.push({ object_key: objectKey, content_sha256: row.hash });
+          }
+          return { success: true as const, results: results as T[], meta: {} };
+        }
+        if (normalized.startsWith("SELECT content_sha256, state, actor, at FROM blob_hold")) {
+          const [workspace, ...shas] = values as string[];
+          const results: {
+            content_sha256: string;
+            state: string;
+            actor: string | null;
+            at: string | null;
+          }[] = [];
+          for (const sha of shas) {
+            const row = this.blobHolds.get(`${workspace} ${sha}`);
+            if (row) results.push({ content_sha256: sha, ...row });
+          }
+          return { success: true as const, results: results as T[], meta: {} };
         }
         if (normalized.includes("FROM file_content_hash h")) {
           const [workspace, hash, selfKey] = values as [string, string, string];
@@ -398,10 +423,23 @@ export class UsageFakeD1 {
         if (normalized.startsWith("UPDATE auth_tokens SET last_used_at")) {
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
-        if (
-          normalized.startsWith("INSERT INTO file_events") ||
-          normalized.startsWith("INSERT INTO blob_hold")
-        ) {
+        if (normalized.startsWith("INSERT INTO file_events")) {
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (normalized.startsWith("INSERT INTO blob_hold")) {
+          if (values.length >= 5) {
+            const [workspace, sha, state, actor, at] = values as [
+              string,
+              string,
+              string,
+              string | null,
+              string | null,
+            ];
+            this.blobHolds.set(`${workspace} ${sha}`, { state, actor, at });
+          } else if (values.length === 3 && normalized.includes("'held'")) {
+            const [workspace, sha, at] = values as [string, string, string];
+            this.blobHolds.set(`${workspace} ${sha}`, { state: "held", actor: null, at });
+          }
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
         if (normalized.includes("read_gate")) {

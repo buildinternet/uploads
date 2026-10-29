@@ -2,8 +2,9 @@
  * Rows the hosted read-gate Worker checks. Keys are the public object key
  * (`<prefix><key>`), not a workspace plus a hash. Whether a key is hosted,
  * and which prefix it uses, comes from `resolveObjectLane` — the same lookup
- * `moveToHeld` uses — so a key left in the shared bucket after a switch to
- * BYO still gets a row. A key that resolves on a BYO lane does not.
+ * a legacy move into the held bucket uses — so a key left in the shared
+ * bucket after a switch to BYO still gets a row. A key that resolves on a
+ * BYO lane does not.
  */
 
 import type { D1Queryable } from "./db-session";

@@ -18,9 +18,11 @@ import { githubAppConfig, installationForRepo, prHeadBranch, repoIsPrivate } fro
 import { checkRepoAuthorization, postManagedComment } from "./github-comment-service";
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
 import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
-import { deleteFileMetadata } from "./file-metadata";
+import { COPIED_FROM_META_KEY, deleteFileMetadata } from "./file-metadata";
 import { copyHeldObject, deleteHeldCopy, heldBucket } from "./held-storage";
-import { HOLD_MOVED_KEY } from "./upload-hold";
+import { hostedGateObjectKeys, readGateInserts } from "./read-gate";
+import { HOLD_META_KEY, HOLD_MOVED_KEY, HOLD_PENDING } from "./upload-hold";
+import { isKeyHeld } from "./upload-hold-read";
 import { parseAttachmentKey, rekeyAttachmentSafe } from "./github-attachment-index";
 import {
   getActivePrefixId,
@@ -267,6 +269,10 @@ export async function rotatePrivatePrefix(
 
           const source = await store.download(item.key);
           const bytes = new Uint8Array(await source.arrayBuffer());
+          // `surface: "rotate"` does not place a hold. Write the gate before
+          // the new object exists, and do not store it if that write fails.
+          const held = await isKeyHeld(env, workspaceName, item.key);
+          if (held) await gateRotatedHold(env, ws, workspaceName, newKey);
           // Not a byte-for-byte metadata copy: `putObject` runs its normal
           // write path on `provenance: source.metadata` — `sanitizeProvenance`
           // strips it to the client-safe subset, `content-sha256` is
@@ -284,6 +290,7 @@ export async function rotatePrivatePrefix(
             await putObject(env, ws, newKey, bytes, workspaceName, {
               ...putOptsFromStoredObject(source),
               surface: "rotate",
+              ...(held ? { keepReadGate: true } : {}),
             });
           } catch (err) {
             // Only a 415 is tolerated here (see the partial-failure note
@@ -390,6 +397,33 @@ const MOVED_HOLD_KEYS_AFTER_SQL = `SELECT object_key FROM file_metadata
   ORDER BY object_key
   LIMIT ?`;
 
+/**
+ * Hold rows for a key that does not exist yet. Throws when the write fails,
+ * so the caller does not store the object. `surface: "rotate"` does not
+ * place a hold of its own.
+ */
+async function gateRotatedHold(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  newKey: string,
+): Promise<void> {
+  const db = dbFor(env);
+  const now = new Date().toISOString();
+  const objectKeys = await hostedGateObjectKeys(env, ws, [newKey]);
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(workspace, object_key, meta_key)
+         DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+      )
+      .bind(workspaceName, newKey, HOLD_META_KEY, HOLD_PENDING, now),
+    ...readGateInserts(db, objectKeys),
+  ]);
+}
+
 /** Exclusive end of a `/`-terminated prefix: `gh/private/<id>/` → `gh/private/<id>0`. */
 function exclusivePrefixEnd(prefix: string): string {
   return prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
@@ -462,6 +496,15 @@ async function rekeyRotatedObject(
   await db
     .prepare(`UPDATE file_events SET object_key = ? WHERE workspace = ? AND object_key = ?`)
     .bind(newKey, workspaceName, oldKey)
+    .run();
+  // Indexed by file_metadata_lookup_idx (workspace, meta_key, meta_value).
+  // Copies that named the old key follow it to the new key.
+  await db
+    .prepare(
+      `UPDATE file_metadata SET meta_value = ?
+       WHERE workspace = ? AND meta_key = ? AND meta_value = ?`,
+    )
+    .bind(newKey, workspaceName, COPIED_FROM_META_KEY, oldKey)
     .run();
 
   // Only keys that can hold a row. A branch-staged or ingest key never has

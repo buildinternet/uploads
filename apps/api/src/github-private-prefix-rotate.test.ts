@@ -749,4 +749,101 @@ describe("rotatePrivatePrefix", () => {
     expect(held.store.has(`${WS}/${newKey}`)).toBe(false);
     expect(held.store.has(`${WS}/${keptKey}`)).toBe(true);
   });
+
+  it("re-gates a hold that never moved onto the new private prefix", async () => {
+    const seeded = await seededEnv();
+    const held = new FakeR2Bucket();
+    const env = {
+      ...(seeded.env as unknown as Record<string, unknown>),
+      UPLOADS_HELD: held,
+    } as unknown as Env;
+    const { db, bucket, ws } = seeded;
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(oldId, { repo: REPO, kind: "pull", num: NUM }, "a.png");
+
+    await putObject(env, ws, pullKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+    await setServerFileMetadata(db, WS, pullKey, { "ai.hold": "pending" });
+    const hash = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(WS, pullKey)
+      .first<{ content_sha256: string }>();
+    if (!hash) throw new Error("expected a content hash");
+    await db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .bind(WS, hash.content_sha256, new Date().toISOString())
+      .run();
+    await db
+      .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', ?)`)
+      .bind(`${PREFIX}${pullKey}`)
+      .run();
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    const newKey = ghPrivateAttachmentKey(
+      result.prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "a.png",
+    );
+    expect(bucket.store.has(`${PREFIX}${newKey}`)).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${pullKey}`)).toBe(false);
+    expect(held.store.size).toBe(0);
+    expect(await getFileMetadata(db, WS, newKey)).toMatchObject({ "ai.hold": "pending" });
+    expect(
+      await db
+        .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' AND object_key = ?`)
+        .bind(`${PREFIX}${pullKey}`)
+        .first(),
+    ).toBeNull();
+    expect(
+      await db
+        .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' AND object_key = ?`)
+        .bind(`${PREFIX}${newKey}`)
+        .first(),
+    ).toEqual({ object_key: `${PREFIX}${newKey}` });
+  });
+
+  it("does not store a rotated hold when the gate write fails", async () => {
+    const seeded = await seededEnv();
+    const { db, bucket, ws } = seeded;
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(oldId, { repo: REPO, kind: "pull", num: NUM }, "a.png");
+    await putObject(seeded.env, ws, pullKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+    await setServerFileMetadata(db, WS, pullKey, { "ai.hold": "pending" });
+    const hash = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(WS, pullKey)
+      .first<{ content_sha256: string }>();
+    if (!hash) throw new Error("expected a content hash");
+    await db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .bind(WS, hash.content_sha256, new Date().toISOString())
+      .run();
+    await db.prepare(`DROP TABLE read_gate`).run();
+
+    await expect(
+      withFetch(commentFlowFetch({ bodies: [] }), () =>
+        rotatePrivatePrefix(seeded.env, ws, WS, "user-1", REPO, BRANCH),
+      ),
+    ).rejects.toThrow();
+    const stored = [...bucket.store.keys()];
+    expect(
+      stored.some((key) => key.startsWith(`${PREFIX}gh/private/`) && key.endsWith("/a.png")),
+    ).toBe(true);
+    expect(stored.filter((key) => key.endsWith("/a.png"))).toEqual([`${PREFIX}${pullKey}`]);
+  });
 });

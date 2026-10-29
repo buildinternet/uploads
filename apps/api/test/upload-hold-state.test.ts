@@ -1,12 +1,18 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { recordContentHash } from "../src/content-hash";
 import { deleteObject } from "../src/files-core";
-import { reholdIfHeld } from "../src/held-storage";
-import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
-import { isKeyHeld, listHeldKeys } from "../src/upload-hold-read";
+import { readPublicHold, reholdIfHeld } from "../src/held-storage";
+import { COPIED_FROM_META_KEY, getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
+import { contentSha256Hex } from "../src/provenance";
+import {
+  COPY_HOLD_FANOUT_LIMIT,
+  isKeyHeld,
+  keysCopiedFrom,
+  listHeldKeys,
+} from "../src/upload-hold-read";
 import { applyUploadHold, approveUpload, holdAgain } from "../src/upload-hold-service";
 import type { WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
@@ -107,7 +113,7 @@ describe("blob hold", () => {
     sqlite.close();
   });
 
-  it("moves every held key of the same bytes on re-hold", async () => {
+  it("gates every held key of the same bytes on re-hold and leaves the bytes in place", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     const db = database(sqlite);
     const bucket = new FakeR2Bucket();
@@ -131,10 +137,21 @@ describe("blob hold", () => {
       .run("acme", SHA, "Member", "2026-10-28T00:00:00.000Z");
 
     expect(await holdAgain(env, ws, "acme", "a.png", "Member")).toEqual({ held: true });
-    expect((await getFileMetadata(db, "acme", "a.png"))["ai.hold.moved"]).toBe("1");
-    expect((await getFileMetadata(db, "acme", "b.png"))["ai.hold.moved"]).toBe("1");
-    expect(await held.head("acme/a.png")).not.toBeNull();
-    expect(await held.head("acme/b.png")).not.toBeNull();
+    expect((await getFileMetadata(db, "acme", "a.png"))["ai.hold.moved"]).toBeUndefined();
+    expect((await getFileMetadata(db, "acme", "b.png"))["ai.hold.moved"]).toBeUndefined();
+    expect(await bucket.head("acme/a.png")).not.toBeNull();
+    expect(await bucket.head("acme/b.png")).not.toBeNull();
+    expect(await held.head("acme/a.png")).toBeNull();
+    expect(await held.head("acme/b.png")).toBeNull();
+    const rows = await db
+      .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' ORDER BY object_key`)
+      .all<{ object_key: string }>();
+    expect((rows.results ?? []).map((row) => row.object_key)).toEqual([
+      "acme/_internal/posters/a.png.jpg",
+      "acme/_internal/posters/b.png.jpg",
+      "acme/a.png",
+      "acme/b.png",
+    ]);
     sqlite.close();
   });
 
@@ -281,12 +298,16 @@ describe("blob hold", () => {
       )
       .run("acme", SHA, "2026-10-28T00:00:00.000Z");
 
+    const held = new FakeR2Bucket();
+    (env as unknown as { UPLOADS_HELD: FakeR2Bucket }).UPLOADS_HELD = held;
     await reholdIfHeld(env, ws, "acme", "copy.png");
     const row = await db
       .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' AND object_key = ?`)
       .bind("acme/copy.png")
       .first<{ object_key: string }>();
     expect(row).toEqual({ object_key: "acme/copy.png" });
+    expect(await bucket.head("acme/copy.png")).not.toBeNull();
+    expect(await held.head("acme/copy.png")).toBeNull();
     sqlite.close();
   });
 
@@ -368,6 +389,183 @@ describe("blob hold", () => {
       .bind("other/a.png")
       .first();
     expect(wrong).toBeNull();
+    sqlite.close();
+  });
+
+  it("places a hold as gate rows and leaves the public bytes in place", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const bucket = new FakeR2Bucket();
+    const held = new FakeR2Bucket();
+    const bytes = new Uint8Array([9, 9, 9]);
+    await bucket.put("acme/shot.png", bytes, { customMetadata: { "content-sha256": SHA } });
+    const env = {
+      DB: db,
+      UPLOADS_DEFAULT: bucket,
+      UPLOADS_HELD: held,
+      FLAGS: { getBooleanValue: async () => true },
+    } as unknown as Env;
+    await recordContentHash(db, "acme", "shot.png", SHA);
+
+    expect(
+      await applyUploadHold(
+        env,
+        ws,
+        "acme",
+        "shot.png",
+        { "ai.secret": "token", "ai.secret.confidence": "high" },
+        { enforce: true, contentSha256: SHA },
+      ),
+    ).toBe(true);
+    expect((await getFileMetadata(db, "acme", "shot.png"))["ai.hold.moved"]).toBeUndefined();
+    expect(await bucket.head("acme/shot.png")).not.toBeNull();
+    expect(await held.head("acme/shot.png")).toBeNull();
+    const listed = async () => {
+      const rows = await db
+        .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' ORDER BY object_key`)
+        .all<{ object_key: string }>();
+      return (rows.results ?? []).map((row) => row.object_key);
+    };
+    expect(await listed()).toEqual(["acme/_internal/posters/shot.png.jpg", "acme/shot.png"]);
+    const preview = await readPublicHold(env, ws, "acme", "shot.png");
+    expect(preview).not.toBeNull();
+    expect(new Uint8Array(await preview!.arrayBuffer())).toEqual(bytes);
+
+    expect(await approveUpload(env, ws, "acme", "shot.png", "Member")).toEqual({ approved: true });
+    expect(await listed()).toEqual([]);
+    expect(await bucket.head("acme/shot.png")).not.toBeNull();
+    expect(await held.head("acme/shot.png")).toBeNull();
+    sqlite.close();
+  });
+
+  it("restores a legacy held-bucket object on release and drops its gate rows", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const bucket = new FakeR2Bucket();
+    const held = new FakeR2Bucket();
+    const bytes = new Uint8Array([4, 5, 6]);
+    const sha = await contentSha256Hex(bytes);
+    await held.put("acme/legacy.png", bytes, { httpMetadata: { contentType: "image/png" } });
+    const env = {
+      DB: db,
+      UPLOADS_DEFAULT: bucket,
+      UPLOADS_HELD: held,
+    } as unknown as Env;
+    await recordContentHash(db, "acme", "legacy.png", sha);
+    await setServerFileMetadata(db, "acme", "legacy.png", {
+      "ai.hold": "pending",
+      "ai.hold.moved": "1",
+    });
+    await sqlite.db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .run("acme", sha, "2026-10-28T00:00:00.000Z");
+    await db
+      .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', ?), ('hosted', ?)`)
+      .bind("acme/legacy.png", "acme/_internal/posters/legacy.png.jpg")
+      .run();
+
+    expect(await approveUpload(env, ws, "acme", "legacy.png", "Member")).toEqual({
+      approved: true,
+    });
+    const restored = await bucket.get("acme/legacy.png");
+    expect(new Uint8Array(await restored!.arrayBuffer())).toEqual(bytes);
+    expect(await held.head("acme/legacy.png")).toBeNull();
+    expect((await getFileMetadata(db, "acme", "legacy.png"))["ai.hold.moved"]).toBeUndefined();
+    expect(
+      await db.prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted'`).all(),
+    ).toMatchObject({ results: [] });
+    sqlite.close();
+  });
+
+  it("gates a direct copy of the held upload and not an unrelated same-hash key", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/shot.png", new Uint8Array([1]), {
+      customMetadata: { "content-sha256": SHA },
+    });
+    const env = {
+      DB: db,
+      UPLOADS_DEFAULT: bucket,
+      FLAGS: { getBooleanValue: async () => true },
+    } as unknown as Env;
+    const keys = [
+      "shot.png",
+      "gh/acme/web/pull/7/shot.png",
+      "gh/acme/web/issues/3/shot.png",
+      "other.png",
+      "changed.png",
+    ];
+    for (const key of keys)
+      await recordContentHash(db, "acme", key, key === "changed.png" ? NEXT : SHA);
+    await recordContentHash(db, "other", "gh/acme/web/pull/7/shot.png", SHA);
+    await setServerFileMetadata(db, "acme", "gh/acme/web/pull/7/shot.png", {
+      [COPIED_FROM_META_KEY]: "shot.png",
+      "gh.repo": "acme/web",
+    });
+    await setServerFileMetadata(db, "acme", "gh/acme/web/issues/3/shot.png", {
+      [COPIED_FROM_META_KEY]: "gh/acme/web/pull/7/shot.png",
+    });
+    await setServerFileMetadata(db, "acme", "changed.png", { [COPIED_FROM_META_KEY]: "shot.png" });
+    await setServerFileMetadata(db, "other", "gh/acme/web/pull/7/shot.png", {
+      [COPIED_FROM_META_KEY]: "shot.png",
+    });
+
+    expect(
+      await applyUploadHold(
+        env,
+        ws,
+        "acme",
+        "shot.png",
+        { "ai.secret": "token", "ai.secret.confidence": "high" },
+        { enforce: true, contentSha256: SHA },
+      ),
+    ).toBe(true);
+    expect((await getFileMetadata(db, "acme", "gh/acme/web/pull/7/shot.png"))["ai.hold"]).toBe(
+      "pending",
+    );
+    expect(
+      (await getFileMetadata(db, "acme", "gh/acme/web/issues/3/shot.png"))["ai.hold"],
+    ).toBeUndefined();
+    expect((await getFileMetadata(db, "acme", "other.png"))["ai.hold"]).toBeUndefined();
+    expect((await getFileMetadata(db, "acme", "changed.png"))["ai.hold"]).toBeUndefined();
+    expect(
+      (await getFileMetadata(db, "other", "gh/acme/web/pull/7/shot.png"))["ai.hold"],
+    ).toBeUndefined();
+    const rows = await db
+      .prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted' ORDER BY object_key`)
+      .all<{ object_key: string }>();
+    expect((rows.results ?? []).map((row) => row.object_key)).toEqual([
+      "acme/_internal/posters/gh/acme/web/pull/7/shot.png.jpg",
+      "acme/_internal/posters/shot.png.jpg",
+      "acme/gh/acme/web/pull/7/shot.png",
+      "acme/shot.png",
+    ]);
+
+    expect(await approveUpload(env, ws, "acme", "shot.png", "Member")).toEqual({ approved: true });
+    expect(
+      await db.prepare(`SELECT object_key FROM read_gate WHERE lane = 'hosted'`).all(),
+    ).toMatchObject({ results: [] });
+    sqlite.close();
+  });
+
+  it("logs when a hold's copy fan-out hits the cap", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    for (let i = 0; i < COPY_HOLD_FANOUT_LIMIT; i++) {
+      const key = `c${String(i).padStart(2, "0")}.png`;
+      await recordContentHash(db, "acme", key, SHA);
+      await setServerFileMetadata(db, "acme", key, { [COPIED_FROM_META_KEY]: "shot.png" });
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const found = await keysCopiedFrom(database(sqlite), "acme", "shot.png", SHA);
+    expect(found).toHaveLength(COPY_HOLD_FANOUT_LIMIT);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "upload_hold_copy_cap", limit: COPY_HOLD_FANOUT_LIMIT }),
+    );
+    warn.mockRestore();
     sqlite.close();
   });
 

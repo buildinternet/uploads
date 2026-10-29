@@ -35,15 +35,16 @@ import {
   putOptsFromStoredObject,
   sanitizeKeyBasename,
 } from "./files-core";
-import { reholdIfHeld } from "./held-storage";
 import {
   classifierRowsOf,
+  copyLineageMeta,
   getFileMetadata,
   isServerMetaKey,
   setFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
 import { type AttachmentSource } from "./github-attachment-index";
+import { isKeyHeld } from "./upload-hold-read";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage, storageConfig } from "./storage";
 import { webOrigin } from "./web-url";
@@ -190,6 +191,11 @@ export async function attachExistingObject(
   const sourceKey = await resolveAttachSourceKey(env, cfg, workspaceName, req.source);
   if (badKey(sourceKey))
     throw new ValidationError("invalid source key.", { code: "invalid_source" });
+  // A held source stays where it is. Copying it would publish a second key
+  // before any gate row existed.
+  if (await isKeyHeld(env, workspaceName, sourceKey)) {
+    throw new ValidationError("this file is held for review.", { code: "held" });
+  }
 
   const store = await storage(env, ws);
   let source: Awaited<ReturnType<typeof downloadOne>>;
@@ -276,10 +282,12 @@ export async function attachExistingObject(
     { allowUploaderKeys: true },
   );
 
-  // The copy is not classified again, so its labels and any hold
-  // (`upload-hold.ts`) come from the source.
-  await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(sourceMeta));
-  await reholdIfHeld(env, ws, workspaceName, destKey);
+  // The copy is not classified again. Labels come from the source.
+  // `ai.copied-from` lets a later hold find this key.
+  await setServerFileMetadata(dbFor(env), workspaceName, destKey, {
+    ...classifierRowsOf(sourceMeta),
+    ...copyLineageMeta(sourceKey),
+  });
 
   // Tag the branch source before a move-delete. The copy already succeeded,
   // so a tagging failure is logged and does not fail the attach. Promote

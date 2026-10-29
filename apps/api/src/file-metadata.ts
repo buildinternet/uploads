@@ -67,6 +67,14 @@ export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
 export const PHASH_META_KEY = "ai.phash";
 
 /**
+ * Source object key on a promote or attach copy. Server-owned (`ai.*`).
+ * New bytes clear it with the other classifier rows. `classifierRowsOf`
+ * does not copy it: the destination's own source is written after that
+ * snapshot.
+ */
+export const COPIED_FROM_META_KEY = "ai.copied-from";
+
+/**
  * Every row the classifier writes. They all describe one set of bytes, so
  * they share the `SAFETY_FLAG_KEYS` lifetime; otherwise a failed run on new
  * bytes would leave the old bytes' labels behind.
@@ -86,6 +94,7 @@ export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
   "ai.hold.area",
   "ai.hold.by",
   "ai.hold.at",
+  COPIED_FROM_META_KEY,
   PHASH_META_KEY,
   ...SAFETY_FLAG_KEYS,
 ]);
@@ -97,7 +106,21 @@ export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
  */
 export function classifierRowsOf(meta: Record<string, string> | undefined): Record<string, string> {
   if (!meta) return {};
-  return Object.fromEntries(Object.entries(meta).filter(([key]) => CLASSIFIER_ROW_KEYS.has(key)));
+  return Object.fromEntries(
+    Object.entries(meta).filter(
+      ([key]) => CLASSIFIER_ROW_KEYS.has(key) && key !== COPIED_FROM_META_KEY,
+    ),
+  );
+}
+
+/**
+ * `ai.copied-from` for a promote or attach destination. Empty when the
+ * source key is too long to store: object keys may be 1024 characters, and
+ * a metadata value stops at `META_VALUE_MAX`.
+ */
+export function copyLineageMeta(sourceKey: string): Record<string, string> {
+  if (sourceKey.length < 1 || sourceKey.length > META_VALUE_MAX) return {};
+  return { [COPIED_FROM_META_KEY]: sourceKey };
 }
 
 export function isServerMetaKey(key: string): boolean {

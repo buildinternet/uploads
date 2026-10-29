@@ -51,7 +51,7 @@ import {
 import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service";
 import { effectiveHold, listHeldKeys, presentHoldMetadata } from "../upload-hold-read";
 import { HOLD_AREA_KEY, HOLD_MOVED_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
-import { readHeld } from "../held-storage";
+import { readHeld, readPublicHold } from "../held-storage";
 import {
   getFileMetadata,
   getMetadataForKeys,
@@ -472,22 +472,29 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     });
   })
 
-  // A held file's bytes, for a member checking it before approval. Streams
-  // the held bucket's copy; a hold that never moved is served by the
-  // ordinary download paths.
+  // A held file's bytes, for a member checking it before approval. A legacy
+  // hold streams the held bucket. A hosted hold that never moved streams
+  // the public object. A BYO hold has neither: its own domain serves it.
   .get("/:workspace/files/held/download", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const name = c.get("workspaceName");
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
     const body = await readHeld(c.env, name, key);
-    if (!body) throw new NotFoundError("no held copy of this file", { code: "not_held" });
+    if (body) {
+      return attachmentResponse(
+        {
+          type: body.httpMetadata?.contentType ?? "application/octet-stream",
+          size: body.size,
+          stream: () => body.body,
+        },
+        downloadFilename(key, body.customMetadata?.["source-name"]),
+      );
+    }
+    const publicFile = await readPublicHold(c.env, c.get("workspace"), name, key);
+    if (!publicFile) throw new NotFoundError("no held copy of this file", { code: "not_held" });
     return attachmentResponse(
-      {
-        type: body.httpMetadata?.contentType ?? "application/octet-stream",
-        size: body.size,
-        stream: () => body.body,
-      },
-      downloadFilename(key, body.customMetadata?.["source-name"]),
+      publicFile,
+      downloadFilename(key, publicFile.metadata?.["source-name"]),
     );
   })
 

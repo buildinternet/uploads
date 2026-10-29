@@ -147,7 +147,7 @@ GitHub plumbing under `github/`) are internal and can change without notice.
 | `POST /v1/workspaces/:workspace/files/hold?key=`                                | Hold an approved file for review again, for an approval made by mistake. Any other key returns `held: false`                                                                                                                    |
 | `GET /v1/workspaces/:workspace/files/review?key=`                               | A file's review state for members: `hold` (`pending`, `approved` or null), `reason`, and who approved it and when                                                                                                               |
 | `GET /v1/workspaces/:workspace/files/held?prefix=`                              | List files held for review, with the reason and whether the bytes moved to the held bucket                                                                                                                                      |
-| `GET /v1/workspaces/:workspace/files/held/download?key=`                        | Download a held file's held copy, for review before approval                                                                                                                                                                    |
+| `GET /v1/workspaces/:workspace/files/held/download?key=`                        | Download a held file for review. Streams the held-bucket copy when one exists, otherwise the public object of a hosted hold                                                                                                     |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
 | `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
@@ -364,11 +364,13 @@ writes `ai.hold=pending`. Only an upload whose User-Agent is the uploads CLI
 approve; other uploads log `upload_hold_skipped` and are left alone. The managed PR comment leaves a held file out and
 adds one line with the held count and `uploads approve --pr <n>`. Public
 feeds and galleries return it as `withheld`, and `GET /public/files/...`
-answers 401 `auth_required`. On hosted storage the bytes move to a private
-held bucket and the raw URL returns 404 until approval, which moves them
-back to the same key (a BYO bucket's domain keeps serving). A moved file is
-absent from `list`; `GET …/files/held` lists held keys and
-`GET …/files/held/download?key=` returns the held copy.
+answers 401 `auth_required`. On hosted storage the hold writes a read-gate
+row and the raw URL returns 404 until approval deletes that row. The bytes
+stay in the public bucket. A hold that already moved its bytes to the held
+bucket is copied back on approval. A BYO bucket's domain keeps serving. A
+moved file is absent from `list`; `GET …/files/held` lists held keys and
+`GET …/files/held/download?key=` returns the held-bucket copy when one
+exists, and the public object when the hold never moved it.
 `POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) records
 a release for these bytes and re-syncs the comment. It does not write
 `ai.hold`. The release is stored for the content hash and applies to every

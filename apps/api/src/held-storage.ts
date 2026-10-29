@@ -1,9 +1,9 @@
 /**
- * Where a held upload's bytes wait (`upload-hold.ts`). The hosted read-gate
- * Worker can 404 a held key, but its routes are not attached yet, so a hold
- * still copies the object into `UPLOADS_HELD`, a bucket with no public
- * domain, at `<workspace>/<key>`, then deletes the public key. Approval
- * copies it back to the same key, so links work again.
+ * Legacy location of a held upload's bytes (`upload-hold.ts`). A new hosted
+ * hold leaves the object in the public bucket and writes `read_gate` rows.
+ * `moveToHeld` still runs when a release has copied a legacy object back
+ * and then has to undo that copy. `restoreFromHeld` runs only for a key
+ * with `ai.hold.moved=1`.
  *
  * Hosted (shared-lane) objects only. A BYO bucket is served from the
  * customer's own domain, and its bytes stay where they are: the hold still
@@ -126,10 +126,11 @@ export async function deleteHeldCopy(
 }
 
 /**
- * When `key` is held, move the object now at its public key into the held
- * bucket. For writes that land bytes under a held key without a new
- * classification: an identical re-upload, a promote, or an attach copy.
- * Pass `held` when the caller already has the key's rows.
+ * When `key` is held, write its hosted read-gate rows. For writes that land
+ * bytes under a held key without a new classification: an identical
+ * re-upload, a promote, or an attach copy. The bytes stay in the public
+ * bucket. A legacy object already in the held bucket is left there.
+ * Pass `held` when the caller already knows the key is held.
  */
 export async function reholdIfHeld(
   env: Env,
@@ -142,8 +143,32 @@ export async function reholdIfHeld(
   await insertHostedReadGate(env, dbFor(env), ws, [key]).catch((err: unknown) => {
     console.error({ event: "read_gate_insert_failed", workspace: workspaceName, err });
   });
-  if (!heldBucket(env)) return;
-  await moveToHeld(env, ws, workspaceName, key);
+}
+
+/** Single-key download, so the `StoredFile` overload is inferred. */
+async function downloadOne(store: Files, key: string) {
+  return store.download(key);
+}
+
+/**
+ * Bytes for a hosted hold that never left the public bucket, or `null`.
+ * Call `readHeld` first: a legacy object is served from the held bucket.
+ * A BYO hold returns `null`. Its own domain still serves the file.
+ */
+export async function readPublicHold(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+): Promise<Awaited<ReturnType<typeof downloadOne>> | null> {
+  if (!(await isKeyHeld(env, workspaceName, key))) return null;
+  const lane = await resolveObjectLane(env, ws, key);
+  if (!lane || !isSharedLane(lane.config)) return null;
+  try {
+    return await downloadOne(lane.store, key);
+  } catch {
+    return null;
+  }
 }
 
 /**

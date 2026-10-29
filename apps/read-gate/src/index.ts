@@ -5,8 +5,9 @@
  * content type, and CORS. That pass-through adds `must-revalidate` so a
  * cached `/cdn-cgi/image/` variant follows the object's max-age (60s on
  * hosted uploads) instead of Cloudflare Images' one-hour minimum.
- * OPTIONS skips the gate. D1 errors fail open: the held bucket is still
- * the backstop, and this Worker does not bind it.
+ * OPTIONS skips the gate. A D1 error serves the object. That is a choice,
+ * the same as the classifier's fail-open: a lookup outage must not hide
+ * the public bucket. This Worker does not bind the held bucket.
  */
 
 /** Same lane string as `HOSTED_READ_LANE` in apps/api/src/read-gate.ts. */
@@ -138,6 +139,8 @@ async function isBlocked(
     remember(ctx, cachedRequest, blocked);
     return blocked;
   } catch (err) {
+    // A D1 error serves the object, by choice. Same fail-open as the
+    // classifier: an outage must not 404 every public file.
     console.error({ event: "read_gate_lookup_failed", err });
     return false;
   }
