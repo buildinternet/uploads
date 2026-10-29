@@ -376,9 +376,12 @@ bucket. A hold that already moved its bytes to the held
 bucket is copied back on approval. A BYO bucket's domain keeps serving. A
 moved file is absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held-bucket copy when one
-exists, and the public object when the hold never moved it.
+exists, and the public object when the hold never moved it. Only a
+signed-in member of the workspace can call it. The file page shows those
+bytes to that member. The public image URL stays the Held for review card.
 `POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) records
-a release for these bytes and re-syncs the comment. It does not write
+a release for these bytes and re-syncs the comment. Any workspace member can
+call it, from a session or from a token with `files:write`. It does not write
 `ai.hold`. The release is stored for the content hash and applies to every
 key that has its own hold row. A key with no hold row is not held. `uploads meta get` shows `ai.hold=approved`
 after a release, with who released it and when. Pass `expected_sha` (the

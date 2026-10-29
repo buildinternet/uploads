@@ -76,8 +76,8 @@ You cannot set, change, or delete these flags from the CLI, the API, or MCP. A m
 A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document` or `financial`, holds the file for review when it was uploaded with `uploads` 0.59.0 or newer, the first release that can approve it, or through the hosted MCP server, which has an `approve` tool. The server writes `ai.hold=pending`. An upload from an older CLI or another client is not held, and neither is a signed upload over 25 MB. A held file works like a staged one:
 
 - The managed pull request comment leaves it out. One line says how many files are held and how to approve them. The line never names a file.
-- Public feeds and galleries show it as withheld. Its page asks for sign-in, and shows a signed-in member why it's held, with **Approve**. For an image on hosted storage, the page shows the held copy with the flagged area outlined. The outline is approximate, so check the whole image.
-- On hosted storage, its raw URL returns 404 while it is held. Approval brings the file back at the same URL. A file in your own bucket keeps serving from your domain.
+- Public feeds and galleries show it as withheld. The file page asks a visitor to sign in. A signed-in member of the workspace sees the real file there, with the reason and **Approve**. For an image, the page outlines the flagged area. The outline is approximate, so check the whole image.
+- On hosted storage, an image's public URL returns a Held for review card while the file is held. Any other raw URL returns 404. Approval brings the file back at the same URL. A file in your own bucket keeps serving from your domain.
 
 Any workspace member can approve, from the file's page or the CLI. Check each held file before you approve it. If it does show a credential, rotate the credential, then replace or delete the file. Approved one by mistake? A member can hold it again from the ⋯ menu on its file page.
 

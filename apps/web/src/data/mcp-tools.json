@@ -1015,7 +1015,7 @@
   {
     "name": "list_held",
     "title": "List held files",
-    "description": "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, galleries, and its /f/ page, and its raw URL may 404, until a workspace member approves it with `approve`. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`), `area` (an approximate box around the flagged content as fractions of the image, null when unknown), and `sha` (the content hash, null when unknown). `approve` with `pr` or `issue` sends that hash.",
+    "description": "List uploads held for review. The classifier holds a file it thinks shows a secret (an API key, a password, a token) or sensitive personal data (an ID, a card number). A held file stays out of the managed PR comment, feeds, and galleries until a workspace member approves it with `approve`. A signed-in member sees the real file on its /f/ page. On hosted storage an image URL returns a Held for review card, and any other raw URL returns 404. Pass `pr`/`issue` + `repo` for one PR or issue, or `prefix`. Each item has `reason` (`secret: api_key`, `pii: financial`), `area` (an approximate box around the flagged content as fractions of the image, null when unknown), and `sha` (the content hash, null when unknown). `approve` with `pr` or `issue` sends that hash.",
     "access": "read",
     "scopes": [
       "files:read"
