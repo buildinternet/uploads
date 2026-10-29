@@ -365,8 +365,9 @@ approve; other uploads log `upload_hold_skipped` and are left alone. The managed
 adds one line with the held count and `uploads approve --pr <n>`. Public
 feeds and galleries return it as `withheld`, and `GET /public/files/...`
 answers 401 `auth_required`. On hosted storage the hold writes a read-gate
-row and the raw URL returns 404 until approval deletes that row. The bytes
-stay in the public bucket. A hold that already moved its bytes to the held
+row. An image URL returns a "Held for review" card until approval deletes
+that row. Any other raw URL returns 404. The bytes stay in the public
+bucket. A hold that already moved its bytes to the held
 bucket is copied back on approval. A BYO bucket's domain keeps serving. A
 moved file is absent from `list`; `GET …/files/held` lists held keys and
 `GET …/files/held/download?key=` returns the held-bucket copy when one

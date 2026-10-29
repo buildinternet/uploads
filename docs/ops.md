@@ -83,8 +83,8 @@ The hosts stay R2 custom domains. Cache-Control on `embed.uploads.sh` is the
 zone rule above, not a Worker. `uploads-read-gate` serves
 `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`. On a miss
 it returns the original request, so R2 still serves the bytes, including
-Range and validators. It 404s a safety hold only. See
-[Hosted read gate](#hosted-read-gate).
+Range and validators. A held image gets a "Held for review" card. Any other
+safety hold is a 404. See [Hosted read gate](#hosted-read-gate).
 
 ## Public file page performance
 
@@ -154,8 +154,9 @@ The operator probe returned `ok: true` for all three hosts the same day. The `ac
 SVG and XML (`image/svg+xml`, `application/xml`, `text/xml`) are gated
 uploads: a lane only accepts them once its public host is **verified** to
 serve them behind a sandboxing Content-Security-Policy. The hosted hosts are
-R2 custom domains. `uploads-read-gate` sits in front of them and only
-404s a safety hold, then passes the object through. It does not set a
+R2 custom domains. `uploads-read-gate` sits in front of them. It returns a
+"Held for review" card for a held image, 404s any other safety hold, then
+passes every other object through. It does not set a
 Content-Security-Policy, so a malicious SVG's script would still run with
 that origin unless the zone Transform Rule is in place. See
 `docs/superpowers/specs/2026-09-02-svg-xml-active-content-design.md` for the
@@ -290,7 +291,8 @@ Notes:
   on purpose: `uploads.sh` already serves its own branded 404, and the
   `api.` / `auth.` / `agents.` hosts must keep returning JSON error envelopes.
 - A 404 from `uploads-read-gate` on these three hosts is an origin 404, so a
-  safety hold shows the same branded page as a missing file. See
+  safety hold on a non-image shows the same branded page as a missing file.
+  A held image is status 200, so this rule does not replace it. See
   [Hosted read gate](#hosted-read-gate).
 - `waf_challenge` (the legacy WAF captcha) is not settable on the Pro plan.
   Cloudflare answers `success: true` and keeps the default; `deploy.mjs` reads
@@ -1490,8 +1492,9 @@ galleries, and 401s on `/public/files`.
 
 On a hosted (shared-lane) key the hold writes `read_gate` rows and leaves
 the bytes in the public bucket. It does not write `ai.hold.moved`. The
-read-gate Worker 404s the URL. It fails open when D1 errors, and it does
-not bind the held bucket.
+read-gate Worker serves a "Held for review" card for an image URL and 404s
+every other URL. It fails open when D1 errors, and it does not bind the
+held bucket.
 
 A hold that already sits in `UPLOADS_HELD` (bucket `uploads-held`, preview
 `uploads-preview-held`) at `<workspace>/<key>` keeps `ai.hold.moved=1`.
@@ -1558,26 +1561,33 @@ Cloudflare Images stores a `/cdn-cgi/image/…` variant from the source
 response. Without `must-revalidate` the variant stays fresh for at least
 one hour. A variant cached before a hold keeps returning 200 until that
 entry expires. An uncached option string fetches the source through this
-Worker, and the Worker 404s. With `must-revalidate` the variant goes stale
-with the object. Hosted uploads use `max-age=60` (`UPLOAD_CACHE_CONTROL`),
-so that window is 60 seconds.
+Worker. A blocked image returns the card, and any other blocked key 404s.
+With `must-revalidate` the variant goes stale with the object. Hosted
+uploads use `max-age=60` (`UPLOAD_CACHE_CONTROL`), so that window is 60
+seconds.
 
-A direct read hits this Worker on every request. The Worker 404s once the
-hold is visible. The decision cache can still allow the read for 30
+A direct read hits this Worker on every request. The Worker applies the
+hold once it is visible. The decision cache can still allow the read for 30
 seconds. In that window `fetch` can return the object's edge copy
 (`max-age=60` on `storage` and `store`).
 
-A blocked key gets status 404 and the API not-found JSON envelope
-(`NotFoundError`). The zone custom error rule `file_not_found` replaces that
-404 on `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh` with
-the branded missing-file page ("That file isn’t here"). A gated key and a
-missing file look the same to a visitor. See
+A blocked image (`png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`) gets status
+200 and the static "Held for review" PNG
+(`apps/read-gate/src/held-placeholder.png`). `cache-control` is `no-store`,
+so the edge does not keep the card after the hold lifts. The response is 200 because the zone custom error rule
+`file_not_found` replaces a 404 with the branded missing-file page, and
+that page is what a GitHub embed shows as a broken image. Any other blocked
+key gets status 404 and the API not-found JSON envelope (`NotFoundError`).
+That 404 on `store.uploads.sh`, `storage.uploads.sh`, and `embed.uploads.sh`
+becomes the branded missing-file page ("That file isn’t here"). A gated
+non-image and a missing file look the same to a visitor. See
 [Cloudflare error pages](#cloudflare-error-pages).
 
 `/cdn-cgi/image/…/<key>` is gated too. The Worker reads the object key out
-of the transform URL, so the transform request itself 404s when the source
-key is blocked. The transform's own origin fetch of `/<key>` also passes
-through this Worker.
+of the transform URL. When that key is a blocked image, the transform
+request returns the same PNG and does not call the image resizer. Any
+other blocked key 404s. The transform's own origin fetch of `/<key>` also
+passes through this Worker.
 
 The API writes and deletes `read_gate` rows in the same D1 batch as the hold
 change (`applyUploadHold`, approve, and hold-again). The rows cover the key

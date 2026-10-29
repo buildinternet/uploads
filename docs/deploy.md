@@ -99,7 +99,8 @@ A push does not preview `uploads-web`, `uploads-auth`, or `uploads-api`. See
 ### The `apps/read-gate` worker
 
 `uploads-read-gate` serves `store.uploads.sh`, `storage.uploads.sh`, and
-`embed.uploads.sh`. It 404s a safety hold and forwards every other request.
+`embed.uploads.sh`. A held image gets a "Held for review" card. Any other
+safety hold is a 404. Every other request is forwarded.
 Workers Builds deploys it from the repo root with no build command. The
 deploy command is `pnpm run deploy:read-gate`. Watch paths are
 `apps/read-gate/**`, `pnpm-lock.yaml`, and `pnpm-workspace.yaml`.
