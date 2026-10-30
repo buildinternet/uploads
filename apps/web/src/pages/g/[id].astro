@@ -239,6 +239,11 @@ const preview = gallery
       .media-link {
         display: contents;
       }
+      .item-meta {
+        margin-top: 8px;
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+      }
       .caption {
         margin-top: 8px;
         color: var(--body);
@@ -415,7 +420,12 @@ const preview = gallery
                             </span>
                           )}
                         </div>
-                        {item.caption && <div class="caption">{item.caption}</div>}
+                        {(item.caption ?? item.metadata?.caption) && (
+                          <div class="caption">{item.caption ?? item.metadata?.caption}</div>
+                        )}
+                        {item.metadata?.screen && (
+                          <div class="item-meta">{item.metadata.screen}</div>
+                        )}
                       </figcaption>
                     </figure>
                   );

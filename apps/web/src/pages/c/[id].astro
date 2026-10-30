@@ -241,6 +241,14 @@ function itemDate(item: PublicFeedItem): string | null {
         color: var(--accent);
         outline: none;
       }
+      .caption {
+        margin-top: 8px;
+        color: var(--body);
+        font-size: var(--text-ui);
+        line-height: 1.5;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
       .item-meta {
         display: flex;
         gap: 12px;
@@ -416,7 +424,11 @@ function itemDate(item: PublicFeedItem): string | null {
                             </a>
                           )}
                         </div>
+                        {item.metadata?.caption && (
+                          <div class="caption">{item.metadata.caption}</div>
+                        )}
                         <div class="item-meta">
+                          {item.metadata?.screen && <span>{item.metadata.screen}</span>}
                           {item.path && <span>{item.path}</span>}
                           {item.state && <span>{item.state}</span>}
                           {when && <span>{when}</span>}

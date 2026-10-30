@@ -134,9 +134,9 @@ const unfurlKind =
           size={item.size}
           downloadUrl={downloadUrl}
         >
-          {item.caption && <div class="caption">{item.caption}</div>}
           <FileDetails
             metadata={item.metadata}
+            caption={item.caption}
             size={item.size}
             uploaded={item.uploaded}
             modified={item.modified}
@@ -159,12 +159,3 @@ const unfurlKind =
     )
   }
 </PublicItemLayout>
-<style>
-  .caption {
-    margin: 0;
-    color: var(--body);
-    font-size: var(--text-body);
-    line-height: 1.6;
-    white-space: pre-wrap;
-  }
-</style>
