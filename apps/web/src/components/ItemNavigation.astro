@@ -44,11 +44,13 @@ const { previous, next, list, label, listLabel = "All files" } = Astro.props;
     )
       return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    // Links and buttons don't use arrow keys, so focus left on a strip
+    // thumbnail or the Fit toggle must not swallow them.
     const target = event.target;
     if (
       target instanceof Element &&
       target.closest(
-        'input, textarea, select, button, a, video, audio, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="dialog"], img-comparison-slider',
+        'input, textarea, select, video, audio, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="dialog"], img-comparison-slider',
       )
     )
       return;
