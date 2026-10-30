@@ -20,6 +20,7 @@ import {
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../../lib/ssr-fetch";
+import { ITEM_STRIP_HEADER } from "../../../lib/item-page-cache";
 
 export const prerender = false;
 
@@ -27,8 +28,11 @@ const id = Astro.params.id ?? "";
 const itemId = Astro.params.item ?? "";
 const origin =
   env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
+// A soft navigation from a page whose strip links here keeps that strip, so
+// the feed read is skipped and an empty strip stands in for it.
+const stripKept = Astro.request.headers.get(ITEM_STRIP_HEADER) === id;
 const [listResult, itemResult] = await Promise.all([
-  fetchPublicFeed(id, { origin, fetch: publicApiFetch(env) }),
+  stripKept ? null : fetchPublicFeed(id, { origin, fetch: publicApiFetch(env) }),
   fetchPublicFeedItem(id, itemId, { origin, fetch: publicApiFetch(env) }),
 ]);
 
@@ -42,7 +46,7 @@ else if (!item) Astro.response.status = 404;
 
 // The thumbnail strip shows the newest page. An older item gets the pager
 // (driven by the scope scan) without a strip.
-const newestItems = listResult.status === "ok" ? listResult.feed.items : [];
+const newestItems = listResult?.status === "ok" ? listResult.feed.items : [];
 const strip = item && newestItems.some((entry) => entry.id === item.id) ? newestItems : [];
 const newer = pageData?.prev ?? null;
 const older = pageData?.next ?? null;
@@ -160,13 +164,27 @@ function thumbSrc(entry: PublicFeedItem): string | null {
           />
         </MediaStage>
 
+        {stripKept && (
+          <nav
+            class="strip"
+            aria-label="Newest files"
+            data-item-strip={id}
+            transition:persist={`item-strip-${id}`}
+          />
+        )}
         {strip.length > 1 && (
-          <nav class="strip" aria-label="Newest files">
+          <nav
+            class="strip"
+            aria-label="Newest files"
+            data-item-strip={id}
+            transition:persist={`item-strip-${id}`}
+          >
             {strip.map((entry, entryIndex) => {
               const src = thumbSrc(entry);
               return (
                 <a
                   href={itemPath(entry)}
+                  data-item-prefetch
                   class={entry.id === item.id ? "current" : undefined}
                   aria-current={entry.id === item.id ? "page" : undefined}
                   aria-label={`${entry.filename} (${entryIndex + 1} of ${strip.length})`}

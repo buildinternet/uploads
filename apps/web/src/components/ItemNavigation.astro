@@ -31,6 +31,8 @@ const { previous, next, list, label, listLabel = "All files" } = Astro.props;
   }
 </nav>
 <script>
+  import "../lib/item-prefetch";
+
   document.addEventListener("keydown", (event) => {
     if (
       event.defaultPrevented ||
