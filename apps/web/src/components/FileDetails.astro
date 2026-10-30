@@ -4,13 +4,18 @@ import { AI_CHIP_FIELDS, splitFileDetailMeta } from "../lib/ai-labels";
 import { formatBytes, formatFileDate, sameUtcDay, shouldShowModified } from "../lib/public-file";
 interface Props {
   metadata?: Record<string, string>;
+  /** Shown as text above Details; defaults to the `caption` metadata key. */
+  caption?: string | null;
   size?: number | null;
   uploaded?: string | null;
   modified?: string | null;
 }
 const { metadata, size = null, uploaded = null, modified = null } = Astro.props;
+const caption = (Astro.props.caption ?? metadata?.caption)?.trim() || null;
 const detailMeta = splitFileDetailMeta(metadata);
-const metadataEntries = [...detailMeta.primary, ...detailMeta.other];
+const metadataEntries = [...detailMeta.primary, ...detailMeta.other].filter(
+  (entry) => entry.key !== "caption",
+);
 const aiLabels = detailMeta.ai;
 const aiChips = aiLabels
   ? AI_CHIP_FIELDS.flatMap((field) => {
@@ -37,6 +42,7 @@ const footnoteParts = [
 const footnoteLine = footnoteParts.join(" · ");
 ---
 
+{caption && <p class="caption">{caption}</p>}
 {
   metadataEntries.length > 0 && (
     <div>
@@ -85,6 +91,14 @@ const footnoteLine = footnoteParts.join(" · ");
 {footnoteLine && <p class="footnote">{footnoteLine}</p>}
 
 <style>
+  .caption {
+    margin: 0;
+    color: var(--body);
+    font-size: var(--text-body);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
   .rail-head {
     display: flex;
     align-items: center;

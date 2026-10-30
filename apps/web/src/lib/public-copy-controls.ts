@@ -7,9 +7,7 @@ document.addEventListener("click", (event) => {
   for (const menu of document.querySelectorAll<HTMLDetailsElement>("details[data-menu][open]")) {
     if (!menu.contains(target) || target.closest(".fa-item")) menu.open = false;
   }
-  const button = target.closest<HTMLButtonElement>(
-    "[data-public-copy-controls] button[data-copy], button[data-public-copy-button]",
-  );
+  const button = target.closest<HTMLButtonElement>("[data-public-copy-controls] button[data-copy]");
   if (!button) return;
   const status = document.getElementById("copy-status");
   // A format picked from a menu reports on the split's main button.
@@ -27,7 +25,7 @@ document.addEventListener("click", (event) => {
       if (status) status.textContent = "Copied";
       const original = label.dataset.copyLabel ?? label.textContent?.trim() ?? "Copy";
       label.dataset.copyLabel = original;
-      label.textContent = button.hasAttribute("data-public-copy-button") ? "copied ✓" : "Copied";
+      label.textContent = "Copied";
       setTimeout(() => {
         label.textContent = original;
         if (status) status.textContent = "";
@@ -43,28 +41,5 @@ document.addEventListener("keydown", (event) => {
   for (const menu of document.querySelectorAll<HTMLDetailsElement>("details[data-menu][open]")) {
     menu.open = false;
     menu.querySelector("summary")?.focus();
-  }
-});
-
-document.addEventListener("change", (event) => {
-  const select = event.target;
-  if (
-    !(select instanceof HTMLSelectElement) ||
-    select.id !== "copy-format" ||
-    !select.closest("[data-public-copy-controls]")
-  )
-    return;
-  const option = select.selectedOptions[0];
-  if (!option) return;
-  const value = option.dataset.copyValue ?? "";
-  const valueEl = document.getElementById("copy-snippet-value");
-  const button = document.getElementById("copy-format-btn");
-  if (valueEl) {
-    valueEl.textContent = value;
-    valueEl.title = value;
-  }
-  if (button) {
-    button.dataset.copy = value;
-    button.title = `Copy ${option.textContent ?? ""}`;
   }
 });

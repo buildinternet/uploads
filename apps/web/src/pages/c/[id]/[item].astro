@@ -1,6 +1,6 @@
 ---
 import PublicItemLayout from "../../../layouts/PublicItemLayout.astro";
-import CopyAsControls from "../../../components/CopyAsControls.astro";
+import FileActions from "../../../components/FileActions.astro";
 import FileDetails from "../../../components/FileDetails.astro";
 import ItemNavigation from "../../../components/ItemNavigation.astro";
 import MediaStage from "../../../components/MediaStage.astro";
@@ -53,7 +53,7 @@ const older = pageData?.next ?? null;
 // The API caps `total` at the scan cap and sends no "capped" flag, so a total
 // at the cap may be exact or truncated. "or more" is true either way.
 const position = pageData
-  ? `${pageData.index + 1} of ${pageData.total}${pageData.total >= PUBLIC_FEED_SCAN_CAP ? " or more" : ""}`
+  ? `${pageData.index + 1} / ${pageData.total}${pageData.total >= PUBLIC_FEED_SCAN_CAP ? "+" : ""}`
   : "";
 const listPath = feedPath(id);
 const itemPath = (target: PublicFeedItem) => feedItemPath(id, target.id);
@@ -119,10 +119,24 @@ function thumbSrc(entry: PublicFeedItem): string | null {
     feed && item ? (
       <>
         <div class="crumbs">
-          <a href={listPath}>{feed.title}</a> · <span class="count">{position}</span>
+          <a href={listPath}>{feed.title}</a>
+          <ItemNavigation
+            previous={newer ? feedItemPath(id, newer) : null}
+            next={older ? feedItemPath(id, older) : null}
+            position={position}
+            label="Live link items"
+          />
         </div>
         <header class="filehead">
-          <h1 class="filetitle">{item.filename}</h1>
+          <h1 class="filetitle filehead-text">{item.filename}</h1>
+          {item.status === "available" && (
+            <FileActions
+              formats={embedFormats}
+              canonical={canonical}
+              downloadUrl={item.url}
+              originalUrl={item.url}
+            />
+          )}
         </header>
         <MediaStage
           kind={kind(item)}
@@ -136,22 +150,6 @@ function thumbSrc(entry: PublicFeedItem): string | null {
           size={item.size}
           downloadUrl={item.status === "available" ? item.url : null}
         >
-          <ItemNavigation
-            slot="navigation"
-            previous={newer ? feedItemPath(id, newer) : null}
-            next={older ? feedItemPath(id, older) : null}
-            list={listPath}
-            label="Live link items"
-          />
-          {item.status === "available" && (
-            <CopyAsControls formats={embedFormats} downloadUrl={item.url}>
-              {item.url && (
-                <a class="original" href={item.url} rel="noopener noreferrer">
-                  Open original ↗
-                </a>
-              )}
-            </CopyAsControls>
-          )}
           <FileDetails
             metadata={{
               ...(item.path ? { path: item.path } : {}),

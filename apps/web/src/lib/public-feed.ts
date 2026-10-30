@@ -127,12 +127,8 @@ export function feedPageCopy(feed: Pick<PublicFeed, "repo" | "number" | "kind">)
   return {
     scopeLabel: scoped ? `${feed.repo}#${feed.number}` : feed.repo,
     scopeNoun: feed.kind === "issue" ? "issue" : scoped ? "pull request" : "repo",
-    eyebrow:
-      feed.kind === "issue"
-        ? "Live link · issue"
-        : scoped
-          ? "Live link · pull request"
-          : "Live link · repo",
+    // The top bar already says "live link", so the eyebrow names only the scope.
+    eyebrow: feed.kind === "issue" ? "Issue" : scoped ? "Pull request" : "Repo",
   };
 }
 

@@ -28,36 +28,13 @@ const { title, canonical, description } = Astro.props;
     <main class="shell">
       <nav class="top" aria-label="Site" transition:persist="public-item-header">
         <Brand />
-        <div class="nav-end">
-          <ThemeToggle />
-          <button
-            type="button"
-            class="public sharelink"
-            data-copy={canonical}
-            data-public-copy-button
-            data-viewer-share
-            title="Copy link — anyone with this link can view this page">Public link</button
-          >
-        </div>
+        <ThemeToggle />
       </nav>
       <slot />
     </main>
     <div transition:persist="public-item-footer"><Footer /></div>
   </body>
 </html>
-<script>
-  import "../lib/public-copy-controls";
-
-  // The header survives item navigation; its share target follows the new head.
-  document.addEventListener("astro:after-swap", () => {
-    const button = document.querySelector<HTMLButtonElement>("[data-viewer-share]");
-    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
-    if (button && canonical) {
-      button.dataset.copy = canonical.href;
-      button.textContent = "Public link";
-    }
-  });
-</script>
 <style>
   :global(.public-item-page *) {
     box-sizing: border-box;
@@ -86,61 +63,29 @@ const { title, canonical, description } = Astro.props;
     font: var(--text-meta) var(--mono);
     letter-spacing: 0.02em;
   }
-  .nav-end {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .public {
-    color: var(--muted);
-    font-size: var(--text-micro);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 6px 11px;
-    background: var(--panel);
-  }
-  /* Click-to-copy share pill — same pattern as the public file page. */
-  button.public {
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
-    font-family: inherit;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  button.public:hover,
-  button.public:focus-visible {
-    border-color: var(--accent);
-    color: var(--accent);
-    outline: none;
-  }
-  /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
-         button.textContent on copy, which would otherwise destroy an inline <svg>. */
-  .sharelink::before {
-    content: "";
-    width: 11px;
-    height: 11px;
-    flex: none;
-    background: currentColor;
-    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-      center/contain no-repeat;
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-      center/contain no-repeat;
-  }
+  /* List link on the left, ‹ n / total › pager on the right. */
   .shell :global(.crumbs) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     margin-bottom: 12px;
     color: var(--muted);
     font: var(--text-meta) var(--mono);
     overflow-wrap: anywhere;
   }
-  .shell :global(.crumbs .count) {
-    color: var(--muted);
-  }
+  /* Title on the left, FileActions on the right; same as the public file page. */
   .shell :global(.filehead) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px 24px;
     margin: 0 0 16px;
+    min-width: 0;
+  }
+  .shell :global(.filehead-text) {
+    flex: 1 1 320px;
     min-width: 0;
   }
   .shell :global(.filetitle) {

@@ -1,6 +1,6 @@
 /**
  * Pure embed-format-string builder for the public file + gallery-item "Copy as"
- * control (design spec §3.3). Consumed by `CopyAsControls.astro` on both pages.
+ * control (design spec §3.3). Consumed by `FileActions.astro`.
  * Dependency-free so it stays unit-testable without a render harness.
  */
 

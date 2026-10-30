@@ -1,6 +1,6 @@
 ---
 import PublicItemLayout from "../../../layouts/PublicItemLayout.astro";
-import CopyAsControls from "../../../components/CopyAsControls.astro";
+import FileActions from "../../../components/FileActions.astro";
 import GalleryReferences from "../../../components/GalleryReferences.astro";
 import FileDetails from "../../../components/FileDetails.astro";
 import ItemNavigation from "../../../components/ItemNavigation.astro";
@@ -100,14 +100,27 @@ const unfurlKind =
     gallery && item ? (
       <>
         <div class="crumbs">
-          <a href={listPath}>{gallery.title}</a> ·{" "}
-          <span class="count">
-            {index + 1} of {items.length}
-          </span>
+          <a href={listPath}>{gallery.title}</a>
+          <ItemNavigation
+            previous={previous ? itemPath(previous) : null}
+            next={next ? itemPath(next) : null}
+            position={`${index + 1} / ${items.length}`}
+            label="Gallery items"
+          />
         </div>
         <header class="filehead">
-          <h1 class="filetitle">{item.filename}</h1>
-          <GalleryReferences references={gallery.references} variant="header" />
+          <div class="filehead-text">
+            <h1 class="filetitle">{item.filename}</h1>
+            <GalleryReferences references={gallery.references} variant="header" />
+          </div>
+          {item.status === "available" && (
+            <FileActions
+              formats={embedFormats}
+              canonical={canonical}
+              downloadUrl={downloadUrl}
+              originalUrl={item.url}
+            />
+          )}
         </header>
         <MediaStage
           kind={kind(item)}
@@ -121,26 +134,9 @@ const unfurlKind =
           size={item.size}
           downloadUrl={downloadUrl}
         >
-          <ItemNavigation
-            slot="navigation"
-            previous={previous ? itemPath(previous) : null}
-            next={next ? itemPath(next) : null}
-            list={listPath}
-            label="Gallery items"
-            listLabel="All items"
-          />
-          {item.caption && <div class="caption">{item.caption}</div>}
-          {item.status === "available" && (
-            <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-              {item.url && (
-                <a class="original" href={item.url} rel="noopener noreferrer">
-                  Open original ↗
-                </a>
-              )}
-            </CopyAsControls>
-          )}
           <FileDetails
             metadata={item.metadata}
+            caption={item.caption}
             size={item.size}
             uploaded={item.uploaded}
             modified={item.modified}
@@ -163,12 +159,3 @@ const unfurlKind =
     )
   }
 </PublicItemLayout>
-<style>
-  .caption {
-    margin: 0;
-    color: var(--body);
-    font-size: var(--text-body);
-    line-height: 1.6;
-    white-space: pre-wrap;
-  }
-</style>

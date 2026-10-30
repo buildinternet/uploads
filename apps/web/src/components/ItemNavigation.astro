@@ -2,31 +2,56 @@
 interface Props {
   previous: string | null;
   next: string | null;
-  list: string;
+  /** e.g. "1 / 4"; the list link sits beside the pager, so this is the only label. */
+  position: string;
   label: string;
-  listLabel?: string;
 }
-const { previous, next, list, label, listLabel = "All files" } = Astro.props;
+const { previous, next, position, label } = Astro.props;
+const chevron = { left: "M10 3.5L5.5 8l4.5 4.5", right: "M6 3.5L10.5 8 6 12.5" };
 ---
 
 <nav class="item-navigation" aria-label={label} data-item-navigation>
   {
     previous ? (
-      <a href={previous} rel="prev" aria-keyshortcuts="ArrowLeft" title="Previous item (←)">
-        ← Previous
+      <a
+        href={previous}
+        rel="prev"
+        aria-keyshortcuts="ArrowLeft"
+        aria-label="Previous item"
+        title="Previous (←)"
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path d={chevron.left} />
+        </svg>
       </a>
     ) : (
-      <span aria-disabled="true">← Previous</span>
+      <span aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="14" height="14">
+          <path d={chevron.left} />
+        </svg>
+      </span>
     )
   }
-  <a href={list}>{listLabel}</a>
+  <span class="position">{position}</span>
   {
     next ? (
-      <a href={next} rel="next" aria-keyshortcuts="ArrowRight" title="Next item (→)">
-        Next →
+      <a
+        href={next}
+        rel="next"
+        aria-keyshortcuts="ArrowRight"
+        aria-label="Next item"
+        title="Next (→)"
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path d={chevron.right} />
+        </svg>
       </a>
     ) : (
-      <span aria-disabled="true">Next →</span>
+      <span aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="14" height="14">
+          <path d={chevron.right} />
+        </svg>
+      </span>
     )
   }
 </nav>
@@ -44,11 +69,13 @@ const { previous, next, list, label, listLabel = "All files" } = Astro.props;
     )
       return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    // Links and buttons don't use arrow keys, so focus left on a strip
+    // thumbnail or the Fit toggle must not swallow them.
     const target = event.target;
     if (
       target instanceof Element &&
       target.closest(
-        'input, textarea, select, button, a, video, audio, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="dialog"], img-comparison-slider',
+        'input, textarea, select, video, audio, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="dialog"], img-comparison-slider',
       )
     )
       return;
@@ -64,28 +91,46 @@ const { previous, next, list, label, listLabel = "All files" } = Astro.props;
 </script>
 <style>
   .item-navigation {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin: 0;
-    font: var(--text-meta) var(--sans);
-  }
-  a,
-  span {
-    padding: 8px 12px;
+    flex: none;
+    height: 30px;
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
     background: var(--panel);
-    color: var(--fg);
-    text-decoration: none;
+    font: var(--text-micro) var(--mono);
   }
-  span {
+  a,
+  span:not(.position) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 100%;
+    color: var(--fg);
+    border-radius: var(--radius-md);
+  }
+  span:not(.position) {
     color: var(--muted);
+    opacity: 0.35;
+  }
+  svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+  }
+  .position {
+    padding: 0 4px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   a:hover,
   a:focus-visible {
-    border-color: var(--accent);
     color: var(--accent);
+    outline: none;
+  }
+  a:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
 </style>
