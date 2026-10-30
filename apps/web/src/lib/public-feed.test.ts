@@ -57,17 +57,17 @@ describe("feed paths", () => {
 describe("feedPageCopy", () => {
   it("labels a repo feed, a pull request, and an issue", () => {
     expect(feedPageCopy({ repo: "acme/app", number: null, kind: null })).toEqual({
-      eyebrow: "Live link · repo",
+      eyebrow: "Repo",
       scopeLabel: "acme/app",
       scopeNoun: "repo",
     });
     expect(feedPageCopy({ repo: "acme/app", number: 12, kind: "pull" })).toEqual({
-      eyebrow: "Live link · pull request",
+      eyebrow: "Pull request",
       scopeLabel: "acme/app#12",
       scopeNoun: "pull request",
     });
     expect(feedPageCopy({ repo: "acme/app", number: 9, kind: "issue" })).toEqual({
-      eyebrow: "Live link · issue",
+      eyebrow: "Issue",
       scopeLabel: "acme/app#9",
       scopeNoun: "issue",
     });

@@ -142,14 +142,6 @@ function itemDate(item: PublicFeedItem): string | null {
         letter-spacing: -0.015em;
         overflow-wrap: anywhere;
       }
-      .meta {
-        display: flex;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin-top: 18px;
-        color: var(--muted);
-        font: var(--text-micro) var(--sans);
-      }
       .notice {
         margin: 22px 2px;
         color: var(--muted);
@@ -198,10 +190,56 @@ function itemDate(item: PublicFeedItem): string | null {
         padding: 14px 16px 16px;
         border-top: 1px solid var(--line);
       }
+      .titlerow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
       .filename {
+        min-width: 0;
         color: var(--fg);
-        font: var(--weight-semibold) var(--text-meta) / 1 var(--mono);
+        font: var(--weight-semibold) var(--text-meta) / 1.3 var(--mono);
+        text-decoration: none;
         overflow-wrap: anywhere;
+      }
+      .filename:hover,
+      .filename:focus-visible {
+        color: var(--accent);
+      }
+      .icon-btn,
+      .pager-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex: none;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--panel);
+        color: var(--fg);
+        text-decoration: none;
+      }
+      .icon-btn {
+        width: 30px;
+      }
+      .pager-btn {
+        padding: 0 10px;
+      }
+      .icon-btn svg,
+      .pager-btn svg {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+      }
+      .icon-btn:hover,
+      .icon-btn:focus-visible,
+      .pager-btn:hover,
+      .pager-btn:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
       }
       .item-meta {
         display: flex;
@@ -211,19 +249,8 @@ function itemDate(item: PublicFeedItem): string | null {
         color: var(--muted);
         font: var(--text-micro) var(--sans);
       }
-      .original {
-        display: inline-block;
-        margin-top: 10px;
-        color: var(--muted);
-        font: var(--text-micro) var(--sans);
-      }
       .media-link {
         display: contents;
-      }
-      .original:hover,
-      .original:focus-visible {
-        color: var(--accent);
-        outline: none;
       }
       .empty,
       .error {
@@ -285,14 +312,11 @@ function itemDate(item: PublicFeedItem): string | null {
                   feed.title
                 )}
               </h1>
-              <div class="meta">
-                <span>newest first</span>
-                {cursor && <span>older files</span>}
-              </div>
             </header>
             <aside class="notice">
-              Anyone with this link can view these files. New files tagged with this{" "}
-              {page?.scopeNoun} appear here on their own. Do not share sensitive media.
+              {cursor ? "Older files." : "Newest first."} Anyone with this link can view these
+              files. New files tagged with this {page?.scopeNoun} appear here on their own. Do not
+              share sensitive media.
             </aside>
             {feed.items.length === 0 ? (
               <section class="empty">
@@ -374,19 +398,29 @@ function itemDate(item: PublicFeedItem): string | null {
                         )}
                       </div>
                       <figcaption>
-                        <div class="filename">
-                          <a href={feedItemPath(feed.id, item.id)}>{item.filename}</a>
+                        <div class="titlerow">
+                          <a class="filename" href={feedItemPath(feed.id, item.id)}>
+                            {item.filename}
+                          </a>
+                          {item.status === "available" && (
+                            <a
+                              class="icon-btn"
+                              href={item.url!}
+                              rel="noopener noreferrer"
+                              aria-label={`Open original of ${item.filename}`}
+                              title="Open original"
+                            >
+                              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                                <path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5V13H3V4.5h3.5" />
+                              </svg>
+                            </a>
+                          )}
                         </div>
                         <div class="item-meta">
                           {item.path && <span>{item.path}</span>}
                           {item.state && <span>{item.state}</span>}
                           {when && <span>{when}</span>}
                         </div>
-                        {item.status === "available" && (
-                          <a class="original" href={item.url!} rel="noopener noreferrer">
-                            Open original
-                          </a>
-                        )}
                       </figcaption>
                     </figure>
                   );
@@ -395,10 +429,22 @@ function itemDate(item: PublicFeedItem): string | null {
             )}
             {(cursor || olderHref) && (
               <nav class="more" aria-label="More files">
-                {cursor ? <a href={feedPath(feed.id)}>← Newest</a> : <span />}
+                {cursor ? (
+                  <a class="pager-btn" href={feedPath(feed.id)}>
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path d="M10 3.5L5.5 8l4.5 4.5" />
+                    </svg>
+                    Newest
+                  </a>
+                ) : (
+                  <span />
+                )}
                 {olderHref && (
-                  <a href={olderHref} rel="next">
-                    Older files →
+                  <a class="pager-btn" href={olderHref} rel="next">
+                    Older
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                      <path d="M6 3.5L10.5 8 6 12.5" />
+                    </svg>
                   </a>
                 )}
               </nav>
