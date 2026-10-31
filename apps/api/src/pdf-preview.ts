@@ -21,6 +21,7 @@
 
 import { createEngine, PdfError, type PdfEngine } from "clawpdf";
 import { encode } from "jpeg-js";
+import { wasmEncodeJpeg } from "./image-wasm";
 import { overlayPdfBadge } from "./pdf-badge";
 import { registerPdfPreviewRenderer, type PdfPreviewResult } from "./pdf-preview-hook";
 
@@ -83,10 +84,13 @@ function resetEngine(engine: PdfEngine | undefined): void {
  * Rasterize page 1, or return null. Password-protected, malformed, empty,
  * and over-budget documents are null. The caller stores the PDF either way.
  */
-export async function renderPdfPreview(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
+export async function renderPdfPreview(
+  bytes: Uint8Array,
+  wasm?: WebAssembly.Module,
+): Promise<PdfPreviewResult | null> {
   if (bytes.byteLength > PDF_PREVIEW_MAX_INPUT_BYTES) return skipPreview("too_large");
   if (bytes.byteLength < 5 || !isPdfHeader(bytes)) return skipPreview("not_pdf");
-  return exclusive(() => renderExclusive(bytes));
+  return exclusive(() => renderExclusive(bytes, wasm));
 }
 
 function skipPreview(reason: string, err?: unknown): null {
@@ -98,7 +102,10 @@ function skipPreview(reason: string, err?: unknown): null {
   return null;
 }
 
-async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
+async function renderExclusive(
+  bytes: Uint8Array,
+  wasm: WebAssembly.Module | undefined,
+): Promise<PdfPreviewResult | null> {
   let engine: PdfEngine | undefined;
   try {
     engine = await getEngine();
@@ -124,17 +131,14 @@ async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | nu
       if (rendered.width < 1 || rendered.height < 1) return skipPreview("empty_raster");
       // Copy out of the WASM heap before the document is destroyed.
       const rgba = overlayPdfBadge(rendered.rgba, rendered.width, rendered.height);
-      const jpeg = encode(
-        { data: rgba, width: rendered.width, height: rendered.height },
-        JPEG_QUALITY,
-      );
+      const jpeg = encodeJpeg(rgba, rendered.width, rendered.height, wasm);
       const meta: Record<string, string> = {
         "pdf.poster": "1",
         "pdf.pages": String(pageCount),
         "pdf.width": String(rendered.width),
         "pdf.height": String(rendered.height),
       };
-      return { jpeg: new Uint8Array(jpeg.data), meta };
+      return { jpeg, meta };
     } finally {
       doc.destroy();
     }
@@ -145,6 +149,23 @@ async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | nu
     const reason = err instanceof PdfError ? err.code : "renderer_error";
     return skipPreview(reason, err);
   }
+}
+
+function encodeJpeg(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  wasm: WebAssembly.Module | undefined,
+): Uint8Array {
+  if (wasm) {
+    try {
+      const out = wasmEncodeJpeg(wasm, rgba, width, height, JPEG_QUALITY);
+      if (out) return out;
+    } catch (err) {
+      console.error({ event: "image_wasm_failed", op: "encode_jpeg", err });
+    }
+  }
+  return new Uint8Array(encode({ data: rgba, width, height }, JPEG_QUALITY).data);
 }
 
 function isPdfHeader(bytes: Uint8Array): boolean {

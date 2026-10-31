@@ -1,6 +1,9 @@
-//! Rust port of `apps/api/src/phash.ts` for the wasm experiment. The math
-//! mirrors the TS step for step so both produce the same hash: equality is
-//! the only match the classifier uses.
+//! Image work for the API worker, compiled to wasm: the classifier pHash
+//! (a port of `apps/api/src/phash.ts`; the math mirrors the TS step for step
+//! so both produce the same hash, since equality is the only match the
+//! classifier uses) and JPEG encoding for posters and PDF previews (`jpeg`).
+
+mod jpeg;
 
 const SAMPLE: usize = 32;
 const LOW: usize = 8;
@@ -66,7 +69,12 @@ fn decode_png(bytes: &[u8]) -> Option<Frame> {
             }
         }
     }
-    Some(Frame { data, width: info.width as usize, height: info.height as usize, channels })
+    Some(Frame {
+        data,
+        width: info.width as usize,
+        height: info.height as usize,
+        channels,
+    })
 }
 
 fn decode_jpeg(bytes: &[u8]) -> Option<Frame> {
@@ -79,7 +87,12 @@ fn decode_jpeg(bytes: &[u8]) -> Option<Frame> {
         jpeg_decoder::PixelFormat::RGB24 => 3,
         _ => return None,
     };
-    Some(Frame { data, width: info.width as usize, height: info.height as usize, channels })
+    Some(Frame {
+        data,
+        width: info.width as usize,
+        height: info.height as usize,
+        channels,
+    })
 }
 
 /// Box-average to 32×32, DCT-II, median of the 63 AC coefficients.
@@ -154,8 +167,28 @@ fn dct_phash(frame: &Frame) -> u64 {
     bits
 }
 
-// Wasm ABI: the host copies the bytes into `alloc`, then calls `phash`.
-// A fresh instance per call keeps decode memory from pinning the isolate.
+// Wasm ABI: the host copies the bytes into `alloc`, then calls one export.
+// Byte results land in OUTPUT; the export returns their length (or -1) and
+// the host reads them at `output_ptr()`. A fresh instance per call keeps
+// decode memory from pinning the isolate.
+
+static mut OUTPUT: Vec<u8> = Vec::new();
+
+fn finish(out: Option<Vec<u8>>) -> i32 {
+    match out {
+        Some(bytes) => {
+            let len = bytes.len() as i32;
+            unsafe { OUTPUT = bytes };
+            len
+        }
+        None => -1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn output_ptr() -> *const u8 {
+    unsafe { (*core::ptr::addr_of!(OUTPUT)).as_ptr() }
+}
 
 #[no_mangle]
 pub extern "C" fn alloc(len: usize) -> *mut u8 {
@@ -167,7 +200,32 @@ pub extern "C" fn alloc(len: usize) -> *mut u8 {
 
 /// The hash as a non-negative i64, or -1 when the bytes do not decode.
 #[no_mangle]
-pub extern "C" fn phash(ptr: *mut u8, len: usize, kind: u32) -> i64 {
+pub unsafe extern "C" fn phash(ptr: *mut u8, len: usize, kind: u32) -> i64 {
     let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
     image_phash(&bytes, kind).map_or(-1, |h| h as i64)
+}
+
+/// Poster JPEG with the play button baked in.
+#[no_mangle]
+pub unsafe extern "C" fn poster_play(ptr: *mut u8, len: usize) -> i32 {
+    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    finish(jpeg::overlay_play_button(&bytes))
+}
+
+/// JPEG of an RGBA buffer at 4:4:4.
+#[no_mangle]
+pub unsafe extern "C" fn encode_jpeg(
+    ptr: *mut u8,
+    len: usize,
+    width: u32,
+    height: u32,
+    quality: u32,
+) -> i32 {
+    let rgba = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    finish(jpeg::encode_rgba(
+        &rgba,
+        width as usize,
+        height as usize,
+        quality.min(100) as u8,
+    ))
 }

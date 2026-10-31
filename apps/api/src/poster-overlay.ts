@@ -9,6 +9,7 @@
 
 import { decode, encode } from "jpeg-js";
 import { PNG } from "pngjs";
+import { wasmPosterPlay } from "./image-wasm";
 import { playButtonPng } from "./poster-play-button";
 
 /** Button diameter as a fraction of the shorter edge. */
@@ -20,9 +21,19 @@ const MIN_EDGE_PX = 32;
 
 /**
  * Overlay a play button on `jpeg`. Throws on an unreadable frame — callers
- * that want fail-open (keep the bare still) catch.
+ * that want fail-open (keep the bare still) catch. With `wasm` (the
+ * `rust-jpeg` flag), the Rust build runs first and this JS path is the
+ * fallback.
  */
-export function overlayPlayButton(jpeg: Uint8Array): Uint8Array {
+export function overlayPlayButton(jpeg: Uint8Array, wasm?: WebAssembly.Module): Uint8Array {
+  if (wasm) {
+    try {
+      const out = wasmPosterPlay(wasm, jpeg);
+      if (out) return out;
+    } catch (err) {
+      console.error({ event: "image_wasm_failed", op: "poster_play", err });
+    }
+  }
   const img = decode(jpeg, {
     useTArray: true,
     formatAsRGBA: true,

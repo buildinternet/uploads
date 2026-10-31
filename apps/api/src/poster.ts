@@ -177,7 +177,7 @@ export interface MadePoster {
  */
 export async function makePoster(
   input: { bytes: Uint8Array; contentType: string },
-  deps: { extractor: FrameExtractor; probe: VideoProbe },
+  deps: { extractor: FrameExtractor; probe: VideoProbe; wasm?: WebAssembly.Module },
 ): Promise<MadePoster | null> {
   if (!POSTER_SOURCE_CONTENT_TYPES.has(input.contentType)) return null;
   if (input.bytes.byteLength > POSTER_MAX_INPUT_BYTES) return null;
@@ -210,7 +210,7 @@ export async function makePoster(
   // glyph baked in or it reads as a screenshot. Overlay failure keeps the
   // bare frame — a still without a button still beats a bullet link.
   try {
-    jpeg = overlayPlayButton(jpeg);
+    jpeg = overlayPlayButton(jpeg, deps.wasm);
   } catch {
     // leave `jpeg` as the extracted frame
   }

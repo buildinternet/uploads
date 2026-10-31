@@ -1,5 +1,5 @@
 [package]
-name = "uploads-phash"
+name = "uploads-image"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 png = "0.17"
 jpeg-decoder = { version = "0.3", default-features = false }
+jpeg-encoder = "0.6"
 
 [profile.release]
 opt-level = 3

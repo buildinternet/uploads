@@ -7,7 +7,7 @@ import { wasmImagePhash } from "./phash-wasm";
 
 /** Workers types only declare the bundled-module form, so build it the Node way. */
 const NodeModule = WebAssembly.Module as unknown as new (bytes: Uint8Array) => WebAssembly.Module;
-const wasm = new NodeModule(readFileSync(new URL("./phash.wasm", import.meta.url).pathname));
+const wasm = new NodeModule(readFileSync(new URL("./image.wasm", import.meta.url).pathname));
 
 function rgba(width: number, height: number, seed: number): Uint8Array {
   const data = new Uint8Array(width * height * 4);

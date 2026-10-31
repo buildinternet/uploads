@@ -1276,6 +1276,24 @@ that replacement.
 There is no backfill script. A re-PUT of the PDF bytes generates a preview
 while the flag is on, the same way the video backfill re-PUTs.
 
+### Rust JPEG path
+
+Flagship `rust-jpeg` (same `{ org, workspace }` context as the classifier
+flags, served off) moves the JPEG work for video posters (decode, play
+button, re-encode) and the PDF preview's encode into the Rust crate
+(`apps/api/rust/image`, `src/image.wasm`). The PDF badge is still drawn in
+JS. On 640-wide frames the poster step is about 3x faster and the PDF
+encode about 2.5x, at the same quality (85, 4:4:4) and about the same file
+size. A missing flag or a wasm error uses jpeg-js. The API entry registers
+the module (`image-wasm-install.ts`), so the MCP worker does not bundle it.
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  rust-jpeg --description "poster and PDF preview JPEGs with the Rust wasm build"
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  rust-jpeg --default off
+```
+
 ## Experimental LLM file classifier
 
 **Experimental.** Off by default. After a successful server-mediated put
@@ -1475,12 +1493,12 @@ is the largest of those. A file with no image the provider can see stays
 
 **Rust pHash try.** Flagship `phash-rust` (same `{ org, workspace }`
 context, served off) hashes with a Rust build compiled to wasm
-(`apps/api/rust/phash`, checked in as `src/phash.wasm`). It is about 3x
+(`apps/api/rust/image`, checked in as `src/image.wasm`). It is about 3x
 faster on PNG and 4x on JPEG. PNG hashes equal the TS ones. About 1 in 5
 JPEGs hash a few bits differently, so a re-upload of an older JPEG can
 miss reuse once. It also hashes large JPEGs that jpeg-js rejects. A
 missing flag or a wasm error uses the TS hash. After editing the crate,
-run `pnpm --filter @uploads/api phash:wasm` (needs Rust and the
+run `pnpm --filter @uploads/api image:wasm` (needs Rust and the
 `wasm32-unknown-unknown` target) and commit the new `.wasm`.
 
 ```bash
