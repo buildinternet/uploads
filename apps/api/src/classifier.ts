@@ -53,7 +53,7 @@ import {
   getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
-import { imagePhash } from "./phash";
+import { resolveImagePhash, type ImagePhash } from "./phash-wasm";
 import { contentSha256Hex } from "./provenance";
 import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./classifier-admin-wire";
 import { writeClassifierCallPoint } from "./classifier-call-analytics";
@@ -1530,6 +1530,7 @@ async function tryReuseClassification(
   key: string,
   bytes: Uint8Array,
   contentType: string,
+  imagePhash: ImagePhash,
 ): Promise<{
   meta?: Record<string, string>;
   hold: boolean;
@@ -1590,12 +1591,22 @@ export async function classifyAndStore(
 ): Promise<Record<string, string> | undefined> {
   try {
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
-    const provider = await resolveClassifierProvider(env, ws, workspaceName);
+    const [provider, imagePhash] = await Promise.all([
+      resolveClassifierProvider(env, ws, workspaceName),
+      resolveImagePhash(env, classifierEvaluationContext(ws, workspaceName)),
+    ]);
     const trivial = trivialImageSkip(contentType, bytes);
     if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider, bytes);
 
     const contentSha256 = await contentSha256Hex(bytes).catch(() => undefined);
-    const reused = await tryReuseClassification(env, workspaceName, key, bytes, contentType);
+    const reused = await tryReuseClassification(
+      env,
+      workspaceName,
+      key,
+      bytes,
+      contentType,
+      imagePhash,
+    );
     if (reused.meta) {
       return finishReused(
         env,

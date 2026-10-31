@@ -1473,6 +1473,23 @@ as much as a full classification. It skips the display questions. `screen`
 is the largest of those. A file with no image the provider can see stays
 `ai.classifier=skipped`. It does not take the donor's labels instead.
 
+**Rust pHash try.** Flagship `phash-rust` (same `{ org, workspace }`
+context, served off) hashes with a Rust build compiled to wasm
+(`apps/api/rust/phash`, checked in as `src/phash.wasm`). It is about 3x
+faster on PNG and 4x on JPEG. PNG hashes equal the TS ones. About 1 in 5
+JPEGs hash a few bits differently, so a re-upload of an older JPEG can
+miss reuse once. It also hashes large JPEGs that jpeg-js rejects. A
+missing flag or a wasm error uses the TS hash. After editing the crate,
+run `pnpm --filter @uploads/api phash:wasm` (needs Rust and the
+`wasm32-unknown-unknown` target) and commit the new `.wasm`.
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  phash-rust --description "hash classifier images with the Rust wasm build"
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  phash-rust --default off
+```
+
 ### Held uploads
 
 A stored decision with a `high` `ai.secret` other than `none`, or a `high`

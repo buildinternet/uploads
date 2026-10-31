@@ -21,9 +21,7 @@ const MAX_PIXELS = 9_000_000;
  */
 export function imagePhash(bytes: Uint8Array, contentType: string): string | undefined {
   if (contentType !== "image/png" && contentType !== "image/jpeg") return undefined;
-  const dims = detectImageDimensions(bytes, contentType);
-  if (!dims || dims.width > MAX_EDGE || dims.height > MAX_EDGE) return undefined;
-  if (dims.width * dims.height > MAX_PIXELS) return undefined;
+  if (!phashInBounds(detectImageDimensions(bytes, contentType))) return undefined;
   try {
     const frame = contentType === "image/png" ? decodePng(bytes) : decodeJpeg(bytes);
     if (!frame) return undefined;
@@ -31,6 +29,12 @@ export function imagePhash(bytes: Uint8Array, contentType: string): string | und
   } catch {
     return undefined;
   }
+}
+
+/** The size limits both the TS and Rust hashes apply before decoding. */
+export function phashInBounds(dims: { width: number; height: number } | undefined): boolean {
+  if (!dims || dims.width > MAX_EDGE || dims.height > MAX_EDGE) return false;
+  return dims.width * dims.height <= MAX_PIXELS;
 }
 
 function decodePng(

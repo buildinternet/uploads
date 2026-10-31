@@ -51,6 +51,7 @@
     "./workspace-settings": "./src/routes/workspace-settings.ts"
   },
   "scripts": {
+    "phash:wasm": "cargo build --release --target wasm32-unknown-unknown --manifest-path rust/phash/Cargo.toml && cp rust/phash/target/wasm32-unknown-unknown/release/uploads_phash.wasm src/phash.wasm",
     "dev": "wrangler dev",
     "migrate:d1": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --remote",
     "migrate:d1:local": "CI=1 node scripts/run-timed.mjs 60 -- wrangler d1 migrations apply DB --local",
