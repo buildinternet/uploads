@@ -1,2 +1,2 @@
 /** Static so Wrangler compiles the module into the API worker. */
-export { default } from "./phash.wasm";
+export { default } from "./image.wasm";
