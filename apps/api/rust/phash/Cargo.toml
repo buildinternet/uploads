@@ -1,0 +1,19 @@
+[package]
+name = "uploads-phash"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+png = "0.17"
+jpeg-decoder = { version = "0.3", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
