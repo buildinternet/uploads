@@ -10,6 +10,34 @@ const INSERT_SQL = `INSERT INTO file_events (
   secret, secret_confidence, pii, pii_confidence, created_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
+/** Same insert, but only when the previous statement in the batch changed a row. */
+const INSERT_IF_CHANGED_SQL = `INSERT INTO file_events (
+  workspace, object_key, content_sha256, kind, classifier_version, model,
+  reason, action, actor,
+  rating, rating_confidence, content_flag, content_confidence,
+  secret, secret_confidence, pii, pii_confidence, created_at
+) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+WHERE (SELECT changes()) > 0`;
+
+/**
+ * Insert a held blob. An existing row is left alone, including a release:
+ * the classifier must not move `released` back to `held`.
+ */
+export function claimHeldBlob(
+  db: D1Queryable,
+  workspace: string,
+  contentSha256: string,
+  at: string,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
+       VALUES (?, ?, 'held', NULL, ?)
+       ON CONFLICT(workspace, content_sha256) DO NOTHING`,
+    )
+    .bind(workspace, contentSha256, at);
+}
+
 export type ClassificationEventKind =
   | "classified"
   | "reused_exact"
@@ -104,6 +132,13 @@ export async function appendClassificationEvent(
   });
 }
 
+/**
+ * Move `blob_hold` from `expectedState` / `expectedAt` to the action's state.
+ * A missing row is inserted. A row that has already moved is left alone, and
+ * the override event is skipped with it. `extra` runs in the same batch and
+ * must no-op unless this write's new `at` is the one stored (the gate helpers
+ * do). Returns whether this call won.
+ */
 export async function appendOverrideEvent(
   env: Env,
   input: {
@@ -115,9 +150,11 @@ export async function appendOverrideEvent(
     reason?: string | null;
     safety?: Record<string, string>;
     at: string;
+    expectedState: "held" | "released";
+    expectedAt: string | null;
   },
   extra: D1PreparedStatement[] = [],
-): Promise<void> {
+): Promise<boolean> {
   if (!SHA256_RE.test(input.contentSha256)) {
     throw new ValidationError(
       "this file has no content hash, so the hold change cannot be recorded",
@@ -130,9 +167,26 @@ export async function appendOverrideEvent(
   const meta = input.safety;
   const read = (key: string) => meta?.[key] ?? null;
   const state = input.action === "release" ? "released" : "held";
-  await db.batch([
+  const results = await db.batch([
     db
-      .prepare(INSERT_SQL)
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(workspace, content_sha256) DO UPDATE SET
+           state = excluded.state, actor = excluded.actor, at = excluded.at
+         WHERE blob_hold.state = ? AND blob_hold.at IS ?`,
+      )
+      .bind(
+        input.workspace,
+        input.contentSha256,
+        state,
+        input.actor ?? null,
+        input.at,
+        input.expectedState,
+        input.expectedAt,
+      ),
+    db
+      .prepare(INSERT_IF_CHANGED_SQL)
       .bind(
         input.workspace,
         input.objectKey,
@@ -153,16 +207,9 @@ export async function appendOverrideEvent(
         read("ai.pii.confidence"),
         input.at,
       ),
-    db
-      .prepare(
-        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(workspace, content_sha256) DO UPDATE SET
-           state = excluded.state, actor = excluded.actor, at = excluded.at`,
-      )
-      .bind(input.workspace, input.contentSha256, state, input.actor ?? null, input.at),
     ...extra,
   ]);
+  return (results[0]?.meta.changes ?? 0) > 0;
 }
 
 export async function blobHoldsFor(

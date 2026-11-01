@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { recordContentHash } from "../src/content-hash";
+import { appendOverrideEvent, claimHeldBlob } from "../src/file-events";
 import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
+import { readGateDeletesForRelease, readGateInsertsUnlessReleased } from "../src/read-gate";
 import { effectiveHold, isKeyHeld, listHeldKeys } from "../src/upload-hold-read";
 import { approveUpload, holdAgain } from "../src/upload-hold-service";
 import type { WorkspaceRecord } from "../src/workspace";
@@ -116,6 +118,125 @@ describe("file_events", () => {
     const stored = await getFileMetadata(db, "acme", "a.png");
     expect(stored["ai.secret"]).toBe("api_key");
     expect(stored["ai.hold"]).toBe("pending");
+    sqlite.close();
+  });
+
+  it("does not let a stale release undo a newer re-hold", async () => {
+    const sqlite = new SqliteD1([
+      "migrations/20260713210559_file_metadata.sql",
+      "migrations/20260724140000_file_content_hash.sql",
+      "migrations/20261028120000_file_events.sql",
+      "migrations/20261028140000_blob_hold.sql",
+      "migrations/20261028160000_read_gate.sql",
+    ]);
+    const db = database(sqlite);
+    const env = { DB: db } as unknown as Env;
+    await sqlite.db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
+      )
+      .run("acme", SHA, "t-held");
+    await sqlite.db
+      .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', 'acme/a.png')`)
+      .run();
+
+    const released = await appendOverrideEvent(
+      env,
+      {
+        workspace: "acme",
+        objectKey: "a.png",
+        contentSha256: SHA,
+        action: "release",
+        actor: "Member",
+        at: "t-release",
+        expectedState: "held",
+        expectedAt: "t-held",
+      },
+      readGateDeletesForRelease(db, ["acme/a.png"], "acme", SHA, "t-release"),
+    );
+    expect(released).toBe(true);
+
+    const reheld = await appendOverrideEvent(
+      env,
+      {
+        workspace: "acme",
+        objectKey: "a.png",
+        contentSha256: SHA,
+        action: "hold",
+        actor: "Member",
+        at: "t-rehold",
+        expectedState: "released",
+        expectedAt: "t-release",
+      },
+      [],
+    );
+    expect(reheld).toBe(true);
+    await db
+      .prepare(`INSERT INTO read_gate (lane, object_key) VALUES ('hosted', 'acme/a.png')`)
+      .bind()
+      .run();
+
+    const stale = await appendOverrideEvent(
+      env,
+      {
+        workspace: "acme",
+        objectKey: "a.png",
+        contentSha256: SHA,
+        action: "release",
+        actor: "Member",
+        at: "t-stale",
+        expectedState: "held",
+        expectedAt: "t-held",
+      },
+      readGateDeletesForRelease(db, ["acme/a.png"], "acme", SHA, "t-stale"),
+    );
+    expect(stale).toBe(false);
+
+    const blob = await db
+      .prepare(`SELECT state, at FROM blob_hold WHERE workspace = ? AND content_sha256 = ?`)
+      .bind("acme", SHA)
+      .first<{ state: string; at: string }>();
+    expect(blob).toEqual({ state: "held", at: "t-rehold" });
+    const gates = await db
+      .prepare(`SELECT object_key FROM read_gate`)
+      .all<{ object_key: string }>();
+    expect(gates.results).toEqual([{ object_key: "acme/a.png" }]);
+    const events = await db
+      .prepare(`SELECT action, created_at FROM file_events ORDER BY id`)
+      .all<{ action: string; created_at: string }>();
+    expect(events.results).toEqual([
+      { action: "release", created_at: "t-release" },
+      { action: "hold", created_at: "t-rehold" },
+    ]);
+    sqlite.close();
+  });
+
+  it("does not revive a released blob or gate it", async () => {
+    const sqlite = new SqliteD1([
+      "migrations/20260713210559_file_metadata.sql",
+      "migrations/20260724140000_file_content_hash.sql",
+      "migrations/20261028120000_file_events.sql",
+      "migrations/20261028140000_blob_hold.sql",
+      "migrations/20261028160000_read_gate.sql",
+    ]);
+    const db = database(sqlite);
+    await sqlite.db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'released', 'Member', ?)`,
+      )
+      .run("acme", SHA, "t-release");
+    const claimed = await db.batch([
+      claimHeldBlob(db, "acme", SHA, "t-late"),
+      ...readGateInsertsUnlessReleased(db, ["acme/a.png"], "acme", SHA),
+    ]);
+    expect(claimed[0]?.meta.changes).toBe(0);
+    const blob = await db
+      .prepare(`SELECT state, at FROM blob_hold WHERE workspace = ?`)
+      .bind("acme")
+      .first<{ state: string; at: string }>();
+    expect(blob).toEqual({ state: "released", at: "t-release" });
+    const gates = await db.prepare(`SELECT object_key FROM read_gate`).all();
+    expect(gates.results).toEqual([]);
     sqlite.close();
   });
 });

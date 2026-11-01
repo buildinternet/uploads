@@ -12,11 +12,17 @@
 import { ConflictError, ServiceUnavailableError, ValidationError } from "@uploads/errors";
 import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
-import { appendOverrideEvent, blobHoldsFor } from "./file-events";
+import { appendOverrideEvent, blobHoldsFor, claimHeldBlob } from "./file-events";
+import { contentHashForKey } from "./content-hash";
 import { deleteServerFileMetadataKeys, getFileMetadata, getMetadataForKeys } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
 import { moveToHeld, objectContentSha256, restoreFromHeld } from "./held-storage";
-import { hostedGateObjectKeys, readGateDeletes, readGateInserts } from "./read-gate";
+import {
+  hostedGateObjectKeys,
+  readGateDeletesForRelease,
+  readGateInsertsForHold,
+  readGateInsertsUnlessReleased,
+} from "./read-gate";
 import { emailHold } from "./hold-email-notify";
 import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
@@ -49,20 +55,29 @@ import {
  * Returns `true` when this call placed the hold. Never throws; a hold is
  * best-effort like the rest of the classifier.
  */
-function upsertHoldPending(
+/**
+ * Stamp `ai.hold=pending` only while the blob row is held. The WHERE is on
+ * the SELECT, so a release that won the race does not gain a pending row.
+ */
+function holdPendingIfBlobHeld(
   db: ReturnType<typeof dbFor>,
   workspace: string,
   objectKey: string,
+  contentSha256: string,
   now: string,
 ) {
   return db
     .prepare(
       `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(workspace, object_key, meta_key)
-       DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+       SELECT ?, ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1 FROM blob_hold
+         WHERE workspace = ? AND content_sha256 = ? AND state = 'held'
+       )
+       ON CONFLICT(workspace, object_key, meta_key) DO UPDATE SET
+         meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
     )
-    .bind(workspace, objectKey, HOLD_META_KEY, HOLD_PENDING, now);
+    .bind(workspace, objectKey, HOLD_META_KEY, HOLD_PENDING, now, workspace, contentSha256);
 }
 
 export async function applyUploadHold(
@@ -105,8 +120,8 @@ export async function applyUploadHold(
           ? await hostedGateObjectKeys(env, ws, [key])
           : [];
       const statements = [
-        ...(markingPending ? [upsertHoldPending(db, workspaceName, key, now)] : []),
-        ...readGateInserts(db, gateKeys),
+        ...(markingPending ? [holdPendingIfBlobHeld(db, workspaceName, key, sha, now)] : []),
+        ...readGateInsertsUnlessReleased(db, gateKeys, workspaceName, sha),
       ];
       if (statements.length > 0) await db.batch(statements);
       return false;
@@ -122,18 +137,14 @@ export async function applyUploadHold(
     const gateKeys = await hostedGateObjectKeys(env, ws, covered);
     const already = new Set(siblings);
     const toMark = [key, ...copies.filter((copy) => !already.has(copy))];
-    await db.batch([
-      ...toMark.map((objectKey) => upsertHoldPending(db, workspaceName, objectKey, now)),
-      db
-        .prepare(
-          `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at)
-           VALUES (?, ?, 'held', NULL, ?)
-           ON CONFLICT(workspace, content_sha256) DO UPDATE SET
-             state = 'held', actor = NULL, at = excluded.at`,
-        )
-        .bind(workspaceName, sha, now),
-      ...readGateInserts(db, gateKeys),
+    // The claim is first. A release that landed after the read leaves the
+    // row released (`DO NOTHING`), and the stamps and gates then no-op.
+    const claimed = await db.batch([
+      claimHeldBlob(db, workspaceName, sha, now),
+      ...toMark.map((objectKey) => holdPendingIfBlobHeld(db, workspaceName, objectKey, sha, now)),
+      ...readGateInsertsUnlessReleased(db, gateKeys, workspaceName, sha),
     ]);
+    if ((claimed[0]?.meta.changes ?? 0) === 0) return false;
     console.log({
       event: "upload_held",
       workspace: workspaceName,
@@ -207,6 +218,10 @@ export async function approveUpload(
   const existing = await getFileMetadata(db, workspaceName, key);
   const before = await effectiveHold(env, workspaceName, key, existing);
   if (before.hold !== "pending") return { approved: false, reason: "not_held" };
+  // Captured before the restore, which can be slow. A re-hold that lands
+  // in that window has a new `at`, so the compare-and-set below loses.
+  const generation = await holdGeneration(env, ws, workspaceName, key, existing);
+  if (generation.state === "released") return { approved: false, reason: "not_held" };
   const restored: string[] = [];
   let committed = false;
   let keys: string[] = [key];
@@ -225,6 +240,15 @@ export async function approveUpload(
         code: "content_hash_mismatch",
       });
     }
+    // Same hash: use the generation captured before the restore. A different
+    // hash is a different blob, so the guard is that blob's current row.
+    let expectedAt = generation.at;
+    if (generation.sha !== contentSha256) {
+      const blob = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
+      if (blob?.state === "released") return { approved: false, reason: "not_held" };
+      expectedAt = blob?.state === "held" ? blob.at : null;
+    }
+    const at = new Date().toISOString();
     keys = await keysSharingHold(db, workspaceName, contentSha256, key);
     metas = await getMetadataForKeys(db, workspaceName, keys, {
       metaKeys: [HOLD_MOVED_KEY, "gh.repo"],
@@ -240,7 +264,7 @@ export async function approveUpload(
       }
       restored.push(other);
     }
-    await appendOverrideEvent(
+    const won = await appendOverrideEvent(
       env,
       {
         workspace: workspaceName,
@@ -249,10 +273,27 @@ export async function approveUpload(
         action: "release",
         actor: by ?? null,
         safety: existing,
-        at: new Date().toISOString(),
+        at,
+        expectedState: "held",
+        expectedAt,
       },
-      readGateDeletes(db, await hostedGateObjectKeys(env, ws, keys)),
+      readGateDeletesForRelease(
+        db,
+        await hostedGateObjectKeys(env, ws, keys),
+        workspaceName,
+        contentSha256,
+        at,
+      ),
     );
+    if (!won) {
+      const current = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
+      if (current?.state === "held") {
+        throw new ConflictError("this file's hold changed while it was being released", {
+          code: "hold_conflict",
+        });
+      }
+      return { approved: false, reason: "not_held" };
+    }
     committed = true;
     await Promise.all(
       restored.map((restoredKey) =>
@@ -289,6 +330,31 @@ export async function approveUpload(
     notifySlackHoldResolved(env, workspaceName, key, "approved", by),
   ]);
   return { approved: true };
+}
+
+/**
+ * The blob row for `key` before a slow restore. `at` is the generation a
+ * later compare-and-set must still see. A moved file with no hash index
+ * returns a null sha; the caller re-reads once the bytes are back.
+ */
+async function holdGeneration(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  existing: Record<string, string>,
+): Promise<{ sha: string | null; at: string | null; state: "held" | "released" | null }> {
+  const db = dbFor(env);
+  const indexed = await contentHashForKey(db, workspaceName, key);
+  const sha =
+    indexed ??
+    (existing[HOLD_MOVED_KEY] === "1"
+      ? null
+      : ((await objectContentSha256(env, ws, workspaceName, key)) ?? null));
+  if (!sha) return { sha: null, at: null, state: null };
+  const blob = (await blobHoldsFor(db, workspaceName, [sha])).get(sha);
+  if (!blob) return { sha, at: null, state: null };
+  return { sha, at: blob.at, state: blob.state };
 }
 
 async function contentShaForRelease(
@@ -364,8 +430,9 @@ export async function holdAgain(
       code: "content_hash_mismatch",
     });
   }
+  const at = new Date().toISOString();
   const keys = await keysSharingHold(db, workspaceName, contentSha256, key);
-  await appendOverrideEvent(
+  const won = await appendOverrideEvent(
     env,
     {
       workspace: workspaceName,
@@ -374,10 +441,23 @@ export async function holdAgain(
       action: "hold",
       actor: by ?? null,
       safety: existing,
-      at: new Date().toISOString(),
+      at,
+      expectedState: "released",
+      expectedAt: before.at,
     },
-    readGateInserts(db, await hostedGateObjectKeys(env, ws, keys)),
+    readGateInsertsForHold(
+      db,
+      await hostedGateObjectKeys(env, ws, keys),
+      workspaceName,
+      contentSha256,
+      at,
+    ),
   );
+  if (!won) {
+    const current = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
+    if (current?.state === "held") return { held: true };
+    return { held: false, reason: "not_approved" };
+  }
   console.log({ event: "upload_held_again", workspace: workspaceName });
   const metas = await getMetadataForKeys(db, workspaceName, keys, { metaKeys: ["gh.repo"] });
   await Promise.all(
