@@ -54,6 +54,8 @@ export interface HoldNotice {
   isUploader: boolean;
   /** uploads.sh origin, for the settings links. */
   webOrigin: string;
+  /** A 10-minute reviewer link to the held image. Slack fetches it once, at post time. */
+  imageUrl?: string;
 }
 
 const TEAM_ID = /^[TE][A-Z0-9]{1,20}$/;
@@ -93,6 +95,8 @@ export function parseHoldNotice(input: unknown, webOrigin: string): HoldNotice |
   ) {
     return null;
   }
+  const imageUrl = str(v.imageUrl);
+  if (imageUrl.startsWith("https://") && imageUrl.length <= 3000) notice.imageUrl = imageUrl;
   // The page link must be on uploads.sh; drop anything else rather than
   // put a foreign URL in a DM.
   try {
@@ -175,6 +179,15 @@ export function holdMessage(notice: HoldNotice): { text: string; blocks: Block[]
         text: `*${escapeMrkdwn(lead)}*\n${fileLine(notice.workspace, notice.key, notice.pageUrl)}\nHeld because ${reasonText(notice.reason, notice.kind)}.`,
       },
     },
+    ...(notice.imageUrl
+      ? [
+          {
+            type: "image",
+            image_url: notice.imageUrl,
+            alt_text: `${fileName(notice.key)}, held for review`,
+          },
+        ]
+      : []),
     {
       type: "context",
       elements: [
@@ -248,11 +261,15 @@ export async function sendHoldNotice(notice: HoldNotice, ctx: HoldContext): Prom
     console.error("slack.holds: conversations.open failed", { team: notice.teamId });
     return false;
   }
-  const result = (await chatPostMessage({ channel, ...holdMessage(notice) }, options)) as {
-    ok: boolean;
-    error?: string;
-    ts?: string;
-  };
+  type PostResult = { ok: boolean; error?: string; ts?: string };
+  let result = (await chatPostMessage({ channel, ...holdMessage(notice) }, options)) as PostResult;
+  if (!result.ok && notice.imageUrl) {
+    // Slack could not fetch the image (expired link, gate without the
+    // secret). The DM matters more than the picture.
+    console.error("slack.holds: image post failed, retrying without it", { error: result.error });
+    const plain = holdMessage({ ...notice, imageUrl: undefined });
+    result = (await chatPostMessage({ channel, ...plain }, options)) as PostResult;
+  }
   if (!result.ok) {
     console.error("slack.holds: chat.postMessage failed", { error: result.error });
     return false;

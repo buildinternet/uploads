@@ -1885,6 +1885,38 @@ Check the credit balance under AI Gateway → Credits Available. An empty
 balance also fails open for the digest. It does not affect file
 classification, which bills the OpenRouter account instead.
 
+### Reviewer links
+
+A member can look at a held hosted file through a signed link:
+`<public url>?review=<expiry>.<sig>`. `sig` is base64url HMAC-SHA256 over
+`hosted`, the public object key (`<workspace>/<key>`), and `expiry` (unix
+seconds), joined by newlines. The Worker checks it before the D1 lookup. A
+valid link serves the object with `cache-control: no-store`. An expired or
+wrong link, or one that claims more than 15 minutes of life, gets the normal
+gate. A signed `/cdn-cgi/image/…` request is transformed in the Worker
+(`cf.image`) on the signed source URL, because the resizer's own fetch of
+`/<key>` would not carry the query.
+
+The API mints links that last 10 minutes, only behind workspace auth: each
+item of `GET …/files/held` has `reviewUrl`, and the Slack hold DM shows a
+PNG, JPEG, or GIF hold as an image block. Slack fetches the image once when
+it posts the DM and keeps its own copy. If that fetch fails, the DM goes out
+without the image. `uploads staged --format json` passes `reviewUrl` through,
+and the Claude Code mod draws the held image in its detail view. A link never
+goes in a PR comment.
+
+Both Workers need the same secret. Without it the API mints no links and the
+gate lets none through:
+
+```bash
+openssl rand -base64 32   # one value for both
+pnpm --filter @uploads/api exec wrangler secret put READ_GATE_REVIEW_SECRET
+pnpm --filter @uploads/read-gate exec wrangler secret put READ_GATE_REVIEW_SECRET
+```
+
+Set the gate first. A link minted while only the API has the secret shows the
+held card.
+
 ## Attachment index shadow (issue #934)
 
 The managed comment sync still renders from the R2 fan-out (one `ListObjects`

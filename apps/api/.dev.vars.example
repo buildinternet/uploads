@@ -22,6 +22,10 @@ WORKSPACE_SECRETS_KEY=
 # During rotation only: old key while re-encrypting (then remove).
 # WORKSPACE_SECRETS_KEY_PREVIOUS=
 
+# Optional: signs 10-minute `?review=` links to held hosted files. Same value
+# as uploads-read-gate's READ_GATE_REVIEW_SECRET. Unset = no links.
+# READ_GATE_REVIEW_SECRET=
+
 # Experimental file classifier. Off until Flagship `llm-file-classifier`
 # serves on for the workspace slug (`org` / `workspace` targeting).
 # Both providers POST https://openrouter.ai/api/alpha/decisions.

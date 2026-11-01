@@ -20,6 +20,11 @@ sets `Access-Control-Max-Age` to 86400. Every other request is
 pass-through adds `must-revalidate` so a cached image transform follows
 the object's max-age instead of Cloudflare Images' one-hour minimum.
 
+A request with a valid `?review=<expiry>.<sig>` skips the lookup and
+serves the object with `no-store`. uploads-api mints these 10-minute links
+for workspace members. `READ_GATE_REVIEW_SECRET` must match the API's. See
+[Reviewer links](../../docs/ops.md#reviewer-links).
+
 It does not gate private files. Private-repo images stay cookie-less public
 reads. It does not run on a bring-your-own-bucket domain.
 

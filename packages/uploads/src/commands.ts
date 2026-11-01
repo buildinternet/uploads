@@ -2359,6 +2359,11 @@ export interface StagedFile {
   branch?: string;
   /** Held for review (`ai.hold=pending`): public reads stay gated until `uploads approve`. */
   held?: true;
+  /**
+   * A held file's 10-minute reviewer link, when the server gives one. For
+   * looking at the file before approving; never post it anywhere.
+   */
+  reviewUrl?: string;
 }
 
 /** Tri-state binding, folded into a ready-to-render advisory. */
@@ -2545,6 +2550,18 @@ export async function resolveStaged(opts: {
       ...(meta?.screen ? { screen: meta.screen } : {}),
       ...(meta?.["ai.hold"] === "pending" ? { held: true as const } : {}),
     });
+  }
+  if (files.some((file) => file.held)) {
+    try {
+      const held = (await Promise.all(prefixes.map((p) => client.listHeld(p)))).flat();
+      const links = new Map(held.map((file) => [file.key, file.reviewUrl]));
+      for (const file of files) {
+        const link = file.held ? links.get(file.key) : undefined;
+        if (link) file.reviewUrl = link;
+      }
+    } catch {
+      // Older server, or no files:read: the file still shows as held.
+    }
   }
   return { repo, branch, files, binding };
 }

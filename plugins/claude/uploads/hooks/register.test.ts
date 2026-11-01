@@ -27,6 +27,7 @@ type Cli = {
     branch?: string;
     stagedAt?: string;
     held?: boolean;
+    reviewUrl?: string;
   }[];
   /** Files the synced comment counts as held after `attach --promote`. */
   heldOnPr?: number;
@@ -685,6 +686,22 @@ describe("staged pane", () => {
     const fetched = world.argvs.filter((argv) => argv[0] === "sh").map((argv) => argv.at(-1));
     expect(fetched.some((url) => url?.includes("env.png"))).toBe(false);
     expect(fetched.some((url) => url?.includes("ok.png"))).toBe(true);
+  });
+
+  test("draws a held image in its detail view through the reviewer link", async ($, on) => {
+    const review = "https://storage.uploads.sh/default/gh/x/env.png?review=1.sig";
+    const world = setup(on, { files: [{ filename: "env.png", held: true, reviewUrl: review }] });
+    await runBash($, world, STAGE);
+    const ui = await mountPane($);
+    await ui.press({ key: "name-0" });
+    await world.clock.settle();
+
+    const fetched = world.argvs.filter((argv) => argv[0] === "sh").map((argv) => argv.at(-1));
+    expect(fetched).toContain(
+      "https://storage.uploads.sh/cdn-cgi/image/width=1100,fit=scale-down,format=jpeg,quality=72/default/gh/x/env.png?review=1.sig",
+    );
+    expect(JSON.stringify(await ui.drawn())).toContain("data:image/jpeg;base64,");
+    expect(await ui.find({ type: "Button", text: "Approve" })).toBeTruthy();
   });
 
   test("marks a held file in the terminal band", async ($, on) => {
