@@ -504,7 +504,7 @@ const OWN_TOKEN: {
   label: "ci",
   scopes: JSON.stringify(["files:read", "files:write"]),
   created_at: "2026-08-01T00:00:00.000Z",
-  expires_at: "2026-11-01T00:00:00.000Z",
+  expires_at: "2027-11-01T00:00:00.000Z",
   revoked_at: null,
   minting_user_id: USER.id,
   last_used_at: "2026-08-17T12:00:00.000Z",
