@@ -185,6 +185,55 @@ describe("rotatePrivatePrefix", () => {
     expect(usage.bytes).toBe(PNG.byteLength * 2);
   });
 
+  it("does not count moved objects against the monthly upload cap (#645)", async () => {
+    const { env, db, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    await putObject(env, ws, ghPrivateBranchAttachmentKey(oldId, "a.png"), PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+    });
+    await putObject(env, ws, ghPrivateBranchAttachmentKey(oldId, "b.png"), PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+    });
+    // At the cap already: a counted copy would be refused.
+    const capped: WorkspaceRecord = { ...ws, maxUploadsPerPeriod: 2 };
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, capped, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result).toMatchObject({ rotated: true, moved: 2 });
+    expect(result).not.toHaveProperty("incomplete");
+    const usage = await getWorkspaceUsage(db, WS);
+    expect(usage.uploadsInPeriod).toBe(2);
+  });
+
+  it("reports incomplete when an upload lands under the old prefix mid-sweep (#644)", async () => {
+    const { env, db, bucket, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    await putObject(env, ws, ghPrivateBranchAttachmentKey(oldId, "a.png"), PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+    });
+
+    // An upload that resolved the old id before it was retired lands right
+    // after the sweep's first list.
+    const list = bucket.list.bind(bucket);
+    let injected = false;
+    bucket.list = async (opts) => {
+      const result = await list(opts);
+      if (!injected) {
+        injected = true;
+        await bucket.put(`${PREFIX}${ghPrivateBranchAttachmentKey(oldId, "late.png")}`, PNG);
+      }
+      return result;
+    };
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result).toMatchObject({ rotated: true, moved: 1, incomplete: true });
+  });
+
   it("a stored text/plain object under an extension-less key keeps its content type across rotation", async () => {
     const { env, db, bucket, ws } = await seededEnv();
     const oldId = await getOrMintPrefixId(db, REPO, BRANCH);

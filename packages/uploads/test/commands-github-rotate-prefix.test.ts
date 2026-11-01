@@ -127,6 +127,32 @@ describe("runGithub (rotate-prefix, issue #631)", () => {
     }
   });
 
+  it("prints a re-run hint when the sweep was incomplete (#644)", async () => {
+    const { client } = clientReturning({
+      rotated: true,
+      prefixId: "a".repeat(32),
+      moved: 5,
+      incomplete: true,
+    });
+    const stdout: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: unknown) => (stdout.push(String(chunk)), true));
+    try {
+      const code = await runGithub(
+        ctxWith(client),
+        ["rotate-prefix", "--branch", "feature-x"],
+        false,
+        runnerWithRepoAndBranch(),
+      );
+      expect(code).toBe(0);
+      expect(stdout.join("")).toContain("rotate-prefix --repo");
+      expect(stdout.join("")).toContain("--branch feature-x` again");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("reports a no-op (exit 1) when there's no active prefix to rotate", async () => {
     const { client } = clientReturning({ rotated: false, reason: "no_prefix" });
     const code = await runGithub(

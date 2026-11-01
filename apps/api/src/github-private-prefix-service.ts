@@ -162,6 +162,13 @@ export type RotatePrivatePrefixResult =
        * reopens. Absent when nothing was skipped.
        */
       skipped?: string[];
+      /**
+       * True when objects may remain under a retired prefix (issue #644): a
+       * sweep stopped at its page ceiling, or an upload in flight during the
+       * sweep landed under the old prefix after it was listed. Re-running the
+       * rotation drains them. Absent when the sweep finished clean.
+       */
+      incomplete?: true;
     };
 
 /**
@@ -258,6 +265,7 @@ export async function rotatePrivatePrefix(
   const targets = new Map<string, { kind: GhTargetKind; num: number }>();
   let moved = 0;
   const skipped: string[] = [];
+  let incomplete = false;
 
   try {
     for (const sourceId of sourceIds) {
@@ -346,7 +354,8 @@ export async function rotatePrivatePrefix(
         cursor = result.cursor ?? undefined;
         if (!cursor) break;
       }
-      moved += await rotateHeldPrefix(
+      if (cursor) incomplete = true;
+      const held = await rotateHeldPrefix(
         env,
         ws,
         workspaceName,
@@ -355,6 +364,14 @@ export async function rotatePrivatePrefix(
         newId,
         targets,
       );
+      moved += held.moved;
+      if (held.incomplete) incomplete = true;
+      // An upload resolved against the old id before it was retired can land
+      // after this prefix was listed. One small list catches it; keys the
+      // gate refused (`skipped`) are expected to stay and don't count.
+      if (!incomplete && (await hasUnsweptObjects(store, oldPrefix, skipped))) {
+        incomplete = true;
+      }
     }
   } finally {
     // Runs even when the loop above threw partway through: every target
@@ -379,7 +396,24 @@ export async function rotatePrivatePrefix(
     );
   }
 
-  return { rotated: true, prefixId: newId, moved, ...(skipped.length ? { skipped } : {}) };
+  return {
+    rotated: true,
+    prefixId: newId,
+    moved,
+    ...(skipped.length ? { skipped } : {}),
+    ...(incomplete ? { incomplete: true as const } : {}),
+  };
+}
+
+/** Whether `prefix` still lists an object that isn't one of the `skipped` keys. */
+async function hasUnsweptObjects(
+  store: Awaited<ReturnType<typeof storage>>,
+  prefix: string,
+  skipped: string[],
+): Promise<boolean> {
+  const expected = skipped.filter((key) => key.startsWith(prefix));
+  const result = await store.list({ prefix, limit: expected.length + 1 });
+  return result.items.some((item) => !expected.includes(item.key));
 }
 
 /** Same ceiling as `promoteBranchAttachments`: a pathological prefix can't loop. */
@@ -552,8 +586,8 @@ async function rotateHeldPrefix(
   newPrefixRoot: string,
   newId: string,
   targets: Map<string, { kind: GhTargetKind; num: number }>,
-): Promise<number> {
-  if (!heldBucket(env)) return 0;
+): Promise<{ moved: number; incomplete: boolean }> {
+  if (!heldBucket(env)) return { moved: 0, incomplete: false };
   const db = dbFor(env);
   const upper = exclusivePrefixEnd(oldPrefix);
   let moved = 0;
@@ -574,12 +608,13 @@ async function rotateHeldPrefix(
       if (parsed)
         targets.set(`${parsed.kind}:${parsed.num}`, { kind: parsed.kind, num: parsed.num });
     }
-    if (keys.length < SWEEP_PAGE_SIZE) break;
+    if (keys.length < SWEEP_PAGE_SIZE) return { moved, incomplete: false };
     const last = keys[keys.length - 1];
-    if (!last || last === after) break;
+    if (!last || last === after) return { moved, incomplete: false };
     after = last;
   }
-  return moved;
+  // Every page was full: rows past the ceiling were not read.
+  return { moved, incomplete: true };
 }
 
 async function movedHoldKeys(
