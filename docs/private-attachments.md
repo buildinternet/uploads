@@ -83,8 +83,10 @@ Anyone holding a private-prefix URL can fetch the file page or public
 metadata and learn the repository, PR number, and branch.
 
 Rotation is best-effort against concurrent writers. An upload or promotion
-in flight during a rotation can land under the old prefix. Re-run the
-rotation if uploads were in flight.
+in flight during a rotation can land under the old prefix. When that happens,
+or a very large prefix stops the sweep early, the response carries
+`incomplete: true` and the CLI says to run the rotation again. The next run
+moves what was left.
 
 A workspace token on an unlinked private repo falls back to today's
 derivable keys when no GitHub identity is entitled to claim it. That
@@ -113,7 +115,7 @@ uploads github rotate-prefix --repo-level
 Rotation mints a new id and moves every object under the old prefix to the
 same tail under the new id. It then deletes the old objects, so the old URLs
 404 at origin immediately. It re-syncs the managed comment so it points at
-the new URLs.
+the new URLs. Moved objects do not count against the monthly upload limit.
 
 Camo's own cache is outside uploads.sh's control. A viewer who already has a
 Camo-cached copy of an old image keeps seeing it until Camo's cache expires

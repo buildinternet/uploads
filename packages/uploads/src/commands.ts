@@ -4605,7 +4605,12 @@ function formatGithubRotatePrefix(
   if (!result.rotated) {
     return `nothing to rotate for ${repo} (${branchLabel}): ${result.reason}\n`;
   }
-  return `rotated ${repo} (${branchLabel}): moved ${result.moved} object${result.moved === 1 ? "" : "s"} to a new prefix (${result.prefixId})\n`;
+  let out = `rotated ${repo} (${branchLabel}): moved ${result.moved} object${result.moved === 1 ? "" : "s"} to a new prefix (${result.prefixId})\n`;
+  if (result.incomplete) {
+    const flag = branchLabel === "repo-level" ? "--repo-level" : `--branch ${branchLabel}`;
+    out += `some objects may still be under the old prefix. Run \`uploads github rotate-prefix --repo ${repo} ${flag}\` again to move them.\n`;
+  }
+  return out;
 }
 
 async function runGithubRotatePrefix(

@@ -183,7 +183,15 @@ export interface RotateGhPrefixOptions {
 /** `POST /v1/workspaces/:workspace/github/private-prefix/rotate` response. */
 export type RotateGhPrefixResult =
   | { rotated: false; reason: string }
-  | { rotated: true; prefixId: string; moved: number };
+  | {
+      rotated: true;
+      prefixId: string;
+      moved: number;
+      /** Old keys the destination refused to store; they stay at the old prefix. */
+      skipped?: string[];
+      /** Objects may remain under a retired prefix; re-run to drain them. */
+      incomplete?: true;
+    };
 
 /** `POST /v1/workspaces/:workspace/github/promote` request/response. */
 export interface PromoteBranchAttachmentsOptions {
