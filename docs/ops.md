@@ -1539,6 +1539,25 @@ deletes the held copy. A hold that never moved has nothing to copy back.
 Release reads that one key's `ai.hold.moved` row. It does not scan the
 bucket.
 
+To empty the held bucket, drain it by hand with the admin route (one-off,
+`apps/api/src/held-drain.ts`). For each `ai.hold.moved=1` row it writes the
+`read_gate` rows first while the key is still held, then copies the bytes and
+poster back to the public key, deletes the held copy, and clears the flag. A
+key whose hold was released is restored without gate rows.
+
+```bash
+# dry run: counts moved rows and samples the held bucket, writes nothing
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://api.uploads.sh/admin/held/drain?dryRun=1'
+# live: 25 keys per call (limit max 100); repeat until "remaining" is 0
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://api.uploads.sh/admin/held/drain?limit=25'
+```
+
+Skipped keys (workspace gone, no copy anywhere, or an error) are listed in
+`skipped`. Pass `next` back as `after=` to page past them. Done means
+`remaining` is 0 and `bucketSample` is empty.
+
 Never give the held bucket a custom domain or an r2.dev URL. The edge may
 serve its cached copy for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's
 Camo can keep its own copy longer. Cloudflare Images keeps a transformed

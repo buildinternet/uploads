@@ -709,10 +709,14 @@ export async function putObject(
   const deltaBytes = newSize - (prior?.size ?? 0);
   const uploadedAt = resolveUploadedAtMeta(prior);
 
+  // A rotation copy is a move of bytes the workspace already uploaded, not
+  // new content, so it never counts against the monthly upload cap (#645).
+  const uploadCount = opts?.surface === "rotate" ? 0 : 1;
+
   const usage = await getWorkspaceUsage(dbFor(env), workspaceName);
   // Cheap read-side reject for obviously spent budgets (both caps). Concurrent
   // puts at the boundary still need the atomic reservations below.
-  const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
+  const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: uploadCount });
   if (denial) throw budgetDenialError(denial);
 
   // Atomically reserve the monthly upload count and (when growing) storage
@@ -721,11 +725,18 @@ export async function putObject(
   const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
   const maxStorageBytes = enforcedMaxStorageBytes(ws);
   const sharedLane = isSharedLane(ws);
-  const uploadReservation = await reserveUploads(dbFor(env), workspaceName, 1, maxUploadsPerPeriod);
-  if (!uploadReservation.ok) {
-    throw budgetDenialError(
-      uploadBudgetDenial(uploadReservation.usage, uploadReservation.maxUploadsPerPeriod),
+  if (uploadCount > 0) {
+    const uploadReservation = await reserveUploads(
+      dbFor(env),
+      workspaceName,
+      uploadCount,
+      maxUploadsPerPeriod,
     );
+    if (!uploadReservation.ok) {
+      throw budgetDenialError(
+        uploadBudgetDenial(uploadReservation.usage, uploadReservation.maxUploadsPerPeriod),
+      );
+    }
   }
 
   const storageReservation = await reserveStorageBytes(
@@ -737,7 +748,7 @@ export async function putObject(
     { sharedLane },
   );
   if (!storageReservation.ok) {
-    await releaseUploadsSafe(dbFor(env), workspaceName, 1);
+    if (uploadCount > 0) await releaseUploadsSafe(dbFor(env), workspaceName, uploadCount);
     throw budgetDenialError(
       storageBudgetDenial(
         storageReservation.usage,
@@ -787,7 +798,7 @@ export async function putObject(
     // say so. Never throws.
     await noteStorageFailure(env, workspaceName, ws, err);
     // Nothing was stored — return both reservations to the budget.
-    await releaseUploadsSafe(dbFor(env), workspaceName, 1);
+    if (uploadCount > 0) await releaseUploadsSafe(dbFor(env), workspaceName, uploadCount);
     await releaseStorageBytesSafe(dbFor(env), workspaceName, reservedBytes, undefined, {
       sharedLane,
     });
