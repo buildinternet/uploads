@@ -725,9 +725,9 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   // id — a Better Auth org can in principle have accumulated more than one
   // subscription row across its lifetime (upgrade/downgrade/re-subscribe), so
   // this picks the single most relevant one rather than assuming exactly one
-  // row: an active/trialing/past_due row wins over a terminal one (those are
-  // the statuses stripe-plugin.ts's `desiredPlanForStatus` still treats as
-  // "pro"), and ties within a priority bucket break on the latest
+  // row: an active/trialing/past_due row wins over a terminal one (a
+  // subscription that still exists, including one past due), and ties
+  // within a priority bucket break on the latest
   // `periodEnd` (falling back to `trialEnd`, since a trialing row may have no
   // `periodEnd` yet).
   .get("/orgs/:slug/subscription", async (c) => {

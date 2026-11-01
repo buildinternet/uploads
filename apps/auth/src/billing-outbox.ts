@@ -47,7 +47,7 @@ import { and, asc, eq, lt, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
-import { isStripeBackingStatus } from "@uploads/billing";
+import { planForStripeStatus } from "@uploads/billing";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type OutboxEnv = AuthEnv & Pick<Env, "API" | "BILLING_INTERNAL_KEY">;
@@ -116,25 +116,26 @@ export async function enqueuePlanSync(
 
 /**
  * The plan an organization should be on right now, derived from its
- * subscription rows: `pro` if any row is in a backing status
- * (active/trialing/past_due), `free` otherwise — including when there are no
- * rows at all, which is how a fully deleted subscription reads.
+ * subscription rows: `pro` if any row is `active` or `trialing`, `free`
+ * otherwise — including `past_due`, and including when there are no rows at
+ * all, which is how a fully deleted subscription reads.
  *
  * Any-row rather than newest-row because `subscription` has no reliable
  * ordering key (ids are opaque, and the timestamp columns are Stripe period
  * bounds rather than write times). "Is anything currently paying for this
  * org" is the question that matters and it is order-independent.
  *
- * `isStripeBackingStatus` rather than `desiredPlanForStatus`: the two
- * deliberately differ on `past_due`, and a retry should not downgrade someone
- * mid-dunning when the live webhook path would have kept them on `pro`.
+ * Same rule as the webhook's `desiredPlanForStatus` (`planForStripeStatus`).
+ * `past_due` still counts as a backing subscription for display, but the
+ * webhook moves the workspace to free. A retry that treated `past_due` as
+ * pro would undo that downgrade.
  */
 export async function desiredPlanFor(db: Db, referenceId: string): Promise<"free" | "pro"> {
   const rows = await db
     .select({ status: schema.subscription.status })
     .from(schema.subscription)
     .where(eq(schema.subscription.referenceId, referenceId));
-  return rows.some((row) => isStripeBackingStatus(row.status)) ? "pro" : "free";
+  return rows.some((row) => planForStripeStatus(row.status) === "pro") ? "pro" : "free";
 }
 
 /**

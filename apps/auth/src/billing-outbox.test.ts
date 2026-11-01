@@ -85,14 +85,22 @@ describe("desiredPlanFor", () => {
     expect(await desiredPlanFor(orm(env), orgId)).toBe("free");
   });
 
-  it.each(["active", "trialing", "past_due"])("is pro while status is %s", async (status) => {
+  it.each(["active", "trialing"])("is pro while status is %s", async (status) => {
     const env = dbEnv();
     const orgId = await seedOrganization(env, "acme");
     await seedSubscription(env, orgId, status);
     expect(await desiredPlanFor(orm(env), orgId)).toBe("pro");
   });
 
-  it.each(["canceled", "incomplete_expired", "unpaid"])(
+  it("stays pro when an older past_due row sits beside an active one", async () => {
+    const env = dbEnv();
+    const orgId = await seedOrganization(env, "acme");
+    await seedSubscription(env, orgId, "past_due");
+    await seedSubscription(env, orgId, "active");
+    expect(await desiredPlanFor(orm(env), orgId)).toBe("pro");
+  });
+
+  it.each(["canceled", "incomplete_expired", "unpaid", "past_due"])(
     "is free once status is %s",
     async (status) => {
       const env = dbEnv();
@@ -218,6 +226,21 @@ describe("runPlanSyncOutbox", () => {
       .update(schema.subscription)
       .set({ status: "canceled" })
       .where(eq(schema.subscription.referenceId, orgId));
+
+    const fetchMock = okFetch();
+    env.API = { fetch: fetchMock } as unknown as Fetcher;
+
+    await runPlanSyncOutbox(env, orm(env), new Date(NOW.getTime() + 120_000));
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ workspace: "acme", plan: "free" });
+  });
+
+  it("retries a past_due subscription as free, the same as the webhook", async () => {
+    const env = dbEnv();
+    const orgId = await seedOrganization(env, "acme");
+    await seedSubscription(env, orgId, "past_due");
+    await enqueuePlanSync(orm(env), orgId, "status 500", NOW);
 
     const fetchMock = okFetch();
     env.API = { fetch: fetchMock } as unknown as Fetcher;
