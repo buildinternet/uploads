@@ -232,6 +232,10 @@ async function makeEnv(
             } else if (normalized.startsWith("DELETE FROM file_metadata")) {
               const [ws, objectKey] = values as [string, string];
               metadata.delete(scopeKey(ws, objectKey));
+            } else if (normalized.startsWith("INSERT INTO blob_hold")) {
+              // Approve compare-and-sets the blob row. This fake has no
+              // blob_hold table; a missing row is an insert, which wins.
+              return { success: true, meta: { changes: 1 }, results: [] };
             }
             return { success: true, meta: { changes: 0 }, results: [] };
           },
@@ -356,6 +360,9 @@ async function makeEnv(
                 .sort((a, b) => b.count - a.count || a.meta_value.localeCompare(b.meta_value))
                 .slice(0, limit);
               return { success: true, results: results as T[], meta: {} };
+            }
+            if (normalized.includes("FROM blob_hold") && normalized.includes("content_sha256 IN")) {
+              return { success: true, results: [] as T[], meta: {} };
             }
             if (normalized.includes("blob_hold") && normalized.includes("file_content_hash")) {
               const scopePrefix = "test-ws ";

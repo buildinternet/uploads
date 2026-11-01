@@ -42,6 +42,47 @@ function envFor(sqlite: SqliteD1, bucket: FakeR2Bucket) {
 }
 
 describe("blob hold", () => {
+  it("leaves a released blob released when the classifier runs again", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    const db = database(sqlite);
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]), {
+      customMetadata: { "content-sha256": SHA },
+    });
+    const env = {
+      DB: db,
+      UPLOADS_DEFAULT: bucket,
+      FLAGS: { getBooleanValue: async () => true },
+    } as unknown as Env;
+    await recordContentHash(db, "acme", "a.png", SHA);
+    await setServerFileMetadata(db, "acme", "a.png", { "ai.hold": "pending" });
+    await sqlite.db
+      .prepare(
+        `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'released', 'Member', ?)`,
+      )
+      .run("acme", SHA, "2026-10-28T00:00:00.000Z");
+
+    expect(
+      await applyUploadHold(
+        env,
+        ws,
+        "acme",
+        "a.png",
+        { "ai.secret": "token", "ai.secret.confidence": "high" },
+        { enforce: true, contentSha256: SHA },
+      ),
+    ).toBe(false);
+    const blob = await db
+      .prepare(`SELECT state FROM blob_hold WHERE workspace = ? AND content_sha256 = ?`)
+      .bind("acme", SHA)
+      .first<{ state: string }>();
+    expect(blob?.state).toBe("released");
+    const gates = await db.prepare(`SELECT object_key FROM read_gate`).all();
+    expect(gates.results).toEqual([]);
+    expect(await isKeyHeld(env, "acme", "a.png")).toBe(false);
+    sqlite.close();
+  });
+
   it("keeps a release when the bytes move to a new key", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     const db = database(sqlite);

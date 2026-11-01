@@ -427,20 +427,38 @@ export class UsageFakeD1 {
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
         if (normalized.startsWith("INSERT INTO blob_hold")) {
-          if (values.length >= 5) {
-            const [workspace, sha, state, actor, at] = values as [
-              string,
-              string,
-              string,
-              string | null,
-              string | null,
-            ];
-            this.blobHolds.set(`${workspace} ${sha}`, { state, actor, at });
-          } else if (values.length === 3 && normalized.includes("'held'")) {
+          const holdKey = (workspace: string, sha: string) => `${workspace} ${sha}`;
+          // Classifier claim: an existing row, including a release, stays put.
+          if (normalized.includes("DO NOTHING")) {
             const [workspace, sha, at] = values as [string, string, string];
-            this.blobHolds.set(`${workspace} ${sha}`, { state: "held", actor: null, at });
+            const key = holdKey(workspace, sha);
+            if (this.blobHolds.has(key)) {
+              return { success: true as const, meta: { changes: 0 }, results: [] };
+            }
+            this.blobHolds.set(key, { state: "held", actor: null, at });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
           }
-          return { success: true as const, meta: { changes: 1 }, results: [] };
+          if (values.length >= 5) {
+            const workspace = values[0] as string;
+            const sha = values[1] as string;
+            const state = values[2] as string;
+            const actor = (values[3] as string | null) ?? null;
+            const at = (values[4] as string | null) ?? null;
+            const expectedState = values[5] as string | undefined;
+            const expectedAt = (values[6] as string | null | undefined) ?? null;
+            const key = holdKey(workspace, sha);
+            const row = this.blobHolds.get(key);
+            // Compare-and-set when the statement names the expected generation.
+            if (normalized.includes("blob_hold.state") && row) {
+              const atMatches = (row.at ?? null) === (expectedAt ?? null);
+              if (row.state !== expectedState || !atMatches) {
+                return { success: true as const, meta: { changes: 0 }, results: [] };
+              }
+            }
+            this.blobHolds.set(key, { state, actor, at });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
+          }
+          return { success: true as const, meta: { changes: 0 }, results: [] };
         }
         if (normalized.includes("read_gate")) {
           return { success: true as const, meta: { changes: 0 }, results: [] };

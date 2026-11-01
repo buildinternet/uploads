@@ -78,6 +78,76 @@ export function readGateDeletes(db: D1Queryable, objectKeys: string[]) {
   );
 }
 
+/**
+ * Gate inserts that do nothing once this hash is released. A repair that
+ * read `held` and then lost the race must not block the public URL.
+ */
+export function readGateInsertsUnlessReleased(
+  db: D1Queryable,
+  objectKeys: string[],
+  workspace: string,
+  contentSha256: string,
+) {
+  return objectKeys.map((objectKey) =>
+    db
+      .prepare(
+        `INSERT INTO read_gate (lane, object_key)
+         SELECT ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM blob_hold
+           WHERE workspace = ? AND content_sha256 = ? AND state = 'released'
+         )
+         ON CONFLICT(lane, object_key) DO NOTHING`,
+      )
+      .bind(HOSTED_READ_LANE, objectKey, workspace, contentSha256),
+  );
+}
+
+/** Gate inserts that apply only when this call's hold write stored `at`. */
+export function readGateInsertsForHold(
+  db: D1Queryable,
+  objectKeys: string[],
+  workspace: string,
+  contentSha256: string,
+  at: string,
+) {
+  return objectKeys.map((objectKey) =>
+    db
+      .prepare(
+        `INSERT INTO read_gate (lane, object_key)
+         SELECT ?, ?
+         WHERE EXISTS (
+           SELECT 1 FROM blob_hold
+           WHERE workspace = ? AND content_sha256 = ? AND state = 'held' AND at = ?
+         )
+         ON CONFLICT(lane, object_key) DO NOTHING`,
+      )
+      .bind(HOSTED_READ_LANE, objectKey, workspace, contentSha256, at),
+  );
+}
+
+/** Gate deletes that apply only when this call's release write stored `at`. */
+export function readGateDeletesForRelease(
+  db: D1Queryable,
+  objectKeys: string[],
+  workspace: string,
+  contentSha256: string,
+  at: string,
+) {
+  return objectKeys.map((objectKey) =>
+    db
+      .prepare(
+        `DELETE FROM read_gate
+         WHERE lane = ? AND object_key = ?
+           AND EXISTS (
+             SELECT 1 FROM blob_hold
+             WHERE workspace = ? AND content_sha256 = ? AND state = 'released' AND at = ?
+           )`,
+      )
+      .bind(HOSTED_READ_LANE, objectKey, workspace, contentSha256, at),
+  );
+}
+
 function missingTable(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return message.includes("no such table");

@@ -14,6 +14,9 @@
  * The classifier writes `ai.hold=pending` and a `blob_hold` row for the
  * content hash. A key is held only when it has that row and the blob is not
  * released. A release applies to every key with a hold row and those bytes.
+ * Approve and hold-again compare-and-set that row, so a slower write cannot
+ * undo a release or a re-hold that already landed. The classifier inserts a
+ * held row only when one is absent: it never moves `released` back to `held`.
  * Approve and hold do not write `ai.hold`. New bytes are a new hash and can
  * be held again. `ai.hold` is in `CLASSIFIER_ROW_KEYS`: identical bytes keep
  * the row, and new bytes clear it. The event does not change `ai.secret`,
@@ -153,8 +156,11 @@ export interface EffectiveHold {
   at: string | null;
 }
 
+/** The blob-level hold. A key is held only while its own row says so and this is `held`. */
+export type BlobHoldState = "held" | "released";
+
 export interface BlobHoldView {
-  state: "held" | "released";
+  state: BlobHoldState;
   actor: string | null;
   at: string | null;
 }
