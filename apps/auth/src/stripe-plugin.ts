@@ -29,6 +29,7 @@ import { and, eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
   checkoutConsentParams,
+  planForStripeStatus,
   stripePlans,
   type CheckoutConsentEnv,
   type CheckoutConsentParams,
@@ -49,7 +50,7 @@ export type StripePluginEnv = AuthEnv &
  * standing up the plugin (see stripe-plugin.test.ts).
  */
 export function desiredPlanForStatus(status: string): "pro" | "free" {
-  return status === "active" || status === "trialing" ? "pro" : "free";
+  return planForStripeStatus(status);
 }
 
 /**
