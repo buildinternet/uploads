@@ -23,6 +23,7 @@ import type {
   AdminSlackAgentModel,
   AdminStorageResponse,
   AdminTokenRow,
+  AdminUrlBlock,
   AdminWorkspaceSummary,
   AgentModelOption,
   OpenEnrollment,
@@ -48,6 +49,7 @@ export type {
   AdminPlanResponse,
   AdminStorageResponse,
   AdminTokenRow,
+  AdminUrlBlock,
   AdminWorkspaceSummary,
   OpenEnrollment,
   OrgInvite,
@@ -106,6 +108,9 @@ export interface AdminApi {
   /** `null` goes back to the default. */
   saveSlackAgentModel(model: string | null): Promise<AdminSlackAgentModel>;
   listAgentModelOptions(fresh?: boolean): Promise<AgentModelOption[]>;
+  listUrlBlocks(): Promise<AdminUrlBlock[]>;
+  blockUrl(url: string, reason: string): Promise<AdminUrlBlock>;
+  unblockUrl(url: string): Promise<{ removed: boolean; stillHeld: boolean }>;
 }
 
 export function makeAdminApi(apiOrigin: string): AdminApi {
@@ -185,6 +190,27 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
       return get<AgentModelOption[]>(
         `${base}/admin-ui/models/agent-options${fresh ? "?fresh=1" : ""}`,
         "load models failed",
+      );
+    },
+    async listUrlBlocks() {
+      const body = await get<{ blocks: AdminUrlBlock[] }>(
+        `${base}/admin-ui/blocks`,
+        "load blocked URLs failed",
+      );
+      return body.blocks;
+    },
+    blockUrl(url, reason) {
+      return send<AdminUrlBlock>(`${base}/admin-ui/blocks`, "POST", "block failed", {
+        url,
+        reason,
+      });
+    },
+    unblockUrl(url) {
+      return send<{ removed: boolean; stillHeld: boolean }>(
+        `${base}/admin-ui/blocks/unblock`,
+        "POST",
+        "unblock failed",
+        { url },
       );
     },
     async listWorkspaces() {

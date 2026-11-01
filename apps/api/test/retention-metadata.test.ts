@@ -86,7 +86,11 @@ describe("purgeExpiredObjects — file_metadata cleanup (plan 007)", () => {
   });
 
   it("deletes the read_gate rows for an expired key in the same batch", async () => {
-    const sqlite = new SqliteD1([...MIGRATIONS, "migrations/20260724140000_file_content_hash.sql"]);
+    const sqlite = new SqliteD1([
+      ...MIGRATIONS,
+      "migrations/20260724140000_file_content_hash.sql",
+      "migrations/20261101120000_url_block.sql",
+    ]);
     sqlite.db.exec(
       `CREATE TABLE read_gate (lane TEXT NOT NULL, object_key TEXT NOT NULL, PRIMARY KEY (lane, object_key))`,
     );

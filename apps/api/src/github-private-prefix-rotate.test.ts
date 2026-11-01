@@ -42,6 +42,7 @@ const MIGRATIONS = [
   "migrations/20261028120000_file_events.sql",
   "migrations/20261028140000_blob_hold.sql",
   "migrations/20261028160000_read_gate.sql",
+  "migrations/20261101120000_url_block.sql",
 ];
 
 const WS = "acme";
