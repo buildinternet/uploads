@@ -16,9 +16,19 @@
  * That is a choice, the same as the classifier's fail-open: a lookup
  * outage must not hide the public bucket. This Worker does not bind the
  * held bucket.
+ *
+ * Each hosted GET with an object key also writes one Analytics Engine point
+ * (`views.ts`). The resizer's own source fetch is not counted again.
  */
 
 import placeholder from "./held-placeholder.png";
+import {
+  contentLengthOf,
+  isResizerFetch,
+  referrerClass,
+  writeViewPoint,
+  type GateOutcome,
+} from "./views";
 
 /** Same lane string as `HOSTED_READ_LANE` in apps/api/src/read-gate.ts. */
 const HOSTED_LANE = "hosted";
@@ -46,6 +56,7 @@ const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif"]);
 export interface ReadGateEnv {
   DB: D1Database;
   EXTRA_HOSTED_HOSTS?: string;
+  VIEWS?: AnalyticsEngineDataset;
 }
 
 interface GateContext {
@@ -137,17 +148,16 @@ function gateDb(env: ReadGateEnv): Pick<D1Database, "prepare"> {
     : env.DB;
 }
 
-async function isBlocked(
+async function gateOutcome(
   env: ReadGateEnv,
   ctx: GateContext,
   hostname: string,
   objectKey: string,
-): Promise<boolean> {
+): Promise<GateOutcome> {
   const cachedRequest = cacheRequest(hostname, objectKey);
   const hit = await readCache(cachedRequest);
   const mark = hit?.headers.get("x-read-gate");
-  if (mark === "block") return true;
-  if (mark === "allow") return false;
+  if (mark === "block" || mark === "allow") return mark;
   try {
     const row = await gateDb(env)
       .prepare(`SELECT 1 AS hit FROM read_gate WHERE lane = ? AND object_key = ?`)
@@ -155,12 +165,12 @@ async function isBlocked(
       .first();
     const blocked = row != null;
     remember(ctx, cachedRequest, blocked);
-    return blocked;
+    return blocked ? "block" : "allow";
   } catch (err) {
     // A D1 error serves the object, by choice. Same fail-open as the
     // classifier: an outage must not 404 every public file.
     console.error({ event: "read_gate_lookup_failed", err });
-    return false;
+    return "fail_open";
   }
 }
 
@@ -267,11 +277,23 @@ export async function handleReadGate(
   if (request.method === "OPTIONS") return hosted ? readPreflight(request) : fetch(request);
   const objectKey = objectKeyFromUrl(request.url, env);
   if (!objectKey) return finishRead(hosted, request, await fetch(request));
-  if (await isBlocked(env, ctx, url.hostname, objectKey)) {
-    const response = isHeldImageKey(objectKey) ? heldImage(request.method) : heldNotFound();
-    return finishRead(hosted, request, response);
+  const gate = await gateOutcome(env, ctx, url.hostname, objectKey);
+  const response =
+    gate === "block"
+      ? isHeldImageKey(objectKey)
+        ? heldImage(request.method)
+        : heldNotFound()
+      : withMustRevalidate(await fetch(request));
+  if (request.method === "GET" && !isResizerFetch(request)) {
+    writeViewPoint(env.VIEWS, {
+      objectKey,
+      referrer: referrerClass(request, url.pathname.startsWith("/cdn-cgi/image/")),
+      gate,
+      status: response.status,
+      contentLength: contentLengthOf(response),
+    });
   }
-  return finishRead(hosted, request, withMustRevalidate(await fetch(request)));
+  return finishRead(hosted, request, response);
 }
 
 export default {

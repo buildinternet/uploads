@@ -1677,6 +1677,21 @@ in the same batch as metadata and content hashes. Workspace teardown deletes
 the workspace's prefix. The object key includes the workspace prefix
 (`<workspace>/<key>`).
 
+Each hosted GET with an object key writes one Analytics Engine point to
+`uploads_file_views` (`uploads_file_views_preview` on previews), from
+`apps/read-gate/src/views.ts`. It does not write D1. Blobs, in order:
+workspace (the first key segment), object key, referrer class, gate
+outcome. Doubles: response status, then Content-Length (-1 when absent).
+The index is the workspace. Referrer class is `github_camo` or `slack`
+from the user agent, `slack` from a Slack referrer, `cdn_cgi_image` for a
+`/cdn-cgi/image/` request, `direct` with no referrer, and `other`
+otherwise. Gate outcome is `allow`, `block`, or `fail_open` (D1 error). The
+resizer's source fetch (`Via: image-resizing`) is not counted, so a
+transform is one point. HEAD and OPTIONS are not counted. No IP, user agent,
+or full referrer is stored. Nothing reads the dataset yet. Worker logs keep
+a 10% head sample, since the dataset already counts every read and every
+fail-open.
+
 A key left in the shared bucket after a switch to BYO still gets a row. Lane
 resolution is the same lookup a legacy move into the held bucket uses. A key
 that resolves on a BYO lane does not.
