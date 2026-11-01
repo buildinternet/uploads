@@ -16,10 +16,16 @@
   "compatibility_date": "2026-07-06",
   "workers_dev": false,
   "preview_urls": false,
+  // Every hosted read invokes this Worker. Per-read counts live in the
+  // VIEWS dataset, including D1 fail-opens (gate = fail_open), so logs keep
+  // a 10% sample.
   "observability": {
     "enabled": true,
-    "head_sampling_rate": 1,
+    "head_sampling_rate": 0.1,
   },
+  // One point per hosted GET (src/views.ts). Blob order is VIEW_BLOB_ORDER.
+  // Datasets auto-create on first write.
+  "analytics_engine_datasets": [{ "binding": "VIEWS", "dataset": "uploads_file_views" }],
   "d1_databases": [
     {
       "binding": "DB",
@@ -28,6 +34,7 @@
     },
   ],
   "previews": {
+    "analytics_engine_datasets": [{ "binding": "VIEWS", "dataset": "uploads_file_views_preview" }],
     "d1_databases": [
       {
         "binding": "DB",
