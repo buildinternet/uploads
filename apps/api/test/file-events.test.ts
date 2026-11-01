@@ -27,6 +27,7 @@ describe("file_events", () => {
       "migrations/20261028120000_file_events.sql",
       "migrations/20261028140000_blob_hold.sql",
       "migrations/20261028160000_read_gate.sql",
+      "migrations/20261101120000_url_block.sql",
     ]);
     const db = database(sqlite);
     const bucket = new FakeR2Bucket();
@@ -128,6 +129,7 @@ describe("file_events", () => {
       "migrations/20261028120000_file_events.sql",
       "migrations/20261028140000_blob_hold.sql",
       "migrations/20261028160000_read_gate.sql",
+      "migrations/20261101120000_url_block.sql",
     ]);
     const db = database(sqlite);
     const env = { DB: db } as unknown as Env;
@@ -218,6 +220,7 @@ describe("file_events", () => {
       "migrations/20261028120000_file_events.sql",
       "migrations/20261028140000_blob_hold.sql",
       "migrations/20261028160000_read_gate.sql",
+      "migrations/20261101120000_url_block.sql",
     ]);
     const db = database(sqlite);
     await sqlite.db

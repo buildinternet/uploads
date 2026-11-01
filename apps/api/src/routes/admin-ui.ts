@@ -63,6 +63,13 @@ import {
   listFlaggedFiles,
 } from "../classifier-admin";
 import { releaseHolds } from "../upload-hold-service";
+import {
+  blockUrl,
+  listUrlBlocks,
+  parseBlockTarget,
+  unblockUrl,
+  URL_BLOCK_REASON_MAX,
+} from "../url-block";
 import { countHeldByWorkspace } from "../upload-hold-read";
 import {
   ADMIN_METRIC_WINDOWS,
@@ -605,6 +612,7 @@ export type { MetricsOverview } from "../metrics-overview";
 export type * from "../classifier-admin-wire";
 export type { OrgInvite, OrgMember } from "../org-workspaces";
 export type { OpenEnrollment } from "../auth-db";
+export type { UrlBlock as AdminUrlBlock } from "../url-block";
 /** `/admin-ui/oauth-clients*` passes the auth worker's body through unchanged. */
 export type { SerializedOauthClient } from "@uploads/auth/oauth-client-serialize";
 
@@ -631,6 +639,13 @@ async function slackAgentModelResponse(env: Env) {
 }
 export type AdminSlackAgentModel = Awaited<ReturnType<typeof slackAgentModelResponse>>;
 export type { AgentModelOption } from "../openrouter-models";
+
+/** Who an operator write is recorded as: email first, since it is unique. */
+function operatorLabel(
+  user: { email?: string | null; name?: string | null } | null | undefined,
+): string {
+  return user?.email || user?.name?.trim() || "operator";
+}
 
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
@@ -790,6 +805,36 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("invalid workspace name", { code: "invalid_workspace" });
     }
     return c.json(await releaseHolds(c.env, { workspace }));
+  })
+
+  // Operator takedowns of hosted URLs (url-block.ts). Writes the read_gate
+  // row the hosted read-gate Worker checks.
+  .get("/blocks", async (c) => c.json({ blocks: await listUrlBlocks(c.env) }))
+
+  .post("/blocks", async (c) => {
+    if (!(await allowWrite(c.env, "operator-blocks"))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { url?: unknown; reason?: unknown };
+    const target = parseBlockTarget(c.env, body.url);
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (!reason || reason.length > URL_BLOCK_REASON_MAX) {
+      throw new ValidationError(`reason is required (at most ${URL_BLOCK_REASON_MAX} characters)`, {
+        code: "invalid_reason",
+      });
+    }
+    return c.json(await blockUrl(c.env, target, reason, operatorLabel(c.get("sessionUser"))));
+  })
+
+  .post("/blocks/unblock", async (c) => {
+    if (!(await allowWrite(c.env, "operator-blocks"))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+    const target = parseBlockTarget(c.env, body.url);
+    const result = await unblockUrl(c.env, target, operatorLabel(c.get("sessionUser")));
+    if (!result.removed) throw new NotFoundError("that URL is not blocked");
+    return c.json(result);
   })
 
   .get("/classifier/flagged", async (c) => {

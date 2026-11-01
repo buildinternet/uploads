@@ -1717,6 +1717,25 @@ WHERE meta_key = 'ai.hold' AND meta_value = 'approved'`. A pending row
 with no hash stays pending and is still held. `ai.rating`, `ai.content`, and
 `ai.pii=contact` never hold a file.
 
+### Operator URL blocks
+
+`/admin/blocks` takes down one hosted URL for abuse or a legal request. It
+needs a hosted host (`storage`, `store`, `embed`, or a `/cdn-cgi/image/`
+variant of one) and a reason. A block writes a `url_block` row (URL, reason,
+operator email, time) and a `read_gate` row for the object key and its
+poster key. The read gate then serves the held card for an image and a 404
+for anything else, after its 30 second decision cache and the object's
+60 second edge copy. It is not a hold: no metadata, no file events, no
+notice to the workspace, and nothing else in the workspace changes. The
+file page on uploads.sh still lists the file; its image shows the card.
+
+A `read_gate` delete skips a key with a `url_block` row, so approving a
+hold, deleting the file, or the retention sweep does not lift a block, and a
+re-upload to the same key stays blocked. Unblock drops the `url_block` rows
+and the gate rows, unless the file is still held for review. Workspace
+teardown drops both. A GitHub private-prefix rotation moves a file to a new
+key, and the block does not follow it.
+
 ### Allowlist (Flagship is the control plane)
 
 `classificationAllowed` evaluates Flagship with context

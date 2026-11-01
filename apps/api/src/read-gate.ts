@@ -70,10 +70,18 @@ export function readGateInserts(db: D1Queryable, objectKeys: string[]) {
   );
 }
 
+/** An operator block (`url-block.ts`) keeps its gate row through every delete below. */
+const NOT_OPERATOR_BLOCKED = `NOT EXISTS (
+  SELECT 1 FROM url_block u
+  WHERE u.lane = read_gate.lane AND u.object_key = read_gate.object_key
+)`;
+
 export function readGateDeletes(db: D1Queryable, objectKeys: string[]) {
   return objectKeys.map((objectKey) =>
     db
-      .prepare(`DELETE FROM read_gate WHERE lane = ? AND object_key = ?`)
+      .prepare(
+        `DELETE FROM read_gate WHERE lane = ? AND object_key = ? AND ${NOT_OPERATOR_BLOCKED}`,
+      )
       .bind(HOSTED_READ_LANE, objectKey),
   );
 }
@@ -139,6 +147,7 @@ export function readGateDeletesForRelease(
       .prepare(
         `DELETE FROM read_gate
          WHERE lane = ? AND object_key = ?
+           AND ${NOT_OPERATOR_BLOCKED}
            AND EXISTS (
              SELECT 1 FROM blob_hold
              WHERE workspace = ? AND content_sha256 = ? AND state = 'released' AND at = ?
@@ -191,7 +200,7 @@ export async function deleteReadGateKeys(db: D1Queryable, objectKeys: string[]):
   }
 }
 
-/** Prefix delete for workspace teardown. The bound is the primary key, not a scan. */
+/** Prefix delete for workspace teardown, operator blocks included. The bound is the primary key, not a scan. */
 export async function deleteReadGateForWorkspace(
   db: D1Queryable,
   workspaceName: string,
@@ -199,10 +208,13 @@ export async function deleteReadGateForWorkspace(
   const prefix = `${workspaceName}/`;
   const upper = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
   try {
-    await db
-      .prepare(`DELETE FROM read_gate WHERE lane = ? AND object_key >= ? AND object_key < ?`)
-      .bind(HOSTED_READ_LANE, prefix, upper)
-      .run();
+    await db.batch(
+      ["url_block", "read_gate"].map((table) =>
+        db
+          .prepare(`DELETE FROM ${table} WHERE lane = ? AND object_key >= ? AND object_key < ?`)
+          .bind(HOSTED_READ_LANE, prefix, upper),
+      ),
+    );
   } catch (err) {
     if (missingTable(err)) return;
     console.error({ event: "read_gate_delete_failed", workspace: workspaceName, err });
