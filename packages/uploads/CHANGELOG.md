@@ -1,5 +1,13 @@
 # @buildinternet/uploads
 
+## 0.61.2
+
+### Patch Changes
+
+- a956cad: `uploads approve` and `list_held` describe a held image's public URL as a Held for review card, and the file page as the place a signed-in workspace member sees the real file.
+- 90bb1de: `uploads approve` sends the content hash from the held list. The approve fails when those bytes changed after the list.
+- 62c883c: A full workspace says it is out of storage and where to upgrade or connect a bucket. The monthly upload hint points at usage or an upgrade.
+
 ## 0.61.1
 
 ### Patch Changes
