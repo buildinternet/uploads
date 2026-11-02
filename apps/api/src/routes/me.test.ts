@@ -2201,6 +2201,7 @@ describe("workspace comment-settings routes", () => {
       noUploadsComment: null,
       uiPaths: null,
       requireUploads: null,
+      issueArtifacts: null,
     });
   });
 
@@ -2226,6 +2227,7 @@ describe("workspace comment-settings routes", () => {
       noUploadsComment: null,
       uiPaths: null,
       requireUploads: null,
+      issueArtifacts: null,
     });
 
     // Re-read via GET, independent of the PATCH response, per the brief.
@@ -2240,6 +2242,7 @@ describe("workspace comment-settings routes", () => {
       noUploadsComment: null,
       uiPaths: null,
       requireUploads: null,
+      issueArtifacts: null,
     });
 
     const saved = registry.record<{ version?: number }>("acme");
@@ -2341,6 +2344,7 @@ describe("workspace comment-settings routes", () => {
       noUploadsComment: null,
       uiPaths: null,
       requireUploads: null,
+      issueArtifacts: null,
     });
     const saved = registry.record<{
       githubCommentShowMetadata?: unknown;

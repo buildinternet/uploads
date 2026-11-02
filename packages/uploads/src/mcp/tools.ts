@@ -1400,7 +1400,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR, and files already staged for that branch are promoted into it (`promotion`/`promoteError`; renamed branches are followed automatically, or name the old branch with fromBranch). Attachments are public and keys are predictable; upload only non-sensitive media. On an issue, `issueArtifacts: true` (or `comment.issueArtifacts` in .uploads.yml) also keeps one Markdown issue artifact, and a gallery link when the issue has a gallery, in sync with the comment. Images stay on uploads.sh URLs. Pull requests are unchanged. An artifact failure is a warning and does not fail the attach.",
+        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR, and files already staged for that branch are promoted into it (`promotion`/`promoteError`; renamed branches are followed automatically, or name the old branch with fromBranch). Attachments are public and keys are predictable; upload only non-sensitive media. On an issue, a Markdown artifact (and a gallery link, when there is a gallery) stays in sync with the comment unless `issueArtifacts` is false, the repo sets `comment.issueArtifacts: false`, or the workspace turns it off. Images stay on uploads.sh URLs. Pull requests are unchanged. An artifact failure is a warning and does not fail the attach.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1417,7 +1417,7 @@ export function createUploadsMcpTools(opts: {
           issueArtifacts: {
             type: "boolean",
             description:
-              "On an issue, also create or update one Markdown issue artifact (and a gallery link when the issue has a gallery) from the managed comment. Off unless true, or the repo's .uploads.yml sets comment.issueArtifacts. Images stay on uploads.sh URLs. A failure is a warning on `comment.issueArtifact` and does not fail the attach. No effect on pull requests.",
+              "Per-call override for issue artifacts. Omit it to follow the repo file, then the workspace setting, then on. `false` skips them. No effect on pull requests. A failure is a warning on `comment.issueArtifact` and does not fail the attach.",
           },
           noPromote: {
             type: "boolean",
@@ -1542,9 +1542,16 @@ export function createUploadsMcpTools(opts: {
         };
 
         if (optBool(args, "noComment")) return { target, uploads, failures, ...promoteFields };
-        const { comment, commentError } = await syncComment(client, target, config.workspace, {
-          issueArtifacts: optBool(args, "issueArtifacts"),
-        });
+        const artifactOverride =
+          "issueArtifacts" in args
+            ? { issueArtifacts: optBool(args, "issueArtifacts") }
+            : undefined;
+        const { comment, commentError } = await syncComment(
+          client,
+          target,
+          config.workspace,
+          artifactOverride,
+        );
         return { target, uploads, failures, ...promoteFields, comment, commentError };
       },
     },

@@ -294,10 +294,17 @@ export type GithubCommentResult =
       commentUrl?: string;
       /** Files on the PR or issue held for review, when any. */
       held?: number;
+      /**
+       * Workspace default for issue artifacts. Present on issue targets.
+       * `false` is an opt-out; omitted means the caller should treat it as on.
+       */
+      issueArtifacts?: boolean;
     }
   | {
       posted: false;
       reason: GithubCommentDeclineReason;
+      /** Same workspace default as the posted branch. Issue targets only. */
+      issueArtifacts?: boolean;
       // On `forbidden` (App installed, write pending approval): a message and
       // fix link for the CLI to show.
       message?: string;

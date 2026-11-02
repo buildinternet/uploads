@@ -42,16 +42,13 @@ Run `attach` again and the same comment updates in place.
 
 ## Issue artifacts <a class="anchor" href="#issue-artifacts" aria-label="Link to this section">#</a>
 
-An issue keeps the same managed comment a pull request does. Set
-[`issueArtifacts: true`](/docs/comment-config#issue-artifacts) in `.uploads.yml` and an issue attach
-also writes one Markdown artifact named `uploads.sh media`. Images use uploads.sh URLs. Video is a
-link. When the issue has a gallery, it also writes a link artifact named `uploads.sh gallery`.
+An issue keeps the same managed comment a pull request does, and also one Markdown artifact named
+`uploads.sh media`. Images use uploads.sh URLs. Video is a link. When the issue has a gallery, a
+link artifact named `uploads.sh gallery` points at it.
 
-```bash
-uploads attach ./shot.png --issue 45 --issue-artifacts
-```
-
-`--issue-artifacts` is the one-run switch. Pull requests stay on the managed comment only.
+That is on by default. Turn it off for one command with `--no-issue-artifacts`, for one repo with
+[`issueArtifacts: false`](/docs/comment-config#issue-artifacts), or for the workspace under
+**Settings → GitHub**. Pull requests stay on the managed comment only.
 
 </section>
 

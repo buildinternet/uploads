@@ -1611,6 +1611,7 @@ describe("tools/call list, delete, comment", () => {
       action: "created",
       count: 1,
       via: "gh",
+      issueArtifact: { media: "created" },
     });
   });
 });

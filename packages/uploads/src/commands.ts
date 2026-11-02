@@ -88,7 +88,11 @@ import {
   renameLineageFromReflog,
   type CommandRunner,
 } from "./github-gh.js";
-import { syncIssueArtifacts, type IssueArtifactSyncResult } from "./github-issue-artifacts.js";
+import {
+  resolveIssueArtifacts,
+  syncIssueArtifacts,
+  type IssueArtifactSyncResult,
+} from "./github-issue-artifacts.js";
 import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
 import { noProjectContextNudge } from "./project-context-nudge.js";
 import { resolvePutPrefix } from "./destinations.js";
@@ -763,10 +767,7 @@ export interface AttachmentsCommentResult {
   via: "bot" | "gh";
   /** Files on the PR or issue held for review, when any. */
   held?: number;
-  /**
-   * Issue-artifact sync. Present only for an issue when `issueArtifacts` is
-   * on (repo config or `--issue-artifacts`). Pull requests omit it.
-   */
+  /** Issue-artifact sync. Present for an issue unless the step was a no-op. */
   issueArtifact?: IssueArtifactSyncResult;
 }
 
@@ -801,14 +802,14 @@ export function commentSyncNote(comment: AttachmentsCommentResult, target: GhTar
  */
 export class GithubCommentAuthorizationError extends Error {}
 
-/** True when the repo's `.uploads.yml` sets `comment.issueArtifacts: true`. */
-function repoIssueArtifactsEnabled(run: CommandRunner): boolean {
+/** Repo file value, or undefined when `.uploads.yml` does not set the key. */
+function readRepoIssueArtifacts(run: CommandRunner): boolean | undefined {
   try {
     const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
-    if (!root) return false;
-    return readLocalRepoCommentConfig(root).config?.issueArtifacts === true;
+    const value = readLocalRepoCommentConfig(root).config?.issueArtifacts;
+    return typeof value === "boolean" ? value : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -849,10 +850,19 @@ async function maybeSyncIssueArtifacts(
   run: CommandRunner,
   workspace: string | undefined,
   opts: { issueArtifacts?: boolean },
+  workspaceSetting: boolean | undefined,
   known?: { commentBody: string | null; galleryUrl: string | null },
 ): Promise<IssueArtifactSyncResult | undefined> {
   if (target.kind !== "issues") return undefined;
-  if (!opts.issueArtifacts && !repoIssueArtifactsEnabled(run)) return undefined;
+  if (
+    !resolveIssueArtifacts({
+      call: opts.issueArtifacts,
+      repo: readRepoIssueArtifacts(run),
+      workspace: workspaceSetting,
+    })
+  ) {
+    return undefined;
+  }
   try {
     let commentBody = known?.commentBody ?? null;
     let galleryUrl = known?.galleryUrl ?? null;
@@ -892,8 +902,8 @@ function withIssueArtifact(
 /**
  * `opts.resync` marks an explicit `uploads comment`. It costs the server an
  * extra comment listing to collapse duplicate managed comments, so
- * background syncs skip it. `opts.issueArtifacts` forces the issue-artifact
- * mirror for this call. The repo file can turn that mirror on without the flag.
+ * background syncs skip it. `opts.issueArtifacts` is a per-call override
+ * (`false` from `--no-issue-artifacts`). Omit it to follow repo, workspace, then on.
  */
 export async function syncAttachmentsComment(
   client: UploadsClient,
@@ -903,6 +913,7 @@ export async function syncAttachmentsComment(
   opts: { resync?: boolean; issueArtifacts?: boolean } = {},
 ): Promise<AttachmentsCommentResult> {
   let bot: GithubCommentResult | undefined;
+  let workspaceIssueArtifacts: boolean | undefined;
   try {
     bot = await client.upsertGithubComment({
       repo: target.repo,
@@ -910,6 +921,7 @@ export async function syncAttachmentsComment(
       kind: target.kind,
       ...(opts.resync ? { resync: true } : {}),
     });
+    if (typeof bot.issueArtifacts === "boolean") workspaceIssueArtifacts = bot.issueArtifacts;
   } catch {
     // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
     // through to the gh path below.
@@ -918,7 +930,14 @@ export async function syncAttachmentsComment(
 
   if (bot) {
     if (bot.posted) {
-      const issueArtifact = await maybeSyncIssueArtifacts(client, target, run, workspace, opts);
+      const issueArtifact = await maybeSyncIssueArtifacts(
+        client,
+        target,
+        run,
+        workspace,
+        opts,
+        workspaceIssueArtifacts,
+      );
       return withIssueArtifact(
         {
           action: bot.action,
@@ -1138,10 +1157,15 @@ export async function syncAttachmentsComment(
     [...previewGalleries].sort(
       (a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url),
     )[0]?.url ?? null;
-  const issueArtifact = await maybeSyncIssueArtifacts(client, target, run, workspace, opts, {
-    commentBody: body,
-    galleryUrl,
-  });
+  const issueArtifact = await maybeSyncIssueArtifacts(
+    client,
+    target,
+    run,
+    workspace,
+    opts,
+    workspaceIssueArtifacts,
+    { commentBody: body, galleryUrl },
+  );
   return withIssueArtifact(
     { action, count, via: "gh", ...(heldCount > 0 ? { held: heldCount } : {}) },
     issueArtifact,
@@ -1229,11 +1253,11 @@ Options:
                         object after a successful server-side copy (default: copy)
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
-  --issue-artifacts     On an issue, also keep one Markdown issue artifact (and a
-                        gallery link, when the issue has one) in sync with that
-                        comment. Off unless passed, or comment.issueArtifacts is
-                        true in .uploads.yml. A failure warns and does not fail
-                        the attach. No effect on pull requests.
+  --no-issue-artifacts  On an issue, skip the Markdown issue artifact and gallery
+                        link. Those are on unless this is passed, the repo's
+                        .uploads.yml sets issueArtifacts: false, or the workspace
+                        turns them off. A failure warns and does not fail the
+                        attach. No effect on pull requests.
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
   --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro)
   --frame-url <url>     Address bar text for --frame browser
@@ -1838,10 +1862,10 @@ export async function runAttach(
     throw new UsageError("--no-comment takes no value — place it after the file arguments");
   }
   if (
-    parsed.flags.has("--issue-artifacts") &&
-    typeof parsed.flags.get("--issue-artifacts") === "string"
+    parsed.flags.has("--no-issue-artifacts") &&
+    typeof parsed.flags.get("--no-issue-artifacts") === "string"
   ) {
-    throw new UsageError("--issue-artifacts takes no value — place it after the file arguments");
+    throw new UsageError("--no-issue-artifacts takes no value — place it after the file arguments");
   }
   if (parsed.flags.has("--promote") && typeof parsed.flags.get("--promote") === "string") {
     throw new UsageError("--promote takes no value — place it after the file arguments");
@@ -2008,9 +2032,13 @@ export async function runAttach(
     uploads.length > 0 || (fromBranch !== undefined && attachedExisting.length > 0);
   if (!parsed.flags.has("--no-comment") && shouldRefreshComment) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace, {
-        issueArtifacts: parsed.flags.has("--issue-artifacts"),
-      });
+      comment = await syncAttachmentsComment(
+        ctx.client,
+        target,
+        run,
+        ctx.config.workspace,
+        parsed.flags.has("--no-issue-artifacts") ? { issueArtifacts: false } : {},
+      );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(

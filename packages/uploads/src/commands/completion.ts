@@ -142,7 +142,7 @@ ${subMaps.join("\n")}
         COMPREPLY=( $(compgen -W "\${put_flags[*]} --url" -- "$cur") )
         ;;
       attach)
-        COMPREPLY=( $(compgen -W "\${put_flags[*]} --issue-artifacts" -- "$cur") )
+        COMPREPLY=( $(compgen -W "\${put_flags[*]} --no-issue-artifacts" -- "$cur") )
         ;;
       screenshot)
         COMPREPLY=( $(compgen -W "\${screenshot_flags[*]}" -- "$cur") )
@@ -301,7 +301,7 @@ function fishScript(): string {
     );
   }
   lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put' -l url -r`);
-  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from attach' -l issue-artifacts`);
+  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from attach' -l no-issue-artifacts`);
   for (const flag of SCREENSHOT_FLAGS) {
     if (!flag.startsWith("--")) continue;
     lines.push(

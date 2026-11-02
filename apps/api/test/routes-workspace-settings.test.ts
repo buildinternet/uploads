@@ -227,6 +227,7 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       noUploadsComment: null,
       uiPaths: null,
       requireUploads: null,
+      issueArtifacts: null,
     });
   });
 
@@ -404,6 +405,33 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       requireUploads: null,
     });
     expect((await patch({ requireUploads: "yes" })).status).toBe(400);
+  });
+
+  it("PATCH stores issueArtifacts and clears it with null", async () => {
+    const { env, registry } = makeEnv({ role: "admin" });
+    const patch = (body: unknown) =>
+      app.request(
+        "/v1/workspaces/acme/comment-settings",
+        {
+          method: "PATCH",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        env,
+      );
+    expect(await (await patch({ issueArtifacts: false })).json()).toMatchObject({
+      issueArtifacts: false,
+    });
+    expect(registry.record<{ githubIssueArtifacts?: boolean }>("acme")?.githubIssueArtifacts).toBe(
+      false,
+    );
+    expect(await (await patch({ issueArtifacts: null })).json()).toMatchObject({
+      issueArtifacts: null,
+    });
+    expect(
+      registry.record<{ githubIssueArtifacts?: boolean }>("acme")?.githubIssueArtifacts,
+    ).toBeUndefined();
+    expect((await patch({ issueArtifacts: "yes" })).status).toBe(400);
   });
 
   it("PATCH rejects a non-boolean ingestGithubAttachments with 400", async () => {

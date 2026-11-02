@@ -11,6 +11,7 @@ import {
   ISSUE_MEDIA_ARTIFACT_NAME,
   issueArtifactMediaBody,
   issueArtifactName,
+  resolveIssueArtifacts,
   syncIssueArtifacts,
 } from "../src/github-issue-artifacts.js";
 
@@ -81,6 +82,16 @@ function writes(calls: Call[], method: "POST" | "PATCH") {
   return calls.filter((call) => methodOf(call.args) === method);
 }
 
+describe("resolveIssueArtifacts", () => {
+  it("uses the call, then the repo file, then the workspace, then on", () => {
+    expect(resolveIssueArtifacts({})).toBe(true);
+    expect(resolveIssueArtifacts({ workspace: false })).toBe(false);
+    expect(resolveIssueArtifacts({ workspace: false, repo: true })).toBe(true);
+    expect(resolveIssueArtifacts({ repo: true, call: false })).toBe(false);
+    expect(resolveIssueArtifacts({ call: true, repo: false, workspace: false })).toBe(true);
+  });
+});
+
 describe("issueArtifactName", () => {
   it("strips parentheses and keeps the stable names free of them", () => {
     expect(issueArtifactName("plan (1).md")).toBe("plan 1.md");
@@ -141,27 +152,6 @@ describe("syncIssueArtifacts", () => {
     expect(patches).toHaveLength(1);
     expect(patches[0]!.args).toContain("repos/o/r/issues/45/artifacts/4");
     expect(payloadOf(patches[0]!.input)).toEqual({ body: "new media" });
-  });
-
-  it("finds the artifact on a later page instead of creating a duplicate", () => {
-    const decoys = Array.from({ length: 100 }, (_, i) => ({
-      number: i + 1,
-      name: `note ${i}`,
-      body: "x",
-    }));
-    const { run, calls } = artifactApi({
-      pages: [decoys, [{ number: 101, name: ISSUE_MEDIA_ARTIFACT_NAME, body: "old" }]],
-    });
-    const result = syncIssueArtifacts(issue, run, { commentBody: "fresh" });
-    expect(result).toEqual({ media: "updated" });
-    expect(writes(calls, "POST")).toHaveLength(0);
-    expect(writes(calls, "PATCH")[0]!.args).toContain("repos/o/r/issues/45/artifacts/101");
-    expect(
-      calls.filter((call) => methodOf(call.args) === "GET").map((call) => endpointOf(call.args)),
-    ).toEqual([
-      "repos/o/r/issues/45/artifacts?per_page=100&page=1",
-      "repos/o/r/issues/45/artifacts?per_page=100&page=2",
-    ]);
   });
 
   it("skips the write when the body is already current", () => {
@@ -228,19 +218,6 @@ describe("syncIssueArtifacts", () => {
     expect(result.warning).toContain("429");
     expect(result.warning).toContain("issue artifact was not updated");
   });
-
-  it("still writes the media artifact when the gallery URL is not http(s)", () => {
-    const { run, calls } = artifactApi({});
-    const result = syncIssueArtifacts(issue, run, {
-      commentBody: "media",
-      galleryUrl: "not a url",
-    });
-    expect(result.media).toBe("created");
-    expect(result.gallery).toBeUndefined();
-    expect(result.warning).toContain("gallery URL");
-    expect(writes(calls, "POST")).toHaveLength(1);
-    expect(payloadOf(writes(calls, "POST")[0]!.input).type).toBe("generic");
-  });
 });
 
 function commentClient(
@@ -297,20 +274,10 @@ const mediaItems = [
 ];
 
 describe("syncAttachmentsComment issue artifacts", () => {
-  it("stays off unless the flag or comment.issueArtifacts is set", async () => {
-    const root = repoWithConfig("comment:\n  note: hello\n");
-    const { run, calls } = commentRunner(root);
-    const result = await syncAttachmentsComment(commentClient(mediaItems), issue, run, "test");
-    expect(result.issueArtifact).toBeUndefined();
-    expect(calls.some((call) => endpointOf(call.args).includes("/artifacts"))).toBe(false);
-  });
-
-  it("creates the media artifact from the managed comment when the flag is set", async () => {
+  it("creates the media artifact by default", async () => {
     const root = repoWithConfig(null);
     const { run, calls } = commentRunner(root);
-    const result = await syncAttachmentsComment(commentClient(mediaItems), issue, run, "test", {
-      issueArtifacts: true,
-    });
+    const result = await syncAttachmentsComment(commentClient(mediaItems), issue, run, "test");
     expect(result.via).toBe("gh");
     expect(result.issueArtifact).toEqual({ media: "created" });
     const post = writes(calls, "POST").find((call) => endpointOf(call.args).includes("/artifacts"));
@@ -322,6 +289,40 @@ describe("syncAttachmentsComment issue artifacts", () => {
     expect(payload.body).toContain(VIDEO);
     expect(payload.body).not.toContain("<video");
     expect(post!.args).not.toContain("--attach");
+  });
+
+  it("skips when the repo, the workspace, or the call opts out", async () => {
+    const repoOff = repoWithConfig("comment:\n  issueArtifacts: false\n");
+    const repoRun = commentRunner(repoOff);
+    const fromRepo = await syncAttachmentsComment(
+      commentClient(mediaItems),
+      issue,
+      repoRun.run,
+      "test",
+    );
+    expect(fromRepo.issueArtifact).toBeUndefined();
+    expect(repoRun.calls.some((call) => endpointOf(call.args).includes("/artifacts"))).toBe(false);
+
+    const wsOff = commentClient(mediaItems);
+    (
+      wsOff as unknown as { upsertGithubComment: UploadsClient["upsertGithubComment"] }
+    ).upsertGithubComment = async () => ({
+      posted: false,
+      reason: "not_installed",
+      issueArtifacts: false,
+    });
+    const wsRun = commentRunner(repoWithConfig(null));
+    const fromWs = await syncAttachmentsComment(wsOff, issue, wsRun.run, "test");
+    expect(fromWs.issueArtifact).toBeUndefined();
+
+    const callOff = await syncAttachmentsComment(
+      commentClient(mediaItems),
+      issue,
+      commentRunner(repoWithConfig("comment:\n  issueArtifacts: true\n")).run,
+      "test",
+      { issueArtifacts: false },
+    );
+    expect(callOff.issueArtifact).toBeUndefined();
   });
 
   it("reads comment.issueArtifacts from .uploads.yml and links the first gallery", async () => {

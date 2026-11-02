@@ -1850,6 +1850,7 @@ function toCommentSettings(body: unknown): CommentSettings | null {
       ? b.noUploadsComment
       : null;
   const requireUploads = typeof b.requireUploads === "boolean" ? b.requireUploads : null;
+  const issueArtifacts = typeof b.issueArtifacts === "boolean" ? b.issueArtifacts : null;
   const uiPaths = Array.isArray(b.uiPaths)
     ? b.uiPaths.filter((p): p is string => typeof p === "string")
     : null;
@@ -1863,6 +1864,7 @@ function toCommentSettings(body: unknown): CommentSettings | null {
     noUploadsComment,
     uiPaths,
     requireUploads,
+    issueArtifacts,
   };
 }
 

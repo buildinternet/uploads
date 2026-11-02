@@ -87,28 +87,20 @@ Use uploads for everything else in this skill:
   as a link to the uploads.sh URL.
 - A private-repo capture that should become a public uploads.sh URL.
 
-To have `uploads attach` also keep issue artifacts, set this in `.uploads.yml`
-(off when omitted):
+`uploads attach` on an issue does this by default. It writes one Markdown
+artifact named `uploads.sh media` with the same block as the managed comment.
+Image URLs are uploads.sh embed or storage URLs. It does not pass `--attach`
+and does not copy bytes to GitHub. A later attach updates that artifact in
+place. When the issue has a gallery, a second artifact named
+`uploads.sh gallery` is a link to the gallery URL. If GitHub rejects the
+write, attach prints a warning and still succeeds.
 
-```yaml
-comment:
-  issueArtifacts: true
-```
-
-Or turn it on for one command:
-
-```bash
-uploads attach ./shot.png --issue 45 --issue-artifacts
-```
-
-That writes one Markdown artifact named `uploads.sh media` with the same
-block as the managed comment. Image URLs are uploads.sh embed or storage
-URLs. It does not pass `--attach` and does not copy bytes to GitHub. A later
-attach updates that artifact in place. When the issue has a gallery, a second
-artifact named `uploads.sh gallery` is a link to the gallery URL. If GitHub
-rejects the write, attach prints a warning and still succeeds. The stdio MCP
-`attach` tool takes `issueArtifacts: true` for the same behavior. The hosted
-MCP does not write issue artifacts.
+Turn it off in this order: `--no-issue-artifacts` on one command, then
+`comment.issueArtifacts: false` in `.uploads.yml`, then **Issue artifacts**
+under the workspace's Settings → GitHub. Anything not set leaves the next
+layer, and the last layer is on. The stdio MCP `attach` tool takes
+`issueArtifacts: false` for the same one-call opt-out and reads the repo file
+and the workspace setting. The hosted MCP does not write issue artifacts.
 
 ## Which surface
 

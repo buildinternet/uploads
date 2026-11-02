@@ -213,6 +213,13 @@ const tip = {
           >
             <SettingSwitch id="cs-ingest-github-attachments" label="Import GitHub attachments" />
           </SettingRow>
+          <SettingRow
+            id="cs-row-issue-artifacts"
+            label="Issue artifacts"
+            description="On an issue, keep a Markdown artifact and a gallery link next to the managed comment. Images stay on uploads.sh."
+          >
+            <SettingSwitch id="cs-issue-artifacts" label="Issue artifacts" />
+          </SettingRow>
         </div>
 
         <p class="settings-note muted">
@@ -456,6 +463,7 @@ const tip = {
       const metaToggle = requireElement<HTMLButtonElement>("#cs-show-metadata", page);
       const linkToggle = requireElement<HTMLButtonElement>("#cs-link-to-file-page", page);
       const ingestToggle = requireElement<HTMLButtonElement>("#cs-ingest-github-attachments", page);
+      const issueArtifactsToggle = requireElement<HTMLButtonElement>("#cs-issue-artifacts", page);
       // Fetched as HTMLElement and cast: HTMLSelectElement fails requireElement's
       // `T extends Element` constraint here (see device.astro's wsSelect).
       const noUploadsSelect = requireElement<HTMLElement>(
@@ -648,6 +656,7 @@ const tip = {
           ingestGithubAttachments: toggleOn(ingestToggle),
           noUploadsComment: noUploadsModeFromSelect(),
           requireUploads: toggleOn(requireToggle),
+          issueArtifacts: toggleOn(issueArtifactsToggle),
         };
       }
 
@@ -726,6 +735,7 @@ const tip = {
         // Unset means the platform default, which is ON (issue #690) — paint
         // the toggle the way ingestion will actually behave.
         paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
+        paintToggle(issueArtifactsToggle, settings.issueArtifacts ?? true);
         noUploadsSelect.value = settings.noUploadsComment ?? "auto";
         paintToggle(requireToggle, settings.requireUploads ?? false);
         noteInput.value = settings.note ?? "";
@@ -747,6 +757,7 @@ const tip = {
       bindToggle(metaToggle, () => markEdited());
       bindToggle(linkToggle, () => markEdited());
       bindToggle(ingestToggle, () => markEdited());
+      bindToggle(issueArtifactsToggle, () => markEdited());
       noUploadsSelect.addEventListener("change", () => markEdited());
       bindToggle(requireToggle, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());

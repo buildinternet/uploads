@@ -193,6 +193,11 @@ export interface WorkspaceRecord {
   githubCommentNote?: string;
   /** Workspace default for the repo `ingestGithubAttachments` knob. */
   githubIngestAttachments?: boolean;
+  /**
+   * Workspace default for issue artifacts. Absent means on. `false` opts the
+   * workspace out. A repo's `.uploads.yml` `issueArtifacts` wins over this.
+   */
+  githubIssueArtifacts?: boolean;
   /** Workspace default for the repo `adoptLinkedFiles` knob. */
   githubAdoptLinkedFiles?: boolean;
   /**

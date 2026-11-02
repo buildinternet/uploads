@@ -21,8 +21,22 @@ export const ISSUE_MEDIA_ARTIFACT_NAME = "uploads.sh media";
 /** Stable name for the gallery link artifact. */
 export const ISSUE_GALLERY_ARTIFACT_NAME = "uploads.sh gallery";
 
+/**
+ * Per-call flag, then the repo file, then the workspace setting, then on.
+ * `undefined` means that layer did not set a value.
+ */
+export function resolveIssueArtifacts(layers: {
+  call?: boolean;
+  repo?: boolean;
+  workspace?: boolean;
+}): boolean {
+  if (layers.call !== undefined) return layers.call;
+  if (layers.repo !== undefined) return layers.repo;
+  if (layers.workspace !== undefined) return layers.workspace;
+  return true;
+}
+
 const ARTIFACT_PAGE_SIZE = 100;
-const ARTIFACT_MAX_PAGES = 10;
 
 export interface IssueArtifactSyncInput {
   /** Managed comment body. Empty or absent skips the media artifact. */
@@ -107,21 +121,13 @@ function parseArtifactPage(raw: string): ArtifactRow[] {
   return rows;
 }
 
-/** Pages until a short page or both names are found. The list is oldest-first. */
-function listArtifacts(target: GhTarget, run: CommandRunner, names: Set<string>): ArtifactRow[] {
-  const out: ArtifactRow[] = [];
-  const found = new Set<string>();
-  for (let page = 1; page <= ARTIFACT_MAX_PAGES; page++) {
-    const raw = run("gh", [
-      "api",
-      `repos/${target.repo}/issues/${target.num}/artifacts?per_page=${ARTIFACT_PAGE_SIZE}&page=${page}`,
-    ]);
-    const rows = parseArtifactPage(raw);
-    out.push(...rows);
-    for (const row of rows) if (names.has(row.name)) found.add(row.name);
-    if (rows.length < ARTIFACT_PAGE_SIZE || found.size === names.size) break;
-  }
-  return out;
+/** One page, oldest first. Enough to find the artifact this command created. */
+function listArtifacts(target: GhTarget, run: CommandRunner): ArtifactRow[] {
+  const raw = run("gh", [
+    "api",
+    `repos/${target.repo}/issues/${target.num}/artifacts?per_page=${ARTIFACT_PAGE_SIZE}`,
+  ]);
+  return parseArtifactPage(raw);
 }
 
 function findByName(rows: ArtifactRow[], name: string): ArtifactRow | undefined {
@@ -191,10 +197,7 @@ export function syncIssueArtifacts(
   const galleryName = issueArtifactName(ISSUE_GALLERY_ARTIFACT_NAME);
   let rows: ArtifactRow[];
   try {
-    const wanted = new Set<string>();
-    if (commentBody) wanted.add(mediaName);
-    if (galleryUrl) wanted.add(galleryName);
-    rows = listArtifacts(target, run, wanted);
+    rows = listArtifacts(target, run);
   } catch (err) {
     return { warning: `issue artifact was not updated: ${errorMessage(err)}` };
   }
