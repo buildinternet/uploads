@@ -107,29 +107,19 @@ describe("uploads install", () => {
     expect(calls[0]).toEqual(["npx", "--version"]);
     expect(calls[1]).toEqual(["npm", "--version"]);
     expect(withoutSkillProbe(calls)).toEqual([
-      ["npx", "-y", "skills", "add", "buildinternet/uploads", "--skill", "uploads-cli", "-g", "-y"],
-      [
+      ...["uploads-cli", "github-screenshots", "annotate-screenshots"].map((skill) => [
         "npx",
         "-y",
         "skills",
         "add",
         "buildinternet/uploads",
         "--skill",
-        "github-screenshots",
+        skill,
         "-g",
         "-y",
-      ],
-      [
-        "npx",
-        "-y",
-        "skills",
-        "add",
-        "buildinternet/uploads",
-        "--skill",
-        "annotate-screenshots",
-        "-g",
-        "-y",
-      ],
+        "-a",
+        "claude-code",
+      ]),
       ...withMcpListProbes(
         MCP_CLIENTS.map((client) => client.command("uploads", DEFAULT_MCP_URL, "up_acme_secret")),
       ),
@@ -177,6 +167,65 @@ describe("uploads install", () => {
     expect(out).toContain("skills: skipped — no supported agent found");
     expect(out).toContain("npx skills add buildinternet/uploads -g");
     expect(out).not.toContain("Skill install incomplete");
+  });
+
+  it("targets only the agents found and says where the skills went", async () => {
+    fs.mkdirSync(path.join(emptyHome, ".codex"));
+    const { run, calls } = fakeRunner();
+    const { out } = captureStreams();
+    expect(await install(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
+    const adds = withoutSkillProbe(calls);
+    expect(adds.every((c) => c.slice(-3).join(" ") === "-a claude-code codex")).toBe(true);
+    const printed = out.join("");
+    expect(printed).toContain(
+      "Skills are in ~/.claude/skills (Claude Code), ~/.agents/skills (Codex)",
+    );
+    expect(printed).toContain("To remove: npx skills remove -g uploads-cli");
+  });
+
+  it("shows the plan and asks once; declining installs nothing", async () => {
+    fs.mkdirSync(path.join(emptyHome, ".cursor"));
+    // Only `claude` and `codex` on PATH: the plan names just those.
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-install-bin-"));
+    for (const name of ["claude", "codex"]) {
+      fs.writeFileSync(path.join(bin, name), "#!/bin/sh\n", { mode: 0o755 });
+    }
+    vi.stubEnv("PATH", bin);
+    const { run, calls } = fakeRunner();
+    const { out } = captureStreams();
+    const questions: string[] = [];
+    const confirm = async (q: string) => {
+      questions.push(q);
+      return false;
+    };
+    expect(await install([], { globals: GLOBALS, runner: run, confirm })).toBe(0);
+    expect(questions).toEqual(["Proceed?"]);
+    expect(calls).toEqual([]);
+    const printed = out.join("");
+    expect(printed).toContain(
+      "Add the uploads-cli, github-screenshots, annotate-screenshots skills for Claude Code, Cursor",
+    );
+    expect(printed).toContain("Register the uploads MCP server in Claude Code, Codex\n");
+    expect(printed).toContain("Add the PR screenshot reminder hook for Cursor");
+    expect(printed).toContain("Using another agent? Run `npx skills add buildinternet/uploads -g`");
+    expect(printed).toContain("Nothing installed.");
+    expect(fs.existsSync(path.join(emptyHome, ".cursor", "hooks.json"))).toBe(false);
+  });
+
+  it("installs everything after a yes", async () => {
+    const { run, calls } = fakeRunner();
+    const confirm = async () => true;
+    expect(await install([], { globals: GLOBALS, runner: run, confirm })).toBe(0);
+    expect(withoutSkillProbe(calls).filter((c) => c.includes("skills"))).toHaveLength(3);
+    expect(calls.some((c) => c[0] === "claude" && c[2] === "add")).toBe(true);
+  });
+
+  it("does not ask for `install skill` or with --yes", async () => {
+    const confirm = vi.fn(async () => false);
+    const { run } = fakeRunner();
+    expect(await install(["skill"], { globals: GLOBALS, runner: run, confirm })).toBe(0);
+    expect(await install(["--yes"], { globals: GLOBALS, runner: run, confirm })).toBe(0);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("install skill runs only the skills step", async () => {
