@@ -43,8 +43,6 @@ describe("notifyAdminsOfMemberJoin", () => {
       notifySlackHolds: true,
       notifyEmailHolds: false,
       notifyProductUpdates: true,
-      notifyWeeklyDigest: over.notifyWeeklyDigest ?? false,
-      notifyWeeklyWorkspaceDigest: over.notifyWeeklyWorkspaceDigest ?? false,
     };
     await orm.insert(schema.user).values(u);
     return u;

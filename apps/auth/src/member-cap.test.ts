@@ -73,8 +73,6 @@ describe("memberCapDenial", () => {
       stripeCustomerId: null,
       notifyMemberJoin: true,
       notifyUsageLimits: true,
-      notifyWeeklyDigest: false,
-      notifyWeeklyWorkspaceDigest: false,
     });
     return userId;
   }
@@ -92,7 +90,11 @@ describe("memberCapDenial", () => {
     }
   }
 
-  async function seedPendingInvites(count: number, status = "pending"): Promise<void> {
+  async function seedPendingInvites(
+    count: number,
+    status = "pending",
+    expiresAt = new Date(Date.now() + 86_400_000),
+  ): Promise<void> {
     const inviterId = await seedUser();
     for (let index = 0; index < count; index++) {
       await orm.insert(schema.invitation).values({
@@ -101,7 +103,7 @@ describe("memberCapDenial", () => {
         email: `pending-${index}@example.com`,
         role: "member",
         status,
-        expiresAt: new Date(Date.now() + 86_400_000),
+        expiresAt,
         inviterId,
         createdAt: new Date(),
       });
@@ -141,6 +143,13 @@ describe("memberCapDenial", () => {
   it("ignores non-pending invitations — a declined invite frees its seat", async () => {
     await seedMembers(1);
     await seedPendingInvites(2, "canceled");
+    const api = capBinding({ workspace: "acme", cap: 3, message: "at cap" });
+    expect(await memberCapDenial(env(api), orm, args())).toBeNull();
+  });
+
+  it("ignores expired pending invites — they can't be accepted", async () => {
+    await seedMembers(1);
+    await seedPendingInvites(2, "pending", new Date(Date.now() - 60_000));
     const api = capBinding({ workspace: "acme", cap: 3, message: "at cap" });
     expect(await memberCapDenial(env(api), orm, args())).toBeNull();
   });
@@ -301,8 +310,6 @@ describe("POST /internal/invite at cap", () => {
       stripeCustomerId: null,
       notifyMemberJoin: true,
       notifyUsageLimits: true,
-      notifyWeeklyDigest: false,
-      notifyWeeklyWorkspaceDigest: false,
     });
     await orm.insert(schema.member).values({
       id: crypto.randomUUID(),
@@ -388,5 +395,24 @@ describe("POST /internal/invite at cap", () => {
     expect(res.status).toBe(200);
     const rows = await orm.select().from(schema.invitation);
     expect(rows).toHaveLength(1);
+  });
+
+  it("sends a fresh invite when the earlier one for that email expired", async () => {
+    const expiredId = crypto.randomUUID();
+    await orm.insert(schema.invitation).values({
+      id: expiredId,
+      organizationId: org.id,
+      email: "new@example.com",
+      role: "member",
+      status: "pending",
+      expiresAt: new Date(Date.now() - 60_000),
+      inviterId: inviter.id,
+      createdAt: new Date(),
+    });
+
+    const res = await invite({}, env(2));
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { invitation: { id: string } };
+    expect(body.invitation.id).not.toBe(expiredId);
   });
 });

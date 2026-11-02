@@ -73,16 +73,6 @@ export const user = sqliteTable("user", {
   notifyProductUpdates: integer("notify_product_updates", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
-  /**
-   * Retired account-wide weekly digest flags; live preferences are on
-   * `member`. Kept for rollout. New mail doesn't read them.
-   */
-  notifyWeeklyDigest: integer("notify_weekly_digest", { mode: "boolean" })
-    .notNull()
-    .$defaultFn(() => false),
-  notifyWeeklyWorkspaceDigest: integer("notify_weekly_workspace_digest", { mode: "boolean" })
-    .notNull()
-    .$defaultFn(() => false),
 });
 
 /**

@@ -27,7 +27,7 @@
  * fetch leaves invites working, matching `billing-bridge.ts`'s treatment of
  * the same binding: an apps/api outage must not take invitations down.
  */
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, gt } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
@@ -105,7 +105,8 @@ async function fetchMemberCap(
 /**
  * Current members plus pending invitations for an org. Pending invites count
  * toward the cap, or the cap is fiction: three pending invitations on a free
- * workspace already spend every seat.
+ * workspace already spend every seat. An expired invite can't be accepted, so
+ * it frees its seat right away rather than waiting for the retention sweep.
  */
 async function countSeatsInUse(db: Db, organizationId: string): Promise<number> {
   const [[members], [invites]] = await Promise.all([
@@ -120,6 +121,7 @@ async function countSeatsInUse(db: Db, organizationId: string): Promise<number> 
         and(
           eq(schema.invitation.organizationId, organizationId),
           eq(schema.invitation.status, "pending"),
+          gt(schema.invitation.expiresAt, new Date()),
         ),
       ),
   ]);

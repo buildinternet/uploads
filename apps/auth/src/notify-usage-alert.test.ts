@@ -54,8 +54,6 @@ describe("notifyAdminsOfUsageAlert", () => {
       notifySlackHolds: true,
       notifyEmailHolds: false,
       notifyProductUpdates: true,
-      notifyWeeklyDigest: over.notifyWeeklyDigest ?? false,
-      notifyWeeklyWorkspaceDigest: over.notifyWeeklyWorkspaceDigest ?? false,
     };
     await orm.insert(schema.user).values(u);
     return u;
@@ -187,8 +185,6 @@ describe("notifyOperatorOfStorageAlert", () => {
       notifySlackHolds: true,
       notifyEmailHolds: false,
       notifyProductUpdates: true,
-      notifyWeeklyDigest: false,
-      notifyWeeklyWorkspaceDigest: false,
     };
     await orm.insert(schema.user).values(u);
     return u;

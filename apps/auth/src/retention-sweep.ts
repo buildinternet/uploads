@@ -15,12 +15,15 @@
  *   accepted `jti` (CIMD clients such as Vercel Connect). oauth-provider
  *   inserts them and never deletes; a row is useless once the assertion's
  *   `exp` (at most 300 s out) has passed.
+ * - `invitation`: a pending invite past `expires_at` can't be accepted, but
+ *   it still shows in the members list and still counts as a seat. Only
+ *   `pending` rows go; Better Auth's `accepted` / `canceled` rows stay.
  *
  * Deletes are batched (id-select then delete-by-id, looped) so a table that
  * has grown large doesn't turn one sweep into a single unbounded statement.
  */
 import { drizzle } from "drizzle-orm/d1";
-import { inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, type SQL } from "drizzle-orm";
 import * as schema from "./schema";
 import type { AuthEnv } from "./auth";
 
@@ -32,16 +35,17 @@ type Db = ReturnType<typeof drizzle<typeof schema>>;
 type ExpiringTable =
   | typeof schema.verification
   | typeof schema.deviceCode
-  | typeof schema.oauthClientAssertion;
+  | typeof schema.oauthClientAssertion
+  | typeof schema.invitation;
 
 /** Batched delete of expired rows: select ids, delete by id, repeat. */
-async function purgeExpired(db: Db, table: ExpiringTable, now: Date): Promise<number> {
+async function purgeExpired(db: Db, table: ExpiringTable, now: Date, extra?: SQL): Promise<number> {
   let deleted = 0;
   for (;;) {
     const rows = await db
       .select({ id: table.id })
       .from(table)
-      .where(lt(table.expiresAt, now))
+      .where(and(lt(table.expiresAt, now), extra))
       .limit(BATCH_SIZE);
     if (rows.length === 0) break;
 
@@ -60,6 +64,7 @@ export interface RetentionSweepResult {
   verificationDeleted: number;
   deviceCodeDeleted: number;
   clientAssertionDeleted: number;
+  invitationDeleted: number;
 }
 
 export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSweepResult> {
@@ -69,6 +74,12 @@ export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSwee
   const verificationDeleted = await purgeExpired(db, schema.verification, now);
   const deviceCodeDeleted = await purgeExpired(db, schema.deviceCode, now);
   const clientAssertionDeleted = await purgeExpired(db, schema.oauthClientAssertion, now);
+  const invitationDeleted = await purgeExpired(
+    db,
+    schema.invitation,
+    now,
+    eq(schema.invitation.status, "pending"),
+  );
 
   console.log(
     JSON.stringify({
@@ -76,8 +87,9 @@ export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSwee
       verificationDeleted,
       deviceCodeDeleted,
       clientAssertionDeleted,
+      invitationDeleted,
     }),
   );
 
-  return { verificationDeleted, deviceCodeDeleted, clientAssertionDeleted };
+  return { verificationDeleted, deviceCodeDeleted, clientAssertionDeleted, invitationDeleted };
 }
