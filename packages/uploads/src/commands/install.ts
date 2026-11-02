@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import {
   flagBool,
   flagString,
@@ -24,27 +25,55 @@ const SKILL_NAMES = ["uploads-cli", "github-screenshots", "annotate-screenshots"
 const MANUAL_SKILL_COMMAND = `npx skills add ${SKILL_SOURCE} -g`;
 
 /**
- * Home-relative dirs the skills CLI uses to detect common agents. When none
- * exist, `skills add -y` falls back to every agent it supports and creates a
- * dotdir for each in $HOME (#1361), so install skips skills and points at the
- * interactive picker instead. Missing a rarer agent here only costs a manual
- * step, never extra dirs.
+ * Agents we pass to `skills add -a`, keyed by the home-relative dir the skills
+ * CLI itself uses to detect them. Naming them explicitly keeps skills from
+ * falling back to every agent it supports when it detects none (#1361), and
+ * tells us where the files land so install can say so. A rarer agent missing
+ * here only costs a manual step, never extra dirs.
  */
-const SKILL_AGENT_DIRS = [
-  ".claude",
-  ".codex",
-  ".cursor",
-  ".gemini",
-  ".copilot",
-  ".grok",
-  ".codeium/windsurf",
-  ".config/opencode",
-  ".config/amp",
-  ".config/goose",
-];
+const SKILL_AGENTS = [
+  { dir: ".claude", id: "claude-code", label: "Claude Code", skillsDir: "~/.claude/skills" },
+  { dir: ".codex", id: "codex", label: "Codex", skillsDir: "~/.agents/skills" },
+  { dir: ".cursor", id: "cursor", label: "Cursor", skillsDir: "~/.cursor/skills" },
+  { dir: ".gemini", id: "gemini-cli", label: "Gemini CLI", skillsDir: "~/.gemini/skills" },
+  {
+    dir: ".copilot",
+    id: "github-copilot",
+    label: "GitHub Copilot",
+    skillsDir: "~/.copilot/skills",
+  },
+  { dir: ".grok", id: "grok", label: "Grok", skillsDir: "~/.grok/skills" },
+  {
+    dir: ".codeium/windsurf",
+    id: "windsurf",
+    label: "Windsurf",
+    skillsDir: "~/.codeium/windsurf/skills",
+  },
+  {
+    dir: ".config/opencode",
+    id: "opencode",
+    label: "OpenCode",
+    skillsDir: "~/.config/opencode/skills",
+  },
+  { dir: ".config/amp", id: "amp", label: "Amp", skillsDir: "~/.config/agents/skills" },
+  { dir: ".config/goose", id: "goose", label: "Goose", skillsDir: "~/.config/goose/skills" },
+] as const;
 
-export function hasSkillAgent(home: string): boolean {
-  return SKILL_AGENT_DIRS.some((dir) => fs.existsSync(path.join(home, dir)));
+type SkillAgent = (typeof SKILL_AGENTS)[number];
+
+export function detectSkillAgents(home: string): SkillAgent[] {
+  return SKILL_AGENTS.filter((a) => fs.existsSync(path.join(home, a.dir)));
+}
+
+/** Ask a yes/no question on the terminal; Enter means yes. */
+async function confirmOnTty(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(`${question} [Y/n] `)).trim().toLowerCase();
+    return answer === "" || answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
 }
 
 type McpClientId = "claude" | "codex" | "grok";
@@ -121,6 +150,9 @@ for OAuth. To point it at a new token: \`<cli> mcp remove <name>\` first
 Usage:
   uploads install [skill|mcp|hooks|all]     (default: all)
 
+The default \`all\` asks before installing skills and names the agents it found;
+\`uploads install skill\` (or --yes) installs without asking.
+
 What it does:
   skill   Agent skills (via npx skills) — github-screenshots: visuals into
           PRs/issues; uploads-cli: full CLI reference; annotate-screenshots:
@@ -130,10 +162,11 @@ What it does:
   hooks   PR screenshot reminder for Grok / Cursor (user-global manifests)
 
 What runs under the hood:
-  skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y
-          (only into agents already installed here — with none found it
-          skips and prints the manual command; once per skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+
-          with npx on PATH — missing tooling fails once with install guidance)
+  skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y -a <agents>
+          (<agents> are the ones found here: ~/.claude, ~/.codex, ~/.cursor, …
+          — with none found it skips and prints the manual command; once per
+          skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+ with npx on
+          PATH — missing tooling fails once with install guidance)
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
           codex mcp add uploads --url ${DEFAULT_MCP_URL}
@@ -145,6 +178,7 @@ What runs under the hood:
 Options:
   --url <endpoint>    Remote MCP endpoint (default: ${DEFAULT_MCP_URL})
   --name <name>       MCP server name in the client (default: uploads)
+  --yes               Install skills without asking
   --dry-run           Print the plan without running anything
   --verbose           Show underlying command output (default: errors only)
 
@@ -159,7 +193,7 @@ Examples:
 export interface StepResult {
   command: string[];
   ok: boolean;
-  skipped?: "dry-run" | "sign-in" | "already-configured" | "missing-cli" | "no-agent";
+  skipped?: "dry-run" | "sign-in" | "already-configured" | "missing-cli" | "no-agent" | "declined";
   error?: string;
   output?: string;
 }
@@ -256,11 +290,10 @@ export function runStep(run: CommandRunner, command: string[]): StepResult {
   }
 }
 
-function skillCommand(skill: string): string[] {
-  // -g global, -y non-interactive. No `-a`: skills targets only the agents it
-  // detects (plus the shared ~/.agents/skills), instead of creating a dotdir for
-  // every supported agent in $HOME (#1361).
-  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", skill, "-g", "-y"];
+function skillCommand(skill: string, agents: SkillAgent[]): string[] {
+  // -g global, -y non-interactive, -a only the agents found here (#1361).
+  const target = agents.length > 0 ? ["-a", ...agents.map((a) => a.id)] : [];
+  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", skill, "-g", "-y", ...target];
 }
 
 /** `mcp add` exits non-zero when the name is already registered; treat that as success. */
@@ -471,7 +504,9 @@ function printHumanSteps(
   const { skills, mcp, other } = partitionSteps(results);
   const sharedError = identicalSkillFailure(skills);
 
-  if (skills.length > 0 && skills.every(([, r]) => r.skipped === "no-agent")) {
+  if (skills.length > 0 && skills.every(([, r]) => r.skipped === "declined")) {
+    process.stdout.write(`skills: skipped — add them later with \`uploads install skill\`\n`);
+  } else if (skills.length > 0 && skills.every(([, r]) => r.skipped === "no-agent")) {
     process.stdout.write(
       "skills: skipped — no supported agent found (~/.claude, ~/.codex, ~/.cursor, …).\n" +
         `  To choose agents yourself: ${MANUAL_SKILL_COMMAND}\n`,
@@ -532,6 +567,8 @@ export async function runInstall(
     runner?: CommandRunner;
     /** Override home for hook installs (tests). */
     home?: string;
+    /** Yes/no prompt before installing skills (tests); defaults to the terminal when interactive. */
+    confirm?: (question: string) => Promise<boolean>;
   },
   help = false,
 ): Promise<number> {
@@ -559,13 +596,29 @@ export async function runInstall(
   const results: Record<string, StepResult> = {};
   let hookWrites: HookWriteResult[] = [];
 
+  let skillAgents: SkillAgent[] = [];
   if (target === "skill" || target === "all") {
-    if (human) process.stdout.write("Installing skills…\n");
-    const noAgent = !hasSkillAgent(opts.home ?? os.homedir());
-    const toolingError = dryRun || noAgent ? undefined : probeSkillTooling(run);
+    skillAgents = detectSkillAgents(opts.home ?? os.homedir());
+    const noAgent = skillAgents.length === 0;
+    // `uploads install skill` is already a yes; the default `all` asks first.
+    const ask =
+      opts.confirm ?? (process.stdin.isTTY && process.stdout.isTTY ? confirmOnTty : undefined);
+    const declined =
+      human &&
+      !noAgent &&
+      target === "all" &&
+      !flagBool(parsed.flags, "--yes") &&
+      ask !== undefined &&
+      !(await ask(
+        `Install the ${SKILL_NAMES.join(", ")} skills for ${skillAgents.map((a) => a.label).join(", ")}?`,
+      ));
+    if (human && !declined) process.stdout.write("Installing skills…\n");
+    const toolingError = dryRun || noAgent || declined ? undefined : probeSkillTooling(run);
     for (const skill of SKILL_NAMES) {
-      const command = skillCommand(skill);
-      if (noAgent) {
+      const command = skillCommand(skill, skillAgents);
+      if (declined) {
+        results[`skill:${skill}`] = { command, ok: true, skipped: "declined" };
+      } else if (noAgent) {
         results[`skill:${skill}`] = {
           command,
           ok: false,
@@ -640,6 +693,15 @@ export async function runInstall(
   }
 
   printHumanSteps(results, redact, verbose, name);
+  const { skills: skillEntries, mcp: mcpEntries } = partitionSteps(results);
+  const skillResults = skillEntries.map(([, r]) => r);
+  const skillsOk = skillResults.length > 0 && skillResults.every((r) => r.ok && !r.skipped);
+  if (human && skillsOk) {
+    process.stdout.write(
+      `  Skills are in ${skillAgents.map((a) => `${a.skillsDir} (${a.label})`).join(", ")}\n` +
+        `  To remove: npx skills remove -g ${SKILL_NAMES.join(" ")}\n`,
+    );
+  }
   // Path-level detail for hooks (printHumanSteps only shows the synthetic step).
   if (
     (target === "hooks" || target === "all") &&
@@ -648,9 +710,6 @@ export async function runInstall(
     printHookResults(hookWrites);
   }
 
-  const { skills: skillEntries, mcp: mcpEntries } = partitionSteps(results);
-  const skillResults = skillEntries.map(([, r]) => r);
-  const skillsOk = skillResults.length > 0 && skillResults.every((r) => r.ok);
   const skillsFailed = skillResults.some((r) => !r.ok);
   const mcpResults = mcpEntries.map(([, r]) => r);
   const mcpFailed = mcpResults.some((r) => !r.ok);
@@ -659,7 +718,13 @@ export async function runInstall(
     const stepLabels = [
       ...new Set(
         Object.entries(results)
-          .filter(([, r]) => r.ok && r.skipped !== "missing-cli" && r.skipped !== "sign-in")
+          .filter(
+            ([, r]) =>
+              r.ok &&
+              r.skipped !== "missing-cli" &&
+              r.skipped !== "sign-in" &&
+              r.skipped !== "declined",
+          )
           .map(([k]) => stepFamily(k)),
       ),
     ];
