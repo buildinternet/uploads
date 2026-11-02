@@ -28,7 +28,7 @@ A mistyped command suggests the closest real one —
 ```bash
 uploads login          # sign in via browser; saves your workspace token, then runs doctor
 uploads whoami         # show the active workspace + token (alias: uploads status)
-uploads install        # skills + hosted MCP (skips missing agent CLIs) + hooks for Grok/Cursor
+uploads install        # lists what it found (skills, hosted MCP, Grok/Cursor hooks) and asks once
 uploads update         # update the CLI, then refresh skills / hooks (MCP left as-is)
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
@@ -61,6 +61,12 @@ writes. `uploads update` covers both. It upgrades the global package, then
 re-runs `install` against the new version. When the CLI is already current it
 still refreshes the skills, because those drift on their own. Run
 `uploads update --dry-run` first to see the plan.
+
+On a terminal, `uploads install` first lists what it will set up (only the
+agents, agent CLIs and hook targets it finds on this machine) and asks once.
+`uploads install skill|mcp|hooks`, `--yes`, `update` and non-interactive runs
+skip the question. Skills go only to the agents it found; it prints where they
+went and the `npx skills remove -g …` command to undo it.
 
 Re-running `install` (directly or through `update`) is safe. The skills are
 reinstalled each time. MCP registration tries Claude Code, Codex, and Grok;

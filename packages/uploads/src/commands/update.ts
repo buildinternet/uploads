@@ -86,7 +86,8 @@ export async function runUpdate(
   // Resolved through PATH: in the normal single-install case this is the
   // just-upgraded binary, but with multiple `uploads` binaries on PATH it
   // could resolve to a different, stale one. Accepted risk, not a guarantee.
-  const refreshCommand = ["uploads", "install"];
+  // --yes: a refresh re-applies what the person already set up, so no install question.
+  const refreshCommand = ["uploads", "install", "--yes"];
 
   // --- plan ---
   if (willUpgrade) {
@@ -149,5 +150,8 @@ export async function runUpdate(
   }
 
   // Nothing changed, so the in-process install code is already current.
-  return runInstall(verbose ? ["--verbose"] : [], { globals: opts.globals, runner: run });
+  return runInstall(verbose ? ["--yes", "--verbose"] : ["--yes"], {
+    globals: opts.globals,
+    runner: run,
+  });
 }
