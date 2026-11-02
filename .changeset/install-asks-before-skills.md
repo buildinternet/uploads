@@ -2,4 +2,4 @@
 "@buildinternet/uploads": patch
 ---
 
-`uploads install` now asks before adding the agent skills, names the agents it found, installs only for those agents, and prints where the skills went and how to remove them. `uploads install skill` and `--yes` skip the question.
+`uploads install` now lists what it will set up (skills and the agents they go to, the MCP server, the hooks) and asks once before installing. Skills go only to the agents it found, and it prints where they went and how to remove them. `uploads install skill|mcp|hooks` and `--yes` skip the question.

@@ -183,7 +183,8 @@ describe("uploads install", () => {
     expect(printed).toContain("To remove: npx skills remove -g uploads-cli");
   });
 
-  it("asks before installing skills and skips them when declined", async () => {
+  it("shows the plan and asks once; declining installs nothing", async () => {
+    fs.mkdirSync(path.join(emptyHome, ".cursor"));
     const { run, calls } = fakeRunner();
     const { out } = captureStreams();
     const questions: string[] = [];
@@ -192,14 +193,25 @@ describe("uploads install", () => {
       return false;
     };
     expect(await install([], { globals: GLOBALS, runner: run, confirm })).toBe(0);
-    expect(questions).toEqual([
-      "Install the uploads-cli, github-screenshots, annotate-screenshots skills for Claude Code?",
-    ]);
-    expect(withoutSkillProbe(calls).some((c) => c.includes("skills"))).toBe(false);
+    expect(questions).toEqual(["Proceed?"]);
+    expect(calls).toEqual([]);
     const printed = out.join("");
-    expect(printed).toContain("skills: skipped — add them later with `uploads install skill`");
-    expect(printed).toContain("Done — mcp and hooks ready.");
-    expect(printed).not.toContain("Skills are in");
+    expect(printed).toContain(
+      "Add the uploads-cli, github-screenshots, annotate-screenshots skills for Claude Code, Cursor",
+    );
+    expect(printed).toContain("Register the uploads MCP server in Claude Code, Codex and Grok");
+    expect(printed).toContain("Add the PR screenshot reminder hook for Cursor");
+    expect(printed).toContain("Using another agent? Run `npx skills add buildinternet/uploads -g`");
+    expect(printed).toContain("Nothing installed.");
+    expect(fs.existsSync(path.join(emptyHome, ".cursor", "hooks.json"))).toBe(false);
+  });
+
+  it("installs everything after a yes", async () => {
+    const { run, calls } = fakeRunner();
+    const confirm = async () => true;
+    expect(await install([], { globals: GLOBALS, runner: run, confirm })).toBe(0);
+    expect(withoutSkillProbe(calls).filter((c) => c.includes("skills"))).toHaveLength(3);
+    expect(calls.some((c) => c[0] === "claude" && c[2] === "add")).toBe(true);
   });
 
   it("does not ask for `install skill` or with --yes", async () => {

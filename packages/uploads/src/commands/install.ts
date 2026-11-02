@@ -65,6 +65,30 @@ export function detectSkillAgents(home: string): SkillAgent[] {
   return SKILL_AGENTS.filter((a) => fs.existsSync(path.join(home, a.dir)));
 }
 
+const OTHER_AGENT_HINT = `Using another agent? Run \`${MANUAL_SKILL_COMMAND}\` to pick from the full list.`;
+
+/** What `uploads install` (all) will do, shown before asking to proceed. */
+function installPlan(skillAgents: SkillAgent[], home: string, signedIn: boolean): string {
+  const skills =
+    skillAgents.length > 0
+      ? `Add the ${SKILL_NAMES.join(", ")} skills for ${skillAgents.map((a) => a.label).join(", ")}`
+      : "Skip skills (no supported agent found)";
+  const mcp = signedIn
+    ? "Register the uploads MCP server in Claude Code, Codex and Grok (whichever are installed)"
+    : "Skip the MCP server until you run `uploads login`";
+  const hookTargets = [
+    fs.existsSync(path.join(home, ".cursor")) && "Cursor",
+    fs.existsSync(path.join(home, ".grok")) && "Grok",
+  ].filter(Boolean);
+  const lines = [skills, mcp];
+  if (hookTargets.length > 0) {
+    lines.push(`Add the PR screenshot reminder hook for ${hookTargets.join(" and ")}`);
+  }
+  return (
+    "uploads install will:\n" + lines.map((l) => `  • ${l}\n`).join("") + `${OTHER_AGENT_HINT}\n\n`
+  );
+}
+
 /** Ask a yes/no question on the terminal; Enter means yes. */
 async function confirmOnTty(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -150,8 +174,8 @@ for OAuth. To point it at a new token: \`<cli> mcp remove <name>\` first
 Usage:
   uploads install [skill|mcp|hooks|all]     (default: all)
 
-The default \`all\` asks before installing skills and names the agents it found;
-\`uploads install skill\` (or --yes) installs without asking.
+On a terminal, the default \`all\` lists what it will install and asks first;
+\`uploads install skill|mcp|hooks\` (or --yes) installs without asking.
 
 What it does:
   skill   Agent skills (via npx skills) — github-screenshots: visuals into
@@ -178,7 +202,7 @@ What runs under the hood:
 Options:
   --url <endpoint>    Remote MCP endpoint (default: ${DEFAULT_MCP_URL})
   --name <name>       MCP server name in the client (default: uploads)
-  --yes               Install skills without asking
+  --yes               Install without asking
   --dry-run           Print the plan without running anything
   --verbose           Show underlying command output (default: errors only)
 
@@ -193,7 +217,7 @@ Examples:
 export interface StepResult {
   command: string[];
   ok: boolean;
-  skipped?: "dry-run" | "sign-in" | "already-configured" | "missing-cli" | "no-agent" | "declined";
+  skipped?: "dry-run" | "sign-in" | "already-configured" | "missing-cli" | "no-agent";
   error?: string;
   output?: string;
 }
@@ -505,9 +529,7 @@ function printHumanSteps(
   const { skills, mcp, other } = partitionSteps(results);
   const sharedError = identicalSkillFailure(skills);
 
-  if (skills.length > 0 && skills.every(([, r]) => r.skipped === "declined")) {
-    process.stdout.write(`skills: skipped — add them later with \`uploads install skill\`\n`);
-  } else if (skills.length > 0 && skills.every(([, r]) => r.skipped === "no-agent")) {
+  if (skills.length > 0 && skills.every(([, r]) => r.skipped === "no-agent")) {
     process.stdout.write(
       "skills: skipped — no supported agent found (~/.claude, ~/.codex, ~/.cursor, …).\n" +
         `  To choose agents yourself: ${MANUAL_SKILL_COMMAND}\n`,
@@ -603,29 +625,30 @@ export async function runInstall(
   const results: Record<string, StepResult> = {};
   let hookWrites: HookWriteResult[] = [];
 
-  let skillAgents: SkillAgent[] = [];
+  const home = opts.home ?? os.homedir();
+  const skillAgents = detectSkillAgents(home);
+
+  // `uploads install <step>` is already a yes; the default `all` shows the plan and asks.
+  const ask =
+    opts.confirm ?? (process.stdin.isTTY && process.stdout.isTTY ? confirmOnTty : undefined);
+  if (human && target === "all" && !flagBool(parsed.flags, "--yes") && ask) {
+    process.stdout.write(installPlan(skillAgents, home, signedIn));
+    if (!(await ask("Proceed?"))) {
+      process.stdout.write(
+        "Nothing installed. To install one part: uploads install skill | mcp | hooks\n",
+      );
+      return 0;
+    }
+    process.stdout.write("\n");
+  }
+
   if (target === "skill" || target === "all") {
-    skillAgents = detectSkillAgents(opts.home ?? os.homedir());
     const noAgent = skillAgents.length === 0;
-    // `uploads install skill` is already a yes; the default `all` asks first.
-    const ask =
-      opts.confirm ?? (process.stdin.isTTY && process.stdout.isTTY ? confirmOnTty : undefined);
-    const declined =
-      human &&
-      !noAgent &&
-      target === "all" &&
-      !flagBool(parsed.flags, "--yes") &&
-      ask !== undefined &&
-      !(await ask(
-        `Install the ${SKILL_NAMES.join(", ")} skills for ${skillAgents.map((a) => a.label).join(", ")}?`,
-      ));
-    if (human && !declined) process.stdout.write("Installing skills…\n");
-    const toolingError = dryRun || noAgent || declined ? undefined : probeSkillTooling(run);
+    if (human) process.stdout.write("Installing skills…\n");
+    const toolingError = dryRun || noAgent ? undefined : probeSkillTooling(run);
     for (const skill of SKILL_NAMES) {
       const command = skillCommand(skill, skillAgents);
-      if (declined) {
-        results[`skill:${skill}`] = { command, ok: true, skipped: "declined" };
-      } else if (noAgent) {
+      if (noAgent) {
         results[`skill:${skill}`] = {
           command,
           ok: false,
@@ -719,13 +742,7 @@ export async function runInstall(
     const stepLabels = [
       ...new Set(
         Object.entries(results)
-          .filter(
-            ([, r]) =>
-              r.ok &&
-              r.skipped !== "missing-cli" &&
-              r.skipped !== "sign-in" &&
-              r.skipped !== "declined",
-          )
+          .filter(([, r]) => r.ok && r.skipped !== "missing-cli" && r.skipped !== "sign-in")
           .map(([k]) => stepFamily(k)),
       ),
     ];
