@@ -89,6 +89,7 @@ import {
   type CommandRunner,
 } from "./github-gh.js";
 import {
+  issueArtifactErrorLine,
   resolveIssueArtifacts,
   syncIssueArtifacts,
   type IssueArtifactSyncResult,
@@ -806,97 +807,82 @@ export class GithubCommentAuthorizationError extends Error {}
 function readRepoIssueArtifacts(run: CommandRunner): boolean | undefined {
   try {
     const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
-    const value = readLocalRepoCommentConfig(root).config?.issueArtifacts;
-    return typeof value === "boolean" ? value : undefined;
+    return readLocalRepoCommentConfig(root).config?.issueArtifacts;
   } catch {
     return undefined;
   }
 }
 
-function issueArtifactErrorLine(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const line = raw.split("\n")[0]?.trim() || raw;
-  return line.length > 300 ? `${line.slice(0, 300)}…` : line;
-}
-
-/** First gallery on the issue, same title-then-URL order as the comment. */
-async function firstIssueGalleryUrl(
+/** Every gallery that references the PR or issue. */
+async function listTargetGalleries(
   client: UploadsClient,
   target: GhTarget,
-): Promise<string | null> {
-  const galleries: { title: string; url: string }[] = [];
+): Promise<(GalleryCommentItem & { id: string })[]> {
+  const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
   do {
     const page = await client.findGalleriesByReference({
       provider: "github",
+      // GitHub references intentionally do not distinguish PRs from issues.
       coordinate: `${target.repo.toLowerCase()}#${target.num}`,
       cursor,
     });
-    galleries.push(...page.galleries.map(({ title, url }) => ({ title, url })));
+    galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
     cursor = page.nextCursor ?? undefined;
   } while (cursor);
-  galleries.sort((a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url));
-  return galleries[0]?.url ?? null;
+  return galleries;
+}
+
+/** First gallery in the comment's title-then-URL order. */
+function firstGalleryUrl(galleries: readonly GalleryCommentItem[]): string | null {
+  return (
+    galleries.toSorted((a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url))[0]
+      ?.url ?? null
+  );
 }
 
 /**
  * After a successful comment sync, mirror it onto the issue's artifacts
  * when the option is on. Failures are warnings. Pull requests return
- * undefined without calling GitHub.
+ * undefined without calling GitHub. Without `known`, the comment body is
+ * read back from GitHub and the galleries are listed.
  */
 async function maybeSyncIssueArtifacts(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
   workspace: string | undefined,
-  opts: { issueArtifacts?: boolean },
-  workspaceSetting: boolean | undefined,
-  known?: { commentBody: string | null; galleryUrl: string | null },
-): Promise<IssueArtifactSyncResult | undefined> {
-  if (target.kind !== "issues") return undefined;
-  if (
-    !resolveIssueArtifacts({
-      call: opts.issueArtifacts,
-      repo: readRepoIssueArtifacts(run),
-      workspace: workspaceSetting,
-    })
-  ) {
-    return undefined;
-  }
+  enabled: { call?: boolean; workspace?: boolean },
+  known?: { commentBody: string; galleryUrl: string | null },
+): Promise<{ issueArtifact?: IssueArtifactSyncResult }> {
+  if (target.kind !== "issues") return {};
+  if (!resolveIssueArtifacts({ ...enabled, repo: readRepoIssueArtifacts(run) })) return {};
+  const warnings: string[] = [];
+  let result: IssueArtifactSyncResult;
   try {
-    let commentBody = known?.commentBody ?? null;
-    let galleryUrl = known?.galleryUrl ?? null;
-    let galleryWarning: string | undefined;
-    if (known === undefined) {
-      commentBody =
-        findManagedComment(target, run, attachmentsMarker(workspace)).comment?.body ?? null;
+    let input = known;
+    if (!input) {
+      const commentBody =
+        findManagedComment(target, run, attachmentsMarker(workspace)).comment?.body ?? "";
+      let galleryUrl: string | null = null;
       try {
-        galleryUrl = await firstIssueGalleryUrl(client, target);
+        galleryUrl = firstGalleryUrl(await listTargetGalleries(client, target));
       } catch (err) {
-        galleryUrl = null;
-        galleryWarning = `issue gallery link was not updated: ${issueArtifactErrorLine(err)}`;
+        warnings.push(`issue gallery link was not updated: ${issueArtifactErrorLine(err)}`);
       }
+      input = { commentBody, galleryUrl };
     }
-    const result = syncIssueArtifacts(target, run, { commentBody, galleryUrl });
-    if (galleryWarning) {
-      result.warning = result.warning ? `${galleryWarning}; ${result.warning}` : galleryWarning;
-    }
-    if (result.warning) process.stderr.write(`warning: ${result.warning}\n`);
-    if (!result.media && !result.gallery && !result.warning) return undefined;
-    return result;
+    result = syncIssueArtifacts(target, run, input);
   } catch (err) {
-    const warning = `issue artifact was not updated: ${issueArtifactErrorLine(err)}`;
-    process.stderr.write(`warning: ${warning}\n`);
-    return { warning };
+    result = {};
+    warnings.push(`issue artifact was not updated: ${issueArtifactErrorLine(err)}`);
   }
-}
-
-function withIssueArtifact(
-  result: AttachmentsCommentResult,
-  issueArtifact: IssueArtifactSyncResult | undefined,
-): AttachmentsCommentResult {
-  if (!issueArtifact) return result;
-  return { ...result, issueArtifact };
+  if (result.warning) warnings.push(result.warning);
+  if (warnings.length > 0) {
+    result.warning = warnings.join("; ");
+    process.stderr.write(`warning: ${result.warning}\n`);
+  }
+  return result.media || result.gallery || result.warning ? { issueArtifact: result } : {};
 }
 
 /**
@@ -913,7 +899,6 @@ export async function syncAttachmentsComment(
   opts: { resync?: boolean; issueArtifacts?: boolean } = {},
 ): Promise<AttachmentsCommentResult> {
   let bot: GithubCommentResult | undefined;
-  let workspaceIssueArtifacts: boolean | undefined;
   try {
     bot = await client.upsertGithubComment({
       repo: target.repo,
@@ -921,7 +906,6 @@ export async function syncAttachmentsComment(
       kind: target.kind,
       ...(opts.resync ? { resync: true } : {}),
     });
-    if (typeof bot.issueArtifacts === "boolean") workspaceIssueArtifacts = bot.issueArtifacts;
   } catch {
     // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
     // through to the gh path below.
@@ -930,23 +914,16 @@ export async function syncAttachmentsComment(
 
   if (bot) {
     if (bot.posted) {
-      const issueArtifact = await maybeSyncIssueArtifacts(
-        client,
-        target,
-        run,
-        workspace,
-        opts,
-        workspaceIssueArtifacts,
-      );
-      return withIssueArtifact(
-        {
-          action: bot.action,
-          count: bot.count,
-          via: "bot",
-          ...(bot.held ? { held: bot.held } : {}),
-        },
-        issueArtifact,
-      );
+      return {
+        action: bot.action,
+        count: bot.count,
+        via: "bot",
+        ...(bot.held ? { held: bot.held } : {}),
+        ...(await maybeSyncIssueArtifacts(client, target, run, workspace, {
+          call: opts.issueArtifacts,
+          workspace: bot.issueArtifacts,
+        })),
+      };
     }
     if (bot.reason === "not_authorized") {
       throw new GithubCommentAuthorizationError(
@@ -1075,19 +1052,7 @@ export async function syncAttachmentsComment(
   }
   const heldCount = heldKeys.size;
 
-  const galleries: (GalleryCommentItem & { id: string })[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.findGalleriesByReference({
-      provider: "github",
-      // GitHub references intentionally do not distinguish PRs from issues.
-      coordinate: `${target.repo.toLowerCase()}#${target.num}`,
-      cursor,
-    });
-    galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
-    cursor = page.nextCursor ?? undefined;
-  } while (cursor);
-
+  const galleries = await listTargetGalleries(client, target);
   const previewGalleries = await Promise.all(
     galleries.map(async ({ id, ...gallery }) => {
       try {
@@ -1153,23 +1118,20 @@ export async function syncAttachmentsComment(
   const { action } = upsertAttachmentsComment(target, body, run, marker, {
     createIfMissing: count > 0 && !skipLoneAdoptionCreate,
   });
-  const galleryUrl =
-    [...previewGalleries].sort(
-      (a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url),
-    )[0]?.url ?? null;
-  const issueArtifact = await maybeSyncIssueArtifacts(
-    client,
-    target,
-    run,
-    workspace,
-    opts,
-    workspaceIssueArtifacts,
-    { commentBody: body, galleryUrl },
-  );
-  return withIssueArtifact(
-    { action, count, via: "gh", ...(heldCount > 0 ? { held: heldCount } : {}) },
-    issueArtifact,
-  );
+  return {
+    action,
+    count,
+    via: "gh",
+    ...(heldCount > 0 ? { held: heldCount } : {}),
+    ...(await maybeSyncIssueArtifacts(
+      client,
+      target,
+      run,
+      workspace,
+      { call: opts.issueArtifacts, workspace: bot?.issueArtifacts },
+      { commentBody: body, galleryUrl: firstGalleryUrl(galleries) },
+    )),
+  };
 }
 
 // --- attach ---

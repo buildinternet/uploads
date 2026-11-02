@@ -10,7 +10,6 @@ import {
   ISSUE_GALLERY_ARTIFACT_NAME,
   ISSUE_MEDIA_ARTIFACT_NAME,
   issueArtifactMediaBody,
-  issueArtifactName,
   resolveIssueArtifacts,
   syncIssueArtifacts,
 } from "../src/github-issue-artifacts.js";
@@ -89,15 +88,6 @@ describe("resolveIssueArtifacts", () => {
     expect(resolveIssueArtifacts({ workspace: false, repo: true })).toBe(true);
     expect(resolveIssueArtifacts({ repo: true, call: false })).toBe(false);
     expect(resolveIssueArtifacts({ call: true, repo: false, workspace: false })).toBe(true);
-  });
-});
-
-describe("issueArtifactName", () => {
-  it("strips parentheses and keeps the stable names free of them", () => {
-    expect(issueArtifactName("plan (1).md")).toBe("plan 1.md");
-    expect(ISSUE_MEDIA_ARTIFACT_NAME).not.toMatch(/[()]/);
-    expect(ISSUE_GALLERY_ARTIFACT_NAME).not.toMatch(/[()]/);
-    expect(issueArtifactName(ISSUE_MEDIA_ARTIFACT_NAME)).toBe(ISSUE_MEDIA_ARTIFACT_NAME);
   });
 });
 

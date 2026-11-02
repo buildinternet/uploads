@@ -16,33 +16,17 @@
 import type { GhTarget } from "./github.js";
 import type { CommandRunner } from "./github-gh.js";
 
-/** Stable name for the Markdown media artifact. No parentheses (GitHub rejects them). */
+/** Stable artifact names. GitHub rejects parentheses in them. */
 export const ISSUE_MEDIA_ARTIFACT_NAME = "uploads.sh media";
-/** Stable name for the gallery link artifact. */
 export const ISSUE_GALLERY_ARTIFACT_NAME = "uploads.sh gallery";
 
-/**
- * Per-call flag, then the repo file, then the workspace setting, then on.
- * `undefined` means that layer did not set a value.
- */
+/** Per-call flag, then the repo file, then the workspace setting, then on. */
 export function resolveIssueArtifacts(layers: {
   call?: boolean;
   repo?: boolean;
   workspace?: boolean;
 }): boolean {
-  if (layers.call !== undefined) return layers.call;
-  if (layers.repo !== undefined) return layers.repo;
-  if (layers.workspace !== undefined) return layers.workspace;
-  return true;
-}
-
-const ARTIFACT_PAGE_SIZE = 100;
-
-export interface IssueArtifactSyncInput {
-  /** Managed comment body. Empty or absent skips the media artifact. */
-  commentBody?: string | null;
-  /** Gallery URL. Absent skips the link artifact. */
-  galleryUrl?: string | null;
+  return layers.call ?? layers.repo ?? layers.workspace ?? true;
 }
 
 export interface IssueArtifactSyncResult {
@@ -55,20 +39,7 @@ export interface IssueArtifactSyncResult {
 interface ArtifactRow {
   number: number;
   name: string;
-  body: string;
-}
-
-/**
- * Drop parentheses. GitHub rejects artifact names that contain them
- * (`plan (1).md` is stored as `plan 1.md` by the CLI).
- */
-export function issueArtifactName(name: string): string {
-  // GitHub drops parentheses rather than rejecting the whole create:
-  // `plan (1).md` is stored as `plan 1.md`.
-  return name
-    .replace(/[()]/g, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
+  body?: string;
 }
 
 /**
@@ -79,59 +50,15 @@ export function issueArtifactName(name: string): string {
 export function issueArtifactMediaBody(commentBody: string): string {
   return commentBody.replace(/<video\b([^>]*)>[\s\S]*?<\/video>/gi, (full, attrs: string) => {
     const src = /src\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
-    if (!src) return full;
-    return `[video](${src})`;
+    return src ? `[video](${src})` : full;
   });
 }
 
-function errorMessage(err: unknown): string {
+/** First line of an error, capped, for a one-line warning. */
+export function issueArtifactErrorLine(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
-  const line = raw
-    .split("\n")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .slice(0, 2)
-    .join(" ");
+  const line = raw.split("\n")[0]?.trim() || raw;
   return line.length > 300 ? `${line.slice(0, 300)}…` : line;
-}
-
-function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
-function parseArtifactPage(raw: string): ArtifactRow[] {
-  const parsed = JSON.parse(raw) as unknown;
-  if (!Array.isArray(parsed)) throw new Error("unexpected issue artifacts response");
-  const rows: ArtifactRow[] = [];
-  for (const row of parsed) {
-    if (!row || typeof row !== "object") continue;
-    const rec = row as Record<string, unknown>;
-    if (typeof rec.number !== "number" || typeof rec.name !== "string") continue;
-    rows.push({
-      number: rec.number,
-      name: rec.name,
-      body: typeof rec.body === "string" ? rec.body : "",
-    });
-  }
-  return rows;
-}
-
-/** One page, oldest first. Enough to find the artifact this command created. */
-function listArtifacts(target: GhTarget, run: CommandRunner): ArtifactRow[] {
-  const raw = run("gh", [
-    "api",
-    `repos/${target.repo}/issues/${target.num}/artifacts?per_page=${ARTIFACT_PAGE_SIZE}`,
-  ]);
-  return parseArtifactPage(raw);
-}
-
-function findByName(rows: ArtifactRow[], name: string): ArtifactRow | undefined {
-  return rows.find((row) => row.name === name);
 }
 
 /**
@@ -139,36 +66,21 @@ function findByName(rows: ArtifactRow[], name: string): ArtifactRow | undefined 
  * not spend a preview-API request on an unchanged document.
  */
 function upsertArtifact(
-  target: GhTarget,
+  base: string,
   run: CommandRunner,
   existing: ArtifactRow | undefined,
   spec: { type: "generic" | "link"; name: string; body: string },
-): "created" | "updated" | "unchanged" {
-  const name = issueArtifactName(spec.name);
-  if (name.length === 0 || /[()]/.test(name)) {
-    throw new Error(`artifact name is not allowed: ${spec.name}`);
-  }
-  if (existing && existing.body === spec.body) return "unchanged";
+): "created" | "updated" | undefined {
+  if (existing?.body === spec.body) return undefined;
   if (existing) {
     run(
       "gh",
-      [
-        "api",
-        "-X",
-        "PATCH",
-        `repos/${target.repo}/issues/${target.num}/artifacts/${existing.number}`,
-        "--input",
-        "-",
-      ],
+      ["api", "-X", "PATCH", `${base}/${existing.number}`, "--input", "-"],
       JSON.stringify({ body: spec.body }),
     );
     return "updated";
   }
-  run(
-    "gh",
-    ["api", "-X", "POST", `repos/${target.repo}/issues/${target.num}/artifacts`, "--input", "-"],
-    JSON.stringify({ type: spec.type, name, body: spec.body }),
-  );
+  run("gh", ["api", "-X", "POST", base, "--input", "-"], JSON.stringify(spec));
   return "created";
 }
 
@@ -179,52 +91,47 @@ function upsertArtifact(
 export function syncIssueArtifacts(
   target: GhTarget,
   run: CommandRunner,
-  input: IssueArtifactSyncInput,
+  input: { commentBody?: string | null; galleryUrl?: string | null },
 ): IssueArtifactSyncResult {
   if (target.kind !== "issues") return {};
-  const commentBody = input.commentBody?.trim() ? issueArtifactMediaBody(input.commentBody) : "";
-  const warnings: string[] = [];
-  let galleryUrl = input.galleryUrl?.trim() ?? "";
-  if (galleryUrl && !isHttpUrl(galleryUrl)) {
-    warnings.push("issue gallery link was not updated: gallery URL is not http(s)");
-    galleryUrl = "";
-  }
-  if (!commentBody && !galleryUrl) {
-    return warnings.length > 0 ? { warning: warnings.join("; ") } : {};
-  }
+  const specs = [
+    {
+      key: "media",
+      label: "issue artifact",
+      type: "generic",
+      name: ISSUE_MEDIA_ARTIFACT_NAME,
+      body: input.commentBody?.trim() ? issueArtifactMediaBody(input.commentBody) : "",
+    },
+    {
+      key: "gallery",
+      label: "issue gallery link",
+      type: "link",
+      name: ISSUE_GALLERY_ARTIFACT_NAME,
+      body: input.galleryUrl?.trim() ?? "",
+    },
+  ] as const;
+  const todo = specs.filter((spec) => spec.body);
+  if (todo.length === 0) return {};
 
-  const mediaName = issueArtifactName(ISSUE_MEDIA_ARTIFACT_NAME);
-  const galleryName = issueArtifactName(ISSUE_GALLERY_ARTIFACT_NAME);
+  const base = `repos/${target.repo}/issues/${target.num}/artifacts`;
   let rows: ArtifactRow[];
   try {
-    rows = listArtifacts(target, run);
+    // One page, oldest first: enough to find the artifacts this command created.
+    rows = JSON.parse(run("gh", ["api", `${base}?per_page=100`])) as ArtifactRow[];
+    if (!Array.isArray(rows)) throw new Error("unexpected issue artifacts response");
   } catch (err) {
-    return { warning: `issue artifact was not updated: ${errorMessage(err)}` };
+    return { warning: `issue artifact was not updated: ${issueArtifactErrorLine(err)}` };
   }
 
   const result: IssueArtifactSyncResult = {};
-  if (commentBody) {
+  const warnings: string[] = [];
+  for (const { key, label, type, name, body } of todo) {
     try {
-      const action = upsertArtifact(target, run, findByName(rows, mediaName), {
-        type: "generic",
-        name: mediaName,
-        body: commentBody,
-      });
-      if (action !== "unchanged") result.media = action;
+      const existing = rows.find((row) => row.name === name);
+      const action = upsertArtifact(base, run, existing, { type, name, body });
+      if (action) result[key] = action;
     } catch (err) {
-      warnings.push(`issue artifact was not updated: ${errorMessage(err)}`);
-    }
-  }
-  if (galleryUrl) {
-    try {
-      const action = upsertArtifact(target, run, findByName(rows, galleryName), {
-        type: "link",
-        name: galleryName,
-        body: galleryUrl,
-      });
-      if (action !== "unchanged") result.gallery = action;
-    } catch (err) {
-      warnings.push(`issue gallery link was not updated: ${errorMessage(err)}`);
+      warnings.push(`${label} was not updated: ${issueArtifactErrorLine(err)}`);
     }
   }
   if (warnings.length > 0) result.warning = warnings.join("; ");
