@@ -210,6 +210,57 @@ export async function startLocalDemoSession(
 }
 
 /**
+ * Absolute URL of `/auth/error` on the same origin as `callbackURL`.
+ * Better Auth sends OAuth and magic-link failures there when this is set.
+ * Omitting it makes magic-link verify append `?error=` to the success URL,
+ * which the success page does not read.
+ */
+function signInErrorCallbackURL(callbackURL: string): string {
+  try {
+    return new URL("/auth/error", callbackURL).href;
+  } catch {
+    return "/auth/error";
+  }
+}
+
+/**
+ * Code and message from a Better Auth JSON error. Accepts the raw API body
+ * (`{ code, message }`), an OAuth body (`{ error, error_description }`), and
+ * a nested `{ error: { code, message } }` so none of those shapes is ignored.
+ */
+export function readAuthFailure(body: unknown): { code: string | null; message: string | null } {
+  if (!body || typeof body !== "object") return { code: null, message: null };
+  const record = body as Record<string, unknown>;
+  const nested = record.error;
+  if (typeof nested === "string") {
+    const described =
+      typeof record.error_description === "string"
+        ? record.error_description
+        : typeof record.message === "string"
+          ? record.message
+          : null;
+    return { code: nested, message: described };
+  }
+  if (nested && typeof nested === "object") {
+    const err = nested as Record<string, unknown>;
+    return {
+      code: typeof err.code === "string" ? err.code : null,
+      message: typeof err.message === "string" ? err.message : null,
+    };
+  }
+  const message =
+    typeof record.message === "string"
+      ? record.message
+      : typeof record.error_description === "string"
+        ? record.error_description
+        : null;
+  return {
+    code: typeof record.code === "string" ? record.code : null,
+    message,
+  };
+}
+
+/**
  * Social/link endpoints return `{ url }` instead of 302ing. Navigate when
  * present; false when rejected or GitHub is unconfigured.
  */
@@ -225,9 +276,9 @@ async function redirectToGitHubOAuth(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) return false;
     const data = (await res.json().catch(() => null)) as { url?: string } | null;
-    if (!data?.url) return false;
+    // A 200 `{ error }` without a redirect URL is a failure, not a success.
+    if (!res.ok || !data?.url || readAuthFailure(data).code) return false;
     location.href = data.url;
     return true;
   } catch {
@@ -240,20 +291,20 @@ export async function signInWithGitHub(origin: string, callbackURL: string): Pro
   return redirectToGitHubOAuth(origin, "/api/auth/sign-in/social", {
     provider: "github",
     callbackURL,
+    errorCallbackURL: signInErrorCallbackURL(callbackURL),
     ...oauthResumeBody(),
   });
 }
 
 /**
  * Link GitHub to the current session (POST /link-social), so magic-link users
- * can add it without signing out. Failures return to `callbackURL` with
- * `?error=`.
+ * can add it without signing out. Failures redirect to `/auth/error`.
  */
 export async function linkGitHub(origin: string, callbackURL: string): Promise<boolean> {
   return redirectToGitHubOAuth(origin, "/api/auth/link-social", {
     provider: "github",
     callbackURL,
-    errorCallbackURL: callbackURL,
+    errorCallbackURL: signInErrorCallbackURL(callbackURL),
   });
 }
 
@@ -399,9 +450,16 @@ export async function sendMagicLink(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, callbackURL, ...oauthResumeBody() }),
+    body: JSON.stringify({
+      email,
+      callbackURL,
+      errorCallbackURL: signInErrorCallbackURL(callbackURL),
+      ...oauthResumeBody(),
+    }),
   });
-  return res.ok;
+  if (!res.ok) return false;
+  const failure = readAuthFailure(await res.json().catch(() => null));
+  return failure.code === null;
 }
 
 export type PasswordSignInResult =
@@ -424,8 +482,8 @@ export async function signInWithPassword(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, callbackURL, ...oauthResumeBody() }),
   });
-  const body = (await res.json().catch(() => null)) as { url?: unknown; code?: unknown } | null;
-  if (!res.ok) return { ok: false, code: typeof body?.code === "string" ? body.code : null };
+  const body = (await res.json().catch(() => null)) as { url?: unknown } | null;
+  if (!res.ok) return { ok: false, code: readAuthFailure(body).code };
   return { ok: true, url: typeof body?.url === "string" ? body.url : null };
 }
 
@@ -457,8 +515,7 @@ export async function resetPassword(
     body: JSON.stringify({ token, newPassword }),
   });
   if (res.ok) return { ok: true, code: null };
-  const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
-  return { ok: false, code: typeof body?.code === "string" ? body.code : null };
+  return { ok: false, code: readAuthFailure(await res.json().catch(() => null)).code };
 }
 
 /**
@@ -662,8 +719,8 @@ export async function acceptInvitation(
       body: JSON.stringify({ invitationId: id }),
     });
     if (res.ok) return { ok: true };
-    const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
-    return { ok: false, status: res.status, code: body?.error?.code };
+    const code = readAuthFailure(await res.json().catch(() => null)).code;
+    return { ok: false, status: res.status, code: code ?? undefined };
   } catch {
     return { ok: false, status: 0 };
   }
@@ -1003,16 +1060,11 @@ async function postSubscriptionAction(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = (await res.json().catch(() => null)) as {
-      url?: string;
-      message?: string;
-      code?: string;
-      error?: { message?: string };
-    } | null;
+    const data = (await res.json().catch(() => null)) as { url?: unknown } | null;
     if (!res.ok || typeof data?.url !== "string") {
       return {
         ok: false,
-        message: data?.error?.message ?? data?.message ?? "Something went wrong. Try again.",
+        message: readAuthFailure(data).message ?? "Something went wrong. Try again.",
       };
     }
     return { ok: true, url: data.url };
@@ -1251,16 +1303,13 @@ export async function submitOAuthConsent(
     const body = (await res.json().catch(() => null)) as {
       redirect_uri?: string;
       url?: string;
-      error_description?: string;
-      message?: string;
-      error?: string;
     } | null;
     if (!res.ok) {
-      const mapped = body?.error ? OAUTH_CONSENT_PERMANENT_ERRORS[body.error] : undefined;
+      const failure = readAuthFailure(body);
+      const mapped = failure.code ? OAUTH_CONSENT_PERMANENT_ERRORS[failure.code] : undefined;
       return {
         ok: false,
-        error:
-          body?.error_description ?? body?.message ?? mapped ?? "Something went wrong. Try again.",
+        error: failure.message ?? mapped ?? "Something went wrong. Try again.",
         permanent: mapped !== undefined,
       };
     }

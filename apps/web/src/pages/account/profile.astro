@@ -594,7 +594,8 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         },
       );
 
-      // Better Auth link-social failures redirect back with ?error=.
+      // Older in-flight link attempts stored this page as errorCallbackURL.
+      // New attempts go to /auth/error. Keep this for requests already started.
       const linkError = new URLSearchParams(location.search).get("error");
       if (linkError) {
         setAccountsError(
