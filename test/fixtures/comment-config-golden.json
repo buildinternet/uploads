@@ -226,6 +226,26 @@
       }
     },
     {
+      "name": "issueArtifacts boolean parses; non-boolean dropped with warning",
+      "text": "comment:\n  issueArtifacts: true\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "issueArtifacts": true
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "issueArtifacts non-boolean warns",
+      "text": "comment:\n  issueArtifacts: yes\n",
+      "format": "yaml",
+      "expected": {
+        "config": {},
+        "warnings": ["issueArtifacts: expected a boolean; dropped"]
+      }
+    },
+    {
       "name": "uiPaths list and noUploadsComment",
       "text": "comment:\n  uiPaths:\n    - \"apps/web/**\"\n    - \"*.css\"\n  noUploadsComment: false\n",
       "format": "yaml",

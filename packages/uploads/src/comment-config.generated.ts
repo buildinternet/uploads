@@ -17,6 +17,12 @@ export interface RepoCommentConfig {
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
+  /**
+   * When true, an issue comment sync also keeps one Markdown issue artifact
+   * (and a gallery link, when the issue has a gallery). Absent means off.
+   * The CLI reads this from the repo file. It is not a workspace setting.
+   */
+  issueArtifacts?: boolean;
   uiPaths?: string[];
   noUploadsComment?: NoUploadsCommentMode;
   checkRequire?: CheckRequirement[];
@@ -187,6 +193,14 @@ export function parseRepoCommentConfig(
     const v = c.adoptLinkedFiles;
     if (typeof v === "boolean") config.adoptLinkedFiles = v;
     else warnings.push(`adoptLinkedFiles: expected a boolean; dropped`);
+  }
+
+  // issueArtifacts: boolean. Off when omitted. Not part of resolved comment
+  // options — the CLI reads the repo file directly.
+  if ("issueArtifacts" in c) {
+    const v = c.issueArtifacts;
+    if (typeof v === "boolean") config.issueArtifacts = v;
+    else warnings.push(`issueArtifacts: expected a boolean; dropped`);
   }
 
   // noUploadsComment: "auto" | "always" | "never", or a boolean (true = auto, false = never)

@@ -210,6 +210,14 @@ attachments comment. Pass `--pr <number>` or `--issue <number>` when it can't
 infer the target, and `--no-comment` when you want only the public URLs and
 markdown.
 
+On an issue, attach can also keep one Markdown GitHub issue artifact named
+`uploads.sh media` (the same block as the comment; images use uploads.sh
+URLs; video is a link) and, when the issue has a gallery, one link artifact
+named `uploads.sh gallery`. This is off unless `.uploads.yml` sets
+`comment.issueArtifacts: true` or the command passes `--issue-artifacts`.
+Pull requests keep the managed comment only. An artifact failure warns and
+does not fail the attach.
+
 **Re-upload / hot-swap.** Overwrite behavior depends on the key (issue #174).
 `attach`, `put --pr`, and `put --issue` always overwrite the object in place,
 with no confirmation prompt, because agents and re-runs need this. The public

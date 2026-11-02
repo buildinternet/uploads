@@ -12,6 +12,7 @@ toc:
   - { id: example, label: Full example }
   - { id: file-location, label: File location }
   - { id: precedence, label: Precedence }
+  - { id: issue-artifacts, label: Issue artifacts }
   - { id: note, label: The note field }
   - { id: fail-closed, label: Fail-closed behavior }
   - { id: preview, label: Preview before committing }
@@ -35,6 +36,8 @@ under a top-level `comment:` map and is optional. With it you can set:
   and whether bot-authored ones count.
 - **Whether uploads.sh links pasted into a PR or comment are adopted** into that PR/issue's
   attachment context.
+- **Issue artifacts** on an issue: one Markdown artifact with the comment's media, and a gallery
+  link when the issue has a gallery. See [Issue artifacts](#issue-artifacts).
 - **Which files count as UI changes**, and **which screenshots a UI change must have** before the
   "Check for visuals" check passes. See [Require screenshots on pull requests](/docs/require-screenshots).
 
@@ -89,6 +92,11 @@ comment:
   # already in this repo's own bound workspace are adopted; links to any
   # other workspace's files are ignored. On by default for bound repos.
   adoptLinkedFiles: true
+
+  # On an issue, also keep one Markdown issue artifact (and a gallery link,
+  # when the issue has one) in sync with the managed comment. Off when
+  # omitted. Pull requests are unchanged.
+  issueArtifacts: false
 
   # Files that count as UI changes. A PR that changes one and has nothing
   # attached gets a short comment on how to add screenshots, and the
@@ -165,6 +173,45 @@ Each key resolves independently, in this order:
 
 A repo can set some keys and leave others out; the ones it leaves out fall through to the workspace
 default or the automatic behavior on a per-key basis, not as a single all-or-nothing switch.
+
+`issueArtifacts` does not use this ladder. It is off unless the repo file sets it, or one
+`uploads attach` passes `--issue-artifacts`.
+
+</section>
+
+<section id="issue-artifacts">
+
+## Issue artifacts <a class="anchor" href="#issue-artifacts" aria-label="Link to this section">#</a>
+
+`issueArtifacts` keeps GitHub issue artifacts next to the managed comment. The key is off when it is
+omitted. Set it to turn the behavior on:
+
+```yaml title=".uploads.yml" frame="code"
+comment:
+  issueArtifacts: true
+```
+
+`uploads attach` on an issue then writes:
+
+- One Markdown artifact named `uploads.sh media`. The body is the same block as the attachments
+  comment. Images use their uploads.sh embed or storage URL. Video is a link. The file bytes stay
+  on uploads.sh.
+- One link artifact named `uploads.sh gallery`, when the issue has a gallery. The link is that
+  gallery's URL.
+
+A later attach finds each artifact by those names and updates it. Pull requests keep the managed
+comment only.
+
+```bash
+uploads attach ./shot.png --issue 45 --issue-artifacts
+```
+
+`--issue-artifacts` turns the same behavior on for one run.
+
+The CLI writes the artifacts with `gh`. If GitHub rejects the write, the command prints a warning.
+The upload and the comment still succeed.
+
+`issueArtifacts` is read from the repo file. It has no workspace setting.
 
 </section>
 

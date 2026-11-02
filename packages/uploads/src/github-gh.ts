@@ -315,7 +315,7 @@ interface GhComment {
  * exact-`marker` hits are ever extras — a legacy (unnamespaced) comment may
  * belong to a different workspace, so it is adopted at most, never deleted.
  */
-function findManagedComment(
+export function findManagedComment(
   target: GhTarget,
   run: CommandRunner,
   marker: string,

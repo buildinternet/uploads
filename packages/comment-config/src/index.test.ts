@@ -116,6 +116,17 @@ describe("parseRepoCommentConfig", () => {
     expect(parseRepoCommentConfig("- a\n- b\n", "yaml").config).toBeNull();
     expect(parseRepoCommentConfig("other: 1\n", "yaml").config).toBeNull();
   });
+  it("parses issueArtifacts as a boolean, warns on other types", () => {
+    expect(parseRepoCommentConfig("comment:\n  issueArtifacts: true\n", "yaml").config).toEqual({
+      issueArtifacts: true,
+    });
+    const { config, warnings } = parseRepoCommentConfig(
+      "comment:\n  issueArtifacts: yes\n",
+      "yaml",
+    );
+    expect(config).toEqual({});
+    expect(warnings[0]).toContain("issueArtifacts");
+  });
   it("parses ingestBotAttachments as a boolean, warns on other types", () => {
     expect(
       parseRepoCommentConfig("comment:\n  ingestBotAttachments: true\n", "yaml").config,

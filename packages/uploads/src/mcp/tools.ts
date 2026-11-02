@@ -269,11 +269,16 @@ export function createUploadsMcpTools(opts: {
     return { config, client: clientFactory(config) };
   }
 
-  const syncComment = async (client: UploadsClient, target: GhTarget, workspace?: string) => {
+  const syncComment = async (
+    client: UploadsClient,
+    target: GhTarget,
+    workspace?: string,
+    commentOpts?: { issueArtifacts?: boolean },
+  ) => {
     let comment: AttachmentsCommentResult | undefined;
     let commentError: string | undefined;
     try {
-      comment = await syncAttachmentsComment(client, target, run, workspace);
+      comment = await syncAttachmentsComment(client, target, run, workspace, commentOpts);
     } catch (err) {
       // Uploads already succeeded; the comment is best-effort by design.
       commentError = err instanceof Error ? err.message : String(err);
@@ -1395,7 +1400,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR, and files already staged for that branch are promoted into it (`promotion`/`promoteError`; renamed branches are followed automatically, or name the old branch with fromBranch). Attachments are public and keys are predictable; upload only non-sensitive media.",
+        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR, and files already staged for that branch are promoted into it (`promotion`/`promoteError`; renamed branches are followed automatically, or name the old branch with fromBranch). Attachments are public and keys are predictable; upload only non-sensitive media. On an issue, `issueArtifacts: true` (or `comment.issueArtifacts` in .uploads.yml) also keeps one Markdown issue artifact, and a gallery link when the issue has a gallery, in sync with the comment. Images stay on uploads.sh URLs. Pull requests are unchanged. An artifact failure is a warning and does not fail the attach.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1408,6 +1413,11 @@ export function createUploadsMcpTools(opts: {
           noComment: {
             type: "boolean",
             description: "Upload only; don't create/update the managed comment.",
+          },
+          issueArtifacts: {
+            type: "boolean",
+            description:
+              "On an issue, also create or update one Markdown issue artifact (and a gallery link when the issue has a gallery) from the managed comment. Off unless true, or the repo's .uploads.yml sets comment.issueArtifacts. Images stay on uploads.sh URLs. A failure is a warning on `comment.issueArtifact` and does not fail the attach. No effect on pull requests.",
           },
           noPromote: {
             type: "boolean",
@@ -1532,7 +1542,9 @@ export function createUploadsMcpTools(opts: {
         };
 
         if (optBool(args, "noComment")) return { target, uploads, failures, ...promoteFields };
-        const { comment, commentError } = await syncComment(client, target, config.workspace);
+        const { comment, commentError } = await syncComment(client, target, config.workspace, {
+          issueArtifacts: optBool(args, "issueArtifacts"),
+        });
         return { target, uploads, failures, ...promoteFields, comment, commentError };
       },
     },

@@ -4,7 +4,8 @@ description: >-
   Reference for the uploads CLI and its stdio/hosted MCP tools — exact flags,
   keys, and contracts for put and attach, screenshot capture, stable PR/issue
   keys, the managed attachments comment, metadata and search, galleries,
-  change feeds (repo-wide or one PR/issue), config defaults, login/doctor,
+  change feeds (repo-wide or one PR/issue), config defaults, issue artifacts,
+  login/doctor,
   and output formats. Use when driving the
   `uploads` CLI or its MCP tools (including the hosted MCP at
   agents.uploads.sh for agents without local filesystem/git access), when you
@@ -69,6 +70,31 @@ uploads attach ./shot.png --issue 45 --repo buildinternet/uploads
 
 Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level
 naming and output control.
+
+**Issue artifacts (off by default).** GitHub issue artifacts are not the
+managed comment. `gh issue artifact create --attach` is fine for GitHub-only
+media on an issue plan or root-cause write-up: it copies bytes to
+`github.com/user-attachments`, which is auth-gated and not shareable. Use
+uploads for pull requests, comments, public links, video, and
+private-to-public files. The github-screenshots skill has the choice in full.
+
+Set `comment.issueArtifacts: true` in `.uploads.yml`, or pass
+`--issue-artifacts` on one `uploads attach`, to also keep issue artifacts in
+sync when the target is an issue:
+
+```bash
+uploads attach ./shot.png --issue 45 --issue-artifacts
+```
+
+That creates or updates one Markdown artifact named `uploads.sh media` (the
+same block as the managed comment; images use uploads.sh embed or storage
+URLs; video is a link; no `--attach` and no byte copy to GitHub). When the
+issue has a gallery, it also creates or updates one link artifact named
+`uploads.sh gallery`. A later run finds them by those names and updates them
+in place. Pull requests are unchanged. A GitHub error, including HTTP 429,
+prints a warning and does not fail the attach. Stdio MCP `attach` accepts
+`issueArtifacts: true` and reads the same `.uploads.yml` key. Hosted MCP has
+no `attach` tool and does not write issue artifacts.
 
 **Attach an already-uploaded object (issue #702).** An `attach` argument that
 doesn't exist on disk but resolves as a workspace object key (e.g.
@@ -1232,7 +1258,12 @@ uploads --api-url http://localhost:8787 doctor
   staged files, same as `attach --pr` (result under `promotion` /
   `promoteError`, the same shape as `put`'s hosted comment fields).
   `fromBranch` overrides the source branch, mirroring `--from-branch`.
-  `noPromote` opts out, mirroring `--no-promote`.
+  `noPromote` opts out, mirroring `--no-promote`. On an issue, `issueArtifacts:
+true` (or `comment.issueArtifacts: true` in the repo's `.uploads.yml`) also
+  keeps the `uploads.sh media` artifact and, when the issue has a gallery,
+  the `uploads.sh gallery` link. The result's `comment.issueArtifact` reports
+  `media` / `gallery` (`created` or `updated`) or a `warning`. A warning does
+  not fail the tool call. Hosted MCP does not write issue artifacts.
 
   **Hosted MCP: branch staging + promote.** There is no `attach` tool
   on the hosted server (no filesystem paths) — use `put` instead:
