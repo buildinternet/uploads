@@ -462,16 +462,13 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.error.code).toBe("auth_required");
   });
 
-  it("401s with auth_required for a moved hold that has no public object", async () => {
+  it("401s with auth_required for a hold whose object is missing", async () => {
     const { env } = await makeEnv({}, { db: makeFakeDB() });
     await setServerFileMetadata(
       env.DB as unknown as D1Database,
       "default",
       "screenshots/shot.png",
-      {
-        "ai.hold": "pending",
-        "ai.hold.moved": "1",
-      },
+      { "ai.hold": "pending" },
     );
 
     const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);

@@ -675,33 +675,6 @@ describe("gatherCommentBody held uploads", () => {
     expect(result.body).toContain("1 file is held for your review");
   });
 
-  it("counts a moved hold that has no public object left", async () => {
-    const { env, ws, workspaceName } = makeTestEnv();
-    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/moved.png", {
-      "ai.hold": "pending",
-      "ai.hold.moved": "1",
-    });
-    await recordContentHash(
-      env.DB,
-      workspaceName,
-      "gh/acme/web/pull/12/moved.png",
-      "ab".repeat(32),
-    );
-    await env.DB.prepare(
-      `INSERT INTO blob_hold (workspace, content_sha256, state, actor, at) VALUES (?, ?, 'held', NULL, ?)`,
-    )
-      .bind(workspaceName, "ab".repeat(32), "2026-10-28T00:00:00.000Z")
-      .run();
-    // Another PR's hold does not count here.
-    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/13/other.png", {
-      "ai.hold": "pending",
-    });
-    const result = await gatherCommentBody(env, ws, workspaceName, target);
-    expect(result.count).toBe(1);
-    expect(result.body).toContain("1 file is held for your review");
-    expect(result.body).not.toContain("moved.png");
-  });
-
   it("renders an approved file normally", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     await bucket.put("acme/gh/acme/web/pull/12/ok.png", PNG, {

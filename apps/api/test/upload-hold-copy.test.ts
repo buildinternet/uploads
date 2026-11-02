@@ -51,14 +51,12 @@ async function envFor() {
   const sqlite = new SqliteD1(MIGRATIONS);
   const db = database(sqlite);
   const bucket = new FakeR2Bucket();
-  const held = new FakeR2Bucket();
   const env = {
     DB: db,
     UPLOADS_DEFAULT: bucket,
-    UPLOADS_HELD: held,
     FLAGS: { getBooleanValue: async () => true },
   } as unknown as Env;
-  return { sqlite, db, bucket, held, env };
+  return { sqlite, db, bucket, env };
 }
 
 async function gateRows(db: D1Database): Promise<string[]> {
@@ -83,7 +81,7 @@ async function seedStaged(bucket: FakeR2Bucket, db: D1Database, filename: string
 
 describe("promote and attach copies follow a hosted hold", () => {
   it("gates a promote that landed before the hold, and leaves the bytes in place", async () => {
-    const { sqlite, db, bucket, held, env } = await envFor();
+    const { sqlite, db, bucket, env } = await envFor();
     const source = await seedStaged(bucket, db, "hero.png");
     const dest = pullKey("hero.png");
     const sha = await contentSha256Hex(PNG);
@@ -119,7 +117,6 @@ describe("promote and attach copies follow a hosted hold", () => {
     expect((await getFileMetadata(db, WS, "unrelated.png"))["ai.hold"]).toBeUndefined();
     expect(bucket.store.has(`${PREFIX}${source}`)).toBe(true);
     expect(bucket.store.has(`${PREFIX}${dest}`)).toBe(true);
-    expect(held.store.size).toBe(0);
     sqlite.close();
   });
 
@@ -155,7 +152,7 @@ describe("promote and attach copies follow a hosted hold", () => {
   });
 
   it("gates an attach that landed before the hold", async () => {
-    const { sqlite, db, bucket, held, env } = await envFor();
+    const { sqlite, db, bucket, env } = await envFor();
     const source = "f/abc/shot.png";
     const dest = pullKey("shot.png");
     const sha = await contentSha256Hex(PNG);
@@ -184,7 +181,6 @@ describe("promote and attach copies follow a hosted hold", () => {
     );
     expect(bucket.store.has(`${PREFIX}${source}`)).toBe(true);
     expect(bucket.store.has(`${PREFIX}${dest}`)).toBe(true);
-    expect(held.store.size).toBe(0);
     sqlite.close();
   });
 

@@ -39,7 +39,7 @@ import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { HOLD_META_KEY } from "./upload-hold";
-import { heldKeysAmong, listHeldKeys } from "./upload-hold-read";
+import { heldKeysAmong } from "./upload-hold-read";
 import type { ResolvedCommentOptions } from "@uploads/comment-config";
 import {
   attachmentsCommentBody,
@@ -353,10 +353,6 @@ async function gatherAttachments(
     ...ingestPrefixes,
   ];
 
-  // Independent of the listing below, so it overlaps it. A moved hold
-  // (`held-storage.ts`) has no public object to list.
-  const heldKeysPromise = listHeldKeysSafe(env, workspaceName);
-
   // Imports have no index rows (the index tracks managed attachments only).
   // With the index serving the render, their folders are still listed, but
   // only when the ingest ledger holds an active row for this workspace, so
@@ -430,14 +426,10 @@ async function gatherAttachments(
     scopeMetaByKey,
   );
   const shown = items.filter((item) => !held.has(item.key));
-  const listedKeys = new Set(items.map((item) => item.key));
-  const movedHeld = (await heldKeysPromise).filter(
-    (key) => !listedKeys.has(key) && prefixes.some((prefix) => key.startsWith(prefix)),
-  );
-  const heldCount = items.length - shown.length + movedHeld.length;
-  const visualHeldCount =
-    items.filter((item) => held.has(item.key) && countsAsVisual(item.contentType, item.key))
-      .length + movedHeld.filter((key) => countsAsVisual(undefined, key)).length;
+  const heldCount = items.length - shown.length;
+  const visualHeldCount = items.filter(
+    (item) => held.has(item.key) && countsAsVisual(item.contentType, item.key),
+  ).length;
   items = shown;
 
   const liveLinkUrl =
@@ -563,19 +555,6 @@ export async function addCommentMetadata(
         ...(hasImgHeight ? { height: imgHeight } : {}),
       };
     }
-  }
-}
-
-/**
- * Best-effort for the comment: a failed lookup renders without the moved
- * holds' count line, the same as before holds existed.
- */
-async function listHeldKeysSafe(env: Env, workspaceName: string): Promise<string[]> {
-  try {
-    return await listHeldKeys(env, workspaceName);
-  } catch (err) {
-    console.error({ event: "held_keys_lookup_failed", workspace: workspaceName, err });
-    return [];
   }
 }
 

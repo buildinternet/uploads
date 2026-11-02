@@ -146,8 +146,8 @@ GitHub plumbing under `github/`) are internal and can change without notice.
 | `POST /v1/workspaces/:workspace/files/approve?key=`                             | Release a file held for review (a likely secret or personal data). A key that is not held returns `approved: false`                                                                                                             |
 | `POST /v1/workspaces/:workspace/files/hold?key=`                                | Hold an approved file for review again, for an approval made by mistake. Any other key returns `held: false`                                                                                                                    |
 | `GET /v1/workspaces/:workspace/files/review?key=`                               | A file's review state for members: `hold` (`pending`, `approved` or null), `reason`, and who approved it and when                                                                                                               |
-| `GET /v1/workspaces/:workspace/files/held?prefix=`                              | List files held for review, with the reason and whether the bytes moved to the held bucket                                                                                                                                      |
-| `GET /v1/workspaces/:workspace/files/held/download?key=`                        | Download a held file for review. Streams the held-bucket copy when one exists, otherwise the public object of a hosted hold                                                                                                     |
+| `GET /v1/workspaces/:workspace/files/held?prefix=`                              | List files held for review, with the reason                                                                                                                                                                                     |
+| `GET /v1/workspaces/:workspace/files/held/download?key=`                        | Download a held file for review. Streams the public object of a hosted hold                                                                                                                                                     |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
 | `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
@@ -372,11 +372,9 @@ feeds and galleries return it as `withheld`, and `GET /public/files/...`
 answers 401 `auth_required`. On hosted storage the hold writes a read-gate
 row. An image URL returns a "Held for review" card until approval deletes
 that row. Any other raw URL returns 404. The bytes stay in the public
-bucket. A hold that already moved its bytes to the held
-bucket is copied back on approval. A BYO bucket's domain keeps serving. A
-moved file is absent from `list`; `GET …/files/held` lists held keys and
-`GET …/files/held/download?key=` returns the held-bucket copy when one
-exists, and the public object when the hold never moved it. Only a
+bucket. A BYO bucket's domain keeps serving. `GET …/files/held` lists held
+keys and `GET …/files/held/download?key=` returns the public object of a
+hosted hold. Only a
 signed-in member of the workspace can call it. The file page shows those
 bytes to that member. The public image URL stays the Held for review card.
 `POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) records

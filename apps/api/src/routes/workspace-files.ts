@@ -50,8 +50,8 @@ import {
 } from "../files-core";
 import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service";
 import { effectiveHold, listHeldKeys, presentHoldMetadata } from "../upload-hold-read";
-import { HOLD_AREA_KEY, HOLD_MOVED_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
-import { readHeld, readPublicHold } from "../held-storage";
+import { HOLD_AREA_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
+import { readPublicHold } from "../hosted-hold";
 import {
   getFileMetadata,
   getMetadataForKeys,
@@ -455,14 +455,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   )
 
   // Files held for approval (`upload-hold.ts`), optionally under one key
-  // prefix. A moved hold has no public object, so `list` cannot show it.
+  // prefix.
   .get("/:workspace/files/held", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const name = c.get("workspaceName");
     const prefix = c.req.query("prefix") ?? "";
     const keys = (await listHeldKeys(c.env, name)).filter((key) => key.startsWith(prefix));
     const [meta, hashes] = await Promise.all([
       getMetadataForKeys(dbFor(c.env), name, keys, {
-        metaKeys: [HOLD_MOVED_KEY, HOLD_AREA_KEY, "ai.secret", "ai.pii"],
+        metaKeys: [HOLD_AREA_KEY, "ai.secret", "ai.pii"],
       }),
       contentHashesForKeys(dbFor(c.env), name, keys),
     ]);
@@ -472,7 +472,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         return {
           key,
           reason: storedHoldReason(row),
-          moved: row[HOLD_MOVED_KEY] === "1",
+          // Kept for older clients. Bytes no longer leave the public bucket.
+          moved: false,
           area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
           sha: hashes.get(key) ?? null,
         };
@@ -480,24 +481,12 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     });
   })
 
-  // A held file's bytes, for a member checking it before approval. A legacy
-  // hold streams the held bucket. A hosted hold that never moved streams
-  // the public object. A BYO hold has neither: its own domain serves it.
+  // A held file's bytes, for a member checking it before approval. A hosted
+  // hold streams the public object. A BYO hold 404s: its own domain serves it.
   .get("/:workspace/files/held/download", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const name = c.get("workspaceName");
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
-    const body = await readHeld(c.env, name, key);
-    if (body) {
-      return attachmentResponse(
-        {
-          type: body.httpMetadata?.contentType ?? "application/octet-stream",
-          size: body.size,
-          stream: () => body.body,
-        },
-        downloadFilename(key, body.customMetadata?.["source-name"]),
-      );
-    }
     const publicFile = await readPublicHold(c.env, c.get("workspace"), name, key);
     if (!publicFile) throw new NotFoundError("no held copy of this file", { code: "not_held" });
     return attachmentResponse(

@@ -1827,15 +1827,12 @@ describe("held uploads", () => {
 describe("held uploads stay in the public bucket", () => {
   const key = "images/flagged.png";
   const publicKey = `default/${key}`;
-  const heldKey = `${WORKSPACE}/${key}`;
 
   function heldHarness(respond: () => unknown = () => FLAGGED) {
     const harness = makeClassifierEnv(respond);
-    const held = new FakeR2Bucket();
-    (harness.env as unknown as { UPLOADS_HELD: FakeR2Bucket }).UPLOADS_HELD = held;
     const publicBucket = (harness.env as unknown as { UPLOADS_DEFAULT: FakeR2Bucket })
       .UPLOADS_DEFAULT;
-    return { ...harness, held, publicBucket };
+    return { ...harness, publicBucket };
   }
   const rows = async (env: Env) => (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
 
@@ -1844,18 +1841,14 @@ describe("held uploads stay in the public bucket", () => {
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });
 
     expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
-    expect(await harness.held.head(heldKey)).toBeNull();
-    expect((await rows(harness.env))?.["ai.hold.moved"]).toBeUndefined();
 
     expect(await approveUpload(harness.env, harness.ws, WORKSPACE, key)).toEqual({
       approved: true,
     });
     const restored = await harness.publicBucket.get(publicKey);
     expect(new Uint8Array(await restored!.arrayBuffer())).toEqual(FITTING_PNG);
-    expect(await harness.held.head(heldKey)).toBeNull();
     const after = await rows(harness.env);
     expect(after?.["ai.hold"]).toBe("pending");
-    expect(after?.["ai.hold.moved"]).toBeUndefined();
   });
 
   it("keeps identical bytes in the public bucket when a held key is re-uploaded", async () => {
@@ -1863,7 +1856,6 @@ describe("held uploads stay in the public bucket", () => {
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     await putFlagged(harness, FITTING_PNG, { replace: true, enforceHold: true });
     expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
-    expect(await harness.held.head(heldKey)).toBeNull();
     expect((await rows(harness.env))?.["ai.hold"]).toBe("pending");
   });
 
@@ -1872,7 +1864,6 @@ describe("held uploads stay in the public bucket", () => {
     const harness = heldHarness(() => (++calls === 1 ? FLAGGED : DECIDED));
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true, enforceHold: true });
-    expect(await harness.held.head(heldKey)).toBeNull();
     expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
     expect((await rows(harness.env))?.["ai.hold"]).toBeUndefined();
   });
@@ -1912,7 +1903,6 @@ describe("held uploads stay in the public bucket", () => {
     const harness = heldHarness();
     await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     await deleteObject(harness.env, harness.ws, key, WORKSPACE);
-    expect(await harness.held.head(heldKey)).toBeNull();
     expect(await rows(harness.env)).toBeUndefined();
   });
 });

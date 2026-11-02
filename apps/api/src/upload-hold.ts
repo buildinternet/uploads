@@ -6,8 +6,7 @@
  * of the workspace sees the real file on that page. On hosted storage
  * the read-gate Worker serves a "Held for review" card for
  * an image URL and 404s every other raw URL, from a `read_gate` row. The
- * bytes stay in the public bucket. A hold that already moved its bytes
- * (`ai.hold.moved`) is copied back from the held bucket on release.
+ * bytes stay in the public bucket.
  * A workspace member approves it with
  * `POST /v1/workspaces/:workspace/files/approve`.
  *
@@ -30,12 +29,6 @@ import { CLASSIFIER_CLEAN_VALUES } from "./classifier-admin-wire";
 export const HOLD_META_KEY = "ai.hold";
 export const HOLD_PENDING = "pending";
 export const HOLD_APPROVED = "approved";
-/**
- * `1` while a legacy hold's bytes sit in the held bucket (`held-storage.ts`)
- * instead of at the public key. Absent for a new hosted hold and for a BYO
- * file. Neither moves bytes.
- */
-export const HOLD_MOVED_KEY = "ai.hold.moved";
 
 /**
  * Where the flagged content sits, so a reviewer knows where to look:
