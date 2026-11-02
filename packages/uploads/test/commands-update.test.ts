@@ -77,7 +77,7 @@ describe("uploads update", () => {
     });
     expect(code).toBe(0);
     expect(calls[0]).toEqual(["npm", "install", "-g", "@buildinternet/uploads@latest"]);
-    expect(calls[1]).toEqual(["uploads", "install"]);
+    expect(calls[1]).toEqual(["uploads", "install", "--yes"]);
   });
 
   it("skips the upgrade when already current, reports the version, and refreshes in process", async () => {
@@ -94,7 +94,7 @@ describe("uploads update", () => {
     // Skill preflight may call `npm --version`; only the package upgrade is forbidden.
     expect(calls.some((c) => c[0] === "npm" && c.includes("install"))).toBe(false);
     expect(calls.some((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
-    expect(calls).not.toContainEqual(["uploads", "install"]);
+    expect(calls).not.toContainEqual(["uploads", "install", "--yes"]);
   });
 
   it("forwards --verbose to the in-process refresh when already current", async () => {
