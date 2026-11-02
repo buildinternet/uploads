@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BANNED_ACCOUNT_MESSAGE } from "./auth-client";
-import { oauthErrorCopy } from "./oauth-error-page";
+import { authErrorPageLogLine, oauthErrorCopy } from "./oauth-error-page";
 
 describe("oauthErrorCopy", () => {
   it("maps a cancelled GitHub sign-in", () => {
@@ -48,5 +48,45 @@ describe("oauthErrorCopy", () => {
   it("stays generic when the query is missing", () => {
     expect(oauthErrorCopy(null).reference).toBeNull();
     expect(oauthErrorCopy(undefined).title).toBe("Sign-in didn’t complete");
+  });
+
+  it("maps an expired magic-link token", () => {
+    expect(oauthErrorCopy("INVALID_TOKEN")).toEqual({
+      title: "Sign-in link expired",
+      message: "That sign-in link is no longer valid. Request a new one from the sign-in page.",
+      reference: "INVALID_TOKEN",
+    });
+  });
+
+  it("keeps an unknown safe code as a reference on the generic message", () => {
+    const copy = oauthErrorCopy("some_new_code");
+    expect(copy.title).toBe("Sign-in didn’t complete");
+    expect(copy.message).toBe(
+      "Something went wrong while signing in. Try again from the sign-in page.",
+    );
+    expect(copy.reference).toBe("some_new_code");
+    expect(copy.message).not.toContain("some_new_code");
+  });
+
+  it("reads a ban phrase from error_description without echoing it", () => {
+    const copy = oauthErrorCopy(
+      "access_denied",
+      "You have been banned. Visit https://evil.example",
+    );
+    expect(copy).toMatchObject({
+      title: "Account deactivated",
+      message: BANNED_ACCOUNT_MESSAGE,
+      reference: "access_denied",
+    });
+    expect(copy.message).not.toContain("evil");
+    expect(copy.message).not.toContain("banned");
+  });
+
+  it("logs only an allowlisted code", () => {
+    expect(authErrorPageLogLine("INVALID_TOKEN")).toBe("auth_error_page code=INVALID_TOKEN");
+    expect(authErrorPageLogLine("please_click_https://evil.example")).toBe(
+      "auth_error_page code=rejected",
+    );
+    expect(authErrorPageLogLine(null)).toBe("auth_error_page code=rejected");
   });
 });

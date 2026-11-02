@@ -1,12 +1,13 @@
 ---
 /**
- * OAuth failure page. Better Auth redirects here (`onAPIError.errorURL`)
- * instead of its default /api/auth/error screen. Copy is mapped from the
- * `error` code only — see oauth-error-page.ts.
+ * Catch-all sign-in failure page. Better Auth redirects here
+ * (`onAPIError.errorURL`, and each flow's `errorCallbackURL`) instead of its
+ * default /api/auth/error screen. Copy is mapped from the `error` code —
+ * see oauth-error-page.ts. `error_description` is not shown.
  */
 import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
 import { SAME_ORIGIN_AUTH_BASE } from "../../lib/auth-client";
-import { oauthErrorCopy } from "../../lib/oauth-error-page";
+import { authErrorPageLogLine, oauthErrorCopy } from "../../lib/oauth-error-page";
 import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
 import ThemeToggle from "../../components/ThemeToggle.astro";
@@ -14,7 +15,10 @@ import Footer from "../../components/Footer.astro";
 
 export const prerender = false;
 
-const copy = oauthErrorCopy(Astro.url.searchParams.get("error"));
+const errorCode = Astro.url.searchParams.get("error");
+const copy = oauthErrorCopy(errorCode, Astro.url.searchParams.get("error_description"));
+// Code only. The description and the rest of the query can carry tokens.
+console.warn(authErrorPageLogLine(errorCode));
 applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(SAME_ORIGIN_AUTH_BASE));
 ---
 
@@ -105,7 +109,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(SAME_ORIGIN_AUTH_BA
           </p>
         ) : null
       }
-      <a class="back" href="/login">Back to sign in</a>
+      <a class="back" href="/login">Try again</a>
       <Footer compact />
     </main>
   </body>

@@ -592,6 +592,32 @@ at this so it's discoverable without operator intervention. There is no
 backfill/merge tool for users who linked before this policy shipped — that
 would need a one-off migration script if it comes up.
 
+## Sign-in errors
+
+A failed sign-in redirect lands on `https://uploads.sh/auth/error`. The page
+maps the `error` code to a short explanation and offers a link back to
+sign-in. It shows the raw code when the code is safe to display and the page
+does not recognize it. It does not display `error_description`.
+
+GitHub is the only social provider. GitHub sign-in, connecting a GitHub
+account, and magic-link verify each send `errorCallbackURL` to that page.
+When a request omits it, the auth worker fills the same URL before Better
+Auth stores the attempt. A request that sets its own `errorCallbackURL`
+keeps that URL. New accounts continue to the success URL for that flow.
+`newUserCallbackURL` stays unset.
+
+OAuth authorize failures that happen before the client redirect is trusted
+use the same page (`onAPIError.errorURL`). Password sign-in and password
+reset show their error on the page that started them. Device approval, MCP
+consent, and invitation acceptance do the same. Stripe checkout uses its
+success and cancel URLs on the billing tab, and a failed checkout request
+shows the message on that tab. `uploads login` prints device-token errors
+in the terminal.
+
+The auth worker logs `auth_error code=… status=…` for API errors. The error
+page logs `auth_error_page code=…`. Neither line includes tokens, cookies,
+or the description text.
+
 ## Invitations and people
 
 Workspace org roles are **owner**, **admin**, and **member** (Better Auth

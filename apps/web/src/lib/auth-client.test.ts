@@ -9,6 +9,9 @@ import {
   isOAuthQueryExpired,
   linkGitHub,
   listAccounts,
+  readAuthFailure,
+  signInWithGitHub,
+  signInWithPassword,
   listAdminUsers,
   listConnectedApps,
   listSessions,
@@ -505,7 +508,7 @@ describe("linkGitHub", () => {
         body: JSON.stringify({
           provider: "github",
           callbackURL: "https://uploads.sh/account/profile",
-          errorCallbackURL: "https://uploads.sh/account/profile",
+          errorCallbackURL: "https://uploads.sh/auth/error",
         }),
       }),
     );
@@ -535,6 +538,109 @@ function stubLocation(search: string) {
   vi.stubGlobal("location", { search });
 }
 
+describe("signInWithGitHub", () => {
+  it("posts sign-in/social with errorCallbackURL on the web origin", async () => {
+    const hrefSetter = vi.fn();
+    vi.stubGlobal("location", {
+      get href() {
+        return "https://uploads.sh/login";
+      },
+      set href(value: string) {
+        hrefSetter(value);
+      },
+      search: "",
+    });
+    const fetcher = vi.fn(async () =>
+      Response.json({ url: "https://github.com/login/oauth/authorize?x=1" }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      signInWithGitHub("https://auth.uploads.sh", "https://uploads.sh/device?user_code=ABCD"),
+    ).resolves.toBe(true);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/sign-in/social",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          provider: "github",
+          callbackURL: "https://uploads.sh/device?user_code=ABCD",
+          errorCallbackURL: "https://uploads.sh/auth/error",
+        }),
+      }),
+    );
+    expect(hrefSetter).toHaveBeenCalledWith("https://github.com/login/oauth/authorize?x=1");
+  });
+
+  it("returns false when the body is an error and there is no redirect url", async () => {
+    vi.stubGlobal("location", { href: "https://uploads.sh/login", search: "" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: { code: "BANNED_USER", message: "nope" } })),
+    );
+    await expect(
+      signInWithGitHub("https://auth.uploads.sh", "https://uploads.sh/account"),
+    ).resolves.toBe(false);
+  });
+});
+
+describe("signInWithPassword", () => {
+  it("reads a nested error code", async () => {
+    vi.stubGlobal("location", { search: "" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: { code: "BANNED_USER", message: "deactivated" } }, { status: 403 }),
+      ),
+    );
+    await expect(
+      signInWithPassword(
+        "https://auth.uploads.sh",
+        "a@example.com",
+        "a-long-enough-password",
+        "https://uploads.sh/account",
+      ),
+    ).resolves.toEqual({ ok: false, code: "BANNED_USER" });
+  });
+
+  it("reads a top-level code", async () => {
+    vi.stubGlobal("location", { search: "" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ code: "EMAIL_NOT_VERIFIED", message: "verify" }, { status: 403 }),
+      ),
+    );
+    await expect(
+      signInWithPassword(
+        "https://auth.uploads.sh",
+        "a@example.com",
+        "a-long-enough-password",
+        "https://uploads.sh/account",
+      ),
+    ).resolves.toEqual({ ok: false, code: "EMAIL_NOT_VERIFIED" });
+  });
+});
+
+describe("readAuthFailure", () => {
+  it("reads an oauth string error and a nested object", () => {
+    expect(readAuthFailure({ error: "access_denied", error_description: "cancelled" })).toEqual({
+      code: "access_denied",
+      message: "cancelled",
+    });
+    expect(readAuthFailure({ error: { code: "INVALID_TOKEN", message: "expired" } })).toEqual({
+      code: "INVALID_TOKEN",
+      message: "expired",
+    });
+    expect(readAuthFailure({ error_description: "expired request" })).toEqual({
+      code: null,
+      message: "expired request",
+    });
+    expect(readAuthFailure(null)).toEqual({ code: null, message: null });
+  });
+});
+
 describe("sendMagicLink oauth resume", () => {
   it("injects oauth_query when location.search carries a signed sig= param", async () => {
     stubLocation("?client_id=abc&sig=deadbeef");
@@ -549,6 +655,7 @@ describe("sendMagicLink oauth resume", () => {
         body: JSON.stringify({
           email: "a@example.com",
           callbackURL: "https://uploads.sh/account",
+          errorCallbackURL: "https://uploads.sh/auth/error",
           oauth_query: "client_id=abc&sig=deadbeef",
         }),
       }),
@@ -568,6 +675,7 @@ describe("sendMagicLink oauth resume", () => {
         body: JSON.stringify({
           email: "a@example.com",
           callbackURL: "https://uploads.sh/account",
+          errorCallbackURL: "https://uploads.sh/auth/error",
         }),
       }),
     );
@@ -668,6 +776,21 @@ describe("submitOAuthConsent", () => {
     await expect(
       submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
     ).resolves.toEqual({ ok: false, error: "signature mismatch", permanent: true });
+  });
+
+  it("reads a nested error object", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { code: "temporarily_unavailable", message: "consent store down" } },
+          { status: 503 },
+        ),
+      ),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
+    ).resolves.toEqual({ ok: false, error: "consent store down", permanent: false });
   });
 
   it("falls back to the generic message for an unknown error code, not permanent", async () => {

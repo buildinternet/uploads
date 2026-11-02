@@ -1,8 +1,10 @@
 /**
- * Copy for `/auth/error`, the page Better Auth sends OAuth failures to
- * (`onAPIError.errorURL` in apps/auth). The query `error` code is
- * attacker-controlled on this public URL, so the page never echoes
- * `error_description` — only a code we recognize, or a generic sentence.
+ * Copy for `/auth/error`, the page every redirect sign-in failure lands on.
+ * Better Auth's `onAPIError.errorURL` points here, and GitHub sign-in,
+ * GitHub linking, and magic-link verify set `errorCallbackURL` to the same
+ * path. The query `error` code is attacker-controlled on this public URL, so
+ * the page never echoes `error_description` — only a code we recognize, or a
+ * generic sentence plus the raw code when that code is safe to show.
  */
 import { BANNED_ACCOUNT_MESSAGE, isBannedAuthError } from "./auth-client";
 
@@ -93,17 +95,75 @@ const KNOWN: Record<string, { title: string; message: string }> = {
   nonce_binding_missing: GENERIC,
   no_callback_url: GENERIC,
   internal_server_error: GENERIC,
+  state_mismatch: {
+    title: "Sign-in expired",
+    message: "That sign-in attempt expired or was already used. Start again.",
+  },
+  // Magic-link verify, when the emailed link is missing, used, or expired.
+  INVALID_TOKEN: {
+    title: "Sign-in link expired",
+    message: "That sign-in link is no longer valid. Request a new one from the sign-in page.",
+  },
+  failed_to_create_session: {
+    title: "Sign-in didn’t complete",
+    message: "A session couldn’t be started. Try again from the sign-in page.",
+  },
+  failed_to_create_user: GENERIC,
+  user_creation_failed: GENERIC,
+  user_not_found: GENERIC,
+  new_user_signup_disabled: {
+    title: "Email sign-up isn’t available",
+    message: "New accounts can’t be created with an email link. Sign in with GitHub instead.",
+  },
+  signup_disabled: {
+    title: "Sign-up isn’t available",
+    message: "New accounts can’t be created this way. Sign in with GitHub or an email link.",
+  },
+  EMAIL_NOT_VERIFIED: {
+    title: "Email isn’t verified",
+    message: "Verify this email first: sign in once with an email link.",
+  },
+  temporarily_unavailable: {
+    title: "Sign-in is temporarily unavailable",
+    message: "uploads.sh couldn’t finish signing you in. Try again in a moment.",
+  },
+  server_error: GENERIC,
+  invalid_scope: INVALID_APP,
+  login_required: {
+    title: "Sign-in required",
+    message: "Sign in to continue, then return to the app that sent you here.",
+  },
 };
 
 const SAFE_CODE = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Map a Better Auth / OAuth `error` query value to page copy. */
-export function oauthErrorCopy(rawCode: string | null | undefined): OAuthErrorCopy {
+/** Log line for a hit on `/auth/error`. The code is allowlisted; descriptions are not logged. */
+export function authErrorPageLogLine(rawCode: string | null | undefined): string {
+  const code = rawCode && SAFE_CODE.test(rawCode) ? rawCode : "rejected";
+  return `auth_error_page code=${code}`;
+}
+
+/**
+ * Map a Better Auth / OAuth `error` query value to page copy.
+ * `rawDescription` is read only to recognize a ban phrase. It is never copied
+ * into the message or the reference.
+ */
+export function oauthErrorCopy(
+  rawCode: string | null | undefined,
+  rawDescription?: string | null,
+): OAuthErrorCopy {
   const reference = rawCode && SAFE_CODE.test(rawCode) ? rawCode : null;
+  const description =
+    typeof rawDescription === "string" &&
+    rawDescription.length > 0 &&
+    rawDescription.length <= 300 &&
+    !/[\r\n]/.test(rawDescription)
+      ? rawDescription
+      : null;
   if (
     isBannedAuthError({
       error: reference,
-      message: reference,
+      message: description ?? reference,
     })
   ) {
     return {

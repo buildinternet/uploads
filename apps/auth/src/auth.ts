@@ -345,9 +345,60 @@ async function applyOAuthClientInterop(
   }
 }
 
+const SIGN_IN_ERROR_BODIES = new Set(["/sign-in/social", "/link-social", "/sign-in/magic-link"]);
+
+/**
+ * Fill `errorCallbackURL` when the caller left it out. Magic-link verify
+ * otherwise appends `?error=` to the success `callbackURL`, and that page
+ * does not read it. An explicit per-request value still wins. The URL is
+ * this deployment's web origin, which is already a trusted origin.
+ */
+function defaultSignInErrorCallback(
+  ctx: AuthBeforeCtx,
+  webOrigin: string,
+): { context: { body?: Record<string, unknown>; query?: Record<string, unknown> } } | void {
+  const fallback = `${webOrigin}/auth/error`;
+  if (SIGN_IN_ERROR_BODIES.has(ctx.path)) {
+    const body = ctx.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) return;
+    const record = body as Record<string, unknown>;
+    if (typeof record.errorCallbackURL === "string" && record.errorCallbackURL.length > 0) return;
+    return { context: { body: { ...record, errorCallbackURL: fallback } } };
+  }
+  if (ctx.path === "/magic-link/verify") {
+    const query = ctx.query ?? {};
+    if (typeof query.errorCallbackURL === "string" && query.errorCallbackURL.length > 0) return;
+    return { context: { query: { ...query, errorCallbackURL: fallback } } };
+  }
+}
+
+const AUTH_ERROR_CODE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * API-error log line. Code and status only — the message and the cause can
+ * carry an email address or a token.
+ */
+function logAuthApiError(error: unknown): void {
+  let status = "unknown";
+  let code = "unknown";
+  if (isAPIError(error)) {
+    status = String(error.status);
+    const body = error.body as { code?: unknown; error?: unknown } | undefined;
+    const raw =
+      typeof body?.code === "string"
+        ? body.code
+        : typeof body?.error === "string"
+          ? body.error
+          : "";
+    if (AUTH_ERROR_CODE.test(raw)) code = raw;
+  }
+  console.warn(`auth_error code=${code} status=${status}`);
+}
+
 function authBeforeHook(
   db: ReturnType<typeof drizzle<typeof schema>>,
   registeredScopesForClientId: (clientId: string | undefined) => Promise<readonly string[]>,
+  webOrigin: string,
 ) {
   return createAuthMiddleware(async (ctx) => {
     const oauthOverride = await applyOAuthClientInterop(ctx, registeredScopesForClientId);
@@ -356,6 +407,7 @@ function authBeforeHook(
     // plugin's /oauth2/token handler runs (see oauth-observability.ts).
     await captureRefreshTokenPriorState(db, ctx);
     await enforceLastAdminGuard(ctx, db);
+    return defaultSignInErrorCallback(ctx, webOrigin);
   });
 }
 
@@ -726,10 +778,13 @@ function buildAuth(
     baseURL: betterAuthUrl,
     basePath: "/api/auth",
     secret: signingSecret,
-    // OAuth callback failures redirect here instead of Better Auth's default
-    // error page. A per-request errorCallbackURL still wins.
+    // Redirect failures land on the web app's error page instead of Better
+    // Auth's default screen. A per-request errorCallbackURL still wins;
+    // `defaultSignInErrorCallback` fills one when the caller omitted it.
+    // `onError` skips FOUND redirects (those are logged on /auth/error).
     onAPIError: {
       errorURL: `${webOrigin}/auth/error`,
+      onError: logAuthApiError,
     },
     // The adapter matches schema exports to plugin models by name.
     database: (options: Parameters<ReturnType<typeof drizzleAdapter>>[0]) => {
@@ -1118,7 +1173,7 @@ function buildAuth(
     // One `hooks.before` (Better Auth takes a single middleware): CIMD/DCR
     // grant_types, authorize/consent scope rewrite, then the last-admin guard.
     hooks: {
-      before: authBeforeHook(db, registeredScopesForClientId),
+      before: authBeforeHook(db, registeredScopesForClientId, webOrigin),
       after: authAfterHook(env, db),
     },
     // On in production unless the explicit dev opt-out is set.
