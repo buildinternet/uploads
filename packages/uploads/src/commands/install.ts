@@ -500,6 +500,7 @@ function printHumanSteps(
   redact: (s: string) => string,
   verbose: boolean,
   mcpName: string,
+  skillAgents: SkillAgent[],
 ): void {
   const { skills, mcp, other } = partitionSteps(results);
   const sharedError = identicalSkillFailure(skills);
@@ -521,6 +522,12 @@ function printHumanSteps(
   } else {
     for (const [step, r] of skills) {
       printOneHumanStep(step, r, redact, verbose, mcpName);
+    }
+    if (skills.length > 0 && skills.every(([, r]) => r.ok && !r.skipped)) {
+      process.stdout.write(
+        `  Skills are in ${skillAgents.map((a) => `${a.skillsDir} (${a.label})`).join(", ")}\n` +
+          `  To remove: npx skills remove -g ${SKILL_NAMES.join(" ")}\n`,
+      );
     }
   }
 
@@ -692,16 +699,10 @@ export async function runInstall(
     return failed ? 1 : 0;
   }
 
-  printHumanSteps(results, redact, verbose, name);
+  printHumanSteps(results, redact, verbose, name, skillAgents);
   const { skills: skillEntries, mcp: mcpEntries } = partitionSteps(results);
   const skillResults = skillEntries.map(([, r]) => r);
   const skillsOk = skillResults.length > 0 && skillResults.every((r) => r.ok && !r.skipped);
-  if (human && skillsOk) {
-    process.stdout.write(
-      `  Skills are in ${skillAgents.map((a) => `${a.skillsDir} (${a.label})`).join(", ")}\n` +
-        `  To remove: npx skills remove -g ${SKILL_NAMES.join(" ")}\n`,
-    );
-  }
   // Path-level detail for hooks (printHumanSteps only shows the synthetic step).
   if (
     (target === "hooks" || target === "all") &&
