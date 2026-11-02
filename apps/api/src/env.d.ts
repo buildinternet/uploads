@@ -12,6 +12,11 @@ interface Env {
   /** Current AES master for BYO credentials at rest in KV (optional). */
   WORKSPACE_SECRETS_KEY?: string;
   /**
+   * Shared with uploads-read-gate. Signs `?review=` links that show a held
+   * hosted file to a member for 10 minutes. Unset = no links.
+   */
+  READ_GATE_REVIEW_SECRET?: string;
+  /**
    * Previous master during rotation. Decrypt tries current, then previous.
    * Remove after reencrypt-workspace-secrets.mjs completes.
    */

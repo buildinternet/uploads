@@ -349,6 +349,10 @@
                           "key": { "type": "string" },
                           "reason": { "type": ["string", "null"] },
                           "moved": { "type": "boolean" },
+                          "reviewUrl": {
+                            "type": ["string", "null"],
+                            "description": "Hosted storage only. A link to the held file that works for 10 minutes, for a member to look at it before approving. Do not share it or post it in a pull request."
+                          },
                           "area": {
                             "type": ["object", "null"],
                             "required": ["top", "bottom", "left", "right"],

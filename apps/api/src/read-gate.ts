@@ -9,7 +9,7 @@
 
 import type { D1Queryable } from "./db-session";
 import { posterKeyFor } from "./poster-presentation";
-import { createLaneResolver, isSharedLane } from "./storage";
+import { createLaneResolver, isSharedLane, publicUrl } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 
 /** Lane value stored for every hosted-bucket key. The three public hosts share it. */
@@ -219,4 +219,73 @@ export async function deleteReadGateForWorkspace(
     if (missingTable(err)) return;
     console.error({ event: "read_gate_delete_failed", workspace: workspaceName, err });
   }
+}
+
+/** How long a reviewer link works. The gate refuses anything over 15 minutes. */
+export const REVIEW_URL_TTL_SECONDS = 10 * 60;
+
+const encoder = new TextEncoder();
+
+function base64url(bytes: ArrayBuffer): string {
+  let binary = "";
+  for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * `<expiry>.<sig>` for `?review=`. Same scheme as `verifyReview` in
+ * apps/read-gate/src/review.ts: base64url HMAC-SHA256 over
+ * `lane \n object key \n expiry` (unix seconds).
+ */
+export async function reviewToken(
+  secret: string,
+  objectKey: string,
+  expiry: number,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(`${HOSTED_READ_LANE}\n${objectKey}\n${expiry}`),
+  );
+  return `${expiry}.${base64url(sig)}`;
+}
+
+/**
+ * A short-lived link that shows a held hosted file to whoever has it. Only
+ * mint one for a workspace member, and never put one in a PR comment.
+ * Null when the secret is unset, the key is on a BYO lane, or the key is
+ * in no lane.
+ */
+export async function reviewUrlsFor(
+  env: Env,
+  ws: WorkspaceRecord,
+  keys: string[],
+  nowMs = Date.now(),
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const secret = env.READ_GATE_REVIEW_SECRET;
+  if (!secret || keys.length === 0) return out;
+  const resolver = createLaneResolver(env, ws);
+  const expiry = Math.floor(nowMs / 1000) + REVIEW_URL_TTL_SECONDS;
+  for (const key of keys) {
+    try {
+      const lane = await resolver.resolve(key);
+      if (!lane || !isSharedLane(lane.config)) continue;
+      const url = publicUrl(lane.config, key);
+      if (!url) continue;
+      const token = await reviewToken(secret, `${lane.config.prefix ?? ""}${key}`, expiry);
+      out.set(key, `${url}?review=${token}`);
+    } catch (err) {
+      // A link is a convenience. The held list still answers without one.
+      console.error({ event: "review_url_failed", err });
+    }
+  }
+  return out;
 }

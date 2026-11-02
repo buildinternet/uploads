@@ -51,6 +51,8 @@ type RawFile = {
   branch?: unknown;
   /** True while the file is held for review. Older CLIs omit the field. */
   held?: unknown;
+  /** A held file's short-lived reviewer link. Older CLIs and servers omit it. */
+  reviewUrl?: unknown;
 };
 type Role = "before" | "after";
 
@@ -68,6 +70,10 @@ const fileRef = (file: RawFile): FileRef => ({
   size: typeof file.size === "number" ? file.size : null,
   stagedAt: typeof file.stagedAt === "string" ? file.stagedAt : null,
   held: file.held === true,
+  review:
+    file.held === true && typeof file.reviewUrl === "string" && file.reviewUrl.startsWith(STORAGE)
+      ? file.reviewUrl
+      : null,
 });
 
 /** A file's before/after role and the key its other half shares, or null for neither. */
@@ -405,12 +411,16 @@ async function loadThumbs($: EngineInterface, rows: readonly BandRow[]): Promise
   }
 }
 
+// The detail view also draws a held image, through its reviewer link, so it
+// can be checked before Approve. Cached under the storage URL like the rest.
 async function loadLarge($: EngineInterface, row: BandRow): Promise<void> {
-  for (const file of imageFiles([row])) {
+  const held = filesOf(row).filter((f) => !!f.src && !!f.review && IMAGE_EXT.test(f.name));
+  for (const file of [...imageFiles([row]), ...held]) {
     if (file.src! in (await read($, large))) {
       continue;
     }
-    const uri = (await fetchUri($, file.src!, 1100, 72)) ?? (await fetchUri($, file.src!, 760, 60));
+    const from = file.review ?? file.src!;
+    const uri = (await fetchUri($, from, 1100, 72)) ?? (await fetchUri($, from, 760, 60));
     if (uri) {
       await update($, large, (t) => ({ ...t, [file.src!]: uri }));
     }
@@ -924,7 +934,12 @@ export const register: Register = (on, options) => {
       await update(
         $,
         attached,
-        (): Attached => ({ ...record, repo: target.repo, branch: head, pr: target.pr }),
+        (): Attached => ({
+          ...record,
+          repo: target.repo,
+          branch: head,
+          pr: target.pr,
+        }),
       );
     }
     return outcome.context ? { ...ran, context: [...(ran.context ?? []), outcome.context] } : ran;
@@ -1102,19 +1117,31 @@ export const register: Register = (on, options) => {
           <Text bold>{labelOf(chosen)}</Text>
           {filesOf(chosen).map((f) => {
             if (f.held) {
+              const shown = f.src ? (big[f.src] ?? null) : null;
               return (
                 <Box key={f.key} flexDirection="column" gap={1}>
-                  {desktop && (
-                    <Svg
-                      source={tileSvg(
-                        [{ uri: "", chip: null, ext: extOf(f.name), held: true }],
-                        480,
-                        200,
-                        false,
-                      )}
-                      alt={`${f.name}, held for review`}
-                    />
-                  )}
+                  {desktop &&
+                    (shown ? (
+                      <Svg
+                        source={tileSvg(
+                          [{ uri: shown, chip: "HELD", ext: extOf(f.name) }],
+                          1000,
+                          625,
+                          true,
+                        )}
+                        alt={`${f.name}, held for review`}
+                      />
+                    ) : (
+                      <Svg
+                        source={tileSvg(
+                          [{ uri: "", chip: null, ext: extOf(f.name), held: true }],
+                          480,
+                          200,
+                          false,
+                        )}
+                        alt={`${f.name}, held for review`}
+                      />
+                    ))}
                   <Text color={WARN}>
                     {f.name} is held for review: uploads.sh thinks it shows a secret or personal
                     data.

@@ -109,6 +109,11 @@ export interface HeldFile {
   moved: boolean;
   /** Content hash of the held bytes, when the server knows it. */
   sha?: string | null;
+  /**
+   * Hosted storage only: a link to the held file that works for about 10
+   * minutes, for looking at it before approving. Never post it anywhere.
+   */
+  reviewUrl?: string | null;
 }
 
 /**

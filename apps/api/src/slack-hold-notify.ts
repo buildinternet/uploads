@@ -23,7 +23,9 @@
 
 import { dbFor, type D1Queryable } from "./db-session";
 import { filePageUrl } from "./files-core";
+import { reviewUrlsFor } from "./read-gate";
 import type { HoldReason } from "./upload-hold";
+import type { WorkspaceRecord } from "./workspace";
 
 /** The host uploads-slack's internal routes answer on (apps/slack/src/index.ts). */
 const SLACK_INTERNAL_ORIGIN = "https://slack.internal";
@@ -104,7 +106,15 @@ export interface SlackHoldMessage {
   pageUrl: string;
   /** Whether this person uploaded it (changes the wording). */
   isUploader: boolean;
+  /**
+   * A 10-minute reviewer link to the held image, for the DM's image block.
+   * Slack fetches it once when the DM is posted. Recipients are members.
+   */
+  imageUrl?: string;
 }
+
+/** Raster types a Slack image block draws. */
+const SLACK_IMAGE = /\.(png|jpe?g|gif)$/i;
 
 /**
  * DM everyone who should hear about the hold on `key`. Never throws.
@@ -112,6 +122,7 @@ export interface SlackHoldMessage {
  */
 export async function notifySlackOfHold(
   env: Env,
+  ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
   reason: HoldReason,
@@ -125,6 +136,9 @@ export async function notifySlackOfHold(
     if (recipients.length === 0) return 0;
     const pageUrl = filePageUrl(env, workspaceName, key);
     const kind = meta[reason === "pii" ? "ai.pii" : "ai.secret"] || undefined;
+    const imageUrl = SLACK_IMAGE.test(key)
+      ? (await reviewUrlsFor(env, ws, [key])).get(key)
+      : undefined;
     const sent = await Promise.all(
       recipients.map(async (r) => {
         const body: SlackHoldMessage = {
@@ -136,6 +150,7 @@ export async function notifySlackOfHold(
           kind,
           pageUrl,
           isUploader: r.userId === uploaderId,
+          ...(imageUrl ? { imageUrl } : {}),
         };
         try {
           const res = await slack.fetch(`${SLACK_INTERNAL_ORIGIN}/slack/internal/hold`, {

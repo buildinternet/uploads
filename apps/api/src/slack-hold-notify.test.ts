@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { database, SqliteD1 } from "../test/helpers/sqlite-d1";
+import { FakeR2Bucket } from "../test/fake-r2";
 import { notifySlackOfHold, slackHoldRecipients } from "./slack-hold-notify";
+import type { WorkspaceRecord } from "./workspace";
+
+const WS = {
+  provider: "r2",
+  bucket: "uploads-default",
+  binding: "UPLOADS_DEFAULT",
+  prefix: "acme/",
+  publicBaseUrl: "https://storage.uploads.sh",
+  tokenHash: "x",
+} as WorkspaceRecord;
 
 const MIGRATIONS = [
   "migrations/20260822120000_auth_tables.sql",
@@ -101,7 +112,7 @@ describe("notifySlackOfHold", () => {
         },
       },
     } as unknown as Env;
-    const sent = await notifySlackOfHold(env, "acme", "shots/a b.png", "secret", {
+    const sent = await notifySlackOfHold(env, WS, "acme", "shots/a b.png", "secret", {
       "gh.uploader-id": "u-member",
       "ai.secret": "api_key",
     });
@@ -120,9 +131,34 @@ describe("notifySlackOfHold", () => {
     });
   });
 
+  it("adds a reviewer link for a held image when the secret is set", async () => {
+    link("u-member", "U0MEMBER");
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/shots/a.png", new Uint8Array([1]).buffer);
+    const bodies: Record<string, unknown>[] = [];
+    const env = {
+      DB: database(sqlite),
+      WEB_ORIGIN: "https://uploads.sh",
+      UPLOADS_DEFAULT: bucket,
+      READ_GATE_REVIEW_SECRET: "s3cret",
+      SLACK: {
+        fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          return new Response(null, { status: 204 });
+        },
+      },
+    } as unknown as Env;
+    await notifySlackOfHold(env, WS, "acme", "shots/a.png", "secret", {
+      "gh.uploader-id": "u-member",
+    });
+    expect(String(bodies[0]!.imageUrl)).toMatch(
+      /^https:\/\/storage\.uploads\.sh\/acme\/shots\/a\.png\?review=\d+\.[\w-]+$/,
+    );
+  });
+
   it("is a no-op without the binding and never throws", async () => {
-    expect(await notifySlackOfHold({} as Env, "acme", "k.png", "pii", {})).toBe(0);
+    expect(await notifySlackOfHold({} as Env, WS, "acme", "k.png", "pii", {})).toBe(0);
     const broken = { SLACK: { fetch: async () => new Response() } } as unknown as Env;
-    expect(await notifySlackOfHold(broken, "acme", "k.png", "pii", {})).toBe(0);
+    expect(await notifySlackOfHold(broken, WS, "acme", "k.png", "pii", {})).toBe(0);
   });
 });

@@ -19,9 +19,14 @@
  *
  * Each hosted GET with an object key also writes one Analytics Engine point
  * (`views.ts`). The resizer's own source fetch is not counted again.
+ *
+ * A valid `?review=` signature (`review.ts`) skips the lookup and serves
+ * the object with `no-store`, for a member checking a held file. Those
+ * reads are not counted as views.
  */
 
 import placeholder from "./held-placeholder.png";
+import { REVIEW_PARAM, verifyReview } from "./review";
 import {
   contentLengthOf,
   isResizerFetch,
@@ -57,6 +62,8 @@ export interface ReadGateEnv {
   DB: D1Database;
   EXTRA_HOSTED_HOSTS?: string;
   VIEWS?: AnalyticsEngineDataset;
+  /** Shared with uploads-api. Unset means no reviewer link passes. */
+  READ_GATE_REVIEW_SECRET?: string;
 }
 
 interface GateContext {
@@ -266,6 +273,51 @@ function finishRead(hosted: boolean, request: Request, response: Response): Resp
   return withPublicReadCors(response);
 }
 
+/** `/cdn-cgi/image/<options>/…` options as `cf.image`, or null for a plain path. */
+export function transformOptions(pathname: string): Record<string, string | number> | null {
+  const match = /^\/cdn-cgi\/image\/([^/]+)\//.exec(pathname);
+  if (!match) return null;
+  const out: Record<string, string | number> = {};
+  for (const part of decodeURIComponent(match[1]!).split(",")) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    const name = part.slice(0, eq).trim();
+    const value = part.slice(eq + 1).trim();
+    if (name === "fit" || name === "format") out[name] = value;
+    else if (["width", "height", "quality", "dpr"].includes(name) && Number.isFinite(Number(value)))
+      out[name] = Number(value);
+  }
+  return out;
+}
+
+/**
+ * A signed reviewer read. It skips D1, so a held key comes back as its
+ * bytes. `no-store` keeps the bytes out of every cache on the way. A
+ * transform is run here on the signed source URL, because the resizer's
+ * own fetch of `/<key>` would drop the query and meet the gate.
+ */
+async function reviewRead(
+  request: Request,
+  url: URL,
+  objectKey: string,
+  token: string,
+): Promise<Response> {
+  const image = transformOptions(url.pathname);
+  const response = image
+    ? await fetch(
+        `${url.origin}/${objectKey.split("/").map(encodeURIComponent).join("/")}?${REVIEW_PARAM}=${encodeURIComponent(token)}`,
+        { method: request.method, cf: { image } } as RequestInit,
+      )
+    : await fetch(request, { cache: "no-store" });
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "no-store");
+  return new Response(request.method === "HEAD" ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export async function handleReadGate(
   request: Request,
   env: ReadGateEnv,
@@ -277,6 +329,20 @@ export async function handleReadGate(
   if (request.method === "OPTIONS") return hosted ? readPreflight(request) : fetch(request);
   const objectKey = objectKeyFromUrl(request.url, env);
   if (!objectKey) return finishRead(hosted, request, await fetch(request));
+  const token = url.searchParams.get(REVIEW_PARAM);
+  if (
+    token &&
+    isReadMethod(request.method) &&
+    (await verifyReview(
+      env.READ_GATE_REVIEW_SECRET,
+      token,
+      HOSTED_LANE,
+      objectKey,
+      Math.floor(Date.now() / 1000),
+    ))
+  ) {
+    return finishRead(hosted, request, await reviewRead(request, url, objectKey, token));
+  }
   const gate = await gateOutcome(env, ctx, url.hostname, objectKey);
   const response =
     gate === "block"

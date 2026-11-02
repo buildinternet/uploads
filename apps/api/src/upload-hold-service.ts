@@ -154,7 +154,7 @@ export async function applyUploadHold(
       ...copies.map((copy) =>
         resyncAttachmentComment(env, ws, workspaceName, copy, copyMeta.get(copy) ?? {}),
       ),
-      notifySlackOfHold(env, workspaceName, key, reason, existing),
+      notifySlackOfHold(env, ws, workspaceName, key, reason, existing),
       emailHold(env, workspaceName, key, reason, existing),
     ]);
     return true;

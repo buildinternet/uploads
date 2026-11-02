@@ -52,6 +52,7 @@ import { approveUpload, approverLabel, holdAgain } from "../upload-hold-service"
 import { effectiveHold, listHeldKeys, presentHoldMetadata } from "../upload-hold-read";
 import { HOLD_AREA_KEY, parseHoldArea, storedHoldReason } from "../upload-hold";
 import { readPublicHold } from "../hosted-hold";
+import { reviewUrlsFor } from "../read-gate";
 import {
   getFileMetadata,
   getMetadataForKeys,
@@ -466,6 +467,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       }),
       contentHashesForKeys(dbFor(c.env), name, keys),
     ]);
+    // Members only: this route is behind workspace auth.
+    const reviewUrls = await reviewUrlsFor(c.env, c.get("workspace"), keys);
     return c.json({
       items: keys.map((key) => {
         const row = meta.get(key) ?? {};
@@ -476,6 +479,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           moved: false,
           area: parseHoldArea(row[HOLD_AREA_KEY]) ?? null,
           sha: hashes.get(key) ?? null,
+          reviewUrl: reviewUrls.get(key) ?? null,
         };
       }),
     });

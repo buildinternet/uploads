@@ -176,6 +176,42 @@ describe("hold notices", () => {
     expect(slack.calls[1]!.body).toMatchObject({ channel: "D123" });
   });
 
+  it("shows the held image, and posts without it when Slack can't fetch it", async () => {
+    const imageUrl = "https://storage.uploads.sh/acme/env.png?review=1.abc";
+    const shown = holdMessage(parseHoldNotice({ ...NOTICE, imageUrl }, "https://uploads.sh")!);
+    expect(shown.blocks[1]).toEqual({
+      type: "image",
+      image_url: imageUrl,
+      alt_text: "env.png, held for review",
+    });
+    expect(
+      parseHoldNotice({ ...NOTICE, imageUrl: "http://x/a.png" }, "https://uploads.sh")!.imageUrl,
+    ).toBeUndefined();
+
+    const env = await setup();
+    const posts: Record<string, unknown>[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/conversations.open")) {
+        return Response.json({ ok: true, channel: { id: "D123" } });
+      }
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      posts.push(body);
+      return posts.length === 1
+        ? Response.json({ ok: false, error: "invalid_blocks" })
+        : Response.json({ ok: true, channel: "D123", ts: "1700000000.000100" });
+    }) as unknown as typeof globalThis.fetch;
+    const res = await createApp({ slackFetch: fetch }).fetch(
+      internal("/slack/internal/hold", { ...NOTICE, imageUrl }),
+      env,
+      ctx().ctx,
+    );
+    expect(res.status).toBe(204);
+    expect(posts).toHaveLength(2);
+    expect(JSON.stringify(posts[0])).toContain(imageUrl);
+    expect(JSON.stringify(posts[1])).not.toContain(imageUrl);
+  });
+
   it("is unreachable from the public route", async () => {
     const env = await setup();
     const slack = fakeSlack();

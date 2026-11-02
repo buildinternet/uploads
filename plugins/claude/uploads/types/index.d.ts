@@ -14,6 +14,8 @@ export type FileRef = {
   stagedAt: string | null;
   /** Held for review: its bytes stay private until a member approves it. */
   held: boolean;
+  /** A held file's 10-minute reviewer link (storage URL plus `?review=`), when the CLI gave one. */
+  review: string | null;
 };
 
 /**

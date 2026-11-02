@@ -375,6 +375,36 @@ describe("runStaged: file listing", () => {
     expect(approved).not.toHaveProperty("held");
   });
 
+  it("adds the server's reviewer link to a held file", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/env.png",
+          url: null,
+          metadata: { "ai.hold": "pending" },
+        },
+        { key: "gh/o/r/branch/feature-thing/ok.png", url: null, metadata: {} },
+      ],
+      repoLinkStatus: { binding: "self" },
+    });
+    const reviewUrl =
+      "https://storage.uploads.sh/acme/gh/o/r/branch/feature-thing/env.png?review=1.a";
+    (client as unknown as { listHeld: unknown }).listHeld = async () => [
+      { key: "gh/o/r/branch/feature-thing/env.png", reason: null, moved: false, reviewUrl },
+    ];
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    const [held, ok] = JSON.parse(stdout).files;
+    expect(held).toMatchObject({ held: true, reviewUrl });
+    expect(ok).not.toHaveProperty("reviewUrl");
+  });
+
   it("human mode prints one compact line per file plus binding + promote affordance", async () => {
     const { client } = fakeClient({
       items: [
