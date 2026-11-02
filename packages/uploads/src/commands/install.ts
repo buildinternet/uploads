@@ -67,15 +67,35 @@ export function detectSkillAgents(home: string): SkillAgent[] {
 
 const OTHER_AGENT_HINT = `Using another agent? Run \`${MANUAL_SKILL_COMMAND}\` to pick from the full list.`;
 
+/** True when `bin` is an executable on PATH (no process spawned). */
+function onPath(bin: string): boolean {
+  const exts =
+    process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD").split(";") : [""];
+  return (process.env.PATH ?? "").split(path.delimiter).some((dir) =>
+    exts.some((ext) => {
+      try {
+        fs.accessSync(path.join(dir, bin + ext), fs.constants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  );
+}
+
 /** What `uploads install` (all) will do, shown before asking to proceed. */
 function installPlan(skillAgents: SkillAgent[], home: string, signedIn: boolean): string {
   const skills =
     skillAgents.length > 0
       ? `Add the ${SKILL_NAMES.join(", ")} skills for ${skillAgents.map((a) => a.label).join(", ")}`
       : "Skip skills (no supported agent found)";
-  const mcp = signedIn
-    ? "Register the uploads MCP server in Claude Code, Codex and Grok (whichever are installed)"
-    : "Skip the MCP server until you run `uploads login`";
+  const mcpClients = MCP_CLIENTS.filter((c) => onPath(c.id)).map((c) => c.label);
+  const mcp =
+    mcpClients.length === 0
+      ? "Skip the MCP server (no Claude Code, Codex or Grok CLI found)"
+      : signedIn
+        ? `Register the uploads MCP server in ${mcpClients.join(", ")}`
+        : "Skip the MCP server until you run `uploads login`";
   const hookTargets = [
     fs.existsSync(path.join(home, ".cursor")) && "Cursor",
     fs.existsSync(path.join(home, ".grok")) && "Grok",

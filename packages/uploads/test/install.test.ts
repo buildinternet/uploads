@@ -185,6 +185,12 @@ describe("uploads install", () => {
 
   it("shows the plan and asks once; declining installs nothing", async () => {
     fs.mkdirSync(path.join(emptyHome, ".cursor"));
+    // Only `claude` and `codex` on PATH: the plan names just those.
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-install-bin-"));
+    for (const name of ["claude", "codex"]) {
+      fs.writeFileSync(path.join(bin, name), "#!/bin/sh\n", { mode: 0o755 });
+    }
+    vi.stubEnv("PATH", bin);
     const { run, calls } = fakeRunner();
     const { out } = captureStreams();
     const questions: string[] = [];
@@ -199,7 +205,7 @@ describe("uploads install", () => {
     expect(printed).toContain(
       "Add the uploads-cli, github-screenshots, annotate-screenshots skills for Claude Code, Cursor",
     );
-    expect(printed).toContain("Register the uploads MCP server in Claude Code, Codex and Grok");
+    expect(printed).toContain("Register the uploads MCP server in Claude Code, Codex\n");
     expect(printed).toContain("Add the PR screenshot reminder hook for Cursor");
     expect(printed).toContain("Using another agent? Run `npx skills add buildinternet/uploads -g`");
     expect(printed).toContain("Nothing installed.");
