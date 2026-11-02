@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.61.3
+
+### Patch Changes
+
+- 8b8b530: `uploads install` now installs skills only into the agents already on your machine, instead of creating a skills folder in your home directory for every agent the skills CLI supports. If it finds no agent, it skips skills and prints the `npx skills add` command to run yourself.
+- 5bc3337: `uploads github rotate-prefix` says to run it again when the server reports that some objects may still be under the old prefix.
+
 ## 0.61.2
 
 ### Patch Changes
