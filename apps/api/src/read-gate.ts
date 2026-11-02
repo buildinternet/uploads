@@ -261,7 +261,7 @@ export async function reviewToken(
  * A short-lived link that shows a held hosted file to whoever has it. Only
  * mint one for a workspace member, and never put one in a PR comment.
  * Null when the secret is unset, the key is on a BYO lane, or the key is
- * in no lane (a legacy moved hold).
+ * in no lane.
  */
 export async function reviewUrlsFor(
   env: Env,
