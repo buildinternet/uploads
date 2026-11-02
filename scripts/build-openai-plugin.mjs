@@ -115,7 +115,7 @@ export function stageOpenAIPlugin(sourceRoot, destination, reviewConfig) {
       ...(reviewConfig ? { review: reviewMetadata(sourceRoot, reviewConfig) } : {}),
       publication: {
         release_notes:
-          "Initial OpenAI directory package with hosted file tools and screenshot workflows.",
+          "Includes the staged and attached conversation panel with larger image previews, per-shot labels and captions in managed GitHub comments, signed upload URLs for files on disk, and current screenshot and CLI workflow skills.",
       },
     },
   };

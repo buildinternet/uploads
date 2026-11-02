@@ -171,5 +171,6 @@ Selected evidence:
 - [Narrow actual-size preview, local fixture](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/image-preview-narrow-actual.webp)
 - [Branded listing](https://embed.uploads.sh/default/gh/buildinternet/uploads/pull/1298/branded-plugin-listing.webp)
 
-Submission packaging and reviewer-account validation remain separate work in
-[PR #1059](https://github.com/buildinternet/uploads/pull/1059).
+Submission packaging merged in [PR #1059](https://github.com/buildinternet/uploads/pull/1059).
+Reviewer-account validation and portal submission remain separate steps in the
+[directory submission runbook](../plugins/codex/directory.md).

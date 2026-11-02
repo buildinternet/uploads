@@ -9,10 +9,10 @@
     },
     {
       "description": "Attach a screenshot to the prepared reviewer pull request",
-      "prompt": "Attach this screenshot to pull request {{pullRequest}} in {{repo}}.",
+      "prompt": "Attach this screenshot of /settings to pull request {{pullRequest}} in {{repo}} as the after state, with caption Saved settings.",
       "tools_triggered": "put",
       "file_attachment_urls": ["{{afterPngUrl}}"],
-      "expected_behavior": "Upload the attached PNG using repo and pr. Return a stable PR key and embedUrl. The installed GitHub App posts or updates one managed attachments comment on the prepared reviewer pull request."
+      "expected_behavior": "Upload the attached PNG using repo and pr, metadata.path=/settings, state=after, and caption=Saved settings. Return a stable PR key and embedUrl. The installed GitHub App posts or updates one managed attachments comment on the prepared reviewer pull request, showing the path, state, and caption with the image."
     },
     {
       "description": "Stage a before and after before a pull request exists",
