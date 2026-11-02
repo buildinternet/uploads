@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.61.4
+
+### Patch Changes
+
+- b8b392d: `uploads staged --format json` adds `reviewUrl` to a held file when the server gives one: a 10-minute link for a workspace member to look at the file before approving. The Claude Code plugin uses it to draw the held image in the file's detail view, next to Approve.
+- 5dd32f8: `uploads install` now lists what it will set up (skills and the agents they go to, the MCP server, the hooks) and asks once before installing. Skills go only to the agents it found, and it prints where they went and how to remove them. `uploads install skill|mcp|hooks`, `--yes` and `uploads update` skip the question.
+
 ## 0.61.3
 
 ### Patch Changes
