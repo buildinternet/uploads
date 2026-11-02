@@ -102,8 +102,8 @@ What it does:
   hooks   PR screenshot reminder for Grok / Cursor (user-global manifests)
 
 What runs under the hood:
-  skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y -a '*'
-          (once per skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+
+  skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y
+          (only into agents already installed here; once per skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+
           with npx on PATH — missing tooling fails once with install guidance)
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
@@ -228,8 +228,10 @@ export function runStep(run: CommandRunner, command: string[]): StepResult {
 }
 
 function skillCommand(skill: string): string[] {
-  // -g global, -y non-interactive, -a '*' every agent (skips the multi-select TUI)
-  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", skill, "-g", "-y", "-a", "*"];
+  // -g global, -y non-interactive. No `-a`: skills targets only the agents it
+  // detects (plus the shared ~/.agents/skills), instead of creating a dotdir for
+  // every supported agent in $HOME (#1361).
+  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", skill, "-g", "-y"];
 }
 
 /** `mcp add` exits non-zero when the name is already registered; treat that as success. */

@@ -105,19 +105,7 @@ describe("uploads install", () => {
     expect(calls[0]).toEqual(["npx", "--version"]);
     expect(calls[1]).toEqual(["npm", "--version"]);
     expect(withoutSkillProbe(calls)).toEqual([
-      [
-        "npx",
-        "-y",
-        "skills",
-        "add",
-        "buildinternet/uploads",
-        "--skill",
-        "uploads-cli",
-        "-g",
-        "-y",
-        "-a",
-        "*",
-      ],
+      ["npx", "-y", "skills", "add", "buildinternet/uploads", "--skill", "uploads-cli", "-g", "-y"],
       [
         "npx",
         "-y",
@@ -128,8 +116,6 @@ describe("uploads install", () => {
         "github-screenshots",
         "-g",
         "-y",
-        "-a",
-        "*",
       ],
       [
         "npx",
@@ -141,8 +127,6 @@ describe("uploads install", () => {
         "annotate-screenshots",
         "-g",
         "-y",
-        "-a",
-        "*",
       ],
       ...withMcpListProbes(
         MCP_CLIENTS.map((client) => client.command("uploads", DEFAULT_MCP_URL, "up_acme_secret")),
