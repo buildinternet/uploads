@@ -85,6 +85,8 @@ function install(
 
 beforeEach(() => {
   emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-install-home-"));
+  // An agent dir so skill install proceeds (no agent → skipped, see below).
+  fs.mkdirSync(path.join(emptyHome, ".claude"));
   vi.stubEnv("BUILDINTERNET_CONFIG", "/nonexistent/uploads-install-test-config");
   vi.stubEnv("UPLOADS_TOKEN", "");
   vi.stubEnv("UPLOADS_WORKSPACE", "");
@@ -162,6 +164,19 @@ describe("uploads install", () => {
     const { out } = captureStreams();
     expect(await install(["--verbose"], { globals: GLOBALS, runner: run })).toBe(0);
     expect(out.join("")).toContain("multi-line child output");
+  });
+
+  it("skips skills with the manual command when no agent dir exists (#1361)", async () => {
+    fs.rmSync(path.join(emptyHome, ".claude"), { recursive: true });
+    const { run, calls } = fakeRunner();
+    const streams = captureStreams();
+    const code = await install(["skill"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(calls).toEqual([]);
+    const out = streams.out.join("");
+    expect(out).toContain("skills: skipped — no supported agent found");
+    expect(out).toContain("npx skills add buildinternet/uploads -g");
+    expect(out).not.toContain("Skill install incomplete");
   });
 
   it("install skill runs only the skills step", async () => {

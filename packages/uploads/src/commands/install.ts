@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   flagBool,
   flagString,
@@ -18,6 +21,31 @@ import {
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
 const SKILL_NAMES = ["uploads-cli", "github-screenshots", "annotate-screenshots"];
+const MANUAL_SKILL_COMMAND = `npx skills add ${SKILL_SOURCE} -g`;
+
+/**
+ * Home-relative dirs the skills CLI uses to detect common agents. When none
+ * exist, `skills add -y` falls back to every agent it supports and creates a
+ * dotdir for each in $HOME (#1361), so install skips skills and points at the
+ * interactive picker instead. Missing a rarer agent here only costs a manual
+ * step, never extra dirs.
+ */
+const SKILL_AGENT_DIRS = [
+  ".claude",
+  ".codex",
+  ".cursor",
+  ".gemini",
+  ".copilot",
+  ".grok",
+  ".codeium/windsurf",
+  ".config/opencode",
+  ".config/amp",
+  ".config/goose",
+];
+
+export function hasSkillAgent(home: string): boolean {
+  return SKILL_AGENT_DIRS.some((dir) => fs.existsSync(path.join(home, dir)));
+}
 
 type McpClientId = "claude" | "codex" | "grok";
 
@@ -103,7 +131,8 @@ What it does:
 
 What runs under the hood:
   skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y
-          (only into agents already installed here; once per skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+
+          (only into agents already installed here — with none found it
+          skips and prints the manual command; once per skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+
           with npx on PATH — missing tooling fails once with install guidance)
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
@@ -130,7 +159,7 @@ Examples:
 export interface StepResult {
   command: string[];
   ok: boolean;
-  skipped?: "dry-run" | "sign-in" | "already-configured" | "missing-cli";
+  skipped?: "dry-run" | "sign-in" | "already-configured" | "missing-cli" | "no-agent";
   error?: string;
   output?: string;
 }
@@ -442,7 +471,12 @@ function printHumanSteps(
   const { skills, mcp, other } = partitionSteps(results);
   const sharedError = identicalSkillFailure(skills);
 
-  if (sharedError !== undefined) {
+  if (skills.length > 0 && skills.every(([, r]) => r.skipped === "no-agent")) {
+    process.stdout.write(
+      "skills: skipped — no supported agent found (~/.claude, ~/.codex, ~/.cursor, …).\n" +
+        `  To choose agents yourself: ${MANUAL_SKILL_COMMAND}\n`,
+    );
+  } else if (sharedError !== undefined) {
     process.stderr.write(`skills: failed — ${redact(sharedError)}\n`);
     if (verbose) {
       for (const [step, r] of skills) {
@@ -527,10 +561,18 @@ export async function runInstall(
 
   if (target === "skill" || target === "all") {
     if (human) process.stdout.write("Installing skills…\n");
-    const toolingError = dryRun ? undefined : probeSkillTooling(run);
+    const noAgent = !hasSkillAgent(opts.home ?? os.homedir());
+    const toolingError = dryRun || noAgent ? undefined : probeSkillTooling(run);
     for (const skill of SKILL_NAMES) {
       const command = skillCommand(skill);
-      if (dryRun) {
+      if (noAgent) {
+        results[`skill:${skill}`] = {
+          command,
+          ok: false,
+          skipped: "no-agent",
+          error: `no supported agent found — run \`${MANUAL_SKILL_COMMAND}\` to pick agents yourself`,
+        };
+      } else if (dryRun) {
         results[`skill:${skill}`] = { command, ok: true, skipped: "dry-run" };
       } else if (toolingError) {
         results[`skill:${skill}`] = { command, ok: false, error: toolingError };
@@ -627,7 +669,12 @@ export async function runInstall(
       ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
       : "Fix the MCP step above, then re-run `uploads install mcp`.";
     process.stdout.write(`\nSkills are installed. ${next}\n`);
-  } else if (failed && !dryRun && skillsFailed) {
+  } else if (
+    failed &&
+    !dryRun &&
+    skillsFailed &&
+    !skillResults.every((r) => r.skipped === "no-agent")
+  ) {
     // Closing guidance when skills fail (issue #191: used to be per-step only).
     const skillErrText = skillResults.map((r) => r.error ?? "").join("\n");
     const toolingMissing = /npx not found|npm not found|too old for skill install/i.test(
