@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandRunner } from "../src/github-gh.js";
 import type { InstallSource } from "../src/install-source.js";
@@ -44,13 +47,20 @@ function captureStreams() {
 const outdated = async () => ({ current: "0.9.0", latest: "0.10.0", updateAvailable: true });
 const current = async () => ({ current: "0.10.0", latest: "0.10.0", updateAvailable: false });
 
+/** Temp HOME with an agent dir, so the in-process install refresh runs skills. */
+let home: string;
+
 beforeEach(() => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-update-home-"));
+  fs.mkdirSync(path.join(home, ".claude"));
+  vi.stubEnv("HOME", home);
   vi.stubEnv("BUILDINTERNET_CONFIG", "/nonexistent/uploads-update-test-config");
   vi.stubEnv("UPLOADS_TOKEN", "");
   vi.stubEnv("UPLOADS_WORKSPACE", "");
 });
 
 afterEach(() => {
+  fs.rmSync(home, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
