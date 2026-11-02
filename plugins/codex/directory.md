@@ -35,8 +35,19 @@ operator prepares the account once.
 1. Invite a reviewer mailbox you control to the review workspace.
 2. Accept the invitation with a magic link. This verifies the email.
 3. On Account → Profile, choose **set a password by email** and open the link.
+   Set a password with at least 12 characters.
 4. Sign out, then confirm **Use a password** on `/login` reaches the account,
    and through it the OpenAI OAuth consent.
+
+Start this final check from a fresh OpenAI connection, with the reviewer
+signed out of Uploads. Confirm that sign-in resumes the original OAuth request
+and that consent selects the review workspace. Password reset signs out
+existing sessions, so finish setup before testing the connection.
+
+Check expired setup links separately: they must show an error rather than a
+successful sign-in. Magic-link failures now use `/auth/error`. For a desktop
+connection, confirm that the OAuth handoff returns to the app; a browser
+message saying the tab can be closed is not proof that the app connected.
 
 Store the email, password, and these sign-in instructions only in the portal's
 private Review details.
@@ -53,6 +64,18 @@ the staged/attached conversation panel. Confirm that available images open in
 the larger preview, while private and held files remain placeholders. A safe
 GitHub authorization decline is valid behavior but does not demonstrate the
 prepared positive comment case; repair the fixture permissions before review.
+
+Uploads can return `holdCheck: "pending"` before classification finishes.
+For the positive cases, wait for classification and confirm that the harmless
+fixtures remain available in the panel and managed comment. A held file does
+not satisfy a successful public-image case. Use `list_held` to investigate;
+do not approve content just to make a case pass.
+
+The panel keeps private and held files as placeholders. Separately, a hosted
+raw image URL for a held file now returns a **Held for review** card; other
+held raw files return 404. A signed-in workspace member can inspect the real
+file on its `/f/` page. Check these surfaces separately when testing holds.
+An HTTP 200 image response alone does not prove that the original is available.
 
 Record the walkthrough and provide a reviewer-accessible HTTPS URL. To import
 the cases and recording, create a local JSON file with public fixture details:
