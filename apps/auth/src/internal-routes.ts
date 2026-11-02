@@ -973,7 +973,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
 
     // Idempotency: an existing pending invite for this (org, email) is
     // returned as-is rather than inserting a duplicate row and re-sending
-    // the invitation email (e.g. the admin double-clicks Invite).
+    // the invitation email (e.g. the admin double-clicks Invite). An expired
+    // one is skipped so inviting again sends a fresh, working link.
     const [existingInvite] = await db
       .select()
       .from(schema.invitation)
@@ -982,6 +983,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
           eq(schema.invitation.organizationId, org.id),
           eq(schema.invitation.email, normalizedEmail),
           eq(schema.invitation.status, "pending"),
+          gt(schema.invitation.expiresAt, new Date()),
         ),
       )
       .limit(1);

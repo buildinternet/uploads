@@ -42,6 +42,36 @@ function seedClientAssertion(id: string, expiresAt: Date) {
   return drizzle(db, { schema }).insert(schema.oauthClientAssertion).values({ id, expiresAt });
 }
 
+async function seedInvitation(id: string, expiresAt: Date, status = "pending") {
+  const dz = drizzle(db, { schema });
+  const now = new Date();
+  await dz
+    .insert(schema.user)
+    .values({
+      id: `inviter-${id}`,
+      name: "Inviter",
+      email: `inviter-${id}@example.com`,
+      emailVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+  await dz
+    .insert(schema.organization)
+    .values({ id: "org-1", name: "Acme", slug: "acme", createdAt: now })
+    .onConflictDoNothing();
+  await dz.insert(schema.invitation).values({
+    id,
+    organizationId: "org-1",
+    email: `${id}@example.com`,
+    role: "member",
+    status,
+    expiresAt,
+    inviterId: `inviter-${id}`,
+    createdAt: now,
+  });
+}
+
 describe("runAuthRetentionSweep", () => {
   it("deletes expired verification and device_code rows, keeps unexpired ones", async () => {
     const past = new Date(Date.now() - 60_000);
@@ -64,6 +94,7 @@ describe("runAuthRetentionSweep", () => {
       verificationDeleted: 2,
       deviceCodeDeleted: 1,
       clientAssertionDeleted: 2,
+      invitationDeleted: 0,
     });
 
     const dz = drizzle(db, { schema });
@@ -88,7 +119,22 @@ describe("runAuthRetentionSweep", () => {
       verificationDeleted: 0,
       deviceCodeDeleted: 0,
       clientAssertionDeleted: 0,
+      invitationDeleted: 0,
     });
+  });
+
+  it("deletes expired pending invitations only", async () => {
+    const past = new Date(Date.now() - 60_000);
+    const future = new Date(Date.now() + 60_000);
+    await seedInvitation("expired-pending", past);
+    await seedInvitation("expired-accepted", past, "accepted");
+    await seedInvitation("live-pending", future);
+
+    const result = await runAuthRetentionSweep(env);
+
+    expect(result.invitationDeleted).toBe(1);
+    const remaining = await drizzle(db, { schema }).select().from(schema.invitation);
+    expect(remaining.map((r) => r.id).sort()).toEqual(["expired-accepted", "live-pending"]);
   });
 
   it("batches beyond a single page of results", async () => {

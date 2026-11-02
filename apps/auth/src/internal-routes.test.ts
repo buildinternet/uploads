@@ -188,8 +188,6 @@ describe("DB-backed behavior", () => {
       notifySlackHolds: true,
       notifyEmailHolds: false,
       notifyProductUpdates: true,
-      notifyWeeklyDigest: overrides.notifyWeeklyDigest ?? false,
-      notifyWeeklyWorkspaceDigest: overrides.notifyWeeklyWorkspaceDigest ?? false,
     };
     await orm.insert(schema.user).values(user);
     return user;
