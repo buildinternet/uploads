@@ -84,7 +84,7 @@ import {
 
 export type { ClassifierHandoff };
 import { HOLD_META_KEY, holdPolicyEnabled } from "./upload-hold";
-import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
+import { reholdIfHeld } from "./hosted-hold";
 import { isKeyHeld } from "./upload-hold-read";
 import { deleteReadGateKeys, gateObjectKeysOnLane, hostedGateObjectKeys } from "./read-gate";
 import {
@@ -913,9 +913,8 @@ export async function putObject(
     );
   }
 
-  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so the
-  // gate rows go back on. New bytes end the hold: drop the gate row now, and
-  // delete a legacy held-bucket copy after the response when possible.
+  // Held uploads (`hosted-hold.ts`). Identical bytes keep the hold, so the
+  // gate rows go back on. New bytes end the hold: drop the gate row now.
   const logHeldError = (err: unknown) =>
     console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
   if (sameBytes) {
@@ -924,19 +923,6 @@ export async function putObject(
     // New bytes are not the held object. Drop a gate row before classification
     // decides whether these bytes should be held.
     await deleteReadGateKeys(dbFor(env), gateObjectKeysOnLane(cfg, [finalKey])).catch(logHeldError);
-  }
-  if (!sameBytes && heldBucket(env)) {
-    const cleanup = deleteHeldCopy(env, workspaceName, finalKey).catch(logHeldError);
-    let deferred = false;
-    try {
-      if (opts?.waitUntil) {
-        opts.waitUntil(cleanup);
-        deferred = true;
-      }
-    } catch {
-      // No execution context: finish the cleanup inline.
-    }
-    if (!deferred) await cleanup;
   }
 
   // Experimental: after storage and metadata, never on the critical path.
@@ -1453,19 +1439,10 @@ export async function deleteObject(
   const gateKeys = await hostedGateObjectKeys(env, ws, [key]);
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
-  // A held upload's bytes may be in the held bucket. Its size still counts
-  // when the public lanes had nothing to measure.
   const wasHeld = await isKeyHeld(env, workspaceName, key).catch((err: unknown) => {
     console.error({ event: "held_delete_check_failed", workspace: workspaceName, err });
     return false;
   });
-  const heldSize = await deleteHeldCopy(env, workspaceName, key, {
-    measure: hits.length === 0,
-  }).catch((err: unknown) => {
-    console.error({ event: "held_delete_failed", workspace: workspaceName, err });
-    return null;
-  });
-  if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
   await deleteContentHashes(dbFor(env), workspaceName, [key]);
   await deleteReadGateKeys(dbFor(env), gateKeys);

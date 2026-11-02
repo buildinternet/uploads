@@ -1553,58 +1553,33 @@ comment (a count line replaces it), withheld from public feeds and
 galleries, and 401s on `/public/files`.
 
 On a hosted (shared-lane) key the hold writes `read_gate` rows and leaves
-the bytes in the public bucket. It does not write `ai.hold.moved`. The
-read-gate Worker serves a "Held for review" card for an image URL and 404s
-every other URL. It fails open when D1 errors, and it does not bind the
-held bucket.
+the bytes in the public bucket. The read-gate Worker serves a "Held for
+review" card for an image URL and 404s every other URL. It fails open when
+D1 errors.
 
-A hold that already sits in `UPLOADS_HELD` (bucket `uploads-held`, preview
-`uploads-preview-held`) at `<workspace>/<key>` keeps `ai.hold.moved=1`.
-Release of that key copies the bytes back to the same public key and
-deletes the held copy. A hold that never moved has nothing to copy back.
-Release reads that one key's `ai.hold.moved` row. It does not scan the
-bucket.
+Holds placed before #1335 moved their bytes to a private `uploads-held`
+bucket. Those were drained back behind `read_gate` rows on Nov 2, 2026, and
+the binding and code are gone. The `uploads-held` and
+`uploads-preview-held` buckets are empty and can be deleted. Never give a
+bucket that holds held bytes a custom domain or an r2.dev URL.
 
-To empty the held bucket, drain it by hand with the admin route (one-off,
-`apps/api/src/held-drain.ts`). For each `ai.hold.moved=1` row it writes the
-`read_gate` rows first while the key is still held, then copies the bytes and
-poster back to the public key, deletes the held copy, and clears the flag. A
-key whose hold was released is restored without gate rows.
+The edge may serve its cached copy for up to 60 s (`UPLOAD_CACHE_CONTROL`),
+and GitHub's Camo can keep its own copy longer. Cloudflare Images keeps a
+transformed variant for at least one hour unless the source says
+`must-revalidate`. The read-gate pass-through adds that directive. See
+[Hosted read gate](#hosted-read-gate). A BYO key does not get a `read_gate`
+row. uploads.sh still hides it on the comment, feeds, galleries, and the
+public file page. The URL on the customer's domain keeps serving the bytes.
+The Worker never runs there.
 
-```bash
-# dry run: counts moved rows and samples the held bucket, writes nothing
-curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
-  'https://api.uploads.sh/admin/held/drain?dryRun=1'
-# live: 25 keys per call (limit max 100); repeat until "remaining" is 0
-curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
-  'https://api.uploads.sh/admin/held/drain?limit=25'
-```
-
-Skipped keys (workspace gone, no copy anywhere, or an error) are listed in
-`skipped`. Pass `next` back as `after=` to page past them. Done means
-`remaining` is 0 and `bucketSample` is empty.
-
-Never give the held bucket a custom domain or an r2.dev URL. The edge may
-serve its cached copy for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's
-Camo can keep its own copy longer. Cloudflare Images keeps a transformed
-variant for at least one hour unless the source says `must-revalidate`.
-The read-gate pass-through adds that directive. See
-[Hosted read gate](#hosted-read-gate). A BYO key is not moved, and it does not
-get a `read_gate` row. uploads.sh still hides it on the comment, feeds,
-galleries, and the public file page. The URL on the customer's domain keeps
-serving the bytes. The Worker never runs there.
-
-Approval deletes the gate rows. When `ai.hold.moved=1`, it copies the bytes
-back first. An identical re-upload of a held key puts the gate rows back
-and leaves the bytes where they are. New bytes drop the gate row and delete
-a legacy held copy. Delete does the same and debits the held copy's size
-when one exists. `GET /v1/workspaces/:workspace/files/held` lists held keys
-(a moved one is absent from `list`). `…/files/held/download?key=` streams
-the held-bucket copy when one exists, and otherwise the public object of a
-hosted hold. The file page uses that download for the preview. Private
-prefix rotation re-keys a legacy object inside the held bucket. A hold
-whose bytes stayed public gets `ai.hold` and `read_gate` rows on the new
-key before that object is stored. A failed write stops that key's rotation.
+Approval deletes the gate rows. An identical re-upload of a held key puts
+the gate rows back and leaves the bytes where they are. New bytes drop the
+gate row. Delete drops it too. `GET /v1/workspaces/:workspace/files/held`
+lists held keys (`moved` is always `false`, kept for older clients).
+`…/files/held/download?key=` streams the public object of a hosted hold.
+The file page uses that download for the preview. On private prefix
+rotation a held key gets `ai.hold` and `read_gate` rows on the new key
+before that object is stored. A failed write stops that key's rotation.
 `surface: "rotate"` does not place a hold.
 
 The copy to the new prefix stays. The new key is the new URL, and deleting
@@ -1634,7 +1609,7 @@ direct source is the key being held.
 `storage.uploads.sh`, and `embed.uploads.sh`. It gates safety holds only.
 It does not gate private files.
 Private-repo images stay cookie-less public reads, which is what GitHub Camo
-needs. The Worker binds production D1 only. Do not add `UPLOADS_HELD`.
+needs. The Worker binds production D1 only.
 
 It reads D1 `read_gate`, primary key `(lane, object_key)`. The lane value is
 `hosted` for every public host. The object key is the path in the URL,
@@ -1718,8 +1693,7 @@ or full referrer is stored. Nothing reads the dataset yet. Worker logs keep
 a 10% head sample, since the dataset already counts every read and every
 fail-open.
 
-A key left in the shared bucket after a switch to BYO still gets a row. Lane
-resolution is the same lookup a legacy move into the held bucket uses. A key
+A key left in the shared bucket after a switch to BYO still gets a row. A key
 that resolves on a BYO lane does not.
 
 The three hosts are zone routes on R2 custom domains that already exist.
@@ -1755,8 +1729,7 @@ the hold as it is.
 `POST /v1/workspaces/:workspace/files/approve?key=` appends a release
 override and a `blob_hold` row for the content hash (`upload_approved`).
 It does not write `ai.hold`. The hash is the object's `content-sha256`, or
-the `file_content_hash` row when the object has no stamp, or the hash of a
-legacy body copied back from the held bucket. A file with none of these
+the `file_content_hash` row when the object has no stamp. A file with neither
 fails the approve. `expected_sha` must match that hash or the call answers 409.
 A later hold override sets the same hash back to `held` and gates every key
 that has its own hold row. It does not move bytes. Gates and the held list

@@ -21,8 +21,7 @@ pass-through adds `must-revalidate` so a cached image transform follows
 the object's max-age instead of Cloudflare Images' one-hour minimum.
 
 It does not gate private files. Private-repo images stay cookie-less public
-reads. It does not run on a bring-your-own-bucket domain. It does not bind
-the held bucket, and it does not read objects that still sit there.
+reads. It does not run on a bring-your-own-bucket domain.
 
 `EXTRA_HOSTED_HOSTS` is an optional comma-separated var. Hostnames in it
 join the same hosted lane, for example a staging host. An unknown host

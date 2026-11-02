@@ -24,9 +24,8 @@ import {
   visibilityForStoredObject,
 } from "./files-core";
 import { COPIED_FROM_META_KEY, deleteFileMetadata } from "./file-metadata";
-import { copyHeldObject, deleteHeldCopy, heldBucket } from "./held-storage";
 import { hostedGateObjectKeys, readGateInserts } from "./read-gate";
-import { HOLD_META_KEY, HOLD_MOVED_KEY, HOLD_PENDING } from "./upload-hold";
+import { HOLD_META_KEY, HOLD_PENDING } from "./upload-hold";
 import { isKeyHeld } from "./upload-hold-read";
 import { parseAttachmentKey, rekeyAttachmentSafe } from "./github-attachment-index";
 import {
@@ -37,7 +36,7 @@ import {
 } from "./github-private-prefixes";
 import { storage } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
-import { dbFor, type D1Queryable } from "./db-session";
+import { dbFor } from "./db-session";
 
 export type GhKeyMode = { mode: "plain" } | { mode: "private"; prefixId: string };
 
@@ -179,9 +178,7 @@ export type RotatePrivatePrefixResult =
  * the new id (bytes + R2 custom metadata + the D1 rows that point at the
  * object key), delete the old objects (so old URLs 404 at origin
  * immediately), retire the old row, and re-sync the managed comment for
- * every PR/issue that had a moved object. Objects parked in `UPLOADS_HELD`
- * move there too, so a later approve restores the new prefix rather than
- * the one this call just retired.
+ * every PR/issue that had a moved object.
  *
  * Authorization mirrors `resolveGhKeyContext`'s `checkRepoAuthorization`
  * call, but with the opposite failure posture: `resolveGhKeyContext` is an
@@ -217,8 +214,6 @@ export type RotatePrivatePrefixResult =
  * previous interrupted rotation left mid-sweep — so a follow-up rotation
  * (even one that only fires because an operator noticed and retried) drains
  * every stranded object into the new id, not just the most recent old one.
- * Held objects are included: each swept id is looked up in D1, not by
- * listing the held bucket.
  *
  * Partial-failure posture: a single object's copy can throw (e.g. an
  * `InsufficientStorageError`/`ValidationError` from `putObject`). That
@@ -333,7 +328,7 @@ export async function rotatePrivatePrefix(
             continue;
           }
 
-          await rekeyRotatedObject(env, ws, workspaceName, item.key, newKey, newId, "drop-old");
+          await rekeyRotatedObject(env, ws, workspaceName, item.key, newKey, newId);
 
           // `deleteObject` (not a raw `store.delete`): it also releases the
           // old key's usage-ledger bytes/object count (and its poster, if
@@ -355,17 +350,6 @@ export async function rotatePrivatePrefix(
         if (!cursor) break;
       }
       if (cursor) incomplete = true;
-      const held = await rotateHeldPrefix(
-        env,
-        ws,
-        workspaceName,
-        oldPrefix,
-        newPrefixRoot,
-        newId,
-        targets,
-      );
-      moved += held.moved;
-      if (held.incomplete) incomplete = true;
       // An upload resolved against the old id before it was retired can land
       // after this prefix was listed. One small list catches it; keys the
       // gate refused (`skipped`) are expected to stay and don't count.
@@ -421,33 +405,6 @@ const MAX_SWEEP_PAGES = 50;
 const SWEEP_PAGE_SIZE = 1000;
 
 /**
- * `file_metadata_ai_idx` is (meta_key, meta_value, workspace, object_key) for
- * `ai.*` rows. The `substr` predicate is what lets SQLite pick that partial
- * index. The key range is this prefix only — not every hold in the workspace,
- * and not a list of `UPLOADS_HELD` (posters live under `_internal/posters/`,
- * outside the prefix, and a list would be a class A op).
- */
-const MOVED_HOLD_KEYS_SQL = `SELECT object_key FROM file_metadata
-  WHERE meta_key = ?
-    AND meta_value = '1'
-    AND workspace = ?
-    AND object_key >= ?
-    AND object_key < ?
-    AND substr(meta_key, 1, 3) = 'ai.'
-  ORDER BY object_key
-  LIMIT ?`;
-
-const MOVED_HOLD_KEYS_AFTER_SQL = `SELECT object_key FROM file_metadata
-  WHERE meta_key = ?
-    AND meta_value = '1'
-    AND workspace = ?
-    AND object_key > ?
-    AND object_key < ?
-    AND substr(meta_key, 1, 3) = 'ai.'
-  ORDER BY object_key
-  LIMIT ?`;
-
-/**
  * Hold rows for a key that does not exist yet. Throws when the write fails,
  * so the caller does not store the object. `surface: "rotate"` does not
  * place a hold of its own.
@@ -474,22 +431,14 @@ async function gateRotatedHold(
   ]);
 }
 
-/** Exclusive end of a `/`-terminated prefix: `gh/private/<id>/` → `gh/private/<id>0`. */
-function exclusivePrefixEnd(prefix: string): string {
-  return prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
-}
-
 /**
  * Point every D1 row that names `oldKey` at `newKey`.
  *
  * `file_metadata` is wiped at the destination first: `putObject` may have
  * written donor rows there, and a second source id can share the tail. A
  * plain UPDATE onto an occupied (workspace, object_key, meta_key) throws.
- * `ai.hold*` rows are metadata, so they follow this update.
- *
- * `drop-old` is the public path: `putObject` already upserted `newKey`'s
- * content hash. `follow` is the held path, which never re-uploads, so the
- * old hash row itself moves (after the same destination wipe).
+ * `ai.hold*` rows are metadata, so they follow this update. `putObject`
+ * already upserted `newKey`'s content hash, so the old hash row is dropped.
  *
  * `github_ingested_assets` and `gallery_items` stay workspace-scoped.
  * Object keys can collide across workspaces that share a bucket prefix.
@@ -504,7 +453,6 @@ async function rekeyRotatedObject(
   oldKey: string,
   newKey: string,
   newPrefixId: string,
-  contentHash: "drop-old" | "follow",
 ): Promise<void> {
   const db = dbFor(env);
   await deleteFileMetadata(db, workspaceName, newKey);
@@ -513,21 +461,10 @@ async function rekeyRotatedObject(
     .bind(newKey, workspaceName, oldKey)
     .run();
 
-  if (contentHash === "drop-old") {
-    await db
-      .prepare(`DELETE FROM file_content_hash WHERE workspace = ? AND object_key = ?`)
-      .bind(workspaceName, oldKey)
-      .run();
-  } else {
-    await db
-      .prepare(`DELETE FROM file_content_hash WHERE workspace = ? AND object_key = ?`)
-      .bind(workspaceName, newKey)
-      .run();
-    await db
-      .prepare(`UPDATE file_content_hash SET object_key = ? WHERE workspace = ? AND object_key = ?`)
-      .bind(newKey, workspaceName, oldKey)
-      .run();
-  }
+  await db
+    .prepare(`DELETE FROM file_content_hash WHERE workspace = ? AND object_key = ?`)
+    .bind(workspaceName, oldKey)
+    .run();
 
   await db
     .prepare(
@@ -559,8 +496,7 @@ async function rekeyRotatedObject(
 
   // Only keys that can hold a row. A branch-staged or ingest key never has
   // one, so the batch would be a no-op DELETE + UPDATE on most objects.
-  // `lane_id` is the lane `putObject` just wrote (public path) or the lane
-  // the workspace is on now (held path, bytes never left the held bucket).
+  // `lane_id` is the lane `putObject` just wrote.
   if (parseAttachmentKey(oldKey)) {
     await rekeyAttachmentSafe(
       db,
@@ -571,62 +507,4 @@ async function rekeyRotatedObject(
       ws.storageLaneId ?? null,
     );
   }
-}
-
-/**
- * Move held objects under `oldPrefix` to the same tail in `UPLOADS_HELD`.
- * Bytes stay out of the public bucket. Pages are keyset-bounded so a large
- * prefix can't read the workspace's holds in one query.
- */
-async function rotateHeldPrefix(
-  env: Env,
-  ws: WorkspaceRecord,
-  workspaceName: string,
-  oldPrefix: string,
-  newPrefixRoot: string,
-  newId: string,
-  targets: Map<string, { kind: GhTargetKind; num: number }>,
-): Promise<{ moved: number; incomplete: boolean }> {
-  if (!heldBucket(env)) return { moved: 0, incomplete: false };
-  const db = dbFor(env);
-  const upper = exclusivePrefixEnd(oldPrefix);
-  let moved = 0;
-  let after: string | undefined;
-  for (let page = 0; page < MAX_SWEEP_PAGES; page++) {
-    const keys = await movedHoldKeys(db, workspaceName, oldPrefix, upper, after);
-    for (const oldKey of keys) {
-      const newKey = `${newPrefixRoot}${oldKey.slice(oldPrefix.length)}`;
-      const copied = await copyHeldObject(env, workspaceName, oldKey, newKey);
-      if (!copied) {
-        console.error(JSON.stringify({ message: "rotate held copy missing", key: oldKey, newKey }));
-        continue;
-      }
-      await rekeyRotatedObject(env, ws, workspaceName, oldKey, newKey, newId, "follow");
-      await deleteHeldCopy(env, workspaceName, oldKey);
-      moved++;
-      const parsed = parseGhPrivateKey(newKey);
-      if (parsed)
-        targets.set(`${parsed.kind}:${parsed.num}`, { kind: parsed.kind, num: parsed.num });
-    }
-    if (keys.length < SWEEP_PAGE_SIZE) return { moved, incomplete: false };
-    const last = keys[keys.length - 1];
-    if (!last || last === after) return { moved, incomplete: false };
-    after = last;
-  }
-  // Every page was full: rows past the ceiling were not read.
-  return { moved, incomplete: true };
-}
-
-async function movedHoldKeys(
-  db: D1Queryable,
-  workspace: string,
-  prefix: string,
-  upper: string,
-  after: string | undefined,
-): Promise<string[]> {
-  const result = await db
-    .prepare(after ? MOVED_HOLD_KEYS_AFTER_SQL : MOVED_HOLD_KEYS_SQL)
-    .bind(HOLD_MOVED_KEY, workspace, after ?? prefix, upper, SWEEP_PAGE_SIZE)
-    .all<{ object_key: string }>();
-  return (result.results ?? []).map((row) => row.object_key);
 }

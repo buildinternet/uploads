@@ -9,14 +9,14 @@
  * (`hold-email-notify.ts`).
  */
 
-import { ConflictError, ServiceUnavailableError, ValidationError } from "@uploads/errors";
+import { ConflictError, ValidationError } from "@uploads/errors";
 import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
 import { appendOverrideEvent, blobHoldsFor, claimHeldBlob } from "./file-events";
 import { contentHashForKey } from "./content-hash";
-import { deleteServerFileMetadataKeys, getFileMetadata, getMetadataForKeys } from "./file-metadata";
+import { getFileMetadata, getMetadataForKeys } from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
-import { moveToHeld, objectContentSha256, restoreFromHeld } from "./held-storage";
+import { objectContentSha256 } from "./hosted-hold";
 import {
   hostedGateObjectKeys,
   readGateDeletesForRelease,
@@ -27,13 +27,7 @@ import { emailHold } from "./hold-email-notify";
 import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
-import {
-  HOLD_META_KEY,
-  HOLD_MOVED_KEY,
-  HOLD_PENDING,
-  holdPolicyEnabled,
-  holdReason,
-} from "./upload-hold";
+import { HOLD_META_KEY, HOLD_PENDING, holdPolicyEnabled, holdReason } from "./upload-hold";
 import type { UploaderIdentity } from "./uploader-identity";
 import { loadWorkspaceRecord, type WorkspaceRecord } from "./workspace";
 import {
@@ -218,103 +212,62 @@ export async function approveUpload(
   const existing = await getFileMetadata(db, workspaceName, key);
   const before = await effectiveHold(env, workspaceName, key, existing);
   if (before.hold !== "pending") return { approved: false, reason: "not_held" };
-  // Captured before the restore, which can be slow. A re-hold that lands
-  // in that window has a new `at`, so the compare-and-set below loses.
-  const generation = await holdGeneration(env, ws, workspaceName, key, existing);
+  // Captured before the hash read. A re-hold that lands in that window has
+  // a new `at`, so the compare-and-set below loses.
+  const generation = await holdGeneration(env, ws, workspaceName, key);
   if (generation.state === "released") return { approved: false, reason: "not_held" };
-  const restored: string[] = [];
-  let committed = false;
-  let keys: string[] = [key];
-  let metas = new Map<string, Record<string, string>>();
-  try {
-    const contentSha256 = await contentShaForRelease(
-      env,
-      ws,
-      workspaceName,
-      key,
-      existing,
-      restored,
+  const contentSha256 = await objectContentSha256(env, ws, workspaceName, key);
+  if (!contentSha256) {
+    throw new ValidationError(
+      "this file has no content hash, so the hold change cannot be recorded",
+      { code: "content_hash_unknown" },
     );
-    if (expectedSha && expectedSha !== contentSha256) {
-      throw new ConflictError("the file changed since it was reviewed", {
-        code: "content_hash_mismatch",
+  }
+  if (expectedSha && expectedSha !== contentSha256) {
+    throw new ConflictError("the file changed since it was reviewed", {
+      code: "content_hash_mismatch",
+    });
+  }
+  // Same hash: use the generation captured above. A different hash is a
+  // different blob, so the guard is that blob's current row.
+  let expectedAt = generation.at;
+  if (generation.sha !== contentSha256) {
+    const blob = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
+    if (blob?.state === "released") return { approved: false, reason: "not_held" };
+    expectedAt = blob?.state === "held" ? blob.at : null;
+  }
+  const at = new Date().toISOString();
+  const keys = await keysSharingHold(db, workspaceName, contentSha256, key);
+  const metas = await getMetadataForKeys(db, workspaceName, keys, { metaKeys: ["gh.repo"] });
+  const won = await appendOverrideEvent(
+    env,
+    {
+      workspace: workspaceName,
+      objectKey: key,
+      contentSha256,
+      action: "release",
+      actor: by ?? null,
+      safety: existing,
+      at,
+      expectedState: "held",
+      expectedAt,
+    },
+    readGateDeletesForRelease(
+      db,
+      await hostedGateObjectKeys(env, ws, keys),
+      workspaceName,
+      contentSha256,
+      at,
+    ),
+  );
+  if (!won) {
+    const current = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
+    if (current?.state === "held") {
+      throw new ConflictError("this file's hold changed while it was being released", {
+        code: "hold_conflict",
       });
     }
-    // Same hash: use the generation captured before the restore. A different
-    // hash is a different blob, so the guard is that blob's current row.
-    let expectedAt = generation.at;
-    if (generation.sha !== contentSha256) {
-      const blob = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
-      if (blob?.state === "released") return { approved: false, reason: "not_held" };
-      expectedAt = blob?.state === "held" ? blob.at : null;
-    }
-    const at = new Date().toISOString();
-    keys = await keysSharingHold(db, workspaceName, contentSha256, key);
-    metas = await getMetadataForKeys(db, workspaceName, keys, {
-      metaKeys: [HOLD_MOVED_KEY, "gh.repo"],
-    });
-    for (const other of keys) {
-      if (restored.includes(other)) continue;
-      if (metas.get(other)?.[HOLD_MOVED_KEY] !== "1") continue;
-      const sha = await restoreFromHeld(env, ws, workspaceName, other);
-      if (!sha) {
-        throw new ServiceUnavailableError("the held copy of this file could not be restored", {
-          code: "held_restore_failed",
-        });
-      }
-      restored.push(other);
-    }
-    const won = await appendOverrideEvent(
-      env,
-      {
-        workspace: workspaceName,
-        objectKey: key,
-        contentSha256,
-        action: "release",
-        actor: by ?? null,
-        safety: existing,
-        at,
-        expectedState: "held",
-        expectedAt,
-      },
-      readGateDeletesForRelease(
-        db,
-        await hostedGateObjectKeys(env, ws, keys),
-        workspaceName,
-        contentSha256,
-        at,
-      ),
-    );
-    if (!won) {
-      const current = (await blobHoldsFor(db, workspaceName, [contentSha256])).get(contentSha256);
-      if (current?.state === "held") {
-        throw new ConflictError("this file's hold changed while it was being released", {
-          code: "hold_conflict",
-        });
-      }
-      return { approved: false, reason: "not_held" };
-    }
-    committed = true;
-    await Promise.all(
-      restored.map((restoredKey) =>
-        deleteServerFileMetadataKeys(db, workspaceName, restoredKey, [HOLD_MOVED_KEY]),
-      ),
-    );
-  } catch (err) {
-    if (!committed) {
-      await Promise.all(
-        restored.map((restoredKey) =>
-          moveToHeld(env, ws, workspaceName, restoredKey).catch((moveErr: unknown) => {
-            console.error({
-              event: "upload_hold_move_failed",
-              workspace: workspaceName,
-              err: moveErr,
-            });
-          }),
-        ),
-      );
-    }
-    throw err;
+    return { approved: false, reason: "not_held" };
   }
   console.log({ event: "upload_approved", workspace: workspaceName });
   await Promise.all([
@@ -333,56 +286,24 @@ export async function approveUpload(
 }
 
 /**
- * The blob row for `key` before a slow restore. `at` is the generation a
- * later compare-and-set must still see. A moved file with no hash index
- * returns a null sha; the caller re-reads once the bytes are back.
+ * The blob row for `key` before the release. `at` is the generation a
+ * later compare-and-set must still see.
  */
 async function holdGeneration(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
-  existing: Record<string, string>,
 ): Promise<{ sha: string | null; at: string | null; state: "held" | "released" | null }> {
   const db = dbFor(env);
-  const indexed = await contentHashForKey(db, workspaceName, key);
   const sha =
-    indexed ??
-    (existing[HOLD_MOVED_KEY] === "1"
-      ? null
-      : ((await objectContentSha256(env, ws, workspaceName, key)) ?? null));
+    (await contentHashForKey(db, workspaceName, key)) ??
+    (await objectContentSha256(env, ws, workspaceName, key)) ??
+    null;
   if (!sha) return { sha: null, at: null, state: null };
   const blob = (await blobHoldsFor(db, workspaceName, [sha])).get(sha);
   if (!blob) return { sha, at: null, state: null };
   return { sha, at: blob.at, state: blob.state };
-}
-
-async function contentShaForRelease(
-  env: Env,
-  ws: WorkspaceRecord,
-  workspaceName: string,
-  key: string,
-  existing: Record<string, string>,
-  restored: string[],
-): Promise<string> {
-  if (existing[HOLD_MOVED_KEY] === "1") {
-    const sha = await restoreFromHeld(env, ws, workspaceName, key);
-    if (!sha) {
-      throw new ServiceUnavailableError("the held copy of this file could not be restored", {
-        code: "held_restore_failed",
-      });
-    }
-    restored.push(key);
-    return sha;
-  }
-  const sha = await objectContentSha256(env, ws, workspaceName, key);
-  if (!sha) {
-    throw new ValidationError(
-      "this file has no content hash, so the hold change cannot be recorded",
-      { code: "content_hash_unknown" },
-    );
-  }
-  return sha;
 }
 
 async function keysSharingHold(
@@ -569,10 +490,9 @@ export interface ReleaseHoldsResult {
 
 /**
  * Operator release of pending holds, every workspace or one, in batches of
- * `RELEASE_HOLDS_BATCH`. Each file goes through `approveUpload`, so a
- * legacy held copy is restored and comments re-sync exactly as a member
- * approval would. A file that fails (its workspace is gone, its held copy
- * cannot be restored) is counted and stays held, so a caller looping until
+ * `RELEASE_HOLDS_BATCH`. Each file goes through `approveUpload`, so
+ * comments re-sync exactly as a member approval would. A file that fails
+ * (its workspace is gone) is counted and stays held, so a caller looping until
  * `remaining` is 0 must also stop when a batch releases nothing.
  */
 export async function releaseHolds(

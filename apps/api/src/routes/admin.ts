@@ -26,7 +26,6 @@ import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import { backfillSelfServePlans } from "../self-serve-plan-backfill";
 import { backfillWorkspaceKeyMetadata } from "../workspace-byob";
 import { backfillLowercasedMetaValues } from "../gh-repo-case-backfill";
-import { drainHeldBucket } from "../held-drain";
 import { storage } from "../storage";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { teardownWorkspace } from "../workspace-teardown";
@@ -496,23 +495,6 @@ export const admin = new Hono<{ Bindings: Env }>()
   .post("/file-metadata/backfill-gh-repo-case", async (c) => {
     const dryRun = isDryRun(c);
     return c.json(await backfillLowercasedMetaValues(primaryDbFor(c.env), { dryRun }));
-  })
-
-  /**
-   * One-off drain of the legacy held bucket (`held-drain.ts`): restores every
-   * `ai.hold.moved=1` object to its public key behind `read_gate` rows.
-   * Repeat while `remaining` > 0. Pass `next` back as `after` to step past
-   * skipped rows. Query: ?dryRun=1, ?limit= (default 25, max 100), ?after=
-   */
-  .post("/held/drain", async (c) => {
-    const limitParam = Number(c.req.query("limit"));
-    return c.json(
-      await drainHeldBucket(c.env, {
-        dryRun: isDryRun(c),
-        limit: Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined,
-        after: c.req.query("after") || undefined,
-      }),
-    );
   })
 
   /**
