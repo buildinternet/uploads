@@ -9,6 +9,7 @@ navOrder: 5
 navGroup: media
 toc:
   - { id: attach, label: Attach files to a PR }
+  - { id: issue-artifacts, label: Issue artifacts }
   - { id: staging, label: Stage before a PR exists }
   - { id: put, label: Get a URL for a file }
   - { id: before-after, label: Pair a before and after }
@@ -34,6 +35,20 @@ Run `attach` again and the same comment updates in place.
 
 `attach` finds the repo and PR through the `gh` CLI. To target something else, add `--pr <n>` or
 `--issue <n>`, plus `--repo owner/name` for another repo.
+
+</section>
+
+<section id="issue-artifacts">
+
+## Issue artifacts <a class="anchor" href="#issue-artifacts" aria-label="Link to this section">#</a>
+
+An issue keeps the same managed comment a pull request does, and also one Markdown artifact named
+`uploads.sh media`. Images use uploads.sh URLs. Video is a link. When the issue has a gallery, a
+link artifact named `uploads.sh gallery` points at it.
+
+That is on by default. Turn it off for one command with `--no-issue-artifacts`, for one repo with
+[`issueArtifacts: false`](/docs/comment-config#issue-artifacts), or for the workspace under
+**Settings → GitHub**. Pull requests stay on the managed comment only.
 
 </section>
 

@@ -64,12 +64,15 @@ if (typeof crypto.subtle.timingSafeEqual !== "function") {
 const WS = "acme";
 const TOKEN = "up_acme_testtoken";
 
-async function seededEnv(opts: { installNone?: boolean } = {}): Promise<Env> {
+async function seededEnv(
+  opts: { installNone?: boolean; githubIssueArtifacts?: boolean } = {},
+): Promise<Env> {
   const hash = await sha256Hex(TOKEN);
   const record: WorkspaceRecord = {
     provider: "r2",
     bucket: "b",
     tokens: [{ hash, createdAt: new Date().toISOString() }],
+    ...(opts.githubIssueArtifacts === false ? { githubIssueArtifacts: false } : {}),
   };
   const registry = {
     get: (async (key: string) =>
@@ -103,6 +106,29 @@ describe("POST /v1/:workspace/github/comment", () => {
     const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ posted: false, reason: "not_installed" });
+  });
+
+  it("reports the workspace issue-artifact default on an issue", async () => {
+    const on = await post(await seededEnv({ installNone: true }), {
+      repo: "acme/web",
+      num: 7,
+      kind: "issues",
+    });
+    expect(await on.json()).toEqual({
+      posted: false,
+      reason: "not_installed",
+      issueArtifacts: true,
+    });
+    const off = await post(await seededEnv({ installNone: true, githubIssueArtifacts: false }), {
+      repo: "acme/web",
+      num: 7,
+      kind: "issues",
+    });
+    expect(await off.json()).toEqual({
+      posted: false,
+      reason: "not_installed",
+      issueArtifacts: false,
+    });
   });
 
   it("400s on a malformed body", async () => {

@@ -54,15 +54,18 @@ function parseTarget(body: Record<string, unknown>): {
  */
 export async function githubCommentHandler(c: Context<WorkspaceVars>) {
   const { resync, ...target } = parseTarget(await jsonBody(c));
+  const ws = c.get("workspace");
   const result = await postManagedComment(
     c.env,
-    c.get("workspace"),
+    ws,
     c.get("workspaceName"),
     mintingUserIdOf(c.get("uploaderIdentity")),
     target,
     { resync },
   );
-  return c.json(result);
+  // The CLI reads this on issue attaches. Absent on the record means on.
+  if (target.kind !== "issues") return c.json(result);
+  return c.json({ ...result, issueArtifacts: ws.githubIssueArtifacts !== false });
 }
 
 export const githubComment = new Hono<WorkspaceVars>().post(

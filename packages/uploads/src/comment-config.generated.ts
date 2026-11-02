@@ -17,6 +17,11 @@ export interface RepoCommentConfig {
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
   adoptLinkedFiles?: boolean;
+  /**
+   * Issue artifacts on an issue attach. Omitted means "not set here" (the
+   * workspace setting applies, and that defaults to on). `false` opts out.
+   */
+  issueArtifacts?: boolean;
   uiPaths?: string[];
   noUploadsComment?: NoUploadsCommentMode;
   checkRequire?: CheckRequirement[];
@@ -187,6 +192,13 @@ export function parseRepoCommentConfig(
     const v = c.adoptLinkedFiles;
     if (typeof v === "boolean") config.adoptLinkedFiles = v;
     else warnings.push(`adoptLinkedFiles: expected a boolean; dropped`);
+  }
+
+  // issueArtifacts: boolean. Omitted means unset (not off).
+  if ("issueArtifacts" in c) {
+    const v = c.issueArtifacts;
+    if (typeof v === "boolean") config.issueArtifacts = v;
+    else warnings.push(`issueArtifacts: expected a boolean; dropped`);
   }
 
   // noUploadsComment: "auto" | "always" | "never", or a boolean (true = auto, false = never)

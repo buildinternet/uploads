@@ -187,6 +187,7 @@ const COMMENT_SETTINGS_KEYS = [
   "noUploadsComment",
   "uiPaths",
   "requireUploads",
+  "issueArtifacts",
 ] as const;
 type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
 
@@ -201,6 +202,7 @@ const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceR
   noUploadsComment: "githubNoUploadsComment",
   uiPaths: "githubUiPaths",
   requireUploads: "githubRequireUploads",
+  issueArtifacts: "githubIssueArtifacts",
 };
 
 type CommentSettingsValue = string | number | boolean | string[];
@@ -315,6 +317,17 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
     patch.requireUploads = value;
   }
 
+  if ("issueArtifacts" in record) {
+    const value = record.issueArtifacts;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("issueArtifacts must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "issueArtifacts" },
+      });
+    }
+    patch.issueArtifacts = value;
+  }
+
   // uiPaths: a list of globs, trimmed; blank entries dropped. An empty list
   // clears the field, like `null`.
   if ("uiPaths" in record) {
@@ -375,6 +388,7 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     noUploadsComment: toNoUploadsCommentMode(record.githubNoUploadsComment) ?? null,
     uiPaths: record.githubUiPaths ?? null,
     requireUploads: record.githubRequireUploads ?? null,
+    issueArtifacts: record.githubIssueArtifacts ?? null,
   };
 }
 

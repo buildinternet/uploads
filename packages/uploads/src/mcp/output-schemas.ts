@@ -108,6 +108,12 @@ const putObjectFields: Record<string, JsonSchema> = {
   holdCheck: { type: "string", enum: ["pending"] },
 };
 
+const issueArtifactSchema: JsonSchema = objectSchema({
+  media: { type: "string", enum: ["created", "updated"] },
+  gallery: { type: "string", enum: ["created", "updated"] },
+  warning: { type: "string" },
+});
+
 /** Hosted `PostCommentResult` or stdio `AttachmentsCommentResult` (`via`/`action`). */
 const putCommentSchema: JsonSchema = objectSchema({
   posted: { type: "boolean" },
@@ -130,6 +136,7 @@ const putCommentSchema: JsonSchema = objectSchema({
   commentUrl: { type: "string" },
   via: { type: "string", enum: ["bot", "gh"] },
   held: { type: "number" },
+  issueArtifact: issueArtifactSchema,
 });
 
 const putExtras: Record<string, JsonSchema> = {
@@ -680,6 +687,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
     num: { type: "number" },
     via: { type: "string", enum: ["bot", "gh"] },
     held: { type: "number" },
+    issueArtifact: issueArtifactSchema,
   }),
   get_metadata: metadataResultSchema,
   list_held: listHeldResultSchema,

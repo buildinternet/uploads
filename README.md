@@ -147,7 +147,9 @@ uploads screenshot http://localhost:4321/settings --via local --annotate ./callo
 ```
 
 `attach` detects the repository and current PR through `gh`, uploads all files,
-and creates or updates that same one comment. Without the GitHub App, run
+and creates or updates that same one comment. On an issue it also keeps a
+Markdown issue artifact (and a gallery link, when there is one) unless the
+workspace or the repo turns that off. Without the GitHub App, run
 `uploads attach --promote` after opening the pull request to promote files that
 you staged earlier. All commands run under `npx @buildinternet/uploads …`
 without a global install.

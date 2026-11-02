@@ -84,9 +84,16 @@ import {
   hasLinkCandidate,
   extractCandidateUrls,
   fetchAdoptionCandidateText,
+  findManagedComment,
   renameLineageFromReflog,
   type CommandRunner,
 } from "./github-gh.js";
+import {
+  issueArtifactErrorLine,
+  resolveIssueArtifacts,
+  syncIssueArtifacts,
+  type IssueArtifactSyncResult,
+} from "./github-issue-artifacts.js";
 import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
 import { noProjectContextNudge } from "./project-context-nudge.js";
 import { resolvePutPrefix } from "./destinations.js";
@@ -761,6 +768,8 @@ export interface AttachmentsCommentResult {
   via: "bot" | "gh";
   /** Files on the PR or issue held for review, when any. */
   held?: number;
+  /** Issue-artifact sync. Present for an issue unless the step was a no-op. */
+  issueArtifact?: IssueArtifactSyncResult;
 }
 
 /** Human-mode line for files the comment counts as held for review; empty when none. */
@@ -794,17 +803,100 @@ export function commentSyncNote(comment: AttachmentsCommentResult, target: GhTar
  */
 export class GithubCommentAuthorizationError extends Error {}
 
+/** Repo file value, or undefined when `.uploads.yml` does not set the key. */
+function readRepoIssueArtifacts(run: CommandRunner): boolean | undefined {
+  try {
+    const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
+    return readLocalRepoCommentConfig(root).config?.issueArtifacts;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every gallery that references the PR or issue. */
+async function listTargetGalleries(
+  client: UploadsClient,
+  target: GhTarget,
+): Promise<(GalleryCommentItem & { id: string })[]> {
+  const galleries: (GalleryCommentItem & { id: string })[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await client.findGalleriesByReference({
+      provider: "github",
+      // GitHub references intentionally do not distinguish PRs from issues.
+      coordinate: `${target.repo.toLowerCase()}#${target.num}`,
+      cursor,
+    });
+    galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  return galleries;
+}
+
+/** First gallery in the comment's title-then-URL order. */
+function firstGalleryUrl(galleries: readonly GalleryCommentItem[]): string | null {
+  return (
+    galleries.toSorted((a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url))[0]
+      ?.url ?? null
+  );
+}
+
+/**
+ * After a successful comment sync, mirror it onto the issue's artifacts
+ * when the option is on. Failures are warnings. Pull requests return
+ * undefined without calling GitHub. Without `known`, the comment body is
+ * read back from GitHub and the galleries are listed.
+ */
+async function maybeSyncIssueArtifacts(
+  client: UploadsClient,
+  target: GhTarget,
+  run: CommandRunner,
+  workspace: string | undefined,
+  enabled: { call?: boolean; workspace?: boolean },
+  known?: { commentBody: string; galleryUrl: string | null },
+): Promise<{ issueArtifact?: IssueArtifactSyncResult }> {
+  if (target.kind !== "issues") return {};
+  if (!resolveIssueArtifacts({ ...enabled, repo: readRepoIssueArtifacts(run) })) return {};
+  const warnings: string[] = [];
+  let result: IssueArtifactSyncResult;
+  try {
+    let input = known;
+    if (!input) {
+      const commentBody =
+        findManagedComment(target, run, attachmentsMarker(workspace)).comment?.body ?? "";
+      let galleryUrl: string | null = null;
+      try {
+        galleryUrl = firstGalleryUrl(await listTargetGalleries(client, target));
+      } catch (err) {
+        warnings.push(`issue gallery link was not updated: ${issueArtifactErrorLine(err)}`);
+      }
+      input = { commentBody, galleryUrl };
+    }
+    result = syncIssueArtifacts(target, run, input);
+  } catch (err) {
+    result = {};
+    warnings.push(`issue artifact was not updated: ${issueArtifactErrorLine(err)}`);
+  }
+  if (result.warning) warnings.push(result.warning);
+  if (warnings.length > 0) {
+    result.warning = warnings.join("; ");
+    process.stderr.write(`warning: ${result.warning}\n`);
+  }
+  return result.media || result.gallery || result.warning ? { issueArtifact: result } : {};
+}
+
 /**
  * `opts.resync` marks an explicit `uploads comment`. It costs the server an
  * extra comment listing to collapse duplicate managed comments, so
- * background syncs skip it.
+ * background syncs skip it. `opts.issueArtifacts` is a per-call override
+ * (`false` from `--no-issue-artifacts`). Omit it to follow repo, workspace, then on.
  */
 export async function syncAttachmentsComment(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
   workspace?: string,
-  opts: { resync?: boolean } = {},
+  opts: { resync?: boolean; issueArtifacts?: boolean } = {},
 ): Promise<AttachmentsCommentResult> {
   let bot: GithubCommentResult | undefined;
   try {
@@ -827,6 +919,10 @@ export async function syncAttachmentsComment(
         count: bot.count,
         via: "bot",
         ...(bot.held ? { held: bot.held } : {}),
+        ...(await maybeSyncIssueArtifacts(client, target, run, workspace, {
+          call: opts.issueArtifacts,
+          workspace: bot.issueArtifacts,
+        })),
       };
     }
     if (bot.reason === "not_authorized") {
@@ -956,19 +1052,7 @@ export async function syncAttachmentsComment(
   }
   const heldCount = heldKeys.size;
 
-  const galleries: (GalleryCommentItem & { id: string })[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.findGalleriesByReference({
-      provider: "github",
-      // GitHub references intentionally do not distinguish PRs from issues.
-      coordinate: `${target.repo.toLowerCase()}#${target.num}`,
-      cursor,
-    });
-    galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
-    cursor = page.nextCursor ?? undefined;
-  } while (cursor);
-
+  const galleries = await listTargetGalleries(client, target);
   const previewGalleries = await Promise.all(
     galleries.map(async ({ id, ...gallery }) => {
       try {
@@ -1034,7 +1118,20 @@ export async function syncAttachmentsComment(
   const { action } = upsertAttachmentsComment(target, body, run, marker, {
     createIfMissing: count > 0 && !skipLoneAdoptionCreate,
   });
-  return { action, count, via: "gh", ...(heldCount > 0 ? { held: heldCount } : {}) };
+  return {
+    action,
+    count,
+    via: "gh",
+    ...(heldCount > 0 ? { held: heldCount } : {}),
+    ...(await maybeSyncIssueArtifacts(
+      client,
+      target,
+      run,
+      workspace,
+      { call: opts.issueArtifacts, workspace: bot?.issueArtifacts },
+      { commentBody: body, galleryUrl: firstGalleryUrl(galleries) },
+    )),
+  };
 }
 
 // --- attach ---
@@ -1118,6 +1215,11 @@ Options:
                         object after a successful server-side copy (default: copy)
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
+  --no-issue-artifacts  On an issue, skip the Markdown issue artifact and gallery
+                        link. Those are on unless this is passed, the repo's
+                        .uploads.yml sets issueArtifacts: false, or the workspace
+                        turns them off. A failure warns and does not fail the
+                        attach. No effect on pull requests.
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
   --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro)
   --frame-url <url>     Address bar text for --frame browser
@@ -1721,6 +1823,12 @@ export async function runAttach(
   if (parsed.flags.has("--no-comment") && typeof parsed.flags.get("--no-comment") === "string") {
     throw new UsageError("--no-comment takes no value — place it after the file arguments");
   }
+  if (
+    parsed.flags.has("--no-issue-artifacts") &&
+    typeof parsed.flags.get("--no-issue-artifacts") === "string"
+  ) {
+    throw new UsageError("--no-issue-artifacts takes no value — place it after the file arguments");
+  }
   if (parsed.flags.has("--promote") && typeof parsed.flags.get("--promote") === "string") {
     throw new UsageError("--promote takes no value — place it after the file arguments");
   }
@@ -1886,7 +1994,13 @@ export async function runAttach(
     uploads.length > 0 || (fromBranch !== undefined && attachedExisting.length > 0);
   if (!parsed.flags.has("--no-comment") && shouldRefreshComment) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
+      comment = await syncAttachmentsComment(
+        ctx.client,
+        target,
+        run,
+        ctx.config.workspace,
+        parsed.flags.has("--no-issue-artifacts") ? { issueArtifacts: false } : {},
+      );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(

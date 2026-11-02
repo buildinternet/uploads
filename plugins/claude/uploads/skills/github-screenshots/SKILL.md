@@ -17,7 +17,8 @@ description: >-
   filesystem and is uploading via the hosted MCP (agents.uploads.sh). Reach
   for this instead of drag-and-drop or hand-rolling cloud-storage uploads.
   GitHub CLI 2.99+ can attach a single image to an existing PR or issue with
-  `gh … --attach`; this skill says when that is enough and when it is not.
+  `gh … --attach`, and `gh issue artifact create --attach` can hold GitHub-only
+  media on an issue plan; this skill says when that is enough and when it is not.
   Capture the visual with whatever browser or screenshot tooling you have;
   this skill covers hosting and embedding it.
 ---
@@ -67,6 +68,39 @@ Media attached with `gh` is still indexed: the GitHub App imports attachments
 from PR and issue text into the workspace. The same webhook imports public
 Cursor `cursor.com/artifacts/c/art-*` rewrite URLs from that text. To mirror
 an existing `user-attachments` image or `art-*` URL by hand, use `uploads ingest`.
+
+## Issue artifacts
+
+GitHub issue artifacts (`gh issue artifact`) are a separate surface from the
+managed comment. They exist on issues. Pull requests keep the managed comment
+only.
+
+`gh issue artifact create --attach` is the right tool for GitHub-only media
+on an issue plan or root-cause write-up. It copies the bytes to
+`github.com/user-attachments`. That URL is auth-gated. It does not render in
+Slack, docs, or for another agent that cannot sign in to the repo.
+
+Use uploads for everything else in this skill:
+
+- A pull request, a PR or issue comment, or any public or shareable link.
+- Video. An issue artifact drops a `<video>` tag, so uploads renders the clip
+  as a link to the uploads.sh URL.
+- A private-repo capture that should become a public uploads.sh URL.
+
+`uploads attach` on an issue does this by default. It writes one Markdown
+artifact named `uploads.sh media` with the same block as the managed comment.
+Image URLs are uploads.sh embed or storage URLs. It does not pass `--attach`
+and does not copy bytes to GitHub. A later attach updates that artifact in
+place. When the issue has a gallery, a second artifact named
+`uploads.sh gallery` is a link to the gallery URL. If GitHub rejects the
+write, attach prints a warning and still succeeds.
+
+Turn it off in this order: `--no-issue-artifacts` on one command, then
+`comment.issueArtifacts: false` in `.uploads.yml`, then **Issue artifacts**
+under the workspace's Settings → GitHub. Anything not set leaves the next
+layer, and the last layer is on. The stdio MCP `attach` tool takes
+`issueArtifacts: false` for the same one-call opt-out and reads the repo file
+and the workspace setting. The hosted MCP does not write issue artifacts.
 
 ## Which surface
 
