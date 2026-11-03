@@ -97,9 +97,11 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
 
     const name = c.req.param("workspace");
     if (!name) throw new UnauthorizedError();
+    // Independent reads: run the membership check and the KV record together.
+    const recordPromise = loadWorkspaceRecord(c.env, name);
+    recordPromise.catch(() => undefined);
     await memberWorkspaceOr404(c.env, userId, name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
+    const record = await recordPromise;
     if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
 
     c.set("workspace", record);

@@ -1,14 +1,13 @@
 import { ForbiddenError, UnauthorizedError } from "@uploads/errors";
 import {
-  d1ExecMs,
   ServerTiming,
   serverTimingDisabled,
   slowOpThresholdMs,
   timeOp,
 } from "@uploads/observability";
 import type { MiddlewareHandler } from "hono";
-import { findActiveToken, isOperatorScope, touchTokenLastUsed } from "./auth-db";
-import { hexToBytes, sha256Hex, workspaceNameFromToken } from "./workspace";
+import { findActiveToken, isOperatorScope } from "./auth-db";
+import { hexToBytes, sha256Hex, touchAfterResponse, workspaceNameFromToken } from "./workspace";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 
@@ -71,22 +70,7 @@ export const adminAuth: MiddlewareHandler<{
     }
   }
   if (!record) throw new UnauthorizedError();
-  const touchTiming = new ServerTiming();
-  try {
-    await timeOp(() => touchTokenLastUsed(dbFor(c.env), record.id), {
-      name: "d1_touch",
-      timing: touchTiming,
-      route: c.req.path,
-      thresholdMs,
-      execMs: d1ExecMs,
-      onSlowOp: (event) => writeSlowOpPoint(c.env, event),
-    });
-  } finally {
-    if (!serverTimingDisabled(c.env)) {
-      const value = touchTiming.header();
-      if (value) c.header("Server-Timing", value, { append: true });
-    }
-  }
+  await touchAfterResponse(c, record.id, thresholdMs);
 
   // record.scopes is operator-token-or-file-token JSON; parseScopes (auth-db.ts)
   // is file-scope-only, so parse directly here and keep just the operator ones.
