@@ -14,6 +14,7 @@ import {
   isPublicFile,
   isSafeKey,
   isTextPreviewable,
+  prefersImage,
   PUBLIC_FILE_CSP,
   publicFileCsp,
   sameUtcDay,
@@ -73,6 +74,22 @@ describe("public file headers", () => {
     expect(PUBLIC_FILE_CSP).toContain(
       "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
     );
+  });
+});
+
+describe("prefersImage", () => {
+  it("is true for the GitHub iOS app's image viewer (#1373)", () => {
+    expect(prefersImage("image/*,*/*;q=0.8")).toBe(true);
+    expect(prefersImage("image/webp,image/*")).toBe(true);
+  });
+
+  it("is false for browser page loads, bare */* and a missing header", () => {
+    expect(
+      prefersImage("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,*/*;q=0.8"),
+    ).toBe(false);
+    expect(prefersImage("*/*")).toBe(false);
+    expect(prefersImage("text/markdown")).toBe(false);
+    expect(prefersImage(null)).toBe(false);
   });
 });
 

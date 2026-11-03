@@ -25,6 +25,7 @@ import {
   fileKind as kind,
   filePath,
   isTextPreviewable,
+  prefersImage,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { env } from "cloudflare:workers";
@@ -38,25 +39,6 @@ const ssrStarted = Date.now();
 const timingsEnabled = !serverTimingDisabled(env as TimingEnv);
 const workspace = Astro.params.workspace ?? "";
 const key = Astro.params.key ?? "";
-
-// Temporary (#1373): record what non-browser clients send when they load a
-// file page, e.g. the GitHub mobile app's image viewer. Remove once known.
-{
-  const h = Astro.request.headers;
-  const accept = h.get("accept") ?? "";
-  if (!accept.includes("text/html")) {
-    console.log(
-      JSON.stringify({
-        event: "file_page_non_html_accept",
-        accept,
-        userAgent: h.get("user-agent") ?? "",
-        secFetchDest: h.get("sec-fetch-dest") ?? "",
-        secFetchMode: h.get("sec-fetch-mode") ?? "",
-        method: Astro.request.method,
-      }),
-    );
-  }
-}
 // SSR-only, absolute — fetchPublicFile validates this is a real https:/loopback
 // origin and fetches it directly (server-to-server, no browser cookie jar
 // involved), so it stays independent of the browser-facing same-origin value
@@ -83,6 +65,20 @@ const { apiOrigin: browserApiOrigin } = resolveSignedInOrigins();
 applyPublicFileHeaders(Astro.response.headers, { csp: publicFileCsp(browserApiOrigin) });
 
 const file = result.status === "ok" ? result.file : null;
+
+// The GitHub mobile app opens a tapped comment image's link in its own image
+// viewer whenever the URL ends in an image extension, asking for
+// `image/*,*/*;q=0.8` (#1373). Hand it the image instead of this HTML page.
+if (
+  file &&
+  kind(file.contentType) === "image" &&
+  prefersImage(Astro.request.headers.get("accept"))
+) {
+  return new Response(null, {
+    status: 302,
+    headers: { Location: file.url, "Cache-Control": "no-store", Vary: "Accept" },
+  });
+}
 if (result.status === "unavailable") Astro.response.status = 503;
 else if (result.status === "auth_required") Astro.response.status = 401;
 else if (!file) Astro.response.status = 404;

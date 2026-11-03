@@ -80,6 +80,16 @@ export function fileKind(contentType: string): MediaKind {
   return "file";
 }
 
+/**
+ * Whether a request's first-listed media type is an image, as from a native
+ * image viewer (`image/*,*\/*;q=0.8`). Browser page loads lead with
+ * `text/html`, and curl's bare `*\/*` stays on the page.
+ */
+export function prefersImage(accept: string | null): boolean {
+  const first = accept?.split(",")[0]?.split(";")[0]?.trim().toLowerCase() ?? "";
+  return first.startsWith("image/");
+}
+
 /** A workspace name as it appears in registry keys / public URLs. */
 const WORKSPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
