@@ -1,16 +1,16 @@
-diff --git a/dist/authorize-K1WHCNih.mjs b/dist/authorize-K1WHCNih.mjs
-index 892e39ff5f37078ee30b8c950be5f12adf96262e..252c4481e55716bc87cd7e71db0b6e33da6043b1 100644
---- a/dist/authorize-K1WHCNih.mjs
-+++ b/dist/authorize-K1WHCNih.mjs
-@@ -1257,6 +1257,33 @@ function validateJwksUri(ctx, jwksUri, clientIdUrlOrigin) {
- 		error: "invalid_client"
- 	});
- }
+--- a/dist/authorize-BnSO_Slc.mjs
++++ b/dist/authorize-BnSO_Slc.mjs
+@@ -4081,6 +4081,35 @@
+ * jti is consumed, so a caller can refuse a client it does not serve without
+ * spending the assertion or reaching out to a `jwks_uri`.
+ */
 +// patch(uploads): an AS that advertises its token endpoint on a second origin
 +// (RFC 8414 metadata may place endpoints off the issuer origin) receives
 +// assertions whose `aud` is that advertised URL. Accept the same endpoint path
 +// on each operator-configured `clientAssertionAudienceOrigins` entry, in
 +// addition to `${baseURL}<endpoint>` and the issuer. Exact origin + path only.
++// Not applied when `endpointAudienceOnly` is set: those routes refuse any
++// audience other than the endpoint that changes client credentials.
 +function clientAssertionAliasAudiences(endpointAudience, aliasOrigins) {
 +	if (!Array.isArray(aliasOrigins) || aliasOrigins.length === 0) return [];
 +	let endpoint;
@@ -33,15 +33,15 @@ index 892e39ff5f37078ee30b8c950be5f12adf96262e..252c4481e55716bc87cd7e71db0b6e33
 +	}
 +	return audiences;
 +}
- function urlClientIdOrigin(clientId) {
- 	try {
- 		const parsed = new URL(clientId);
-@@ -1513,7 +1540,11 @@ async function verifyClientAssertion(ctx, opts, clientAssertion, clientAssertion
+ async function verifyClientAssertion(ctx, opts, clientAssertion, clientAssertionType, clientIdHint, expectedAudience, options) {
+ 	if (clientAssertionType !== CLIENT_ASSERTION_TYPE) throw new APIError$1("BAD_REQUEST", {
+ 		error_description: "unsupported client_assertion_type",
+@@ -4134,7 +4163,11 @@
  	const jwks = await fetchClientJwks(ctx, opts, client);
  	const endpointAudience = expectedAudience ?? `${ctx.context.baseURL}/oauth2/token`;
  	const issuerAudience = getIssuer(ctx, opts);
--	const acceptedAudiences = [...new Set([endpointAudience, issuerAudience])];
-+	const acceptedAudiences = [...new Set([
+-	const acceptedAudiences = options?.endpointAudienceOnly ? [endpointAudience] : [.../* @__PURE__ */ new Set([endpointAudience, issuerAudience])];
++	const acceptedAudiences = options?.endpointAudienceOnly ? [endpointAudience] : [.../* @__PURE__ */ new Set([
 +		endpointAudience,
 +		issuerAudience,
 +		...clientAssertionAliasAudiences(endpointAudience, opts.clientAssertionAudienceOrigins)
@@ -49,39 +49,3 @@ index 892e39ff5f37078ee30b8c950be5f12adf96262e..252c4481e55716bc87cd7e71db0b6e33
  	const verifyOpts = {
  		issuer: clientId,
  		subject: clientId,
-@@ -1643,8 +1674,25 @@ const FORBIDDEN_NATIVE_REDIRECT_SCHEMES = new Set([
- 	"mailto:",
- 	"javascript:",
- 	"data:",
--	"vbscript:"
-+	"vbscript:",
-+	// patch(better-auth#10956): union with upstream's NON_PRIVATE_USE_SCHEMES.
-+	"http:",
-+	"https:",
-+	"ws:",
-+	"wss:"
- ]);
-+// patch(better-auth#10956, better-auth#10946): accept host-bearing
-+// non-reserved custom-scheme redirect URIs (e.g. cursor://host/path) for
-+// native clients, alongside the existing authority-free reverse-domain form.
-+// Delete once a Better Auth release ships the upstream fix.
-+function isHostBearingPrivateUseRedirectUri(uri) {
-+	if (FORBIDDEN_NATIVE_REDIRECT_SCHEMES.has(uri.protocol)) return false;
-+	if (uri.host.length === 0) return false;
-+	return uri.pathname.startsWith("/");
-+}
-+function isNativePrivateUseRedirectUri(uri) {
-+	return isReverseDomainPrivateUseRedirectUri(uri) || isHostBearingPrivateUseRedirectUri(uri);
-+}
- function invalidRedirectUri(description) {
- 	throw new APIError("BAD_REQUEST", {
- 		error: "invalid_redirect_uri",
-@@ -1708,7 +1756,7 @@ function validateClientRedirectUri(redirectUri, applicationType) {
- 		if (!isAllowedNativeHttpLoopback) invalidRedirectUri(`native clients may use http only on the exact loopback hosts localhost, 127.0.0.1, or [::1]: ${redirectUri}`);
- 		return;
- 	}
--	if (FORBIDDEN_NATIVE_REDIRECT_SCHEMES.has(url.protocol) || !isReverseDomainPrivateUseRedirectUri(url)) invalidRedirectUri(`native private-use redirect URI schemes must be well-formed reverse-domain names, omit the naming authority, and must not use a reserved scheme: ${redirectUri}`);
-+	if (FORBIDDEN_NATIVE_REDIRECT_SCHEMES.has(url.protocol) || !isNativePrivateUseRedirectUri(url)) invalidRedirectUri(`native private-use redirect URI schemes must not use a reserved scheme; they must be an authority-free reverse-domain URI or a custom-scheme URI with an authority: ${redirectUri}`);
- }
- function assertValidRegistrationJwks(jwks) {
- 	const result = validatePublicClientJwks(jwks);
