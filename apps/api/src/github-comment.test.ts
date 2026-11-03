@@ -484,8 +484,8 @@ describe("gatherCommentBody", () => {
 
   it("links an attachment to its /f/ file page by default (flag absent)", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
-    await bucket.put("acme/gh/acme/web/pull/12/report.zip", PNG, {
-      httpMetadata: { contentType: "application/zip" },
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
     });
     const result = await gatherCommentBody(env, { ...ws, name: workspaceName }, workspaceName, {
       repo: "acme/web",
@@ -497,8 +497,8 @@ describe("gatherCommentBody", () => {
 
   it("links an attachment to its /f/ file page when the flag is explicitly true", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
-    await bucket.put("acme/gh/acme/web/pull/12/report.zip", PNG, {
-      httpMetadata: { contentType: "application/zip" },
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
     });
     const result = await gatherCommentBody(
       env,
@@ -526,11 +526,11 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain("storage.uploads.sh");
   });
 
-  it("points tagged PR attachments at the feed item pager; inline images link the object (#1373)", async () => {
+  it("points tagged PR attachments at the feed item pager and keeps img src on the object URL", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
-    const keyA = "gh/acme/web/pull/12/notes.zip";
+    const keyA = "gh/acme/web/pull/12/before.png";
     const keyB = "gh/acme/web/pull/12/after.png";
-    await bucket.put(`acme/${keyA}`, PNG, { httpMetadata: { contentType: "application/zip" } });
+    await bucket.put(`acme/${keyA}`, PNG, { httpMetadata: { contentType: "image/png" } });
     await bucket.put(`acme/${keyB}`, PNG, { httpMetadata: { contentType: "image/png" } });
     await replaceFileMetadata(env.DB, workspaceName, keyA, {
       "gh.repo": "acme/web",
@@ -556,11 +556,9 @@ describe("gatherCommentBody", () => {
     const idA = await feedItemIdFor(keyA);
     const idB = await feedItemIdFor(keyB);
     expect(first.body).toContain(`/c/${feed!.id}/${idA}`);
-    expect(first.body).not.toContain(`/c/${feed!.id}/${idB}`);
+    expect(first.body).toContain(`/c/${feed!.id}/${idB}`);
     expect(first.body).not.toContain(`/f/${workspaceName}/`);
-    expect(first.body).toMatch(
-      /<a href="https:\/\/(embed|storage)\.uploads\.sh\/[^"]+\/after\.png"><img[^>]+src="https:\/\/(embed|storage)\.uploads\.sh\//,
-    );
+    expect(first.body).toMatch(/<img[^>]+src="https:\/\/(embed|storage)\.uploads\.sh\//);
 
     const second = await gatherCommentBody(
       env,
@@ -575,8 +573,8 @@ describe("gatherCommentBody", () => {
 
   it("keeps /f/ click-through when an attachment is not in the PR feed query", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
-    await bucket.put("acme/gh/acme/web/pull/12/report.zip", PNG, {
-      httpMetadata: { contentType: "application/zip" },
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
     });
     const result = await gatherCommentBody(env, { ...ws, name: workspaceName }, workspaceName, {
       repo: "acme/web",
@@ -586,7 +584,7 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain(`/f/${workspaceName}/`);
     // The live link line still links `/c/<id>`; the untagged item must not
     // get a `/c/<id>/<item>` link.
-    expect(result.body).not.toContain(await feedItemIdFor("gh/acme/web/pull/12/report.zip"));
+    expect(result.body).not.toContain(await feedItemIdFor("gh/acme/web/pull/12/hero.png"));
     expect(result.body).not.toMatch(/\/c\/[^"/]+\//);
   });
 
@@ -701,10 +699,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
     key: string,
     meta: Record<string, string>,
   ): Promise<void> {
-    // Inline images link the object itself (#1373), so page-link cases use a
-    // file-table attachment, which still links its page.
-    const contentType = key.endsWith(".zip") ? "application/zip" : "image/png";
-    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType } });
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
     await replaceFileMetadata(env.DB, "acme", key, meta);
   }
 
@@ -754,7 +749,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
 
   it("keeps /f/ for an item whose gh.number points at another PR", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
-    const moved = "gh/acme/web/pull/12/moved.zip";
+    const moved = "gh/acme/web/pull/12/moved.png";
     await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
     await putTagged(env, bucket, moved, { ...PR12, "gh.number": "13" });
     const result = await gatherCommentBody(
@@ -785,7 +780,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     const keys = Array.from(
       { length: 55 },
-      (_, i) => `gh/acme/web/pull/12/shot-${String(i).padStart(2, "0")}.zip`,
+      (_, i) => `gh/acme/web/pull/12/shot-${String(i).padStart(2, "0")}.png`,
     );
     for (const key of keys) await putTagged(env, bucket, key, PR12);
     const result = await gatherCommentBody(
@@ -803,7 +798,7 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
 
   it("links in-scope items even when caption metadata is off", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
-    const key = "gh/acme/web/pull/12/a.zip";
+    const key = "gh/acme/web/pull/12/a.png";
     await putTagged(env, bucket, key, PR12);
     const result = await gatherCommentBody(
       env,

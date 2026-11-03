@@ -402,6 +402,7 @@ describe("attachmentsCommentBody (CLI copy)", () => {
             url: "https://uploads.sh/g/abc/i1.png",
             embedUrl: "https://embed.uploads.sh/g/abc/i1.png",
             alt: "screen one",
+            itemUrl: "https://uploads.sh/g/abc/i1",
           },
         ],
       },

@@ -349,7 +349,7 @@ describe("attachmentsCommentBody", () => {
     expect(body).not.toContain("Attachments");
   });
 
-  it("renders up to three inline previews that link to their images", () => {
+  it("renders up to three inline previews that link back to the gallery", () => {
     const body = attachmentsCommentBody(
       [],
       [
@@ -360,6 +360,7 @@ describe("attachmentsCommentBody", () => {
             {
               url: "https://storage.test/one.webp",
               alt: "First screen",
+              itemUrl: "https://uploads.test/g/gal_release/item-1",
             },
             { url: "https://storage.test/two.webp", alt: "Second screen" },
             { url: "https://storage.test/three.webp", alt: "Third screen" },
@@ -368,10 +369,10 @@ describe("attachmentsCommentBody", () => {
       ],
     );
     expect(body).toContain(
-      '<a href="https://storage.test/one.webp"><img width="320" alt="First screen" src="https://storage.test/one.webp"></a>',
+      '<a href="https://uploads.test/g/gal_release/item-1"><img width="320" alt="First screen" src="https://storage.test/one.webp"></a>',
     );
     expect(body).toContain(
-      '<a href="https://storage.test/two.webp"><img width="320" alt="Second screen" src="https://storage.test/two.webp"></a>',
+      '<a href="https://uploads.test/g/gal_release"><img width="320" alt="Second screen" src="https://storage.test/two.webp"></a>',
     );
     expect(body).toContain("Open gallery");
   });
@@ -405,8 +406,7 @@ describe("attachmentsCommentBody", () => {
     expect(body).toContain("_No attachments are currently associated with this pull request._");
   });
 
-  // GitHub mobile opens a tapped image's link in its image viewer (#1373).
-  it("links an image to its stored url even when a pageUrl is present", () => {
+  it("links an image to its pageUrl (not raw url) when present", () => {
     const body = attachmentsCommentBody([
       {
         key: "gh/o/r/pull/1/after.png",
@@ -416,7 +416,7 @@ describe("attachmentsCommentBody", () => {
       },
     ]);
     expect(body).toContain(
-      '<a href="https://x.test/after.png"><img width="720" alt="after.png" src="https://embed.test/after.png"></a>',
+      '<a href="https://uploads.sh/f/ws/gh/o/r/pull/1/after.png"><img width="720" alt="after.png" src="https://embed.test/after.png"></a>',
     );
   });
 

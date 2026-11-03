@@ -1069,6 +1069,7 @@ export async function syncAttachmentsComment(
               url: item.url!,
               embedUrl: item.embedUrl,
               alt: item.altText ?? item.objectKey,
+              itemUrl: item.pageUrl,
             })),
         };
       } catch {
