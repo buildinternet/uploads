@@ -137,6 +137,14 @@ async function resolvePublicObject(
   const record = await measure("file_workspace", () => loadWorkspaceRecord(env, workspace));
   if (!record) throw new NotFoundError();
 
+  // One fresh D1 read supplies the hosted visibility row, the hold gate, and
+  // the response metadata. Nothing from either check is cached. It does not
+  // depend on the lane, so it overlaps the storage HEAD.
+  const metadataPromise = measure("file_metadata", () =>
+    getFileMetadata(dbFor(env), workspace, key),
+  );
+  // A 404 below never reads it; keep that rejection handled.
+  metadataPromise.catch(() => undefined);
   const lane = await measure("file_storage", () => resolveObjectLaneWithHead(env, record, key));
   if (!lane) {
     // A moved hold has no public object. Answer like a private file so a
@@ -157,11 +165,7 @@ async function resolvePublicObject(
 
   const meta = lane.head;
 
-  // One fresh D1 read supplies the hosted visibility row, the hold gate, and
-  // the response metadata. Nothing from either check is cached.
-  const metadata = await measure("file_metadata", () =>
-    getFileMetadata(dbFor(env), workspace, key),
-  );
+  const metadata = await metadataPromise;
   const hosted = isSharedLane(lane.config);
   if (
     objectVisibility(
