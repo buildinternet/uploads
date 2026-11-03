@@ -9,8 +9,10 @@ interface Props {
   size?: number | null;
   uploaded?: string | null;
   modified?: string | null;
+  /** Show a quiet "nothing attached" line when there's no caption, metadata or labels. */
+  showEmpty?: boolean;
 }
-const { metadata, size = null, uploaded = null, modified = null } = Astro.props;
+const { metadata, size = null, uploaded = null, modified = null, showEmpty = true } = Astro.props;
 const caption = (Astro.props.caption ?? metadata?.caption)?.trim() || null;
 const detailMeta = splitFileDetailMeta(metadata);
 const metadataEntries = [...detailMeta.primary, ...detailMeta.other].filter(
@@ -40,8 +42,10 @@ const footnoteParts = [
   modifiedLabel ? `Modified ${modifiedLabel}` : null,
 ].filter((part): part is string => Boolean(part));
 const footnoteLine = footnoteParts.join(" · ");
+const isEmpty = showEmpty && !caption && metadataEntries.length === 0 && !aiLabels;
 ---
 
+{isEmpty && <p class="empty">No caption or details attached.</p>}
 {caption && <p class="caption">{caption}</p>}
 {
   metadataEntries.length > 0 && (
@@ -98,6 +102,11 @@ const footnoteLine = footnoteParts.join(" · ");
     line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  .empty {
+    margin: 0;
+    color: var(--muted);
+    font: var(--text-micro) / 1.5 var(--sans);
   }
   .rail-head {
     display: flex;
