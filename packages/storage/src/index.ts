@@ -197,9 +197,25 @@ export function resolveEmbedBaseUrl(
     const trimmed = embedBaseUrl.trim();
     return trimmed ? trimmed.replace(/\/$/, "") : null;
   }
+  return publicBaseUrl && isEmbeddableBase(publicBaseUrl) ? DEFAULT_EMBED_PUBLIC_BASE_URL : null;
+}
+
+/**
+ * Whether a public base URL's host is a default embeddable one. Listings
+ * call this once per key with the same few bases, so the parse is memoized
+ * per base. Capped so arbitrary input can't grow it without bound.
+ */
+const embeddableBaseMemo = new Map<string, boolean>();
+const EMBEDDABLE_BASE_MEMO_MAX = 256;
+
+function isEmbeddableBase(publicBaseUrl: string): boolean {
+  const known = embeddableBaseMemo.get(publicBaseUrl);
+  if (known !== undefined) return known;
   const host = hostOf(publicBaseUrl);
-  if (host && DEFAULT_EMBEDDABLE_HOSTS.has(host)) return DEFAULT_EMBED_PUBLIC_BASE_URL;
-  return null;
+  const embeddable = host !== null && DEFAULT_EMBEDDABLE_HOSTS.has(host);
+  if (embeddableBaseMemo.size >= EMBEDDABLE_BASE_MEMO_MAX) embeddableBaseMemo.clear();
+  embeddableBaseMemo.set(publicBaseUrl, embeddable);
+  return embeddable;
 }
 
 /**
@@ -214,10 +230,13 @@ export function embedUrlFromPublic(
 
   let publicBaseUrl = opts.publicBaseUrl ?? null;
   if (!publicBaseUrl) {
-    const host = hostOf(publicObjectUrl);
-    if (!host) return null;
-    if (DEFAULT_EMBEDDABLE_HOSTS.has(host)) {
-      const u = new URL(publicObjectUrl);
+    let u: URL;
+    try {
+      u = new URL(publicObjectUrl);
+    } catch {
+      return null;
+    }
+    if (DEFAULT_EMBEDDABLE_HOSTS.has(u.hostname.toLowerCase())) {
       publicBaseUrl = `${u.protocol}//${u.host}`;
     }
   }

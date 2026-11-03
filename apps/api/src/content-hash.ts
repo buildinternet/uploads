@@ -116,7 +116,8 @@ export async function contentHashesForKeys(
  * key (an overwrite changes the bytes a key points at).
  *
  * Never throws: the object is already durably stored by the time this runs, and
- * a missing index row costs a future inheritance, not correctness.
+ * a missing index row costs a future inheritance, not correctness. Returns
+ * whether the row was written.
  */
 export async function deleteContentHashes(
   db: D1Queryable,
@@ -148,7 +149,7 @@ export async function recordContentHash(
   workspace: string,
   objectKey: string,
   contentSha256: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await db
       .prepare(
@@ -159,8 +160,10 @@ export async function recordContentHash(
       )
       .bind(workspace, objectKey, contentSha256, new Date().toISOString())
       .run();
+    return true;
   } catch {
     // Index maintenance is best-effort by design — see the doc comment.
+    return false;
   }
 }
 
