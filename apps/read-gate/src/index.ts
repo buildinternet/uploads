@@ -79,14 +79,17 @@ function isHostedHost(hostname: string, extra: string | undefined): boolean {
 
 /** Public object key for a hosted URL, or null when there is nothing to gate. */
 export function objectKeyFromUrl(
-  raw: string,
+  raw: string | URL,
   env: Pick<ReadGateEnv, "EXTRA_HOSTED_HOSTS"> = {},
 ): string | null {
   let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
+  if (raw instanceof URL) url = raw;
+  else {
+    try {
+      url = new URL(raw);
+    } catch {
+      return null;
+    }
   }
   if (!isHostedHost(url.hostname, env.EXTRA_HOSTED_HOSTS)) return null;
   let path: string;
@@ -327,7 +330,7 @@ export async function handleReadGate(
   if (isReservedGatePath(url.pathname)) return heldNotFound();
   const hosted = isHostedHost(url.hostname, env.EXTRA_HOSTED_HOSTS);
   if (request.method === "OPTIONS") return hosted ? readPreflight(request) : fetch(request);
-  const objectKey = objectKeyFromUrl(request.url, env);
+  const objectKey = objectKeyFromUrl(url, env);
   if (!objectKey) return finishRead(hosted, request, await fetch(request));
   const token = url.searchParams.get(REVIEW_PARAM);
   if (

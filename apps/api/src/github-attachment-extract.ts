@@ -192,13 +192,18 @@ function cursorAltByArtId(text: string): Map<string, string> {
   return alts;
 }
 
+const CURSOR_C_URL_RE = new RegExp(`^https://cursor\\.com/artifacts/c/(${CURSOR_ART_ID})$`);
+
 function artIdFromCursorCUrl(url: string): string | undefined {
-  const m = new RegExp(`^https://cursor\\.com/artifacts/c/(${CURSOR_ART_ID})$`).exec(url);
-  return m?.[1];
+  return CURSOR_C_URL_RE.exec(url)?.[1];
 }
 
-function htmlAttr(tag: string, name: string): string | undefined {
-  const re = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
-  const m = re.exec(tag);
+const htmlAttrRe = (name: string) =>
+  new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
+/** Built once: `htmlAttr` runs per tag in a PR body. */
+const HTML_ATTR_RE = { src: htmlAttrRe("src"), alt: htmlAttrRe("alt") } as const;
+
+function htmlAttr(tag: string, name: keyof typeof HTML_ATTR_RE): string | undefined {
+  const m = HTML_ATTR_RE[name].exec(tag);
   return m?.[1] ?? m?.[2] ?? m?.[3];
 }
