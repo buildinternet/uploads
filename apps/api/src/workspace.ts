@@ -30,6 +30,7 @@ import {
   recordClient,
   tokenClientPrincipal,
 } from "./client-activity";
+import { afterResponse } from "./after-response";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 import { type UploaderIdentity, userUploaderIdentity } from "./uploader-identity";
@@ -550,6 +551,30 @@ export async function loadWorkspaceRecordRaw(
 }
 
 /**
+ * Bumps `last_used_at` after the response. The UPDATE goes to the D1
+ * primary, so awaiting it held every authenticated request for a primary
+ * round trip. Slow-op logging still sees it; Server-Timing no longer can.
+ * Never throws.
+ */
+export async function touchAfterResponse(
+  c: Context,
+  tokenId: string,
+  thresholdMs: number,
+): Promise<void> {
+  const task = timeOp(() => touchTokenLastUsed(dbFor(c.env), tokenId), {
+    name: "d1_touch",
+    timing: new ServerTiming(),
+    route: c.req.path,
+    thresholdMs,
+    execMs: d1ExecMs,
+    onSlowOp: (event) => writeSlowOpPoint(c.env, event),
+  }).catch((err: unknown) => {
+    console.error({ event: "token_touch_failed", err });
+  });
+  await afterResponse(c, task);
+}
+
+/**
  * Verifies the bearer against the workspace's token hashes and puts the
  * record on the context. Unknown workspaces 401 only after the token check,
  * so names can't be probed more cheaply than tokens. `nameOf` reads the name
@@ -562,9 +587,34 @@ function workspaceAuthWith(
     const token = bearerToken(c.req.header("Authorization"));
     const name = nameOf(c, token);
 
-    const record = await loadWorkspaceRecord(c.env, name);
+    // The KV record and the D1 token row are independent reads, so run them
+    // together. Always pay the D1 round trip, with a dummy workspace when the
+    // name is malformed, so latency doesn't reveal whether a name exists.
+    // A real-but-unknown name finds no row, the same as the dummy.
+    const timing = new ServerTiming();
+    const thresholdMs = slowOpThresholdMs(c.env);
+    const d1TokenPromise = timeOp(
+      () =>
+        findActiveToken(
+          dbFor(c.env),
+          name && WS_NAME_RE.test(name) ? name : "__unknown__",
+          token || "__unknown__",
+        ),
+      {
+        name: "d1",
+        timing,
+        route: c.req.path,
+        thresholdMs,
+        onSlowOp: (event) => writeSlowOpPoint(c.env, event),
+      },
+    );
+    // Settle the D1 read even if KV throws, so nothing outlives the request.
+    d1TokenPromise.catch(() => undefined);
+    const [record, providedHash] = await Promise.all([
+      loadWorkspaceRecord(c.env, name),
+      sha256Hex(token),
+    ]);
 
-    const providedHash = await sha256Hex(token);
     const providedBytes = hexToBytes(providedHash);
     const candidates = record ? workspaceTokenHashes(record) : [];
     // Compare every valid hash (no early break) so match position isn't
@@ -594,27 +644,9 @@ function workspaceAuthWith(
       );
     }
     const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
-    // Always pay the D1 round trip, with dummy inputs when the workspace is
-    // unknown, so latency doesn't reveal whether a name exists.
-    const timing = new ServerTiming();
-    const thresholdMs = slowOpThresholdMs(c.env);
     let d1Token: Awaited<ReturnType<typeof findActiveToken>>;
     try {
-      d1Token = await timeOp(
-        () =>
-          findActiveToken(
-            dbFor(c.env),
-            record && name ? name : "__unknown__",
-            token || "__unknown__",
-          ),
-        {
-          name: "d1",
-          timing,
-          route: c.req.path,
-          thresholdMs,
-          onSlowOp: (event) => writeSlowOpPoint(c.env, event),
-        },
-      );
+      d1Token = await d1TokenPromise;
     } finally {
       appendServerTiming(c, timing);
     }
@@ -651,21 +683,7 @@ function workspaceAuthWith(
       userId: d1Token?.minting_user_id,
       workspace: name,
     });
-    if (d1Token) {
-      const touchTiming = new ServerTiming();
-      try {
-        await timeOp(() => touchTokenLastUsed(dbFor(c.env), d1Token.id), {
-          name: "d1_touch",
-          timing: touchTiming,
-          route: c.req.path,
-          thresholdMs,
-          execMs: d1ExecMs,
-          onSlowOp: (event) => writeSlowOpPoint(c.env, event),
-        });
-      } finally {
-        appendServerTiming(c, touchTiming);
-      }
-    }
+    if (d1Token) await touchAfterResponse(c, d1Token.id, thresholdMs);
     // Lets the CLI warn before the token runs out (90-day tokens).
     if (d1Token?.expires_at) c.header("Uploads-Token-Expires", d1Token.expires_at);
     const userAgent = c.req.header("User-Agent");
@@ -794,19 +812,7 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
       userId: record.minting_user_id,
       workspace: name,
     });
-    const touchTiming = new ServerTiming();
-    try {
-      await timeOp(() => touchTokenLastUsed(dbFor(c.env), record.id), {
-        name: "d1_touch",
-        timing: touchTiming,
-        route: c.req.path,
-        thresholdMs,
-        execMs: d1ExecMs,
-        onSlowOp: (event) => writeSlowOpPoint(c.env, event),
-      });
-    } finally {
-      appendServerTiming(c, touchTiming);
-    }
+    await touchAfterResponse(c, record.id, thresholdMs);
     await next();
   };
 }

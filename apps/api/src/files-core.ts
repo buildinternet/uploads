@@ -688,6 +688,10 @@ export async function putObject(
   const store = createStorage(cfg);
   // files-sdk upload() has no replaced flag, so derive it from a head: the
   // ledger size delta and the prior stamp (overwrite keeps first upload).
+  // The usage read doesn't depend on the HEAD, so it overlaps it. A
+  // key_exists refusal below leaves it unread; keep that rejection handled.
+  const usagePromise = getWorkspaceUsage(dbFor(env), workspaceName);
+  usagePromise.catch(() => undefined);
   const prior = await existingHead(store, finalKey);
   const replaced = prior !== null;
 
@@ -713,7 +717,7 @@ export async function putObject(
   // new content, so it never counts against the monthly upload cap (#645).
   const uploadCount = opts?.surface === "rotate" ? 0 : 1;
 
-  const usage = await getWorkspaceUsage(dbFor(env), workspaceName);
+  const usage = await usagePromise;
   // Cheap read-side reject for obviously spent budgets (both caps). Concurrent
   // puts at the boundary still need the atomic reservations below.
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: uploadCount });
@@ -771,6 +775,9 @@ export async function putObject(
     contentSha256 === undefined
       ? undefined
       : inheritableMetaForHash(dbFor(env), workspaceName, contentSha256, finalKey);
+  // The hash this key had before this put (see CLASSIFIER_ROW_KEYS), read
+  // alongside the write. Never rejects.
+  const previousHashPromise = contentHashForKey(dbFor(env), workspaceName, finalKey);
   const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
     ...(contentSha256 ? { "content-sha256": contentSha256 } : {}),
@@ -793,7 +800,7 @@ export async function putObject(
   } catch (err) {
     // Settle the in-flight donor lookup so no D1 read outlives the request. It
     // resolves to `{}` rather than rejecting, so this only discards a result.
-    await inheritedPromise;
+    await Promise.all([inheritedPromise, previousHashPromise]);
     // Credential-shaped failures flag the BYO lane unhealthy so settings can
     // say so. Never throws.
     await noteStorageFailure(env, workspaceName, ws, err);
@@ -864,9 +871,9 @@ export async function putObject(
   // What actually landed in the queryable tier, echoed on the response.
   let storedMetadata: Record<string, string> | undefined;
 
-  // Before recordContentHash overwrites the row. See CLASSIFIER_ROW_KEYS.
+  // Read before recordContentHash overwrites the row. See CLASSIFIER_ROW_KEYS.
   const db = dbFor(env);
-  const previousHash = await contentHashForKey(db, workspaceName, finalKey);
+  const previousHash = await previousHashPromise;
   const sameBytes = previousHash === contentSha256;
   if (!sameBytes) await deleteContentHashes(db, workspaceName, [finalKey]);
 
@@ -886,8 +893,8 @@ export async function putObject(
   }
 
   // Last and best-effort: a failed index write only costs later inheritance.
-  await recordContentHash(db, workspaceName, finalKey, contentSha256);
-  if (!sameBytes && (await contentHashForKey(db, workspaceName, finalKey)) === contentSha256) {
+  const hashRecorded = await recordContentHash(db, workspaceName, finalKey, contentSha256);
+  if (!sameBytes && hashRecorded) {
     const drop = opts?.keepReadGate
       ? [...CLASSIFIER_ROW_KEYS].filter((metaKey) => metaKey !== HOLD_META_KEY)
       : [...CLASSIFIER_ROW_KEYS];

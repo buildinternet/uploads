@@ -104,7 +104,7 @@ describe("workspaceAuth Server-Timing wiring (issue #812)", () => {
     logSpy.mockRestore();
   });
 
-  it("emits a Server-Timing header with wall + D1 exec ms on a matched token", async () => {
+  it("emits a Server-Timing header for the D1 token lookup on a matched token", async () => {
     const hash = await sha256Hex(TOKEN);
     const res = await appWith(null).request(
       "/acme/whoami",
@@ -113,9 +113,8 @@ describe("workspaceAuth Server-Timing wiring (issue #812)", () => {
     );
     expect(res.status).toBe(200);
     const header = res.headers.get("Server-Timing");
-    expect(header).toMatch(
-      /^d1;dur=\d+(\.\d+)?, d1_touch;dur=\d+(\.\d+)?, d1_touchexec;dur=0\.42$/,
-    );
+    // The last_used_at touch runs after the response, so it can't add a header.
+    expect(header).toMatch(/^d1;dur=\d+(\.\d+)?$/);
   });
 
   it("silences the header when SERVER_TIMING_DISABLED is set, without affecting slow-op logging", async () => {

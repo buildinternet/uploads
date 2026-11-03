@@ -496,6 +496,15 @@ const EVENT_HANDLER_ATTRS = [
   "onzoom",
 ] as const;
 
+const svgSizeAttrRe = (name: string) =>
+  new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i");
+/** The root `<svg>` sizing attributes, built once rather than per upload. */
+const SVG_SIZE_ATTR_RE = {
+  width: svgSizeAttrRe("width"),
+  height: svgSizeAttrRe("height"),
+  viewBox: svgSizeAttrRe("viewBox"),
+} as const;
+
 const EVENT_HANDLER_ATTR_RE = new RegExp(`\\b(?:${EVENT_HANDLER_ATTRS.join("|")})\\s*=`, "i");
 
 /** SMIL `<set>`/`<animate>` retargeting an event attribute, e.g. `<set attributeName="onclick" ...>`. */
@@ -679,8 +688,8 @@ export function detectImageDimensions(
     );
     const tag = /<svg[\s/>][\s\S]*?>/i.exec(head)?.[0];
     if (!tag) return undefined;
-    const attr = (name: string): string | undefined =>
-      new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i")
+    const attr = (name: keyof typeof SVG_SIZE_ATTR_RE): string | undefined =>
+      SVG_SIZE_ATTR_RE[name]
         .exec(tag)
         ?.slice(1, 3)
         .find((v) => v !== undefined);
