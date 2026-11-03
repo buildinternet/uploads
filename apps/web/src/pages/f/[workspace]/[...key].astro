@@ -38,6 +38,25 @@ const ssrStarted = Date.now();
 const timingsEnabled = !serverTimingDisabled(env as TimingEnv);
 const workspace = Astro.params.workspace ?? "";
 const key = Astro.params.key ?? "";
+
+// Temporary (#1373): record what non-browser clients send when they load a
+// file page, e.g. the GitHub mobile app's image viewer. Remove once known.
+{
+  const h = Astro.request.headers;
+  const accept = h.get("accept") ?? "";
+  if (!accept.includes("text/html")) {
+    console.log(
+      JSON.stringify({
+        event: "file_page_non_html_accept",
+        accept,
+        userAgent: h.get("user-agent") ?? "",
+        secFetchDest: h.get("sec-fetch-dest") ?? "",
+        secFetchMode: h.get("sec-fetch-mode") ?? "",
+        method: Astro.request.method,
+      }),
+    );
+  }
+}
 // SSR-only, absolute — fetchPublicFile validates this is a real https:/loopback
 // origin and fetches it directly (server-to-server, no browser cookie jar
 // involved), so it stays independent of the browser-facing same-origin value
