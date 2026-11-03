@@ -276,8 +276,8 @@ export interface GalleryCommentItem {
   title: string;
   /** Canonical URL returned by the API; callers must not synthesize it. */
   url: string;
-  /** A bounded set of available images; each links to its item page when known, else the gallery. */
-  previews?: { url: string; alt: string; embedUrl?: string | null; itemUrl?: string }[];
+  /** A bounded set of available images; each links to its stored image. */
+  previews?: { url: string; alt: string; embedUrl?: string | null }[];
 }
 
 /**
@@ -624,7 +624,11 @@ interface MediaEntry {
   kind: "image" | "video" | "pdf";
   /** `<img src>`, already chosen (embed host, or the poster). */
   src: string;
-  /** Click-through: file page when known, else the stored URL. */
+  /**
+   * Click-through. Images link to the stored image itself, as GitHub's own
+   * markup does: the GitHub mobile app opens a tapped image's link in its image
+   * viewer, which fails on an HTML page (#1373). Posters keep the file page.
+   */
   href: string;
 }
 
@@ -1023,7 +1027,8 @@ export function attachmentsCommentBody(
       const href = escapeHtmlAttr(gallery.url);
       lines.push(`#### <a href="${href}">${escapeHtmlText(gallery.title)}</a>`);
       for (const preview of gallery.previews ?? []) {
-        const previewHref = preview.itemUrl ? escapeHtmlAttr(preview.itemUrl) : href;
+        // Link the image itself, not the item page (#1373, see MediaEntry.href).
+        const previewHref = escapeHtmlAttr(preview.url);
         const previewSrc = escapeHtmlAttr(preview.embedUrl ?? preview.url);
         const previewW = resolvedWidth(320, options);
         lines.push(
@@ -1060,7 +1065,7 @@ export function attachmentsCommentBody(
       effectiveAttachmentType(item).startsWith("image/") ||
       inferContentType(name).startsWith("image/");
     if (src && isImage) {
-      return { item, name, kind: "image", src, href: href ?? src };
+      return { item, name, kind: "image", src, href: item.url ?? src };
     }
     return null;
   };

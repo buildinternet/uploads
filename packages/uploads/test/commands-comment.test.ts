@@ -776,8 +776,9 @@ describe("syncAttachmentsComment", () => {
 
 describe("syncAttachmentsComment gh fallback live link", () => {
   const target = { repo: "o/r", kind: "pull" as const, num: 5 };
-  const key = "gh/o/r/pull/5/after.png";
-  const movedKey = "gh/o/r/pull/5/moved.png";
+  // File-table attachments: inline images link the object itself (#1373).
+  const key = "gh/o/r/pull/5/notes.zip";
+  const movedKey = "gh/o/r/pull/5/moved.zip";
   const feed = {
     id: "feed_abcdefghijklmnopqrstuv",
     url: "https://x.test/c/feed_abcdefghijklmnopqrstuv",

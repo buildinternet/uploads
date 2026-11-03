@@ -301,8 +301,8 @@ async function gatherAttachments(
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to a share page — the PR/issue feed
   // item when that object is in the feed, otherwise `/f/`. `false` links to
-  // raw object bytes instead. Attachments only — does not affect gallery
-  // `itemUrl` below, which is a separate feature.
+  // raw object bytes instead. Inline images always link the image itself
+  // (#1373); this covers posters, the file table and the overflow list.
   const linkToFilePage = options.linkToFilePage;
   // issue #365, extended by #307: skip the metadata read entirely when
   // neither meta field would render anything.
@@ -668,7 +668,6 @@ async function gatherGalleries(
             url: i.url as string,
             embedUrl: i.embedUrl,
             alt: i.altText ?? i.objectKey,
-            itemUrl: i.pageUrl,
           }));
         return {
           gallery: { title: rec.title, url: galleryUrl(env, rec.id), previews },
