@@ -326,6 +326,12 @@ const NO_REPO_HINT =
 function autoPrHint(branch: string, pr: number): string {
   return `Branch ${branch} has open PR #${pr}, so these files were attached to it.`;
 }
+/** Staged files only follow the branch's current name, so tell the agent how to recover a rename. */
+const STAGED_RENAME_HINT =
+  "If you rename this branch before opening the PR, call `promote` with repo, pr, and the old name as branch.";
+function stagedHint(branch: string): string {
+  return `Staged for branch ${branch}; these attach when its PR opens. ${STAGED_RENAME_HINT}`;
+}
 const hostedRepoRequired = "GitHub `owner/name`. Required — this server cannot infer it from git.";
 
 interface PutFileItem {
@@ -1460,9 +1466,17 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         requireScope("files:write");
         const { args: resolved, autoPr } = await withGithubContext(args, { keepBranch: true });
         const result = await runPut(resolved);
-        return autoPr === undefined
-          ? result
-          : { ...result, hint: autoPrHint(String(args.branch), autoPr) };
+        if (autoPr !== undefined)
+          return { ...result, hint: autoPrHint(String(args.branch), autoPr) };
+        const stagedOnly =
+          typeof resolved.branch === "string" &&
+          resolved.branch.length > 0 &&
+          resolved.pr === undefined &&
+          resolved.issue === undefined &&
+          resolved.key === undefined;
+        return stagedOnly && !("hint" in result)
+          ? { ...result, hint: stagedHint(resolved.branch as string) }
+          : result;
       },
     },
     {
@@ -1572,7 +1586,8 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             ? (autoPr !== undefined ? autoPrHint(String(args.branch), autoPr) + " " : "") +
               "After every upload succeeds, call `comment` with the same repo and pr/issue to update the attachments comment."
             : resolved.branch !== undefined
-              ? "Files are staged for the branch. Once the PR is open, call `promote` with repo, pr, and branch."
+              ? "Files are staged for the branch. Once the PR is open, call `promote` with repo, pr, and branch. " +
+                STAGED_RENAME_HINT
               : resolved.key === undefined && resolved.repo === undefined
                 ? NO_REPO_HINT
                 : undefined;
@@ -1880,11 +1895,21 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         // Explicit-undefined values (not just absent keys) trip the SDK's
         // structured-content validator ("Instances of \"undefined\" type are
         // not supported") — omit rather than include-as-undefined.
+        // An empty sweep usually means the files sit under the branch's old name.
+        const emptySweep =
+          promotion !== undefined &&
+          promotion.promoted.length === 0 &&
+          promotion.skipped.length === 0;
         return {
           ...(promotion !== undefined ? { promotion } : {}),
           ...(attached !== undefined ? { attached } : {}),
           ...(attachFailures !== undefined ? { attachFailures } : {}),
           ...commentResult,
+          ...(emptySweep
+            ? {
+                hint: `Nothing is staged under ${branch}. If the branch was renamed, call list_staged_scopes for this repo and promote again with the old name as branch.`,
+              }
+            : {}),
         };
       },
     },

@@ -697,7 +697,7 @@ export async function runScreenshot(
   // UPLOADS_NO_NUDGE=1).
   const stagingNote =
     autoStagingTarget && !ctx.quiet && !putDefaults.noNudge
-      ? putStagingNoteText(autoStagingTarget.branch)
+      ? putStagingNoteText(autoStagingTarget.branch, run)
       : undefined;
   // Stage-time binding warning (issue #398), same check bare put/attach
   // --branch run, now also reachable from screenshot's staging paths
