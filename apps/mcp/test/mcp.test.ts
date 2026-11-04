@@ -2466,8 +2466,25 @@ describe("OAuth JWT bearer (issue #224)", () => {
       expect(path.isError).toBe(true);
       const token = await callTool(env, "whoami", { workspace: "other-ws" }, TOKEN, "/mcp");
       expect(token.isError).toBe(true);
-      const same = await callTool(env, "whoami", { workspace: "test-ws" }, TOKEN, "/mcp");
-      expect(same.isError).toBe(false);
+      const plain = await callTool(env, "whoami", {}, TOKEN, "/mcp");
+      expect(plain.structuredContent).toMatchObject({ workspaces: ["test-ws"] });
+    });
+
+    it("leaves tool schemas alone for a single-workspace token", async () => {
+      const { env } = await makeEnv();
+      const jwt = await signOAuthToken({
+        sub: "user-1",
+        workspace: "test-ws",
+        workspaces: [],
+        scope: "files:read",
+      });
+      const result = await callTool(env, "whoami", {}, jwt, "/mcp");
+      expect(result.structuredContent).toMatchObject({ workspaces: ["test-ws"] });
+      const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "tools/list" }, jwt, "/mcp");
+      const body = (await response.json()) as {
+        result: { tools: { inputSchema: { properties?: Record<string, unknown> } }[] };
+      };
+      expect(body.result.tools.some((t) => t.inputSchema.properties?.workspace)).toBe(false);
     });
   });
 

@@ -6,14 +6,22 @@
  * or when its `repo` is bound to one, so a person in two workspaces gets
  * the right one per repo without a second connector.
  *
- * `up_` tokens and the `/<workspace>/mcp` route have no `choices`: they stay
- * pinned, and `workspace` may only name the workspace they already act in.
+ * `up_` tokens, the `/<workspace>/mcp` route and single-workspace users have
+ * no `choices`: their tools are left as they were, with no `workspace` argument.
  */
 import { usage, type McpTool } from "@buildinternet/uploads/mcp";
 import { findRepoLink } from "@uploads/api/github-repo-binding";
 import { loadWorkspaceRecord, type WorkspaceRecord } from "@uploads/api/workspace";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+
+/** `owner/name` from `repo`, or from `feed_create`'s `github` (`owner/name#1` or a github.com URL). */
+export function repoFromArgs(args: Record<string, unknown>): string | null {
+  if (typeof args.repo === "string" && REPO_RE.test(args.repo)) return args.repo;
+  if (typeof args.github !== "string") return null;
+  const match = /^(?:https:\/\/github\.com\/)?([\w.-]+\/[\w.-]+?)(?:#|\/|$)/.exec(args.github);
+  return match ? match[1]! : null;
+}
 
 export const WORKSPACE_ARG_SCHEMA = {
   type: "string",
@@ -60,6 +68,8 @@ export function withWorkspaceRouting(
     toolsFor: (record: WorkspaceRecord, name: string) => McpTool[];
   },
 ): McpTool[] {
+  // One workspace: nothing to choose, so keep the schemas (and tools/list) as they were.
+  if (!opts.choices || opts.choices.length < 2) return tools;
   return tools.map((tool) => {
     const schema = tool.inputSchema as { properties?: Record<string, unknown> };
     if (!schema.properties || "workspace" in schema.properties) return tool;
@@ -74,10 +84,10 @@ export function withWorkspaceRouting(
         if (requested !== undefined && typeof requested !== "string") {
           usage("workspace must be a string");
         }
-        const repo = typeof rest.repo === "string" && REPO_RE.test(rest.repo) ? rest.repo : null;
+        const repo = repoFromArgs(rest);
         // Only look the repo up when the answer could move the call.
         const repoWorkspace =
-          requested === undefined && repo && opts.choices && opts.choices.length > 1
+          requested === undefined && repo
             ? ((await findRepoLink(opts.env.DB, repo))?.workspaceName ?? null)
             : null;
         const target = chooseWorkspace({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseWorkspace } from "../src/workspace-routing";
+import { chooseWorkspace, repoFromArgs } from "../src/workspace-routing";
 
 describe("chooseWorkspace", () => {
   const choices = ["aw-labs", "rr"];
@@ -41,5 +41,15 @@ describe("chooseWorkspace", () => {
     expect(() =>
       chooseWorkspace({ defaultName: "aw-labs", choices: undefined, requested: "rr" }),
     ).toThrow(/only acts in workspace "aw-labs"/);
+  });
+});
+
+describe("repoFromArgs", () => {
+  it("reads repo, or feed_create's github ref or URL", () => {
+    expect(repoFromArgs({ repo: "acme/app" })).toBe("acme/app");
+    expect(repoFromArgs({ github: "acme/app#12" })).toBe("acme/app");
+    expect(repoFromArgs({ github: "https://github.com/acme/app/pull/12" })).toBe("acme/app");
+    expect(repoFromArgs({ github: "not a ref" })).toBeNull();
+    expect(repoFromArgs({})).toBeNull();
   });
 });

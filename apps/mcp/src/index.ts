@@ -154,7 +154,10 @@ async function oauthAuth(
   c.set("workspaceName", workspaceName);
   // `/mcp` only: calls may move to any workspace the token lists. The
   // `/:workspace/mcp` route stays pinned to its path.
-  if (!pathWorkspace) c.set("workspaceChoices", verified.workspaces);
+  if (!pathWorkspace) {
+    const choices = [...new Set([workspaceName, ...verified.workspaces])];
+    if (choices.length > 1) c.set("workspaceChoices", choices);
+  }
   c.set("authScopes", verified.scopes);
   // Uploader attribution (issue #345, parity with #340/#344): the AS signs
   // `sub` as the Better Auth user id (see @better-auth/oauth-provider's
