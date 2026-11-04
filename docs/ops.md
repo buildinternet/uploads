@@ -798,12 +798,13 @@ reading a secret.
 | `WORKSPACE_SECRETS_KEY_PREVIOUS` | **`uploads-api` + `uploads-mcp`**  | **Previous** KEK during rotation only (decrypt fallback, then remove from both)                                                |
 | `GITHUB_APP_PRIVATE_KEY`         | **`uploads-api` + `uploads-mcp`**  | GitHub App identity (PKCS#8 PEM). Both Workers post managed comments in-process.                                               |
 | `BILLING_INTERNAL_KEY`           | **`uploads-api` + `uploads-auth`** | Shared key gating `POST /internal/billing/plan`. The two values must match.                                                    |
+| `AUTH_INTERNAL_KEY`              | **`uploads-api` + `uploads-auth`** | Shared key gating auth `/internal/*`. The API sends it as `x-uploads-internal-key`. The two values must match.                 |
 | `ADMIN_TOKEN`                    | `uploads-api`                      | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md))                              |
 | `OPERATOR_ALERT_EMAIL`           | `uploads-auth`                     | Optional address for operator FYIs: storage at 90% or 100%, and one mail per webhook dead-letter batch. Unset skips that mail. |
 | `ANALYTICS_API_TOKEN`            | `uploads-api`                      | Analytics Engine SQL API token for the `/admin/metrics` breakdown panel                                                        |
 | `GITHUB_APP_WEBHOOK_SECRET`      | `uploads-api`                      | HMAC secret for GitHub App webhook deliveries (`X-Hub-Signature-256`)                                                          |
 | `OPENAI_APPS_CHALLENGE`          | `uploads-mcp`                      | Domain-verification token served at `/.well-known/openai-apps-challenge`                                                       |
-| The eight in `secrets.required`  | `uploads-auth`                     | Better Auth, GitHub OAuth, Stripe, billing — listed in `apps/auth/wrangler.jsonc`                                              |
+| The nine in `secrets.required`   | `uploads-auth`                     | Better Auth, GitHub OAuth, Stripe, billing, and `AUTH_INTERNAL_KEY` — listed in `apps/auth/wrangler.jsonc`                     |
 
 `uploads-web` reads no secrets. Absence behavior for each of the above is in
 [Minimal-binding profile](#minimal-binding-profile-self-hosting-uploads754-item-3).
@@ -980,8 +981,8 @@ top-level and `previews` blocks) and the store-fallback branches in
 `env` like every other secret in this repo — no store, no fallback branch.
 
 `apps/auth/wrangler.jsonc` also declares a `secrets` configuration property
-now, covering all eight of the worker's secrets (the four above plus the
-pre-existing plain Stripe/billing pair):
+now, covering the worker's required secrets (the four above plus the
+pre-existing plain Stripe/billing pair, and `AUTH_INTERNAL_KEY`):
 
 ```jsonc
 "secrets": {
@@ -994,22 +995,34 @@ pre-existing plain Stripe/billing pair):
     "STRIPE_WEBHOOK_SECRET",
     "STRIPE_PRO_PRICE_ID",
     "BILLING_INTERNAL_KEY",
+    "AUTH_INTERNAL_KEY",
   ],
 }
 ```
 
 This makes `wrangler deploy`/`wrangler versions upload` fail with a clear
-error instead of shipping a 503-on-everything build if any of the eight are
+error instead of shipping a 503-on-everything build if any of the nine are
 missing from the target worker, and is now the source of truth `wrangler
 types` reads for these names (see apps/auth's `src/env.d.ts`, which
 deliberately keeps its own optional overrides for each — the app code treats
-every one of them as fail-soft at runtime; `secrets.required` is a
-deploy-time guarantee, not a type-level one).
+the original eight as fail-soft at runtime; `secrets.required` is a
+deploy-time guarantee, not a type-level one). `AUTH_INTERNAL_KEY` is the
+exception at runtime. A missing value makes `/internal/*` answer 404.
+
+Put the same value on `uploads-api` and `uploads-auth` before a deploy that
+includes this check. The API still sends the old `x-uploads-internal` header,
+so an API deploy that lands first keeps working against the previous auth
+worker. An auth deploy that lands first rejects `/internal/*` until the API
+deploy sends `x-uploads-internal-key`. A later rotation has the same
+constraint. Change both copies to the new value. A mismatch rejects
+`/internal/*` until they match.
 
 **Rotating an independent secret** (`BETTER_AUTH_SECRET`, `BETTER_AUTH_API_KEY`,
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`,
 `BILLING_INTERNAL_KEY`) is a plain `wrangler secret put <NAME>` from
 `apps/auth` — no store, no binding, takes effect on the next request.
+`AUTH_INTERNAL_KEY` is the same command, run once in `apps/api` and once in
+`apps/auth`, with byte-identical values.
 
 **Rotating `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` together** must NOT use
 two separate `wrangler secret put` calls: each one deploys immediately, so a
@@ -1082,6 +1095,7 @@ recommend removing.
 | `EMAIL`                                                                        | auth      | Magic-link, invitation, member-joined, welcome, weekly-digest, and operator FYI emails are skipped (logged instead, with the link itself logged for invitations). GitHub OAuth sign-in is unaffected — it has no dependency on `EMAIL`. A deployment with neither `EMAIL` nor GitHub OAuth configured has no working sign-in method; that's a configuration gap, not a crash.                           |
 | `ADMIN_TOKEN`                                                                  | api       | The static break-glass admin token is disabled; scoped operator tokens (minted through the normal admin flow) still work.                                                                                                                                                                                                                                                                               |
 | `BILLING_INTERNAL_KEY`                                                         | api, auth | Fails closed by design: `/internal/billing/plan` always 401s and the auth→api plan-sync bridge no-ops (queues a retry) instead of sending an unauthenticated request.                                                                                                                                                                                                                                   |
+| `AUTH_INTERNAL_KEY`                                                            | api, auth | Fails closed: auth `/internal/*` answers 404, so org, invite, digest, and admin calls that go through that API fail until the same value is set on both workers.                                                                                                                                                                                                                                        |
 | `GITHUB_APP_WEBHOOK_SECRET`                                                    | api       | The GitHub webhook endpoint 503s.                                                                                                                                                                                                                                                                                                                                                                       |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_APP_HOME_INSTALLATION_ID` | api, mcp  | GitHub App integration (PR/issue title resolution, managed comments, private-repo detection, auto-promotion) is disabled entirely — an all-or-nothing trio.                                                                                                                                                                                                                                             |
 | `OPENAI_APPS_CHALLENGE`                                                        | mcp       | `/.well-known/openai-apps-challenge` 404s (only needed when submitting the OpenAI plugin directory listing).                                                                                                                                                                                                                                                                                            |

@@ -42,6 +42,7 @@ import {
   revokeTokensForMintingUser,
   validateScopes,
 } from "../auth-db";
+import { authInternalHeaders } from "../auth-internal";
 import {
   deleteRepoLinkStrict,
   findRepoLinkStrict,
@@ -230,7 +231,7 @@ interface OrgSummary {
 /** Org member/invite counts for the admin workspace list — one AUTH round-trip. */
 async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
   const response = await env.AUTH.fetch(`https://auth.internal/internal/orgs/summaries`, {
-    headers: { "x-uploads-internal": "1" },
+    headers: authInternalHeaders(env),
   });
   if (!response.ok) return new Map();
   const body = (await response.json().catch(() => null)) as {
@@ -303,10 +304,10 @@ async function proxyOauthClients(
   try {
     response = await env.AUTH.fetch(`https://auth.internal${path}`, {
       method: init?.method ?? "GET",
-      headers: {
-        "x-uploads-internal": "1",
-        ...(init?.body !== undefined ? { "content-type": "application/json" } : {}),
-      },
+      headers: authInternalHeaders(
+        env,
+        init?.body !== undefined ? { "content-type": "application/json" } : undefined,
+      ),
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
   } catch (err) {
@@ -945,7 +946,7 @@ export const adminUi = new Hono<SessionVars>()
 
     const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+      headers: authInternalHeaders(c.env, { "content-type": "application/json" }),
       body: JSON.stringify({ organizationSlug: org.slug, email, role, inviterUserId }),
     });
     const payload = await response.json().catch(() => null);

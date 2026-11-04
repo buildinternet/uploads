@@ -11,6 +11,7 @@
  * the GitHub delivery id), acks it, and sends one operator email per batch.
  */
 import { reportHandledError } from "@uploads/observability";
+import { authInternalHeaders } from "./auth-internal";
 import { processWebhookEvent, type WebhookEvent } from "./github-webhook";
 
 export const GITHUB_WEBHOOK_QUEUE = "uploads-github-webhook";
@@ -74,7 +75,7 @@ async function alertDeadLetters(env: Env, events: WebhookEvent[]): Promise<void>
   try {
     const res = await auth.fetch(`${AUTH_INTERNAL_ORIGIN}/internal/webhook-dlq/notify`, {
       method: "POST",
-      headers: { "x-uploads-internal": "1", "content-type": "application/json" },
+      headers: authInternalHeaders(env, { "content-type": "application/json" }),
       body: JSON.stringify({ events }),
     });
     if (!res.ok) {

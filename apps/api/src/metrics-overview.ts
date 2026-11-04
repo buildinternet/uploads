@@ -10,6 +10,7 @@
  */
 
 import { ADMIN_METRIC_WINDOWS } from "./classifier-admin-wire";
+import { authInternalHeaders } from "./auth-internal";
 import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
 import { fillDaySeries } from "./day-series";
@@ -139,7 +140,7 @@ async function byobWorkspaces(env: Env): Promise<Set<string> | null> {
 async function authMetrics(env: Env, since: string): Promise<AuthMetrics> {
   try {
     const res = await env.AUTH.fetch(`https://auth.internal/internal/metrics?since=${since}`, {
-      headers: { "x-uploads-internal": "1" },
+      headers: authInternalHeaders(env),
     });
     if (!res.ok) return EMPTY_AUTH;
     const body = (await res.json()) as Partial<AuthMetrics> | null;

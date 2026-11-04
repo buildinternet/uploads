@@ -10,6 +10,7 @@
  * is near a plan limit. A storage snapshot alone does not send.
  */
 import { digestDeliveryId, type WeeklyDigestMessage } from "@uploads/email";
+import { authInternalHeaders } from "./auth-internal";
 import { workersAiClassifierRun } from "./classifier";
 import type { D1Queryable } from "./db-session";
 import { dbFor } from "./db-session";
@@ -108,7 +109,7 @@ async function postDigests(
   }
   const res = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/weekly-digest/send`, {
     method: "POST",
-    headers: { "x-uploads-internal": "1", "content-type": "application/json" },
+    headers: authInternalHeaders(env, { "content-type": "application/json" }),
     body: JSON.stringify({ messages }),
   });
   if (!res.ok) {

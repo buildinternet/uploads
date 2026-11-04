@@ -23,6 +23,7 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
+import { authInternalHeaders } from "./auth-internal";
 
 export interface OrgSummary {
   id: string;
@@ -44,10 +45,6 @@ const INTERNAL_ORIGIN = "https://auth.internal";
 // hanging every request for as long as the auth worker does (2026-08-23
 // incident: D1 stalls of 5-25s propagated through this unbounded fetch).
 const AUTH_FETCH_TIMEOUT_MS = 4000;
-
-function internalHeaders(): Headers {
-  return new Headers({ "x-uploads-internal": "1" });
-}
 
 function parseMembershipRows(body: unknown): Membership[] | null {
   if (!Array.isArray(body)) return null;
@@ -92,7 +89,7 @@ export async function membershipsForUser(
   let response: Response;
   try {
     response = await env.AUTH.fetch(url.toString(), {
-      headers: internalHeaders(),
+      headers: authInternalHeaders(env),
       signal: AbortSignal.timeout(AUTH_FETCH_TIMEOUT_MS),
     });
   } catch {
@@ -230,7 +227,7 @@ export interface OrgMember {
 export async function membersForOrg(env: Env, slug: string): Promise<OrgMember[]> {
   const response = await env.AUTH.fetch(
     `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/members`,
-    { headers: internalHeaders() },
+    { headers: authInternalHeaders(env) },
   );
   if (!response.ok) {
     throw new ServiceUnavailableError("auth service returned an unexpected status", {
@@ -255,7 +252,7 @@ export interface OrgInvite {
 export async function invitesForOrg(env: Env, slug: string): Promise<OrgInvite[]> {
   const response = await env.AUTH.fetch(
     `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/invites`,
-    { headers: internalHeaders() },
+    { headers: authInternalHeaders(env) },
   );
   if (!response.ok) {
     throw new ServiceUnavailableError("auth service returned an unexpected status", {
@@ -293,7 +290,10 @@ export async function revokeInvite(
   actorUserId: string,
 ): Promise<void> {
   const url = `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/invites/${encodeURIComponent(inviteId)}?actorUserId=${encodeURIComponent(actorUserId)}`;
-  const response = await env.AUTH.fetch(url, { method: "DELETE", headers: internalHeaders() });
+  const response = await env.AUTH.fetch(url, {
+    method: "DELETE",
+    headers: authInternalHeaders(env),
+  });
   if (!response.ok) await throwForManageError(response, "could not revoke invite");
 }
 
@@ -305,7 +305,10 @@ export async function removeMember(
   actorUserId: string,
 ): Promise<void> {
   const url = `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/members/${encodeURIComponent(memberId)}?actorUserId=${encodeURIComponent(actorUserId)}`;
-  const response = await env.AUTH.fetch(url, { method: "DELETE", headers: internalHeaders() });
+  const response = await env.AUTH.fetch(url, {
+    method: "DELETE",
+    headers: authInternalHeaders(env),
+  });
   if (!response.ok) await throwForManageError(response, "could not remove member");
 }
 
@@ -317,7 +320,7 @@ export async function updateMemberRole(
   role: string,
   actorUserId: string,
 ): Promise<{ id: string; userId: string; role: string }> {
-  const headers = internalHeaders();
+  const headers = authInternalHeaders(env);
   headers.set("content-type", "application/json");
   const response = await env.AUTH.fetch(
     `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/members/${encodeURIComponent(memberId)}`,
@@ -344,7 +347,7 @@ export async function updateMemberRole(
 export async function orgForWorkspace(env: Env, workspaceName: string): Promise<OrgSummary | null> {
   const response = await env.AUTH.fetch(
     `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(workspaceName)}`,
-    { headers: internalHeaders() },
+    { headers: authInternalHeaders(env) },
   );
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -389,7 +392,7 @@ export async function subscriptionForOrg(env: Env, slug: string): Promise<AuthSu
   try {
     const response = await env.AUTH.fetch(
       `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/subscription`,
-      { headers: internalHeaders() },
+      { headers: authInternalHeaders(env) },
     );
     if (!response.ok) return null;
     const body = (await response.json().catch(() => null)) as {
@@ -427,7 +430,7 @@ export async function createMemberlessOrg(
   env: Env,
   slug: string,
 ): Promise<{ organization: OrgSummary; created: boolean }> {
-  const headers = internalHeaders();
+  const headers = authInternalHeaders(env);
   headers.set("content-type", "application/json");
   const response = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs`, {
     method: "POST",
@@ -446,7 +449,7 @@ export async function provisionOrg(
   env: Env,
   args: { slug: string; name?: string; ownerUserId: string },
 ): Promise<OrgSummary> {
-  const headers = internalHeaders();
+  const headers = authInternalHeaders(env);
   headers.set("content-type", "application/json");
   const response = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs/provision`, {
     method: "POST",
@@ -477,7 +480,7 @@ export async function deleteOrg(env: Env, slug: string, opts?: { force?: boolean
   if (opts?.force) url.searchParams.set("force", "1");
   const response = await env.AUTH.fetch(url, {
     method: "DELETE",
-    headers: internalHeaders(),
+    headers: authInternalHeaders(env),
   });
   // 404 = already gone, which is what every caller wants (idempotent). Any
   // other failure must surface — the sweep records it as an error instead of
@@ -505,7 +508,7 @@ export interface OrgSlug {
  */
 export async function listOrgs(env: Env): Promise<OrgSlug[]> {
   const response = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs`, {
-    headers: internalHeaders(),
+    headers: authInternalHeaders(env),
   });
   if (!response.ok) {
     throw new ServiceUnavailableError("auth service returned an unexpected status", {
@@ -526,7 +529,7 @@ export async function listOrgs(env: Env): Promise<OrgSlug[]> {
 export async function isGithubLinked(env: Env, userId: string): Promise<boolean> {
   const response = await env.AUTH.fetch(
     `${INTERNAL_ORIGIN}/internal/users/${encodeURIComponent(userId)}/github-linked`,
-    { headers: internalHeaders() },
+    { headers: authInternalHeaders(env) },
   );
   if (!response.ok) {
     throw new ServiceUnavailableError("auth service returned an unexpected status", {

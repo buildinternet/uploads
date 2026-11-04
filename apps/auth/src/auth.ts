@@ -631,6 +631,11 @@ export type AuthEnv = GitHubCredentialsEnv &
     EMAIL?: import("./email").EmailBinding;
     /** Operator FYI. Storage at 90% or 100%, and a webhook dead-letter batch. Unset skips that mail. */
     OPERATOR_ALERT_EMAIL?: string;
+    /**
+     * Shared with uploads-api. Gates `/internal/*` (`x-uploads-internal-key`).
+     * Fail closed when unset. See src/internal.ts.
+     */
+    AUTH_INTERNAL_KEY?: string;
     BETTER_AUTH_URL?: string;
     BETTER_AUTH_SECRET?: string;
     WEB_ORIGIN?: string;

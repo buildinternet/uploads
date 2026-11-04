@@ -13,14 +13,17 @@
   // request. Both this worker and uploads-mcp decrypt workspace credentials
   // in-process, so both need the same KEK; uploads-mcp shipped without it and
   // every BYO workspace lost storage until it was noticed. Only the current
-  // key is listed — WORKSPACE_SECRETS_KEY_PREVIOUS is set during a rotation
+  // KEK is listed — WORKSPACE_SECRETS_KEY_PREVIOUS is set during a rotation
   // and removed after, so requiring it would block ordinary deploys.
   // Secrets that degrade gracefully when unset (GITHUB_APP_PRIVATE_KEY,
   // GITHUB_APP_WEBHOOK_SECRET, OPENAI_APPS_CHALLENGE) are deliberately absent:
   // this list is for secrets whose absence silently breaks core function.
+  // AUTH_INTERNAL_KEY is shared with uploads-auth (byte-identical). This
+  // worker sends it as x-uploads-internal-key on service-binding calls to
+  // /internal/*. Deploy refuses to ship without it, same as the KEK.
   // Like apps/auth's list, these are worker-level.
   "secrets": {
-    "required": ["WORKSPACE_SECRETS_KEY"],
+    "required": ["WORKSPACE_SECRETS_KEY", "AUTH_INTERNAL_KEY"],
   },
   "vars": {
     // Origin of the invite page that magic links point at. Defaults to the API

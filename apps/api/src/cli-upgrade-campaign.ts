@@ -14,6 +14,7 @@
  * sends, as with the weekly digest.
  */
 import { ServiceUnavailableError, ValidationError } from "@uploads/errors";
+import { authInternalHeaders } from "./auth-internal";
 import { primaryDbFor, type D1Queryable } from "./db-session";
 
 const INTERNAL_ORIGIN = "https://auth.internal";
@@ -128,7 +129,7 @@ export async function runCliUpgradeCampaign(
   try {
     res = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/product-updates/cli-upgrade/send`, {
       method: "POST",
-      headers: { "x-uploads-internal": "1", "content-type": "application/json" },
+      headers: authInternalHeaders(env, { "content-type": "application/json" }),
       body: JSON.stringify({
         messages: batch.map((r) => ({
           userId: r.userId,

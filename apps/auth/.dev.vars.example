@@ -39,6 +39,12 @@ ENVIRONMENT=development
 # it locally (see src/auth.ts).
 AUTH_RATE_LIMIT_DISABLED=true
 
+# Shared with uploads-api. Gates /internal/* (x-uploads-internal-key). Use the
+# same non-empty string in apps/api/.dev.vars. In production:
+#   cd apps/auth && pnpm exec wrangler secret put AUTH_INTERNAL_KEY
+# If unset, /internal/* answers 404.
+AUTH_INTERNAL_KEY=
+
 # Optional: infra dashboard API key (mounts dash() when set).
 # BETTER_AUTH_API_KEY=
 

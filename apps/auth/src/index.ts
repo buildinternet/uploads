@@ -339,7 +339,7 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
   // Service-binding-only API (D1/D9): 404 rather than 403 for non-internal
   // callers so the route's existence isn't leaked to public probing.
   .use("/internal/*", async (c, next) => {
-    if (!isInternalRequest(c.req.raw)) {
+    if (!(await isInternalRequest(c.req.raw, c.env.AUTH_INTERNAL_KEY))) {
       return c.json({ error: { code: "not_found", message: "Not found" } }, 404);
     }
     await next();
