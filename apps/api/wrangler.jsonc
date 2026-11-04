@@ -4,7 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
-  "preview_urls": true,
+  // Version URLs publish this worker on workers.dev with production bindings,
+  // outside the uploads.sh zone WAF. There is no staging tier. Off so a
+  // versions upload cannot publish another copy of production.
+  "preview_urls": false,
   // Deploy-time guard: `wrangler deploy` fails if this secret is not set on
   // the worker, rather than shipping a build that 503s on every BYO-storage
   // request. Both this worker and uploads-mcp decrypt workspace credentials
