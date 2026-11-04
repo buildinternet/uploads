@@ -23,7 +23,6 @@ const OXFMT_IGNORED_DIRS = [
   ".superpowers/",
   "apps/web/src/data/mcp-tools",
   ".agents/",
-  ".grok/",
   ".claude/skills/security-audit/",
 ];
 
@@ -32,7 +31,6 @@ const OXLINT_IGNORED_DIRS = [
   ".superpowers/",
   "apps/api/scripts/",
   ".agents/",
-  ".grok/",
   ".claude/skills/security-audit/",
 ];
 

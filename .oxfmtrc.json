@@ -21,7 +21,6 @@
     ".superpowers",
     ".design-sync",
     ".agents",
-    ".grok",
     ".claude/skills/security-audit",
     "apps/web/src/data/mcp-tools*.json"
   ]

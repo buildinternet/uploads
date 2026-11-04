@@ -245,10 +245,12 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source. The
   `security-audit` skill from `cloudflare/security-audit-skill` is a project
-  default (`package.json` `skills`, installed for Claude Code, Codex, Cursor,
-  and Grok). Load it for a security audit, a vulnerability review, or a pen
-  test. It stays out of the root `skills/` directory, so `uploads install`
-  does not ship it. `skills-lock.json` records the installed copy.
+  default (`package.json` `skills`). The canonical copy is `.agents/skills`.
+  Claude Code symlinks to it. Grok, Codex, and Cursor read `.agents/skills`,
+  so this repo keeps no `.grok` copy. Load it for a security audit, a
+  vulnerability review, or a pen test. It stays out of the root `skills/`
+  directory, so `uploads install` does not ship it. `skills-lock.json`
+  records the installed copy.
 - Wire types (PR #896 pattern): a JSON response's type lives next to its
   serializer in the producing worker (usually inferred, e.g.
   `ReturnType<typeof fooResponse>`) and is exported through a `package.json`
