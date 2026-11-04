@@ -2263,6 +2263,9 @@ async function runAttachPromoteOnly(
   return 0;
 }
 
+/** A plain staged key, `gh/<owner>/<name>/branch/<branch>/<file>`; group 1 is the staged spelling. */
+const PLAIN_STAGED_KEY = /^gh\/[^/]+\/[^/]+\/branch\/([^/]+)\//;
+
 export interface OtherStagedBranch {
   /** Name to pass to `--from-branch`. */
   branch: string;
@@ -2296,32 +2299,24 @@ export async function otherStagedBranches(
     return [];
   }
   const current = branch.toLowerCase();
-  // `gh/<owner>/<name>/branch/`, the part of a plain staged key before the branch.
-  // Lowercased: the repo's spelling in keys can differ from the caller's.
-  const plainBase = ghBranchKeyPrefix(repo, "x").slice(0, -"x/".length).toLowerCase();
   const byBranch = new Map<string, { branch: string; files: number; latest: string }>();
   for (const item of items) {
     const lower = item.metadata?.["gh.branch"];
     if (!lower || lower === current) continue;
-    let spelled = lower;
-    if (item.key.toLowerCase().startsWith(plainBase)) {
-      const rest = item.key.slice(plainBase.length);
-      const cut = rest.indexOf("/");
-      if (cut > 0) spelled = rest.slice(0, cut);
-    }
     const stagedAt = item.metadata?.["gh.staged-at"] ?? "";
-    const entry = byBranch.get(lower);
-    if (entry) {
-      entry.files += 1;
-      if (stagedAt > entry.latest) entry.latest = stagedAt;
-    } else {
-      byBranch.set(lower, { branch: spelled, files: 1, latest: stagedAt });
-    }
+    const entry = byBranch.get(lower) ?? {
+      branch: PLAIN_STAGED_KEY.exec(item.key)?.[1] ?? lower,
+      files: 0,
+      latest: "",
+    };
+    entry.files += 1;
+    if (stagedAt > entry.latest) entry.latest = stagedAt;
+    byBranch.set(lower, entry);
   }
   return [...byBranch.values()]
-    .sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0))
+    .sort((a, b) => b.latest.localeCompare(a.latest))
     .slice(0, limit)
-    .map(({ branch: b, files }) => ({ branch: b, files }));
+    .map(({ branch: name, files }) => ({ branch: name, files }));
 }
 
 /** Human hint naming other staged branches that `--from-branch` could promote. */
@@ -2527,8 +2522,8 @@ export function mergeStagingMeta(
  * `hint`. A branch whose upstream is gone (renamed or deleted on GitHub) gets
  * the `--from-branch` recovery line instead of the auto-attach promise.
  */
-export function putStagingNoteText(branch: string, run?: CommandRunner): string {
-  if (run && upstreamGone(run, branch)) return upstreamGoneHint(branch);
+export function putStagingNoteText(branch: string, upstreamIsGone = false): string {
+  if (upstreamIsGone) return upstreamGoneHint(branch);
   return (
     `note: staged for branch ${branch} — auto-comments to pull request when opened ` +
     `(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.`
@@ -3500,7 +3495,7 @@ export async function runPut(
   // Suppressed by --quiet / UPLOADS_NO_NUDGE=1; staging itself is not.
   const stagingNote =
     stagingTarget && !ctx.quiet && !defaults.noNudge
-      ? putStagingNoteText(stagingTarget.branch, run)
+      ? putStagingNoteText(stagingTarget.branch, upstreamGone(run, stagingTarget.branch))
       : undefined;
 
   // Announce the auto-PR attach so it isn't a surprise. Suppressed by

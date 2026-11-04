@@ -44,6 +44,7 @@ import {
   execRunner,
   ghMetadataFromTargetWithTitle,
   resolveRepo,
+  upstreamGone,
   type CommandRunner,
 } from "../github-gh.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
@@ -697,7 +698,7 @@ export async function runScreenshot(
   // UPLOADS_NO_NUDGE=1).
   const stagingNote =
     autoStagingTarget && !ctx.quiet && !putDefaults.noNudge
-      ? putStagingNoteText(autoStagingTarget.branch, run)
+      ? putStagingNoteText(autoStagingTarget.branch, upstreamGone(run, autoStagingTarget.branch))
       : undefined;
   // Stage-time binding warning (issue #398), same check bare put/attach
   // --branch run, now also reachable from screenshot's staging paths

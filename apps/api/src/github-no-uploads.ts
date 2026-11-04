@@ -12,6 +12,7 @@
  */
 import { githubFetch, githubHeaders, repoInstallationToken } from "./github-app";
 import { checklistLine, type ChecklistEntry, type GhTarget } from "./github-comment-render";
+import type { StrandedBranch } from "./staged-scopes";
 
 /**
  * The files that count as UI changes when nothing sets `uiPaths`. Mirrors the
@@ -193,7 +194,7 @@ function agentTips(num: number): string[] {
  * before the PR opened (on GitHub, or by an agent without the CLI's reflog).
  * Names the newest branch in the recovery commands.
  */
-function strandedLine(num: number, branches: readonly { branch: string; files: number }[]): string {
+function strandedLine(num: number, branches: readonly StrandedBranch[]): string {
   const list = branches
     .map((b) => `<code>${escapeHtml(b.branch)}</code> (${b.files} file${b.files === 1 ? "" : "s"})`)
     .join(", ");
@@ -220,7 +221,7 @@ export function noUploadsCommentBody(
     importsAttachments: boolean;
     checklist?: readonly ChecklistEntry[];
     /** Other branches with files still staged (`recentStagedBranches`), newest first. */
-    strandedBranches?: readonly { branch: string; files: number }[];
+    strandedBranches?: readonly StrandedBranch[];
   },
 ): string {
   const lines = [

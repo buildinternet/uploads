@@ -169,6 +169,7 @@ import {
   attachmentTargetFor,
 } from "@uploads/api/upload-hold-service";
 import { activityReadTools } from "./activity-tools";
+import { recentStagedBranches } from "@uploads/api/staged-scopes";
 import { stagedMediaReadTools } from "./staged-media-tools";
 import { stagedMediaOutputSchemas } from "./staged-media-response";
 import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
@@ -1468,15 +1469,14 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         const result = await runPut(resolved);
         if (autoPr !== undefined)
           return { ...result, hint: autoPrHint(String(args.branch), autoPr) };
+        const staged = resolved.branch;
         const stagedOnly =
-          typeof resolved.branch === "string" &&
-          resolved.branch.length > 0 &&
+          typeof staged === "string" &&
+          staged.length > 0 &&
           resolved.pr === undefined &&
           resolved.issue === undefined &&
           resolved.key === undefined;
-        return stagedOnly && !("hint" in result)
-          ? { ...result, hint: stagedHint(resolved.branch as string) }
-          : result;
+        return stagedOnly && !("hint" in result) ? { ...result, hint: stagedHint(staged) } : result;
       },
     },
     {
@@ -1892,24 +1892,32 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         const commentResult = wantComment
           ? await attachComment({ repo, kind: "pull", num: pr })
           : undefined;
-        // Explicit-undefined values (not just absent keys) trip the SDK's
-        // structured-content validator ("Instances of \"undefined\" type are
-        // not supported") — omit rather than include-as-undefined.
-        // An empty sweep usually means the files sit under the branch's old name.
+        // An empty sweep usually means the files sit under the branch's old
+        // name, so name the likely candidates (fail open to a generic hint).
         const emptySweep =
           promotion !== undefined &&
           promotion.promoted.length === 0 &&
           promotion.skipped.length === 0;
+        const stranded = emptySweep
+          ? await recentStagedBranches(env, workspaceName, repo, { exclude: branch }).catch(
+              () => [],
+            )
+          : [];
+        const hint = !emptySweep
+          ? undefined
+          : stranded.length > 0
+            ? `Nothing is staged under ${branch}. Files are staged under ${stranded.map((b) => b.branch).join(", ")}; if one is this branch's old name, promote again with it as branch.`
+            : `Nothing is staged under ${branch}. If the branch was renamed, call list_staged_scopes and promote again with the old name as branch.`;
+
+        // Explicit-undefined values (not just absent keys) trip the SDK's
+        // structured-content validator ("Instances of \"undefined\" type are
+        // not supported") — omit rather than include-as-undefined.
         return {
           ...(promotion !== undefined ? { promotion } : {}),
           ...(attached !== undefined ? { attached } : {}),
           ...(attachFailures !== undefined ? { attachFailures } : {}),
           ...commentResult,
-          ...(emptySweep
-            ? {
-                hint: `Nothing is staged under ${branch}. If the branch was renamed, call list_staged_scopes for this repo and promote again with the old name as branch.`,
-              }
-            : {}),
+          ...(hint !== undefined ? { hint } : {}),
         };
       },
     },

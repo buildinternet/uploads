@@ -51,11 +51,11 @@ describe("upstreamGone", () => {
 
 describe("putStagingNoteText", () => {
   it("keeps the auto-attach note while the upstream exists", () => {
-    expect(putStagingNoteText("feat", trackRunner(""))).toContain("auto-comments");
+    expect(putStagingNoteText("feat")).toContain("auto-comments");
   });
 
   it("swaps in the --from-branch recovery line when the upstream is gone", () => {
-    const note = putStagingNoteText("feat", trackRunner("[gone]"));
+    const note = putStagingNoteText("feat", true);
     expect(note).toContain("upstream is gone");
     expect(note).toContain("--from-branch feat");
   });
