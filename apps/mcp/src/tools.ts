@@ -173,11 +173,19 @@ import { recentStagedBranches } from "@uploads/api/staged-scopes";
 import { stagedMediaReadTools } from "./staged-media-tools";
 import { stagedMediaOutputSchemas } from "./staged-media-response";
 import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
+import { withWorkspaceRouting } from "./workspace-routing";
 
 export interface RemoteToolContext {
   env: Env;
   workspace: WorkspaceRecord;
   workspaceName: string;
+  /**
+   * Every workspace this credential may act in (an OAuth token's
+   * `workspaces` claim on `/mcp`). Set → a call may move to one of them via
+   * `workspace` or its `repo`'s binding (`workspace-routing.ts`). Unset →
+   * pinned to `workspaceName`.
+   */
+  workspaceChoices?: readonly string[];
   authScopes: readonly FileScope[];
   /**
    * RFC 9728 protected-resource metadata URL for this request's origin.
@@ -462,7 +470,13 @@ function errorDetail(err: unknown): {
 }
 
 export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
-  return createRemoteToolkit(ctx).tools;
+  return withWorkspaceRouting(createRemoteToolkit(ctx).tools, {
+    env: ctx.env,
+    defaultName: ctx.workspaceName,
+    choices: ctx.workspaceChoices,
+    toolsFor: (workspace, workspaceName) =>
+      createRemoteToolkit({ ...ctx, workspace, workspaceName }).tools,
+  });
 }
 
 /**
@@ -2291,7 +2305,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       annotations: mcpRead,
       securitySchemes: mcpOAuthAny,
       description:
-        "Show the current uploads.sh identity: the workspace this token acts in and its scopes. A successful result also means the server is up.",
+        "Show the current uploads.sh identity: the workspace this call acts in, every workspace this connection can use (`workspaces`; pass one as `workspace` on any tool), and its scopes. A successful result also means the server is up.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -2301,6 +2315,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         return {
           ok: true,
           workspace: workspaceName,
+          workspaces: [...(ctx.workspaceChoices ?? [workspaceName])],
           scopes: [...ctx.authScopes],
           userId: mintingUserId,
           ...(ctx.uploaderIdentity.kind === "service"

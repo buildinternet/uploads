@@ -404,6 +404,8 @@ export type WorkspaceVars = {
     uploaderIdentity: UploaderIdentity;
     /** Credential identity for client-activity rows (client-activity.ts); unset on session auth. */
     clientPrincipal?: ClientPrincipal;
+    /** Hosted MCP `/mcp` OAuth only: every workspace the token lists (`workspaceChoices` in apps/mcp). */
+    workspaceChoices?: string[];
   };
   Bindings: Env;
 };

@@ -1335,13 +1335,14 @@
   {
     "name": "whoami",
     "title": "Who am I",
-    "description": "Show the current uploads.sh identity: the workspace this token acts in and its scopes. A successful result also means the server is up.",
+    "description": "Show the current uploads.sh identity: the workspace this call acts in, every workspace this connection can use (`workspaces`; pass one as `workspace` on any tool), and its scopes. A successful result also means the server is up.",
     "access": "read",
     "scopes": [],
     "params": [],
     "returns": [
       "ok",
       "workspace",
+      "workspaces",
       "scopes",
       "userId",
       "serviceToken",
