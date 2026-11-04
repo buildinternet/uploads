@@ -18,10 +18,21 @@ import path from "node:path";
 
 // Repo-relative prefixes from `.oxfmtrc.json` ignorePatterns.
 // The MCP tool catalogs are vitest file snapshots; reformatting them breaks the match.
-const OXFMT_IGNORED_DIRS = [".superpowers/", "apps/web/src/data/mcp-tools"];
+// The vendored security-audit skill must stay byte-identical to skills-lock.json.
+const OXFMT_IGNORED_DIRS = [
+  ".superpowers/",
+  "apps/web/src/data/mcp-tools",
+  ".agents/",
+  ".claude/skills/security-audit/",
+];
 
 // Extra oxlint-only ignores from `.oxlintrc.json`.
-const OXLINT_IGNORED_DIRS = [".superpowers/", "apps/api/scripts/"];
+const OXLINT_IGNORED_DIRS = [
+  ".superpowers/",
+  "apps/api/scripts/",
+  ".agents/",
+  ".claude/skills/security-audit/",
+];
 
 const isIgnored = (file, dirs) => {
   const rel = path.relative(process.cwd(), file);
