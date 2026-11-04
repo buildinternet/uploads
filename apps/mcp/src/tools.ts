@@ -169,6 +169,7 @@ import {
   attachmentTargetFor,
 } from "@uploads/api/upload-hold-service";
 import { activityReadTools } from "./activity-tools";
+import { recentStagedBranches } from "@uploads/api/staged-scopes";
 import { stagedMediaReadTools } from "./staged-media-tools";
 import { stagedMediaOutputSchemas } from "./staged-media-response";
 import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
@@ -325,6 +326,12 @@ const NO_REPO_HINT =
 
 function autoPrHint(branch: string, pr: number): string {
   return `Branch ${branch} has open PR #${pr}, so these files were attached to it.`;
+}
+/** Staged files only follow the branch's current name, so tell the agent how to recover a rename. */
+const STAGED_RENAME_HINT =
+  "If you rename this branch before opening the PR, call `promote` with repo, pr, and the old name as branch.";
+function stagedHint(branch: string): string {
+  return `Staged for branch ${branch}; these attach when its PR opens. ${STAGED_RENAME_HINT}`;
 }
 const hostedRepoRequired = "GitHub `owner/name`. Required — this server cannot infer it from git.";
 
@@ -1460,9 +1467,16 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         requireScope("files:write");
         const { args: resolved, autoPr } = await withGithubContext(args, { keepBranch: true });
         const result = await runPut(resolved);
-        return autoPr === undefined
-          ? result
-          : { ...result, hint: autoPrHint(String(args.branch), autoPr) };
+        if (autoPr !== undefined)
+          return { ...result, hint: autoPrHint(String(args.branch), autoPr) };
+        const staged = resolved.branch;
+        const stagedOnly =
+          typeof staged === "string" &&
+          staged.length > 0 &&
+          resolved.pr === undefined &&
+          resolved.issue === undefined &&
+          resolved.key === undefined;
+        return stagedOnly && !("hint" in result) ? { ...result, hint: stagedHint(staged) } : result;
       },
     },
     {
@@ -1572,7 +1586,8 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             ? (autoPr !== undefined ? autoPrHint(String(args.branch), autoPr) + " " : "") +
               "After every upload succeeds, call `comment` with the same repo and pr/issue to update the attachments comment."
             : resolved.branch !== undefined
-              ? "Files are staged for the branch. Once the PR is open, call `promote` with repo, pr, and branch."
+              ? "Files are staged for the branch. Once the PR is open, call `promote` with repo, pr, and branch. " +
+                STAGED_RENAME_HINT
               : resolved.key === undefined && resolved.repo === undefined
                 ? NO_REPO_HINT
                 : undefined;
@@ -1877,6 +1892,23 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
         const commentResult = wantComment
           ? await attachComment({ repo, kind: "pull", num: pr })
           : undefined;
+        // An empty sweep usually means the files sit under the branch's old
+        // name, so name the likely candidates (fail open to a generic hint).
+        const emptySweep =
+          promotion !== undefined &&
+          promotion.promoted.length === 0 &&
+          promotion.skipped.length === 0;
+        const stranded = emptySweep
+          ? await recentStagedBranches(env, workspaceName, repo, { exclude: branch }).catch(
+              () => [],
+            )
+          : [];
+        const hint = !emptySweep
+          ? undefined
+          : stranded.length > 0
+            ? `Nothing is staged under ${branch}. Files are staged under ${stranded.map((b) => b.branch).join(", ")}; if one is this branch's old name, promote again with it as branch.`
+            : `Nothing is staged under ${branch}. If the branch was renamed, call list_staged_scopes and promote again with the old name as branch.`;
+
         // Explicit-undefined values (not just absent keys) trip the SDK's
         // structured-content validator ("Instances of \"undefined\" type are
         // not supported") — omit rather than include-as-undefined.
@@ -1885,6 +1917,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           ...(attached !== undefined ? { attached } : {}),
           ...(attachFailures !== undefined ? { attachFailures } : {}),
           ...commentResult,
+          ...(hint !== undefined ? { hint } : {}),
         };
       },
     },

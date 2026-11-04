@@ -86,6 +86,8 @@ import {
   fetchAdoptionCandidateText,
   findManagedComment,
   renameLineageFromReflog,
+  upstreamGone,
+  upstreamGoneHint,
   type CommandRunner,
 } from "./github-gh.js";
 import {
@@ -2252,10 +2254,80 @@ async function runAttachPromoteOnly(
   } else {
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, branch));
+    } else if (!ctx.quiet && promotion && explicitFromBranch === undefined) {
+      const others = await otherStagedBranches(ctx.client, target.repo, branch);
+      if (others.length > 0) process.stderr.write(otherStagedBranchesNote(others, target));
     }
     if (!ctx.quiet && comment) process.stderr.write(commentSyncNote(comment, target));
   }
   return 0;
+}
+
+/** A plain staged key, `gh/<owner>/<name>/branch/<branch>/<file>`; group 1 is the staged spelling. */
+const PLAIN_STAGED_KEY = /^gh\/[^/]+\/[^/]+\/branch\/([^/]+)\//;
+
+export interface OtherStagedBranch {
+  /** Name to pass to `--from-branch`. */
+  branch: string;
+  files: number;
+}
+
+/**
+ * Other branches in `repo` that still have files staged, newest first, for
+ * the "nothing promoted" hint: a branch renamed on GitHub or by an agent
+ * with no reflog leaves its files under the old name. Plain keys carry the
+ * staged spelling (`gh/<o>/<r>/branch/<name>/…`); private keys don't, so
+ * those use the lowercased `gh.branch` (private prefix lookups ignore case).
+ * Any failure returns [] so the hint never breaks the command.
+ */
+export async function otherStagedBranches(
+  client: UploadsClient,
+  repo: string,
+  branch: string,
+  limit = 3,
+): Promise<OtherStagedBranch[]> {
+  if (typeof client.findFilesAll !== "function") return [];
+  let items: { key: string; metadata?: Record<string, string> }[];
+  try {
+    const found = await client.findFilesAll(
+      { "gh.repo": repo.toLowerCase(), "gh.kind": "branch", "gh.status": "staged" },
+      {},
+      2,
+    );
+    items = found.items;
+  } catch {
+    return [];
+  }
+  const current = branch.toLowerCase();
+  const byBranch = new Map<string, { branch: string; files: number; latest: string }>();
+  for (const item of items) {
+    const lower = item.metadata?.["gh.branch"];
+    if (!lower || lower === current) continue;
+    const stagedAt = item.metadata?.["gh.staged-at"] ?? "";
+    const entry = byBranch.get(lower) ?? {
+      branch: PLAIN_STAGED_KEY.exec(item.key)?.[1] ?? lower,
+      files: 0,
+      latest: "",
+    };
+    entry.files += 1;
+    if (stagedAt > entry.latest) entry.latest = stagedAt;
+    byBranch.set(lower, entry);
+  }
+  return [...byBranch.values()]
+    .sort((a, b) => b.latest.localeCompare(a.latest))
+    .slice(0, limit)
+    .map(({ branch: name, files }) => ({ branch: name, files }));
+}
+
+/** Human hint naming other staged branches that `--from-branch` could promote. */
+export function otherStagedBranchesNote(others: OtherStagedBranch[], target: GhTarget): string {
+  const list = others
+    .map((o) => `${o.branch} (${o.files} file${o.files === 1 ? "" : "s"})`)
+    .join(", ");
+  return (
+    `>> nothing staged under this branch. Other staged branches in ${target.repo}: ${list}\n` +
+    `>> if one was this PR's branch before a rename: uploads attach --pr ${target.num} --from-branch ${others[0]!.branch}\n`
+  );
 }
 
 /** Bounds the put nudge's `gh pr view` so it is never felt as a hang. */
@@ -2445,8 +2517,13 @@ export function mergeStagingMeta(
   return merged;
 }
 
-/** The bare-put staging note, used for both the stderr line and the JSON `hint`. */
-export function putStagingNoteText(branch: string): string {
+/**
+ * The bare-put staging note, used for both the stderr line and the JSON
+ * `hint`. A branch whose upstream is gone (renamed or deleted on GitHub) gets
+ * the `--from-branch` recovery line instead of the auto-attach promise.
+ */
+export function putStagingNoteText(branch: string, upstreamIsGone = false): string {
+  if (upstreamIsGone) return upstreamGoneHint(branch);
   return (
     `note: staged for branch ${branch} — auto-comments to pull request when opened ` +
     `(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.`
@@ -2748,7 +2825,11 @@ export async function runStaged(
   process.stderr.write(`binding: ${result.binding.state} — ${result.binding.message}\n`);
   // Promote advice is pointless when another workspace owns the repo.
   if (result.binding.state !== "other") {
-    process.stderr.write(`once the PR exists: uploads attach --promote\n`);
+    process.stderr.write(
+      upstreamGone(run, branch)
+        ? `${upstreamGoneHint(branch)}\n`
+        : `once the PR exists: uploads attach --promote\n`,
+    );
   }
   return 0;
 }
@@ -3414,7 +3495,7 @@ export async function runPut(
   // Suppressed by --quiet / UPLOADS_NO_NUDGE=1; staging itself is not.
   const stagingNote =
     stagingTarget && !ctx.quiet && !defaults.noNudge
-      ? putStagingNoteText(stagingTarget.branch)
+      ? putStagingNoteText(stagingTarget.branch, upstreamGone(run, stagingTarget.branch))
       : undefined;
 
   // Announce the auto-PR attach so it isn't a surprise. Suppressed by

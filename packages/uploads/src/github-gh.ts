@@ -153,6 +153,33 @@ export function resolveCurrentBranchSafe(run: CommandRunner = execRunner): strin
   }
 }
 
+/**
+ * True when `branch` tracks an upstream that git now reports as gone (after a
+ * fetch that pruned it): usually the branch was renamed or deleted on GitHub,
+ * so its staged uploads won't promote under this name. Local only, no network;
+ * any git failure is false.
+ */
+export function upstreamGone(run: CommandRunner, branch: string): boolean {
+  try {
+    const track = run("git", [
+      "for-each-ref",
+      "--format=%(upstream:track)",
+      `refs/heads/${branch}`,
+    ]);
+    return track.trim() === "[gone]";
+  } catch {
+    return false;
+  }
+}
+
+/** The recovery line for a staged branch whose upstream is gone (see `upstreamGone`). */
+export function upstreamGoneHint(branch: string): string {
+  return (
+    `note: ${branch}'s upstream is gone on origin (renamed or deleted on GitHub?). ` +
+    `If its PR now uses another branch name: uploads attach --pr <num> --from-branch ${branch}`
+  );
+}
+
 /** One `git branch -m` step read out of a branch's reflog: `from` was renamed to `to`. */
 export interface BranchRenameStep {
   from: string;

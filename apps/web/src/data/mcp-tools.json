@@ -989,7 +989,8 @@
       "attached",
       "attachFailures",
       "comment",
-      "commentError"
+      "commentError",
+      "hint"
     ]
   },
   {

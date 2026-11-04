@@ -64,3 +64,58 @@ export async function listStagedScopes(
         : null,
   };
 }
+
+/** A branch in one repo with files still staged, for the PR comment's rename nudge. */
+export interface StrandedBranch {
+  /** Name to pass to `--from-branch` / MCP `promote`. */
+  branch: string;
+  files: number;
+}
+
+/** How far back the rename nudge looks for staged files. */
+const STRANDED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+const PLAIN_STAGED_KEY = /^gh\/[^/]+\/[^/]+\/branch\/([^/]+)\//;
+
+/**
+ * Branches in `repo` whose files this workspace staged in the last week and
+ * never promoted, newest first, skipping `exclude` (the PR's head branch).
+ * An empty PR shows these so a branch renamed without the CLI noticing can
+ * be recovered with `--from-branch`. Starts from the `gh.repo` partial index
+ * bounded by `updated_at`, then primary-key lookups, so no table scan. Plain
+ * keys keep the staged spelling; private keys fall back to `gh.branch`.
+ */
+export async function recentStagedBranches(
+  env: Env,
+  workspace: string,
+  repo: string,
+  opts: { exclude?: string; limit?: number; now?: Date } = {},
+): Promise<StrandedBranch[]> {
+  const since = new Date((opts.now ?? new Date()).getTime() - STRANDED_WINDOW_MS).toISOString();
+  const limit = opts.limit ?? 3;
+  const exclude = opts.exclude?.toLowerCase() ?? "";
+  const result = await dbFor(env)
+    .prepare(`
+    SELECT branch.meta_value AS branch, MIN(repo.object_key) AS sample_key,
+      COUNT(*) AS files, MAX(repo.updated_at) AS latest
+    FROM file_metadata AS repo
+    JOIN file_metadata AS kind ON kind.workspace = repo.workspace
+      AND kind.object_key = repo.object_key AND kind.meta_key = 'gh.kind'
+    JOIN file_metadata AS status ON status.workspace = repo.workspace
+      AND status.object_key = repo.object_key AND status.meta_key = 'gh.status'
+    JOIN file_metadata AS branch ON branch.workspace = repo.workspace
+      AND branch.object_key = repo.object_key AND branch.meta_key = 'gh.branch'
+    WHERE repo.workspace = ? AND repo.meta_key = 'gh.repo' AND repo.meta_value = ?
+      AND repo.updated_at >= ? AND kind.meta_value = 'branch' AND status.meta_value = 'staged'
+      AND branch.meta_value != ?
+    GROUP BY branch.meta_value
+    ORDER BY latest DESC
+    LIMIT ?
+  `)
+    .bind(workspace, repo.toLowerCase(), since, exclude, limit)
+    .all<{ branch: string; sample_key: string; files: number }>();
+  return result.results.map((row) => ({
+    branch: PLAIN_STAGED_KEY.exec(row.sample_key)?.[1] ?? row.branch,
+    files: row.files,
+  }));
+}

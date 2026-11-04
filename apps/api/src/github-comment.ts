@@ -7,7 +7,13 @@
  * D1 rows scoped by workspace name).
  */
 
-import { changedUiFiles, DEFAULT_UI_PATHS, noUploadsCommentBody } from "./github-no-uploads";
+import {
+  changedUiFiles,
+  DEFAULT_UI_PATHS,
+  goneBranches,
+  noUploadsCommentBody,
+} from "./github-no-uploads";
+import { recentStagedBranches } from "./staged-scopes";
 import {
   countsAsVisual,
   evaluateRequirement,
@@ -169,10 +175,18 @@ export async function gatherCommentBody(
   const checklist = requirement?.checklist ?? [];
   const satisfiedOnGithub = githubAttachments > 0 && checklist.every((c) => c.met);
   if (emptyPrInScope && options.noUploadsComment !== "never" && !skipLabel && !satisfiedOnGithub) {
+    // Fail open: the nudge is a hint, never a reason the comment can't render.
+    // Only branches gone from GitHub: one that still exists is live pre-PR work.
+    const strandedBranches = await recentStagedBranches(env, workspaceName, target.repo, {
+      exclude: opts.headBranch,
+    })
+      .then((candidates) => goneBranches(env, target.repo, candidates))
+      .catch(() => []);
     return {
       body: noUploadsCommentBody(marker, target, uiFiles, {
         importsAttachments: options.ingestGithubAttachments,
         checklist,
+        strandedBranches,
       }),
       count,
       heldCount,

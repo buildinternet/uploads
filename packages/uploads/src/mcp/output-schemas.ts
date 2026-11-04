@@ -458,6 +458,7 @@ export const promoteToolResultSchema: JsonSchema = objectSchema({
   attachFailures: { type: "array", items: attachFailureSchema },
   comment: commentResultSchema,
   commentError: { type: "string" },
+  hint: { type: "string" },
 });
 
 const galleryItemSchema: JsonSchema = objectSchema({

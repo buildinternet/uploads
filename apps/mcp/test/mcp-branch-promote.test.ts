@@ -344,6 +344,20 @@ describe("hosted put: branch staging", () => {
     expect(bucket.store.has("gh/acme/widgets/branch/feat/before.png")).toBe(true);
     expect(bucket.store.has("gh/acme/widgets/branch/feat/after.png")).toBe(true);
   });
+
+  it("tells the agent how to recover staged files after a branch rename", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      branch: "feat",
+      repo: "acme/widgets",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({
+      hint: expect.stringContaining("the old name as branch"),
+    });
+  });
 });
 
 describe("hosted promote tool", () => {
@@ -386,6 +400,7 @@ describe("hosted promote tool", () => {
     expect(result.isError).toBe(false);
     expect(result.structuredContent).toMatchObject({
       promotion: { promoted: [], skipped: [] },
+      hint: expect.stringContaining("list_staged_scopes"),
     });
   });
 
@@ -648,7 +663,7 @@ describe("hosted put: GitHub context from repo + branch", () => {
       expect(result.structuredContent).toMatchObject({
         key: "gh/acme/widgets/branch/feat/hero.png",
       });
-      expect(result.structuredContent?.hint).toBeUndefined();
+      expect(result.structuredContent?.hint).toContain("the old name as branch");
     } finally {
       restore();
     }
