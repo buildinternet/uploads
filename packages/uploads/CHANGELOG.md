@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.62.1
+
+### Patch Changes
+
+- 63c8d48: Point to stranded staged files after a branch rename. When a branch's upstream is gone on origin, the staging note and `uploads staged` suggest `uploads attach --pr <num> --from-branch <branch>`. When `uploads attach --promote` finds nothing under the current branch, it lists the repo's other staged branches and the command to promote them.
+- aa1edb2: The `whoami` MCP output schema allows an optional `workspaces` list, which the hosted MCP returns for people in more than one workspace.
+
 ## 0.62.0
 
 ### Minor Changes
