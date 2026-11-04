@@ -168,6 +168,11 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         text-transform: uppercase;
         margin-bottom: 6px;
       }
+      .workspace-hint {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: var(--text-meta);
+      }
       .divider {
         border: none;
         border-top: 1px solid var(--line);
@@ -394,8 +399,12 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         <div class="client-host" id="client-host" hidden></div>
         <div class="ul-callout client-warning" id="client-warning" role="note" hidden></div>
         <div class="workspace-picker" id="workspace-picker" hidden>
-          <label for="workspace-select">Workspace</label>
+          <label for="workspace-select">Default workspace</label>
           <select id="workspace-select" class="ul-select"></select>
+          <p class="workspace-hint">
+            It can also use your other workspaces when a request names one or works in a repo linked
+            to it.
+          </p>
         </div>
         <hr class="divider" />
         <ul class="scopes" id="scope-list"></ul>

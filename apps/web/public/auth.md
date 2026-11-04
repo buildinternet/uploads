@@ -121,10 +121,14 @@ File scopes are the same three as the workspace-token table above: `files:read`,
 reveal workspace membership. Existing clients and grants keep their original
 scope ceilings; use a fresh registration to request newly supported identity
 scopes. A human authorizing a client signs in and grants scopes at
-`https://uploads.sh/oauth/consent`. Each file grant is scoped to
-ONE workspace: accounts with several pick it on the consent screen (the
-choice sticks for that client until changed, which re-prompts consent), and
-the token's `workspace` claim carries the result. An account with no
+`https://uploads.sh/oauth/consent`. Each file grant has a DEFAULT
+workspace: accounts with several pick it on the consent screen (the choice
+sticks for that client until changed, which re-prompts consent), and the
+token's `workspace` claim carries it. The token's `workspaces` claim lists
+every workspace the account belongs to. On `/mcp`, a tool call can act in
+any of them: pass `workspace`, or pass a `repo` linked to one of them, and
+the call runs there; otherwise it uses the default. `whoami` lists the
+choices. An account with no
 workspace yet is walked through creating one before it can approve; a token
 minted without one is refused by the MCP with a `workspace_required` error.
 This is the auth surface for third-party OAuth clients against the hosted
