@@ -1,7 +1,8 @@
 /**
  * `/internal/*` API (plan D1/D9) — reachable only via the `AUTH` service
- * binding from apps/api (see src/internal.ts's isInternalRequest guard,
- * applied in src/index.ts before this router is even reached).
+ * binding from apps/api. src/index.ts applies isInternalRequest before this
+ * router is reached: the caller must send `x-uploads-internal-key` matching
+ * `AUTH_INTERNAL_KEY`.
  */
 import { isStripeBackingStatus } from "@uploads/billing";
 import type {

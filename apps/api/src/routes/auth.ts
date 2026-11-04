@@ -1,5 +1,6 @@
 import { RateLimitedError, ServiceUnavailableError, ValidationError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
+import { authInternalHeaders } from "../auth-internal";
 import {
   claimMemberEnrollment,
   exchangeEnrollment,
@@ -110,7 +111,7 @@ export const auth = new Hono<{ Bindings: Env } & SessionVars>()
     const callInternalJoin = () =>
       c.env.AUTH.fetch("https://auth.internal/internal/join", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+        headers: authInternalHeaders(c.env, { "content-type": "application/json" }),
         body: JSON.stringify({ organizationSlug: claim.workspace, userId }),
       });
 

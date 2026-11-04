@@ -80,6 +80,39 @@ describe("503 guard", () => {
   });
 });
 
+describe("/internal/* gate", () => {
+  it("404s for the legacy header when no shared key is configured", async () => {
+    const response = await app.request(
+      "/internal/promote-admin",
+      { method: "POST", headers: { "x-uploads-internal": "1" } },
+      envWithoutSecret(),
+    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: { code: "not_found", message: "Not found" } });
+  });
+
+  it("reaches the route when the shared key matches, including with a client IP", async () => {
+    const env: AuthEnv = { ...envWithoutSecret(), AUTH_INTERNAL_KEY: "local-internal-key" };
+    const response = await app.request(
+      "/internal/promote-admin",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-uploads-internal-key": "local-internal-key",
+          "cf-connecting-ip": "203.0.113.5",
+        },
+        body: "{}",
+      },
+      env,
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: "invalid_email", message: "email is required" },
+    });
+  });
+});
+
 describe("CORS on /api/auth/*", () => {
   const env: AuthEnv = {
     DB: {} as unknown as D1Database,

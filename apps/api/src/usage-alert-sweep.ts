@@ -15,6 +15,7 @@
  * on a storage band of 90 or 100, once per rise, using this marker.
  */
 import type { UsageAlertEvent, UsageAlertThreshold, WorkspaceStorageMode } from "@uploads/email";
+import { authInternalHeaders } from "./auth-internal";
 import { enforcedMaxStorageBytes, enforcedStorageUsageBytes, resolveBudgetLimits } from "./budget";
 import { dbFor } from "./db-session";
 import { getWorkspaceUsage, usagePeriodStart } from "./usage";
@@ -109,7 +110,7 @@ async function postUsageAlert(
 ): Promise<boolean> {
   const res = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/usage-alerts/notify`, {
     method: "POST",
-    headers: { "x-uploads-internal": "1", "content-type": "application/json" },
+    headers: authInternalHeaders(env, { "content-type": "application/json" }),
     body: JSON.stringify({ slug, events, plan, storageMode }),
   });
   if (!res.ok) {

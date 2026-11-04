@@ -21,6 +21,7 @@ import {
   revokeToken,
   validateScopes,
 } from "../auth-db";
+import { authInternalHeaders } from "../auth-internal";
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import { backfillSelfServePlans } from "../self-serve-plan-backfill";
@@ -126,12 +127,12 @@ export const admin = new Hono<{ Bindings: Env }>()
       throw new ValidationError("invalid email address", { code: "invalid_email" });
     }
 
-    // x-uploads-internal marks this as a service-binding call (see
-    // apps/auth/src/internal.ts); cf-connecting-ip is never set on a binding
-    // fetch(), so there is nothing to strip here.
+    // x-uploads-internal-key is the shared AUTH_INTERNAL_KEY. The legacy
+    // x-uploads-internal flag rides along so an API deploy that lands first
+    // still passes an auth worker on the old check.
     const response = await c.env.AUTH.fetch("https://auth.internal/internal/promote-admin", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+      headers: authInternalHeaders(c.env, { "content-type": "application/json" }),
       body: JSON.stringify({ email }),
     });
     const payload = await response.json().catch(() => null);

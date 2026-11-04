@@ -9,6 +9,12 @@ interface Env {
    * every request.
    */
   BILLING_INTERNAL_KEY?: string;
+  /**
+   * Shared with uploads-auth. Sent as `x-uploads-internal-key` on AUTH
+   * service-binding calls to `/internal/*`. The values must match. Unset or
+   * empty means those calls are rejected (the auth worker 404s).
+   */
+  AUTH_INTERNAL_KEY?: string;
   /** Current AES master for BYO credentials at rest in KV (optional). */
   WORKSPACE_SECRETS_KEY?: string;
   /**

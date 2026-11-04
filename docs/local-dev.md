@@ -120,6 +120,10 @@ pnpm workspace:add default --local                 # prints a bearer token once 
 pnpm dev
 ```
 
+Set `AUTH_INTERNAL_KEY` to the same non-empty string in both `.dev.vars` files.
+Auth rejects `/internal/*` without it, so local org and invite calls from the
+API fail closed until the two values match.
+
 ## Smoke test
 
 Upload a file (with `UPLOADS_TOKEN` from the workspace seed in the environment

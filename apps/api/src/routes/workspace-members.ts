@@ -53,6 +53,7 @@
  */
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { authInternalHeaders } from "../auth-internal";
 import {
   createEnrollment,
   DEFAULT_MEMBER_LINK_SECONDS,
@@ -350,7 +351,7 @@ export async function inviteLinkMintHandler(c: Context<MembersVars>) {
   const liveWorkspace = requireLiveWorkspace(c.env, org.slug);
   const capCheckFetch = c.env.AUTH.fetch("https://auth.internal/internal/member-cap/check", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+    headers: authInternalHeaders(c.env, { "content-type": "application/json" }),
     body: JSON.stringify({ workspace: org.slug }),
   });
   await liveWorkspace;

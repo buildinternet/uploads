@@ -15,6 +15,7 @@ import {
 } from "@uploads/errors";
 import { resolveWorkspaceCreateQuota, workspaceCapMessage } from "@uploads/billing";
 import { Hono, type MiddlewareHandler } from "hono";
+import { authInternalHeaders } from "../auth-internal";
 import { dualGovernanceAuth } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import {
@@ -452,7 +453,7 @@ workspaces.post("/:name/invites", dualGovernanceAuth("workspace:invite"), async 
 
   const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+    headers: authInternalHeaders(c.env, { "content-type": "application/json" }),
     body: JSON.stringify({
       organizationSlug: org.slug,
       email,

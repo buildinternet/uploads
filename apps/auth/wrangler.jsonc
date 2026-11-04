@@ -128,6 +128,7 @@
       "STRIPE_WEBHOOK_SECRET",
       "STRIPE_PRO_PRICE_ID",
       "BILLING_INTERNAL_KEY",
+      "AUTH_INTERNAL_KEY",
     ],
   },
   // Magic-link delivery. uploads.sh is onboarded for Cloudflare Email Sending;
