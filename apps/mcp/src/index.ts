@@ -152,6 +152,9 @@ async function oauthAuth(
 
   c.set("workspace", record);
   c.set("workspaceName", workspaceName);
+  // `/mcp` only: calls may move to any workspace the token lists. The
+  // `/:workspace/mcp` route stays pinned to its path.
+  if (!pathWorkspace) c.set("workspaceChoices", verified.workspaces);
   c.set("authScopes", verified.scopes);
   // Uploader attribution (issue #345, parity with #340/#344): the AS signs
   // `sub` as the Better Auth user id (see @better-auth/oauth-provider's
@@ -248,6 +251,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
         env: c.env,
         workspace: c.get("workspace"),
         workspaceName: c.get("workspaceName"),
+        workspaceChoices: c.get("workspaceChoices"),
         authScopes: c.get("authScopes"),
         uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
         resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,

@@ -2422,6 +2422,55 @@ describe("OAuth JWT bearer (issue #224)", () => {
     expect(result.isError).toBe(false);
   });
 
+  describe("choosing a workspace per call", () => {
+    async function twoWorkspaceEnv() {
+      const made = await makeEnv();
+      const original = made.env.REGISTRY.get.bind(made.env.REGISTRY);
+      (made.env.REGISTRY as { get: unknown }).get = async (key: string) =>
+        key === "ws:other-ws" ? { ...workspace, prefix: "other-ws/" } : original(key);
+      return made;
+    }
+    const twoWorkspaceJwt = () =>
+      signOAuthToken({
+        sub: "user-1",
+        workspace: "test-ws",
+        workspaces: ["test-ws", "other-ws"],
+        scope: "files:read files:write",
+      });
+
+    it("whoami lists every workspace on /mcp and acts in the one named", async () => {
+      const { env } = await twoWorkspaceEnv();
+      const jwt = await twoWorkspaceJwt();
+      const plain = await callTool(env, "whoami", {}, jwt, "/mcp");
+      expect(plain.structuredContent).toMatchObject({
+        workspace: "test-ws",
+        workspaces: ["test-ws", "other-ws"],
+      });
+      const routed = await callTool(env, "whoami", { workspace: "other-ws" }, jwt, "/mcp");
+      expect(routed.isError).toBe(false);
+      expect(routed.structuredContent).toMatchObject({ workspace: "other-ws" });
+    });
+
+    it("refuses a workspace the token doesn't list", async () => {
+      const { env } = await twoWorkspaceEnv();
+      const jwt = await twoWorkspaceJwt();
+      const result = await callTool(env, "whoami", { workspace: "nope-ws" }, jwt, "/mcp");
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("test-ws, other-ws");
+    });
+
+    it("keeps the /:workspace/mcp route and up_ tokens pinned", async () => {
+      const { env } = await twoWorkspaceEnv();
+      const jwt = await twoWorkspaceJwt();
+      const path = await callTool(env, "whoami", { workspace: "other-ws" }, jwt, "/test-ws/mcp");
+      expect(path.isError).toBe(true);
+      const token = await callTool(env, "whoami", { workspace: "other-ws" }, TOKEN, "/mcp");
+      expect(token.isError).toBe(true);
+      const same = await callTool(env, "whoami", { workspace: "test-ws" }, TOKEN, "/mcp");
+      expect(same.isError).toBe(false);
+    });
+  });
+
   it("responds 403 with an actionable message when the token's user has no workspace", async () => {
     const { env } = await makeEnv();
     const jwt = await signOAuthToken({

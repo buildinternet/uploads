@@ -100,7 +100,9 @@ The client opens a browser to sign in on first use.
 The server accepts two kinds of bearer token.
 
 - **OAuth (recommended).** Clients that support MCP authorization find the authorization server
-  on their own. You sign in at uploads.sh and choose one workspace for the grant.
+  on their own. You sign in at uploads.sh and choose a default workspace for the grant. If you
+  belong to more than one workspace, a call that passes `repo` runs in the workspace that repo is
+  linked to, and every tool takes an optional `workspace` to pick one. `whoami` lists them.
 - **Workspace token.** Send the `up_<workspace>_…` token that `uploads login` creates, or a
   `ups_<workspace>_…` service token that a workspace admin creates for CI. The server reads the
   workspace from the token.

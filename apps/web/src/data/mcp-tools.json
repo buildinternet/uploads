@@ -19,6 +19,12 @@
         "type": "string",
         "required": false,
         "description": "Optional public gallery description."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -51,6 +57,12 @@
         "type": "string",
         "required": true,
         "description": "Opaque gallery ID."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -101,6 +113,12 @@
         "type": "string",
         "required": false,
         "description": "Optional public alt text."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -149,6 +167,12 @@
         "type": "string",
         "required": true,
         "description": "Provider-native external reference coordinate."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -188,6 +212,12 @@
         "type": "number",
         "required": false,
         "description": "Page size (default 50, max 100)."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -233,6 +263,12 @@
         "type": "string",
         "required": false,
         "description": "Optional exact page-path metadata filter, for example /settings."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -263,6 +299,12 @@
         "type": "string",
         "required": true,
         "description": "Opaque feed ID."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -407,6 +449,12 @@
         "type": "boolean",
         "required": false,
         "description": "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -533,6 +581,12 @@
         "type": "boolean",
         "required": false,
         "description": "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -569,6 +623,12 @@
         "type": "string",
         "required": false,
         "description": "Pagination cursor from a previous call."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -621,6 +681,12 @@
         "type": "string",
         "required": false,
         "description": "Opaque cursor from the previous page. Send it back with the same by, repo, state, and all."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -674,6 +740,12 @@
         "type": "string",
         "required": false,
         "description": "Opaque cursor from the previous page. Send it back with the same repo, pr, path, and type."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -713,6 +785,12 @@
         "type": "integer",
         "required": false,
         "description": ""
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -748,6 +826,12 @@
         "type": "integer",
         "required": false,
         "description": ""
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -795,6 +879,12 @@
         "type": "integer",
         "required": false,
         "description": ""
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -825,6 +915,12 @@
         "type": "integer",
         "required": false,
         "description": ""
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -864,6 +960,12 @@
         "type": "boolean",
         "required": false,
         "description": "Report what would change without writing."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -888,6 +990,12 @@
         "type": "string",
         "required": true,
         "description": "Object key to delete."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -924,6 +1032,12 @@
         "type": "number",
         "required": false,
         "description": "Issue number. Mutually exclusive with pr."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -982,6 +1096,12 @@
         "type": "boolean",
         "required": false,
         "description": "Refresh the managed attachments comment after a successful copy. Default true. A comment failure never fails the copy."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1007,6 +1127,12 @@
         "type": "string",
         "required": true,
         "description": "Object key to inspect."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1045,6 +1171,12 @@
         "type": "string",
         "required": false,
         "description": "Only keys under this prefix."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1083,6 +1215,12 @@
         "type": "string",
         "required": false,
         "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1115,6 +1253,12 @@
         "type": "string[]",
         "required": false,
         "description": "Keys to remove."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1159,6 +1303,12 @@
         "type": "string",
         "required": false,
         "description": "Opaque continuation from a previous call's `cursor`. Pass it back unchanged with the same filters/name to get the next page; a null `cursor` means there are no more pages."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1181,6 +1331,12 @@
         "type": "string",
         "required": false,
         "description": "When set, return distinct values for this metadata key (with counts) instead of the key list."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1204,6 +1360,12 @@
         "type": "string",
         "required": true,
         "description": "GitHub repo as owner/name."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1218,7 +1380,14 @@
     "scopes": [
       "files:read"
     ],
-    "params": [],
+    "params": [
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
+      }
+    ],
     "returns": [
       "workspace",
       "bytes",
@@ -1246,7 +1415,14 @@
     "scopes": [
       "files:write"
     ],
-    "params": [],
+    "params": [
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
+      }
+    ],
     "returns": [
       "workspace",
       "bytes",
@@ -1265,7 +1441,14 @@
     "scopes": [
       "files:delete"
     ],
-    "params": [],
+    "params": [
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
+      }
+    ],
     "returns": [
       "skipped",
       "reason",
@@ -1303,6 +1486,12 @@
         "type": "number",
         "required": false,
         "description": "How many search hits to return (default 5, max 50). Ignored when fetching one page."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1324,6 +1513,12 @@
         "type": "number",
         "required": false,
         "description": "How many entries to return (default 5, max 50)."
+      },
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
       }
     ],
     "returns": [
@@ -1335,13 +1530,21 @@
   {
     "name": "whoami",
     "title": "Who am I",
-    "description": "Show the current uploads.sh identity: the workspace this token acts in and its scopes. A successful result also means the server is up.",
+    "description": "Show the current uploads.sh identity: the workspace this call acts in, every workspace this connection can use (`workspaces`; pass one as `workspace` on any tool), and its scopes. A successful result also means the server is up.",
     "access": "read",
     "scopes": [],
-    "params": [],
+    "params": [
+      {
+        "name": "workspace",
+        "type": "string",
+        "required": false,
+        "description": "Workspace to act in, when you belong to more than one (`whoami` lists them). Omit it: a call with `repo` uses the workspace that repo is linked to, otherwise your default."
+      }
+    ],
     "returns": [
       "ok",
       "workspace",
+      "workspaces",
       "scopes",
       "userId",
       "serviceToken",
