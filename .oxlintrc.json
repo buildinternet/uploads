@@ -112,6 +112,9 @@
     "apps/web/scripts/**",
     ".superpowers/**",
     ".worktrees/**",
+    ".agents/**",
+    ".grok/**",
+    ".claude/skills/security-audit/**",
     ".design-sync/**",
     "plugins/claude/uploads/hooks/*.ts",
     "plugins/claude/uploads/hooks/*.tsx"
