@@ -3,6 +3,7 @@ import {
   changedUiFiles,
   DEFAULT_UI_PATHS,
   describeUiFiles,
+  goneBranches,
   noUploadsCommentBody,
   uiPathMatcher,
 } from "./github-no-uploads";
@@ -80,6 +81,21 @@ describe("noUploadsCommentBody", () => {
     expect(body).toContain("<code>sign_upload_url</code> for files on disk");
   });
 
+  it("names branches with stranded staged files and the recovery commands", () => {
+    const body = noUploadsCommentBody("<!-- m -->", { num: 12 }, ["a.css"], {
+      importsAttachments: true,
+      strandedBranches: [
+        { branch: "old-<name>", files: 3 },
+        { branch: "stale", files: 1 },
+      ],
+    });
+    expect(body).toContain("<code>old-&lt;name&gt;</code> (3 files), <code>stale</code> (1 file)");
+    expect(body).toContain("uploads attach --pr 12 --from-branch old-&lt;name&gt;");
+    expect(
+      noUploadsCommentBody("<!-- m -->", { num: 12 }, [], { importsAttachments: true }),
+    ).not.toContain("--from-branch");
+  });
+
   it("offers drag-and-drop without promising an import when imports are off", () => {
     const body = noUploadsCommentBody("<!-- m -->", { num: 1 }, ["a.css"], {
       importsAttachments: false,
@@ -153,5 +169,48 @@ describe("changedUiFiles", () => {
     await expect(changedUiFiles(env(), TARGET, [], fetchImpl)).resolves.toEqual([]);
     expect(calls).toBe(0);
     await expect(changedUiFiles(env(), TARGET, ["**"], fetchImpl)).resolves.toEqual([]);
+  });
+});
+
+describe("goneBranches", () => {
+  function env() {
+    const kv = new FakeKv();
+    kv.store.set("ghinst:acme/web", { value: "42" });
+    kv.store.set("ghtok:42", { value: "tok" });
+    return {
+      GITHUB_CACHE: kv,
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "unused",
+      GITHUB_APP_HOME_INSTALLATION_ID: "777",
+    } as unknown as Env;
+  }
+
+  it("keeps only branches GitHub reports as missing", async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      return url.endsWith("/live")
+        ? Response.json({ name: "live" })
+        : new Response("", { status: 404 });
+    }) as typeof fetch;
+    const result = await goneBranches(
+      env(),
+      "acme/web",
+      [
+        { branch: "feat/old", files: 2 },
+        { branch: "live", files: 1 },
+      ],
+      fetchImpl,
+    );
+    expect(result).toEqual([{ branch: "feat/old", files: 2 }]);
+    expect(urls[0]).toBe("https://api.github.com/repos/acme/web/branches/feat%2Fold");
+  });
+
+  it("returns nothing when GitHub can't answer", async () => {
+    const fetchImpl = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    await expect(
+      goneBranches(env(), "acme/web", [{ branch: "x", files: 1 }], fetchImpl),
+    ).resolves.toEqual([]);
   });
 });

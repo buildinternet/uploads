@@ -123,6 +123,40 @@ export function describeUiFiles(files: readonly string[]): string {
   return `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
 }
 
+/**
+ * The subset of `branches` that no longer exist on GitHub (a 404 from the
+ * branches API), in order. A branch that still exists is someone's live
+ * pre-PR work, not a rename, so the nudge leaves it out. Any other failure
+ * (no App, not installed, rate limit) returns [] so the comment never guesses.
+ */
+export async function goneBranches<T extends { branch: string }>(
+  env: Env,
+  repo: string,
+  branches: readonly T[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<T[]> {
+  if (branches.length === 0) return [];
+  try {
+    const token = await repoInstallationToken(env, repo, fetchImpl);
+    if (!token) return [];
+    const checks = await Promise.all(
+      branches.map(async (b) => {
+        const res = await githubFetch(
+          fetchImpl,
+          `https://api.github.com/repos/${repo}/branches/${encodeURIComponent(b.branch)}`,
+          { headers: githubHeaders(token) },
+        );
+        if (res.status === 404) return true;
+        if (res.ok) return false;
+        throw new Error(`branch lookup ${res.status}`);
+      }),
+    );
+    return branches.filter((_, i) => checks[i]);
+  } catch {
+    return [];
+  }
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -155,6 +189,23 @@ function agentTips(num: number): string[] {
 }
 
 /**
+ * Staged files under another branch usually mean this PR's branch was renamed
+ * before the PR opened (on GitHub, or by an agent without the CLI's reflog).
+ * Names the newest branch in the recovery commands.
+ */
+function strandedLine(num: number, branches: readonly { branch: string; files: number }[]): string {
+  const list = branches
+    .map((b) => `<code>${escapeHtml(b.branch)}</code> (${b.files} file${b.files === 1 ? "" : "s"})`)
+    .join(", ");
+  const first = escapeHtml(branches[0]!.branch);
+  return (
+    `Files are staged on uploads.sh for another branch: ${list}. If this PR's branch was renamed, ` +
+    `run <code>uploads attach --pr ${num} --from-branch ${first}</code>, or have your agent call ` +
+    `<code>promote</code> with that branch.`
+  );
+}
+
+/**
  * The how-to body for a PR with nothing attached. `uiFiles` names the UI files
  * that changed; empty ("always" on a PR without UI changes) drops that line.
  * Images dragged in on GitHub count too; the comment mentions the import
@@ -165,7 +216,12 @@ export function noUploadsCommentBody(
   marker: string,
   target: Pick<GhTarget, "num">,
   uiFiles: readonly string[],
-  opts: { importsAttachments: boolean; checklist?: readonly ChecklistEntry[] },
+  opts: {
+    importsAttachments: boolean;
+    checklist?: readonly ChecklistEntry[];
+    /** Other branches with files still staged (`recentStagedBranches`), newest first. */
+    strandedBranches?: readonly { branch: string; files: number }[];
+  },
 ): string {
   const lines = [
     marker,
@@ -183,6 +239,8 @@ export function noUploadsCommentBody(
       ? "- By hand: drag images into the PR description and they're imported automatically"
       : "- By hand: drag images into the PR description",
   );
+  if (opts.strandedBranches?.length)
+    lines.push("", strandedLine(target.num, opts.strandedBranches));
   lines.push("", ...agentTips(target.num));
   if (opts.checklist?.length) lines.push("", checklistLine(opts.checklist));
   lines.push(
