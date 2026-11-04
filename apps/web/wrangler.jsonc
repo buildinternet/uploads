@@ -6,7 +6,10 @@
   // (app-level Markdown for Agents; zone Pro feature not required).
   "main": "src/entry.ts",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "preview_urls": true,
+  // Version URLs publish this worker on workers.dev with production bindings,
+  // outside the uploads.sh zone WAF. There is no staging tier. Off so a
+  // versions upload cannot publish another copy of production.
+  "preview_urls": false,
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
@@ -99,7 +102,7 @@
     },
   ],
   // Workers Previews (`npx wrangler preview` from a branch — branch-scoped
-  // environments, distinct from the legacy `preview_urls` version URLs above).
+  // environments, distinct from Version URLs, which are off for this worker).
   // uploads-web holds no state of its own, so previews serve the branch's UI
   // against production api/auth — session auth still applies, and that is
   // exactly what UI review wants. Bindings do NOT inherit from the production

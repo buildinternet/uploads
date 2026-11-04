@@ -43,34 +43,17 @@ live worker to verify. Local `pnpm dev:web` is the usual check for UI.
 
 The old Workers Builds "Branch Preview URL" was an aliased Version URL
 (`preview_urls: true`). That URL serves the uploaded version with production
-bindings. The rest of this document describes `npx wrangler preview`, which
-uses a separate preview tier. To mint a Version URL by hand, run the
-following from the app directory. `--env-file-if-exists` loads
-`CLOUDFLARE_API_TOKEN` from the repo-root `.env`, the same way each app's
-deploy script does.
+bindings, on a `workers.dev` hostname the uploads.sh zone WAF does not cover.
 
-```bash
-# apps/web — the worker serves ./dist
-pnpm build
-node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js versions upload --preview-alias <alias>
+`preview_urls` is `false` on `uploads-api` and `uploads-web`. A version
+upload of those workers must not publish another copy of production. The
+setting takes effect on the next deploy of each worker. Cloudflare then stops
+routing Version URLs that already exist. `uploads-auth` still has
+`preview_urls: true`. Cloudflare Access gates those hostnames.
 
-# apps/api
-node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js versions upload --preview-alias <alias>
-```
-
-The alias is a DNS label. Use lowercase letters, digits, and dashes, and
-start with a letter. `<alias>-<worker-name>` must be at most 63 characters.
-A branch name that contains `/` is not a valid alias. Replace each `/` with
-`-`. Wrangler prints `Version Preview Alias URL` when the upload succeeds.
-The hostname is `https://<alias>-<worker-name>.<subdomain>.workers.dev`. The
-upload does not move production traffic.
-
-`uploads-auth` used to export a Durable Object, which blocks Version URLs. It
-no longer does, so a version upload should work there too, but that is not
-yet verified. `npx wrangler preview` from `apps/auth` still works and is the
-preview tier below. A push does not run it.
-
-Only `npx wrangler preview` uses the preview tier described below.
+The rest of this document describes `npx wrangler preview`, which uses a
+separate preview tier. Only that command uses the preview tier described
+below.
 
 ## The two layers
 
@@ -166,5 +149,7 @@ the preview base config.
   and the dev-session escape hatch doesn't exist outside local dev. This is
   by design, not a gap to fix — see the "Which app to preview" table above
   for what "realistic, signed out" means for UI review.
-- `preview_urls: true` stays on `uploads-web`, `uploads-auth`, and
-  `uploads-api` so a manual `wrangler versions upload` can mint a Version URL.
+- `preview_urls` is `false` on `uploads-api` and `uploads-web`. Version URLs
+  for those workers serve production bindings on `workers.dev`, outside the
+  zone WAF. `uploads-auth` keeps `preview_urls: true`, and Cloudflare Access
+  gates those hostnames.
