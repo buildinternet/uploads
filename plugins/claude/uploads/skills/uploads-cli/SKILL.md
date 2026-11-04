@@ -1180,7 +1180,9 @@ uploads --api-url http://localhost:8787 doctor
   `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
   local filesystem or git checkout to shell out from (send base64 content,
   or `contentUrl` when the file is already at a public HTTPS URL). Identity:
-  `whoami` (workspace + scopes; also confirms the server is up). Product
+  `whoami` (workspace + scopes; also confirms the server is up). On the hosted
+  MCP, an account in several workspaces gets `workspaces` too: a call with
+  `repo` runs in the workspace that repo is linked to, or pass `workspace`. Product
   updates: `changelog` (same as `uploads changelog`; no auth). Public docs:
   `search_docs` (same as `uploads docs`; no auth). Change feeds:
   `feed_create` / `feed_get` (same as `uploads feed create` / `feed show`).
