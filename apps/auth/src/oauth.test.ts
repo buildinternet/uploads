@@ -204,13 +204,9 @@ describe("dynamic client registration", () => {
     ]);
   });
 
-  // Pins the pnpm patch of @better-auth/oauth-provider (better-auth#10956,
-  // porting the upstream fix for better-auth#10946): the dist's native
-  // redirect validator rejected host-bearing private-use-scheme redirects
-  // like `cursor://host/path` even for an explicit `application_type:
-  // "native"` client. Delete this test (and patches/@better-auth__oauth-provider.patch)
-  // once a Better Auth release ships #10956 or equivalent. The patch was
-  // refreshed for 1.7.7; the upstream issue is still open.
+  // better-auth#10956 shipped in @better-auth/oauth-provider 1.7.16, so the
+  // local patch no longer carries it. Host-bearing private-use redirects such
+  // as `cursor://host/path` stay valid for an explicit native client.
   it("registers an explicit native client with a host-bearing cursor:// redirect", async () => {
     const res = await app.request(
       "/api/auth/oauth2/register",

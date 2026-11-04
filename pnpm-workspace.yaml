@@ -32,6 +32,18 @@ minimumReleaseAgeExclude:
   - "@aws-sdk/token-providers@3.1080.0"
   - "@cloudflare/workers-types@5.20260706.1"
   - hono@4.12.28
+  - "@better-auth/cimd@1.7.16"
+  - "@better-auth/core@1.7.16"
+  - "@better-auth/drizzle-adapter@1.7.16"
+  - "@better-auth/kysely-adapter@1.7.16"
+  - "@better-auth/memory-adapter@1.7.16"
+  - "@better-auth/mongo-adapter@1.7.16"
+  - "@better-auth/oauth-provider@1.7.16"
+  - "@better-auth/prisma-adapter@1.7.16"
+  - "@better-auth/stripe@1.7.16"
+  - "@better-auth/telemetry@1.7.16"
+  - "better-auth@1.7.16"
+  - "better-call@1.4.5"
 patchedDependencies:
   "@better-auth/oauth-provider": patches/@better-auth__oauth-provider.patch
   pngjs@7.0.0: patches/pngjs@7.0.0.patch

@@ -133,7 +133,7 @@ const SELF_REGISTERED_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "private_key_jwt"] 
 const PUBLIC_GRANT_TYPES = ["authorization_code", "refresh_token"] as const;
 
 /**
- * `PRIVATE_KEY_JWT_SIGNING_ALGORITHMS` from `@better-auth/core/oauth2` 1.7.7,
+ * `PRIVATE_KEY_JWT_SIGNING_ALGORITHMS` from `@better-auth/core/oauth2` 1.7.16,
  * the list `verifyClientAssertion` checks `alg` against. Used only when the
  * plugin omits the field; the plugin's own list wins otherwise so the two
  * cannot drift.
