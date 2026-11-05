@@ -20,9 +20,10 @@
  *
  * Guard failures (non-media, oversize, over budget, asset 404/403/410) are
  * PERMANENT skips: recorded in the summary, never ledgered, never thrown —
- * a queue consumer must not retry a payload that will never succeed. Network
- * failures, GitHub 5xx, and installation-token mint failures throw, so the
- * queue's own retry/backoff handles them.
+ * a queue consumer must not retry a payload that will never succeed. An asset
+ * download that outruns its deadline is skipped too (`asset_timeout`). Other
+ * network failures, GitHub 5xx, and installation-token mint failures throw,
+ * so the queue's own retry/backoff handles them.
  */
 
 import { AppError, isRetryableType, NotFoundError } from "@uploads/errors";
@@ -61,6 +62,7 @@ import {
   maxBytesForContentType,
   resolveUploadPolicy,
   uploadKind,
+  uploadLimits,
 } from "./guards";
 import { putObject } from "./files-core";
 import { findRepoLinkStrict } from "./github-repo-links";
@@ -320,6 +322,12 @@ async function fetchCursorArtifact(
   return { kind: "skip", reason: "asset_not_found" };
 }
 
+/**
+ * Deadline for one attachment download, body included. Longer than the 8 s
+ * GitHub API deadline: screen recordings in PR bodies can run to tens of MB.
+ */
+const ASSET_FETCH_TIMEOUT_MS = 30_000;
+
 type FetchAndStoreResult = { kind: "ok"; key: string } | { kind: "skip"; reason: string };
 
 /**
@@ -365,26 +373,52 @@ async function fetchAndStore(
       token = minted;
     }
 
-    let res = await githubFetch(fetchImpl, attachment.url, {
-      headers: { authorization: `Bearer ${token}`, "user-agent": "uploads.sh" },
-    });
-    if (res.status === 404 || res.status === 403) {
-      // Private repos: GitHub serves user-attachments only to users with
-      // access and 404s an installation token. The rendered body carries a
-      // short-lived signed URL for the same asset instead.
-      const signed = (await signedAttachmentUrls(fetchImpl, token, ref)).get(
-        attachment.id.toLowerCase(),
+    try {
+      let res = await githubFetch(
+        fetchImpl,
+        attachment.url,
+        { headers: { authorization: `Bearer ${token}`, "user-agent": "uploads.sh" } },
+        ASSET_FETCH_TIMEOUT_MS,
       );
-      if (signed)
-        res = await githubFetch(fetchImpl, signed, { headers: { "user-agent": "uploads.sh" } });
+      if (res.status === 404 || res.status === 403) {
+        // Private repos: GitHub serves user-attachments only to users with
+        // access and 404s an installation token. The rendered body carries a
+        // short-lived signed URL for the same asset instead.
+        const signed = (await signedAttachmentUrls(fetchImpl, token, ref)).get(
+          attachment.id.toLowerCase(),
+        );
+        if (signed)
+          res = await githubFetch(
+            fetchImpl,
+            signed,
+            { headers: { "user-agent": "uploads.sh" } },
+            ASSET_FETCH_TIMEOUT_MS,
+          );
+      }
+      if (res.status === 404 || res.status === 403 || res.status === 410) {
+        return { kind: "skip", reason: "asset_not_found" };
+      }
+      if (!res.ok) {
+        throw new Error(`github asset fetch failed: ${res.status}`);
+      }
+      // A declared size over every ceiling is skipped before the body is
+      // read, so a large recording never downloads just to be refused.
+      const declared = Number(res.headers.get("content-length"));
+      const ceiling = uploadLimits(ws);
+      if (declared > Math.max(ceiling.maxBytes, ceiling.maxVideoBytes)) {
+        await res.body?.cancel();
+        return { kind: "skip", reason: "too_large" };
+      }
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch (err) {
+      // An asset that can't finish inside the deadline won't finish on an
+      // immediate queue retry either; retrying would dead-letter the whole
+      // event and drop the comment sync with it.
+      if (err instanceof Error && err.name === "TimeoutError") {
+        return { kind: "skip", reason: "asset_timeout" };
+      }
+      throw err;
     }
-    if (res.status === 404 || res.status === 403 || res.status === 410) {
-      return { kind: "skip", reason: "asset_not_found" };
-    }
-    if (!res.ok) {
-      throw new Error(`github asset fetch failed: ${res.status}`);
-    }
-    bytes = new Uint8Array(await res.arrayBuffer());
   }
 
   // Media gate: the Screenshots view mirrors images and video only. A type

@@ -493,6 +493,41 @@ describe("reconcileIngestSource", () => {
     expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
   });
 
+  it("guard skip: a download past its deadline is skipped, not thrown for a retry", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      },
+    });
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+    });
+
+    expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "asset_timeout" }]);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
+  });
+
+  it("guard skip: a declared size over the ceiling is skipped before the body is read", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const huge = String(10 * 1024 * 1024 * 1024);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () => new Response(PNG, { headers: { "content-length": huge } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "too_large" }]);
+    expect(calls).toHaveLength(0);
+  });
+
   it("private repo: a 404 on the attachment falls back to the signed URL in body_html", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };

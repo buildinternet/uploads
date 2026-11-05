@@ -90,13 +90,14 @@ const TOKEN_TTL = 3000; // GitHub tokens live 60min; cache 50.
  */
 const GITHUB_FETCH_TIMEOUT_MS = 8000;
 
-/** `fetchImpl` with the standard GitHub deadline attached. */
+/** `fetchImpl` with the standard GitHub deadline attached (`timeoutMs` overrides it). */
 export function githubFetch(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit = {},
+  timeoutMs: number = GITHUB_FETCH_TIMEOUT_MS,
 ): Promise<Response> {
-  return fetchImpl(url, { ...init, signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS) });
+  return fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
 
 /**
