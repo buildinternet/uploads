@@ -8,7 +8,8 @@
  * it can find: public files in the uploads.sh workspaces bound to this
  * Slack team, never any other workspace, even a public one.
  *
- * One answer per mention. In a thread it reads the thread first (up to
+ * One answer per mention: a threaded reply, a reaction on the mention when
+ * no words are needed, or both. In a thread it reads the thread first (up to
  * THREAD_MAX messages, with `channels:history` / `groups:history`), so a
  * follow-up like "just the mobile ones" builds on the last answer. Without
  * those scopes it answers the mention alone.
@@ -47,11 +48,17 @@ const LARGE_FILES_MAX = 2;
 /** `gen_ai.agent.name` on the mention agent's spans. */
 const AGENT_NAME = "uploads.sh Slack";
 
-/** The mention text without the app's own @-name, with Slack's escapes undone. */
+/**
+ * The mention text with Slack's escapes undone. A leading @-mention of the
+ * app is dropped; one later in the sentence reads as `@uploads.sh`, so
+ * "this Slack has @uploads.sh installed" keeps its subject.
+ */
 export function questionText(text: string, botUserId?: string): string {
-  let out = text;
-  if (botUserId) out = out.split(`<@${botUserId}>`).join(" ");
-  else out = out.replace(/^\s*<@[UW][A-Z0-9]+>/, " ");
+  let out = text.replace(
+    botUserId ? new RegExp(`^\\s*<@${botUserId}>`) : /^\s*<@[UW][A-Z0-9]+>/,
+    " ",
+  );
+  if (botUserId) out = out.split(`<@${botUserId}>`).join("@uploads.sh");
   return out
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -153,6 +160,9 @@ export async function handleMention(
       });
       return result;
     });
+    if (answer.reaction) {
+      await reactionsAdd({ ...target, name: answer.reaction }, slack);
+    }
     const webOrigin = ctx.env.WEB_ORIGIN || "https://uploads.sh";
     const showWorkspace = new Set(answer.files.map((f) => f.workspace)).size > 1;
     // One or two images read better full width; more stay a compact list.
@@ -165,18 +175,20 @@ export async function handleMention(
           : [fileBlock(f, webOrigin, showWorkspace)],
       ),
     ];
-    const posted = await post(answer.text, blocks);
+    // A reaction alone is the whole answer; nothing to post.
+    const posted = answer.text ? await post(answer.text, blocks) : undefined;
     console.log("slack.mention", {
       model,
       answered: answer.answered,
       files: answer.files.length,
+      reaction: answer.reaction,
       calls: answer.usage.calls,
       input_tokens: answer.usage.inputTokens,
       output_tokens: answer.usage.outputTokens,
       cost_usd: answer.usage.costUsd,
       model_error: answer.error,
-      posted: posted.ok,
-      error: posted.error,
+      posted: posted?.ok,
+      error: posted?.error,
     });
   } catch (err) {
     console.error("slack.mention: failed", { team: ctx.teamId, err: String(err) });

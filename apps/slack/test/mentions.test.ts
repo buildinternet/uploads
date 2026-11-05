@@ -240,6 +240,40 @@ describe("answerQuestion", () => {
     expect(answer.text).not.toMatch(/credit|billing|account|our side/i);
   });
 
+  it("answers a passing mention with just a reaction, without searching", async () => {
+    const model = scripted([
+      {
+        content: null,
+        tool_calls: [call("c1", "reply", { text: "", file_ids: [], reaction: "+1" })],
+      },
+    ]);
+    const search = vi.fn(async () => SETTINGS);
+    const answer = await answerQuestion(
+      { question: "and this slack has @uploads.sh installed", context: [] },
+      { complete: model.complete, search },
+    );
+    expect(search).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ text: "", reaction: "+1", files: [], answered: true });
+    expect(String(model.requests[0]!.messages[1]!.content)).toContain(
+      "Message: and this slack has @uploads.sh installed",
+    );
+  });
+
+  it("drops reactions outside the list, and falls back when that leaves nothing", async () => {
+    const model = scripted([
+      {
+        content: null,
+        tool_calls: [call("c1", "reply", { text: "", file_ids: [], reaction: "eyes" })],
+      },
+    ]);
+    const answer = await answerQuestion(
+      { question: "thanks", context: [] },
+      { complete: model.complete, search: async () => SETTINGS },
+    );
+    expect(answer.reaction).toBeUndefined();
+    expect(answer.answered).toBe(false);
+  });
+
   it("says so when search isn't on for the Slack workspace", async () => {
     const model = scripted([
       { content: null, tool_calls: [call("c1", "search_files", { query: "login" })] },
@@ -262,6 +296,12 @@ describe("questionText", () => {
       "any shots of <@UALICE>&apos;s page & login?",
     );
     expect(questionText("  <@UBOT>   recent settings  ")).toBe("recent settings");
+  });
+
+  it("keeps a mention in the middle of a sentence as the app's name", () => {
+    expect(questionText("and this slack has <@UBOT> installed", "UBOT")).toBe(
+      "and this slack has @uploads.sh installed",
+    );
   });
 });
 
@@ -423,7 +463,7 @@ describe("app_mention", () => {
     const prompt = (model.bodies[0]!.messages as { content: string }[])[1]!.content;
     expect(prompt).toContain("<@U0ALICE>: The new settings page is up");
     expect(prompt).toContain("uploads.sh (you): Two settings screenshots.");
-    expect(prompt).toContain("Question: just the mobile ones");
+    expect(prompt).toContain("Message: just the mobile ones");
     expect(model.bodies[0]!.model).toBe("anthropic/claude-haiku-5.5");
     // The search went to the internal route for this Slack team.
     expect(apiCalls).toEqual([
@@ -467,6 +507,35 @@ describe("app_mention", () => {
     expect(blocks.map((b) => b.type)).toEqual(["section", "image", "context"]);
     expect(blocks[1]!.image_url).toBe("https://storage.uploads.sh/acme/shots/account.png");
     expect(blocks[2]!.elements[0].text).toContain("https://uploads.sh/f/acme/shots/account.png");
+  });
+
+  it("reacts instead of posting when the answer is only a reaction", async () => {
+    const { env } = await setup();
+    const slack = fakeSlack(MEMBER);
+    const modelFetch = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [call("c1", "reply", { text: "", file_ids: [], reaction: "+1" })],
+            },
+          },
+        ],
+      }),
+    ) as unknown as typeof globalThis.fetch;
+    await mention(env, slack.fetch, modelFetch, {
+      ts: "300.1",
+      text: "and this slack has <@UBOT> installed",
+    });
+    expect(slack.calls.map((c) => c.method)).toEqual([
+      "users.info",
+      "reactions.add",
+      "reactions.add",
+      "reactions.remove",
+    ]);
+    expect(slack.calls[2]!.body).toMatchObject({ channel: "C1", timestamp: "300.1", name: "+1" });
+    expect(slack.calls[3]!.body).toMatchObject({ name: "eyes" });
   });
 
   it("runs the model an operator picked under Admin → Models", async () => {
