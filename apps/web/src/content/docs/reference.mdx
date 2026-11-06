@@ -81,9 +81,11 @@ uploads --help        # everything else
   names. Pass `--no-auto` to save none of it, `--keep-exif` to keep the EXIF, or `--no-optimize` to
   skip processing entirely.
 - **Share pages support embeds.** Every public file, gallery, and [live link](/docs/feeds) has a
-  public page with [oEmbed](https://oembed.com/) discovery. An image unfurls
-  large. A public video unfurls as a player. Resolve one directly via `/oembed`, passing the page
-  URL as its `url` query param.
+  public page with Open Graph tags and [oEmbed](https://oembed.com/) discovery, so a link unfurls in
+  Discord, X, iMessage, and other apps with no app to install. An image unfurls large. A public video
+  unfurls as a player. A file's card leads with its caption (or the PR it's attached to) and links
+  that PR. Resolve one directly via `/oembed`, passing the page URL as its `url` query param.
+  Slack previews come from the [Slack app](/docs/slack).
 - **Getting access.** Sign in and create your own workspace with a linked GitHub account, or get
   invited to an existing one. A workspace admin can invite by email from the workspace's People page,
   or generate a join link there — anyone signed in who opens it joins the workspace. Join links can be

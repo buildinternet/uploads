@@ -10,6 +10,7 @@ import {
   filePath,
   fileTypeLabel,
   formatBytes,
+  fileUnfurlDescription,
   formatFileDate,
   isPublicFile,
   isSafeKey,
@@ -623,6 +624,49 @@ describe("fetchPublicFile", () => {
     ).toBe(false);
     expect(isPublicFile({ ...file, counterpart: { url: "https://x", state: "before" } })).toBe(
       false,
+    );
+  });
+});
+
+describe("fileUnfurlDescription", () => {
+  const base = { contentType: "image/png", size: 182_000 };
+
+  it("puts the issue or PR title above type, size, and path", () => {
+    expect(
+      fileUnfurlDescription({
+        ...base,
+        metadata: { path: "/settings" },
+        github: {
+          repo: "acme/app",
+          kind: "pull",
+          number: 42,
+          url: "https://github.com/acme/app/pull/42",
+          title: "Add settings page",
+        },
+      }),
+    ).toBe("Add settings page\nPNG · 182 KB · /settings");
+  });
+
+  it("prefers the caption over the PR title", () => {
+    expect(
+      fileUnfurlDescription({
+        ...base,
+        metadata: { caption: "Saved settings toast" },
+        github: {
+          repo: "acme/app",
+          kind: "pull",
+          number: 42,
+          url: "https://github.com/acme/app/pull/42",
+          title: "Add settings page",
+        },
+      }),
+    ).toBe("Saved settings toast\nPNG · 182 KB");
+  });
+
+  it("lists facts alone without GitHub context, and falls back when there are none", () => {
+    expect(fileUnfurlDescription(base)).toBe("PNG · 182 KB");
+    expect(fileUnfurlDescription({ contentType: "application/x-unknown", size: 0 })).toBe(
+      "Public file hosted by uploads.sh.",
     );
   });
 });

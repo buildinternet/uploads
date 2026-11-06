@@ -229,6 +229,30 @@ describe("resolveOEmbed", () => {
       width: 600,
       height: 600,
     });
+    expect(result.body).not.toHaveProperty("author_name");
+  });
+
+  it("names the issue or PR a file is attached to as the author", async () => {
+    const github = {
+      repo: "acme/app",
+      kind: "pull",
+      number: 42,
+      url: "https://github.com/acme/app/pull/42",
+      title: "Add settings page",
+    };
+    const fetchMock = vi.fn(async () => jsonResponse({ ...publicFile, github }));
+    const result = await resolveOEmbed({
+      url: sharePageUrl(SITE, { kind: "file", workspace: "acme", key: "screenshots/shot.png" }),
+      requestOrigin: SITE,
+      apiOrigin: API,
+      fetch: fetchMock as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.body).toMatchObject({
+      author_name: "acme/app#42",
+      author_url: "https://github.com/acme/app/pull/42",
+    });
   });
 
   it("returns a video iframe for a video file, and uses stored dimensions", async () => {
@@ -335,6 +359,8 @@ describe("resolveOEmbed", () => {
       type: "photo",
       title: "after.png",
       url: publicFeed.items[0]!.url,
+      author_name: "acme/app#12",
+      author_url: `${SITE}/c/${FEED_ID}`,
     });
   });
 
@@ -357,6 +383,8 @@ describe("resolveOEmbed", () => {
       type: "photo",
       title: "before.png",
       url: publicGallery.items[0]!.url,
+      author_name: "PR screenshots",
+      author_url: `${SITE}/g/${GALLERY_ID}`,
     });
   });
 
