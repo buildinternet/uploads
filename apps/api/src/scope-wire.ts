@@ -142,8 +142,10 @@ export interface ScopeFilesResponse {
   /**
    * Private items across the whole scope, ignoring `type`: the items a live
    * link for this scope renders as `withheld`. First page only. `null` on
-   * cursor pages, and `null` when counting would need more than 300 storage
-   * probes beyond the page (unknown: skip the share confirm).
+   * cursor pages, `null` when the request passed `privateCount=0` (page
+   * loads: the count can take seconds on a large repo), and `null` when
+   * counting would need more than 300 storage probes beyond the page
+   * (unknown: skip the share confirm).
    */
   privateCount: number | null;
   /** The existing live feed for exactly this scope, if any. */

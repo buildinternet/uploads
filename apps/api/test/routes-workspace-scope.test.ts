@@ -297,7 +297,7 @@ describe("GET /v1/workspaces/:ws/pulls", () => {
     });
   });
 
-  it("applies surface (ai.surface) to thumbnails and scope files; repos can skip thumbnails", async () => {
+  it("applies surface (ai.surface) to thumbnails and scope files; repos and pulls can skip thumbnails", async () => {
     await putShot("alpha", "gh/acme/app/pull/1/desk.png", prMeta("acme/app", 1));
     await seedObject("gh/acme/app/pull/1/phone.png", prMeta("acme/app", 1));
     // `ai.*` is server-owned (the classifier writes it), so seed the row directly.
@@ -320,6 +320,9 @@ describe("GET /v1/workspaces/:ws/pulls", () => {
 
     const names = await getJson<ReposResponse>("/v1/workspaces/alpha/repos?thumbnails=0");
     expect(names.repos.map((r) => [r.repo, r.thumbnails.length])).toEqual([["acme/app", 0]]);
+    const titlesOnly = await getJson<PullsResponse>("/v1/workspaces/alpha/pulls?thumbnails=0");
+    expect(titlesOnly.pulls.length).toBe(pulls.pulls.length);
+    expect(titlesOnly.pulls.every((p) => p.thumbnails.length === 0)).toBe(true);
 
     expect(await errorOf("/v1/workspaces/alpha/pulls?surface=watch")).toEqual({
       status: 400,
@@ -637,6 +640,33 @@ describe("GET /v1/workspaces/:ws/scope/:owner/:repo/files", () => {
     // Only the page's own item reached storage.
     const pageKey = `alpha/${pastCap.items[0]?.objectKey}`;
     expect(new Set(headed)).toEqual(new Set([pageKey]));
+  });
+
+  it("skips the private count on privateCount=0: only the page reaches storage", async () => {
+    const meta = prMeta("acme/app", 8);
+    for (let index = 0; index < 5; index++) {
+      await seedObject(`gh/acme/app/pull/8/${index}.png`, meta, { private: index === 3 });
+    }
+    const headed: string[] = [];
+    const head = bucket.head.bind(bucket);
+    bucket.head = async (key: string) => {
+      headed.push(key);
+      return head(key);
+    };
+
+    const counted = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=8&limit=1",
+    );
+    expect(counted.privateCount).toBe(1);
+
+    headed.length = 0;
+    const skipped = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=8&limit=1&privateCount=0",
+    );
+    expect(skipped.items).toHaveLength(1);
+    expect(skipped.nextCursor).not.toBeNull();
+    expect(skipped.privateCount).toBeNull();
+    expect(new Set(headed)).toEqual(new Set([`alpha/${skipped.items[0]?.objectKey}`]));
   });
 
   it("lowercases an owner/repo with dots, dashes, underscores, and capitals (index review focus 2)", async () => {

@@ -81,6 +81,20 @@ const GRID_CLASS =
 /** Repo page: how many recent PRs to list before linking to the filtered PR list. */
 const RECENT_PULLS_SHOWN = 10;
 
+/**
+ * The repo page's PR list query: one row past what it shows (to know whether
+ * to link to the rest), titles only. Shared by SSR and the client load.
+ */
+export function recentPullsQuery(repo: string) {
+  return {
+    type: null,
+    repo,
+    state: null,
+    limit: RECENT_PULLS_SHOWN + 1,
+    namesOnly: true,
+  } as const;
+}
+
 function ScopePageInner({
   apiOrigin,
   workspace,
@@ -95,8 +109,10 @@ function ScopePageInner({
   const { info, retry: retryInfo } = useWorkspaceInfo(apiOrigin, workspace, initialInfo);
   const preview = useShotPreview(apiOrigin, workspace);
   const liveLink = useLiveLink(apiOrigin, workspace);
-  const [share, setShare] = useState<ScopeShareInfo | null>(() =>
-    initialScope ? shareInfoFromScope(initialScope) : null,
+  // Page loads skip `privateCount` (seconds on a large repo), so Copy live
+  // link reads it on click. Only the existing link is known up front.
+  const [liveLinkRef, setLiveLinkRef] = useState<ScopeShareInfo["liveLink"]>(
+    () => initialScope?.liveLink ?? null,
   );
   const [pull, setPull] = useState<ScopeFilesResponse["pull"]>(() => initialScope?.pull ?? null);
   const [fallbackTitle, setFallbackTitle] = useState<GithubTitleInfo | null>(null);
@@ -137,9 +153,8 @@ function ScopePageInner({
       }).then((result) => {
         const current = cursor === undefined && queryKeyRef.current === queryKey;
         if (!result.ok) return { ok: false as const };
-        // privateCount ignores `type`, so any first page carries the scope's share info.
         if (current) {
-          setShare(shareInfoFromScope(result.value));
+          setLiveLinkRef(shareInfoFromScope(result.value).liveLink);
           setPull(result.value.pull);
         }
         return {
@@ -178,7 +193,7 @@ function ScopePageInner({
     if (number !== null || (initialPulls !== undefined && pullsAttempt === 0)) return;
     let cancelled = false;
     onSession(() => {
-      void loadPulls(apiOrigin, workspace, { type: null, repo, state: null }).then((result) => {
+      void loadPulls(apiOrigin, workspace, recentPullsQuery(repo)).then((result) => {
         if (!cancelled) setPulls(result.ok ? result.value.pulls : "error");
       });
     });
@@ -198,12 +213,9 @@ function ScopePageInner({
   // copy() runs straight from the click (no await first) so the clipboard
   // write starts inside the gesture.
   const onCopy = () => {
-    void liveLink.copy(scope, share).then((outcome) => {
+    void liveLink.copy(scope).then((outcome) => {
       if (outcome.kind === "copied" || outcome.kind === "clipboard-blocked") {
-        setShare((prev) => ({
-          privateCount: prev?.privateCount ?? null,
-          liveLink: { id: outcome.id, url: outcome.url },
-        }));
+        setLiveLinkRef({ id: outcome.id, url: outcome.url });
       }
     });
   };
@@ -269,10 +281,10 @@ function ScopePageInner({
           >
             Copy live link
           </Button>
-          {share?.liveLink && (
+          {liveLinkRef && (
             <a
               className="text-btn text-btn--boxed"
-              href={share.liveLink.url}
+              href={liveLinkRef.url}
               target="_blank"
               rel="noopener noreferrer"
             >
