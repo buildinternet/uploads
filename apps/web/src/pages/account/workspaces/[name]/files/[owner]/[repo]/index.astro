@@ -7,7 +7,11 @@
  */
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../../../../layouts/WorkspaceLayout.astro";
-import { ScopePage, type ScopePageProps } from "../../../../../../../components/files/ScopePage";
+import {
+  recentPullsQuery,
+  ScopePage,
+  type ScopePageProps,
+} from "../../../../../../../components/files/ScopePage";
 import { getWorkspaceSummary } from "../../../../../../../lib/api-client";
 import { serverApiFetchImpl } from "../../../../../../../lib/api-proxy";
 import { loadPulls, loadScopeFiles } from "../../../../../../../lib/files-api";
@@ -56,7 +60,7 @@ if (cookie.trim()) {
       { repo: canonical.repo, number: null, type, surface, since },
       fetchOpts,
     ),
-    loadPulls(apiOrigin, workspace, { type: null, repo: canonical.repo, state: null }, fetchOpts),
+    loadPulls(apiOrigin, workspace, recentPullsQuery(canonical.repo), fetchOpts),
   ]);
   if (summary.kind === "success") {
     props.initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };

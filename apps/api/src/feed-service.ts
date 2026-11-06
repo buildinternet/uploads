@@ -245,30 +245,25 @@ export async function hydrateFeedItems(
   const laneConfigByKey = new Map<string, StorageConfig>();
   // Held uploads (`upload-hold.ts`) are withheld from a public feed the same
   // way private ones are.
-  const heldKeys =
+  const keys = matches.map((match) => match.key);
+  const [heldKeys, visibilityRows] = await Promise.all([
     opts.audience === "public" && workspace.name
-      ? await heldKeysAmong(
-          env,
-          workspace.name,
-          matches.map((match) => match.key),
-        )
-      : new Set<string>();
-  const visibilityRows = workspace.name
-    ? await readVisibilityRows(
-        dbFor(env),
-        workspace.name,
-        matches.map((match) => match.key),
-      )
-    : new Map<string, "public" | "private">();
+      ? heldKeysAmong(env, workspace.name, keys)
+      : new Set<string>(),
+    workspace.name
+      ? readVisibilityRows(dbFor(env), workspace.name, keys)
+      : new Map<string, "public" | "private">(),
+  ]);
   const hydrated = await mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
     let meta: FileInfo | null;
     let itemConfig: StorageConfig | null = null;
     try {
-      const lane = await resolver.resolve(match.key);
+      // One HEAD per lane tried, not an exists check and then a HEAD.
+      const lane = await resolver.resolveWithHead(match.key);
       if (lane) {
         itemConfig = lane.config;
         laneConfigByKey.set(match.key, lane.config);
-        meta = await lane.store.head(match.key);
+        meta = lane.head;
       } else {
         meta = null;
       }
@@ -392,13 +387,12 @@ export async function countPrivateScopeItems(
   let flags: boolean[];
   try {
     flags = await mapBounded(unchecked, 8, async (key) => {
-      const lane = await resolver.resolve(key);
+      const lane = await resolver.resolveWithHead(key);
       if (!lane) return false;
-      const head = await lane.store.head(key);
       const hosted = isSharedLane(lane.config);
       return (
         objectVisibility(
-          applyVisibilityOverride(head.metadata, hosted ? visibilityRows.get(key) : undefined),
+          applyVisibilityOverride(lane.head.metadata, hosted ? visibilityRows.get(key) : undefined),
         ) === "private"
       );
     });

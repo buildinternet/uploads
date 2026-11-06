@@ -40,6 +40,25 @@ describe("loadScopeFiles", () => {
     );
     expect(result).toEqual({ ok: false, reason: "server" });
   });
+
+  it("skips privateCount on page loads; share info asks for it", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({ error: { code: "d1_unavailable" } }, { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    await loadScopeFiles(
+      "/api",
+      "acme",
+      { repo: "acme/web", number: null, type: null },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    await loadShareInfo("/api", "acme", { repo: "acme/web" });
+    vi.unstubAllGlobals();
+    expect(fetchImpl.mock.calls.map((call) => String(call[0]))).toEqual([
+      "/api/v1/workspaces/acme/scope/acme/web/files?privateCount=0",
+      "/api/v1/workspaces/acme/scope/acme/web/files",
+    ]);
+  });
 });
 
 describe("loadPulls", () => {
@@ -56,6 +75,21 @@ describe("loadPulls", () => {
       "/api/v1/workspaces/acme/pulls",
       "/api/v1/workspaces/acme/pulls",
       "/api/v1/workspaces/acme/pulls?all=1",
+    ]);
+  });
+
+  it("asks for titles only with a row limit", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({ workspace: "acme", pulls: [], nextCursor: null }),
+    );
+    await loadPulls(
+      "/api",
+      "acme",
+      { type: null, repo: "acme/web", state: null, limit: 11, namesOnly: true },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "/api/v1/workspaces/acme/pulls?repo=acme%2Fweb&limit=11&thumbnails=0",
     ]);
   });
 });

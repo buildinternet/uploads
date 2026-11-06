@@ -280,24 +280,16 @@ export async function hydrateGalleryItems(
   const laneConfigByKey = new Map<string, StorageConfig>();
   // Held uploads (`upload-hold.ts`) are withheld from a public gallery the
   // same way private ones are.
-  const heldKeys =
-    opts.audience === "public" && workspace.name
-      ? await heldKeysAmong(
-          env,
-          workspace.name,
-          items.map((item) => item.object_key),
-        )
-      : new Set<string>();
-  // A public gallery withholds a private item. The owner view shows it, so
-  // only the public read loads the override.
-  const visibilityRows =
-    opts.audience === "public" && workspace.name
-      ? await readVisibilityRows(
-          dbFor(env),
-          workspace.name,
-          items.map((item) => item.object_key),
-        )
-      : new Map<string, "public" | "private">();
+  // A public gallery also withholds a private item. The owner view shows it,
+  // so only the public read loads the override.
+  const keys = items.map((item) => item.object_key);
+  const publicName = opts.audience === "public" ? workspace.name : undefined;
+  const [heldKeys, visibilityRows] = await Promise.all([
+    publicName ? heldKeysAmong(env, publicName, keys) : new Set<string>(),
+    publicName
+      ? readVisibilityRows(dbFor(env), publicName, keys)
+      : new Map<string, "public" | "private">(),
+  ]);
   for (const key of heldKeys) opts.heldOut?.add(key);
   const hydrated = await mapBounded(
     items,
@@ -306,11 +298,12 @@ export async function hydrateGalleryItems(
       let meta: FileInfo | null;
       let itemConfig: StorageConfig | null = null;
       try {
-        const lane = await resolver.resolve(item.object_key);
+        // One HEAD per lane tried, not an exists check and then a HEAD.
+        const lane = await resolver.resolveWithHead(item.object_key);
         if (lane) {
           itemConfig = lane.config;
           laneConfigByKey.set(item.object_key, lane.config);
-          meta = await lane.store.head(item.object_key);
+          meta = lane.head;
         } else {
           meta = null;
         }

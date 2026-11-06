@@ -44,6 +44,9 @@ export async function loadPulls(
     /** Lift the API's 90-day recency window ("Show older pull requests"). */
     all?: boolean;
     cursor?: string;
+    limit?: number;
+    /** Titles only, no thumbnails (the repo page's recent PR list). */
+    namesOnly?: boolean;
   },
   opts?: ServerFetchOpts,
 ): Promise<Loaded<PullsResponse>> {
@@ -58,6 +61,8 @@ export async function loadPulls(
       ...(q.since ? { since: q.since } : {}),
       ...(q.all ? { all: true } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
+      ...(q.limit ? { limit: q.limit } : {}),
+      ...(q.namesOnly ? { namesOnly: true } : {}),
     },
     opts,
   );
@@ -102,6 +107,11 @@ export async function loadScopeFiles(
     surface?: FileSurface | null;
     since?: SinceFilter | null;
     cursor?: string;
+    /**
+     * Ask for `privateCount` (the Copy live link confirm). Off by default:
+     * on a large repo the count takes seconds, so page loads skip it.
+     */
+    withPrivateCount?: boolean;
   },
   opts?: ServerFetchOpts,
 ): Promise<Loaded<ScopeFilesResponse>> {
@@ -115,6 +125,7 @@ export async function loadScopeFiles(
       ...(q.surface ? { surface: q.surface } : {}),
       ...(q.since ? { since: q.since } : {}),
       ...(q.cursor ? { cursor: q.cursor } : {}),
+      ...(q.withPrivateCount ? {} : { privateCount: false }),
     },
     opts,
   );
@@ -139,6 +150,7 @@ export async function loadShareInfo(
     repo: scope.repo,
     number: scope.pr ?? null,
     type: null,
+    withPrivateCount: true,
   });
   return result.ok ? shareInfoFromScope(result.value) : null;
 }

@@ -126,6 +126,9 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
   // explicit `since` replaces the window and also narrows the thumbnails.
   const uploadedSince = parseSinceQuery(c.req.query("since"));
   const since = uploadedSince ?? pullsSince(c.req.query("all"));
+  // `thumbnails=0` skips the per-PR thumbnail queries (the repo page's
+  // "Recent pull requests" list shows titles only); rows carry `[]`.
+  const withThumbnails = c.req.query("thumbnails") !== "0";
 
   const [page, linkedRepos, cfg] = await Promise.all([
     boundedDataRead(
@@ -142,24 +145,26 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
       page.rows.map((row) => row.ref),
       linkedRepos,
     ),
-    boundedDataRead(
-      c,
-      () =>
-        prScopeFirstPages(
-          db,
-          workspace,
-          page.rows.map((row) => ({
-            repo: row.repo,
-            number: row.prNumber,
-            type,
-            surface,
-            since: uploadedSince,
-            limit: THUMBNAIL_LIMIT,
-          })),
-          { metaKeys: THUMB_META_KEYS },
-        ),
-      { name: "d1_pulls_thumbs" },
-    ),
+    withThumbnails
+      ? boundedDataRead(
+          c,
+          () =>
+            prScopeFirstPages(
+              db,
+              workspace,
+              page.rows.map((row) => ({
+                repo: row.repo,
+                number: row.prNumber,
+                type,
+                surface,
+                since: uploadedSince,
+                limit: THUMBNAIL_LIMIT,
+              })),
+              { metaKeys: THUMB_META_KEYS },
+            ),
+          { name: "d1_pulls_thumbs" },
+        )
+      : [],
   ]);
   // Best effort, off the response path. Every resolved title here came from
   // the member audience built from this workspace's own links, and the UPDATE
@@ -270,6 +275,10 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   const since = parseSinceQuery(c.req.query("since"));
   const cursor = decodeScopeCursor(c.req.query("cursor"));
   const limit = parseLimit(c.req.query("limit"), SCOPE_DEFAULT_LIMIT, SCOPE_MAX_LIMIT);
+  // `privateCount=0` skips the count. On a large repo it costs a key scan plus
+  // up to PRIVATE_COUNT_PROBE_CAP storage probes (seconds), and only the Copy
+  // live link confirm reads it, so page loads opt out and Copy asks later.
+  const wantsPrivateCount = !cursor && c.req.query("privateCount") !== "0";
   const scope = { workspace, repo, ...(number > 0 ? { number } : {}) };
 
   const [page, pullRow, feed, linkedRepos] = await boundedDataRead(
@@ -289,7 +298,7 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   // plus the page plus one: past that, more than PRIVATE_COUNT_PROBE_CAP keys
   // would need a probe, so the count is null whether or not the scan stops.
   const needsScan =
-    !cursor &&
+    wantsPrivateCount &&
     !(
       page.nextCursor === null &&
       type === undefined &&
@@ -316,7 +325,7 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   }
 
   let privateCount: number | null = null;
-  if (!cursor) {
+  if (wantsPrivateCount) {
     const keys = (scanned ?? page.items).map((item) => item.key);
     privateCount = await countPrivateScopeItems(c.env, record, keys, {
       checked: new Set(page.items.map((item) => item.key)),

@@ -2791,6 +2791,9 @@ export function fetchPulls(
     since?: SinceFilter;
     all?: boolean;
     cursor?: string;
+    limit?: number;
+    /** Titles only: skip the per-PR thumbnail queries (`thumbnails=0`). */
+    namesOnly?: boolean;
   } = {},
   opts?: SessionOpts,
 ): Promise<ApiResult<PullsResponse>> {
@@ -2802,6 +2805,8 @@ export function fetchPulls(
     since: q.since,
     all: q.all ? "1" : undefined,
     cursor: q.cursor,
+    limit: q.limit,
+    ...(q.namesOnly ? { thumbnails: "0" } : {}),
   });
   return getParsed(apiOrigin, path, parsePullsResponse, opts);
 }
@@ -2849,6 +2854,8 @@ export async function fetchScopeFiles(
     surface?: FileSurface;
     since?: SinceFilter;
     cursor?: string;
+    /** False skips `privateCount` (`privateCount=0`): seconds on a large repo. */
+    privateCount?: boolean;
   },
   opts?: SessionOpts,
 ): Promise<ApiResult<ScopeFilesResponse>> {
@@ -2856,7 +2863,14 @@ export async function fetchScopeFiles(
   if (!owner || !name || rest.length > 0) return { kind: "unavailable", reason: "invalid" };
   const path = withQuery(
     `${workspacePath(ws)}/scope/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/files`,
-    { number: q.number, type: q.type, surface: q.surface, since: q.since, cursor: q.cursor },
+    {
+      number: q.number,
+      type: q.type,
+      surface: q.surface,
+      since: q.since,
+      cursor: q.cursor,
+      ...(q.privateCount === false ? { privateCount: "0" } : {}),
+    },
   );
   return getParsed(apiOrigin, path, parseScopeFilesResponse, opts);
 }
