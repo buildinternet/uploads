@@ -24,6 +24,8 @@ import {
   fileDownloadUrl,
   fileKind as kind,
   filePath,
+  fileUnfurlDescription,
+  FILE_UNFURL_FALLBACK,
   isTextPreviewable,
   prefersImage,
 } from "../../../lib/public-file";
@@ -148,6 +150,7 @@ const compare =
     : null;
 const mediaKind = file ? kind(file.contentType) : null;
 const aiLabelsSettingsHref = `/account/workspaces/${encodeURIComponent(workspace)}/settings/ai-labels`;
+const description = file ? fileUnfurlDescription(file) : FILE_UNFURL_FALLBACK;
 const unfurlKind = mediaKind === "image" || mediaKind === "video" ? mediaKind : "other";
 if (timingsEnabled)
   Astro.response.headers.append("Server-Timing", `file_ssr_prepare;dur=${Date.now() - ssrStarted}`);
@@ -160,12 +163,12 @@ if (timingsEnabled)
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
-    <meta name="description" content="Public file hosted by uploads.sh." />
+    <meta name="description" content={description} />
     <UnfurlMeta
       pageUrl={canonical}
       siteOrigin={Astro.url.origin}
       title={file ? filename : "File unavailable"}
-      description="Public file hosted by uploads.sh."
+      description={description}
       kind={unfurlKind}
       mediaUrl={previewUrl}
       contentType={file?.contentType ?? null}

@@ -62,6 +62,9 @@ export interface OEmbedBase {
   provider_name: typeof OEMBED_PROVIDER_NAME;
   provider_url: typeof OEMBED_PROVIDER_URL;
   cache_age?: number;
+  /** What the link belongs to (a PR, live link, or gallery). Discord shows it above the title. */
+  author_name?: string;
+  author_url?: string;
   thumbnail_url?: string;
   thumbnail_width?: number;
   thumbnail_height?: number;
@@ -207,15 +210,42 @@ export function fitDimensions(
 }
 
 function provider(
-  title?: string,
-): Pick<OEmbedBase, "version" | "provider_name" | "provider_url" | "title" | "cache_age"> {
+  media: Pick<ShareMedia, "title" | "author">,
+): Pick<
+  OEmbedBase,
+  | "version"
+  | "provider_name"
+  | "provider_url"
+  | "title"
+  | "cache_age"
+  | "author_name"
+  | "author_url"
+> {
   return {
     version: OEMBED_VERSION,
     provider_name: OEMBED_PROVIDER_NAME,
     provider_url: OEMBED_PROVIDER_URL,
     cache_age: 300,
-    ...(title ? { title } : {}),
+    ...(media.title ? { title: media.title } : {}),
+    ...(media.author ? { author_name: media.author.name, author_url: media.author.url } : {}),
   };
+}
+
+const AUTHOR_NAME_MAX = 256;
+
+/** Author line for a card. Dropped unless the link is https and the name is non-empty. */
+function shareAuthor(name: string | null | undefined, url: string): ShareAuthor | undefined {
+  const trimmed = name?.replace(/\s+/g, " ").trim();
+  if (!trimmed || !isPublicMediaUrl(url)) return undefined;
+  return {
+    name: trimmed.length > AUTHOR_NAME_MAX ? `${trimmed.slice(0, AUTHOR_NAME_MAX - 1)}…` : trimmed,
+    url,
+  };
+}
+
+export interface ShareAuthor {
+  name: string;
+  url: string;
 }
 
 export interface ShareMedia {
@@ -228,6 +258,8 @@ export interface ShareMedia {
   height: number | null;
   /** Public image used as a collection thumbnail. Not a video URL. */
   thumbnailUrl: string | null;
+  /** What the link belongs to, e.g. the PR a screenshot is attached to. */
+  author?: ShareAuthor;
 }
 
 export type ShareLoadResult =
@@ -261,9 +293,12 @@ function shareFromItem(options: {
   posterUrl?: string | null;
   width?: number;
   height?: number;
+  author?: ShareAuthor;
 }): ShareMedia {
-  if (options.kind === "missing" || !options.url) return emptyLink(options.title);
+  const author = options.author ? { author: options.author } : {};
+  if (options.kind === "missing" || !options.url) return { ...emptyLink(options.title), ...author };
   return {
+    ...author,
     title: options.title,
     presentation: options.kind,
     mediaUrl: options.url,
@@ -314,7 +349,7 @@ function oembedBody(media: ShareMedia, options: OEmbedRequest): OEmbedResponse {
       maxwidth,
       maxheight,
     );
-    return { ...provider(media.title), type: "photo", url: media.mediaUrl, width, height };
+    return { ...provider(media), type: "photo", url: media.mediaUrl, width, height };
   }
   if (
     media.presentation === "video" &&
@@ -333,7 +368,7 @@ function oembedBody(media: ShareMedia, options: OEmbedRequest): OEmbedResponse {
     if (html) {
       const poster = isPublicMediaUrl(media.posterUrl) ? posterCard(media.posterUrl) : undefined;
       return {
-        ...provider(media.title),
+        ...provider(media),
         type: "video",
         width: fitted.width,
         height: fitted.height,
@@ -356,14 +391,14 @@ function oembedBody(media: ShareMedia, options: OEmbedRequest): OEmbedResponse {
       maxheight,
     );
     return {
-      ...provider(media.title),
+      ...provider(media),
       type: "link",
       thumbnail_url: media.thumbnailUrl,
       thumbnail_width: width,
       thumbnail_height: height,
     };
   }
-  return { ...provider(media.title), type: "link" };
+  return { ...provider(media), type: "link" };
 }
 
 function fromFetchFailure(
@@ -375,8 +410,15 @@ function fromFetchFailure(
 /** Fetch the public object behind a share URL. Private and missing stay not_found. */
 export async function loadShareMedia(
   target: ShareTarget,
-  options: Pick<OEmbedRequest, "apiOrigin" | "fetch" | "timeoutMs">,
+  options: Pick<OEmbedRequest, "apiOrigin" | "fetch" | "timeoutMs"> & {
+    /** Share page origin. Collection author links are built on it; omitted means no link. */
+    siteOrigin?: string;
+  },
 ): Promise<ShareLoadResult> {
+  const collectionAuthor = (title: string, collection: ShareTarget) =>
+    options.siteOrigin
+      ? shareAuthor(title, sharePageUrl(options.siteOrigin, collection))
+      : undefined;
   const api = {
     origin: options.apiOrigin,
     fetch: options.fetch,
@@ -397,6 +439,9 @@ export async function loadShareMedia(
         posterUrl: file.posterUrl,
         width: file.videoDimensions?.width,
         height: file.videoDimensions?.height,
+        author: file.github
+          ? shareAuthor(`${file.github.repo}#${file.github.number}`, file.github.url)
+          : undefined,
       }),
     };
   }
@@ -416,7 +461,7 @@ export async function loadShareMedia(
     // newest 50 still unfurls.
     const itemResult = await fetchPublicFeedItem(target.id, target.itemId, api);
     if (itemResult.status !== "ok") return fromFetchFailure(itemResult.status);
-    const item = itemResult.page.item;
+    const { feed, item } = itemResult.page;
     return {
       status: "ok",
       media: shareFromItem({
@@ -427,6 +472,7 @@ export async function loadShareMedia(
         posterUrl: item.posterUrl,
         width: item.videoDimensions?.width,
         height: item.videoDimensions?.height,
+        author: collectionAuthor(feed.title, { kind: "feed", id: target.id }),
       }),
     };
   }
@@ -454,12 +500,13 @@ export async function loadShareMedia(
       posterUrl: item.posterUrl,
       width: item.videoDimensions?.width,
       height: item.videoDimensions?.height,
+      author: collectionAuthor(gallery.title, { kind: "gallery", id: gallery.id }),
     }),
   };
 }
 
 async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promise<OEmbedResult> {
-  const loaded = await loadShareMedia(target, options);
+  const loaded = await loadShareMedia(target, { ...options, siteOrigin: options.requestOrigin });
   if (loaded.status !== "ok") return loaded;
   return { status: "ok", body: oembedBody(loaded.media, options) };
 }

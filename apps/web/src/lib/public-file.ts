@@ -491,6 +491,43 @@ export function formatBytes(bytes: number): string {
   return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
 }
 
+const UNFURL_TYPE_LABELS: Record<string, string> = {
+  "image/png": "PNG",
+  "image/jpeg": "JPEG",
+  "image/gif": "GIF",
+  "image/webp": "WebP",
+  "image/avif": "AVIF",
+  "image/svg+xml": "SVG",
+  "video/mp4": "MP4",
+  "video/webm": "WebM",
+  "video/quicktime": "MOV",
+  "application/pdf": "PDF",
+};
+
+/** Fallback card text when a file has nothing more specific to say. */
+export const FILE_UNFURL_FALLBACK = "Public file hosted by uploads.sh.";
+
+/**
+ * Card description for a file page (Discord, iMessage, X): the issue or PR
+ * title on the first line, then type · size · path. Mirrors the Slack
+ * unfurl's subtitle and facts; the `repo#number` itself goes in the oEmbed
+ * author line so Discord can link it.
+ */
+export function fileUnfurlDescription(
+  file: Pick<PublicFile, "contentType" | "size" | "github" | "metadata">,
+): string {
+  const base = file.contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  const facts = [
+    UNFURL_TYPE_LABELS[base],
+    file.size > 0 ? formatBytes(file.size) : undefined,
+    file.metadata?.path?.trim() || undefined,
+  ].filter(Boolean);
+  const lines = [file.github?.title?.trim(), facts.join(" · ")].filter(Boolean);
+  const text = lines.join("\n");
+  if (!text) return FILE_UNFURL_FALLBACK;
+  return text.length > 300 ? `${text.slice(0, 299)}…` : text;
+}
+
 /** Same-day writes within this window share one "Uploaded" chip (R2 mtime noise). */
 const SHOW_MODIFIED_MS = 60_000;
 
