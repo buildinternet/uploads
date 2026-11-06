@@ -79,21 +79,31 @@ function parseRepo(raw: string): string {
 }
 
 /**
+ * How long `/pulls` waits for titles when every row already has a stored
+ * title to show: long enough for the KV cache reads, not for GitHub. The
+ * full resolve keeps running after the response and backfills the rows.
+ */
+const STORED_TITLE_WAIT_MS = 250;
+
+/**
  * Signed-in title lookup for PR rows (member audience, #1065): private titles
  * resolve only for repos linked to this workspace; every other ref uses the
- * public ladder. Under the public title budget so a slow GitHub never stalls
- * the list (stored titles of linked repos fill in on timeout).
+ * public ladder. `pending` is the whole resolve; `titles` is what landed
+ * within `waitMs` (the public title budget by default), so a slow GitHub
+ * never stalls the list.
  */
-async function resolvePullTitles(
+function resolvePullTitles(
   env: Env,
   refs: string[],
   linkedRepos: ReadonlySet<string>,
-): Promise<Record<string, TitleInfo | null>> {
-  if (refs.length === 0) return {};
-  return (
-    (await withPublicTitleBudget(resolveTitles(env, refs, { audience: "member", linkedRepos }))) ??
-    {}
-  );
+  waitMs?: number,
+): {
+  pending: Promise<Record<string, TitleInfo | null>>;
+  titles: Promise<Record<string, TitleInfo | null>>;
+} {
+  if (refs.length === 0) return { pending: Promise.resolve({}), titles: Promise.resolve({}) };
+  const pending = resolveTitles(env, refs, { audience: "member", linkedRepos });
+  return { pending, titles: withPublicTitleBudget(pending, waitMs).then((found) => found ?? {}) };
 }
 
 /**
@@ -139,12 +149,19 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
     linkedRepoSet(db, workspace),
     storageConfig(c.env, c.get("workspace")),
   ]);
+  // Stale-while-revalidate: when every row can show its stored title, wait
+  // only for cache hits. GitHub misses resolve after the response.
+  const allStored = page.rows.every(
+    (row) => storedTitleFor(linkedRepos, row.repo, row.title) !== null,
+  );
+  const lookup = resolvePullTitles(
+    c.env,
+    page.rows.map((row) => row.ref),
+    linkedRepos,
+    allStored ? STORED_TITLE_WAIT_MS : undefined,
+  );
   const [titles, thumbs] = await Promise.all([
-    resolvePullTitles(
-      c.env,
-      page.rows.map((row) => row.ref),
-      linkedRepos,
-    ),
+    lookup.titles,
     withThumbnails
       ? boundedDataRead(
           c,
@@ -166,21 +183,26 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
         )
       : [],
   ]);
-  // Best effort, off the response path. Every resolved title here came from
-  // the member audience built from this workspace's own links, and the UPDATE
-  // is scoped to this workspace's rows.
+  // Best effort, off the response path, once the whole resolve settles (it
+  // may outlast the wait above). Every resolved title here came from the
+  // member audience built from this workspace's own links, and the UPDATE is
+  // scoped to this workspace's rows.
   await afterResponse(
     c,
-    backfillPrActivityState(
-      db,
-      workspace,
-      page.rows.flatMap((row) => {
-        const info = titles[row.ref];
-        return info && (info.title !== row.title || info.state !== row.state)
-          ? [{ ref: row.ref, title: info.title, state: info.state }]
-          : [];
-      }),
-    ),
+    lookup.pending
+      .then((resolved) =>
+        backfillPrActivityState(
+          db,
+          workspace,
+          page.rows.flatMap((row) => {
+            const info = resolved[row.ref];
+            return info && (info.title !== row.title || info.state !== row.state)
+              ? [{ ref: row.ref, title: info.title, state: info.state }]
+              : [];
+          }),
+        ),
+      )
+      .catch(() => undefined),
   );
 
   const response: PullsResponse = {

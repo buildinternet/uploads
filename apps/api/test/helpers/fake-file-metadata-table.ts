@@ -25,6 +25,9 @@ export interface FakeAllResult<T> {
   meta: Record<string, unknown>;
 }
 
+/** One `meta_key = ? AND meta_value = ?` filter, with or without a table alias. */
+const FILTER_PAIR_RE = /(?:\w+\.)?meta_key = \? AND (?:\w+\.)?meta_value = \?/;
+
 export class FileMetadataTable {
   /** Keyed by `${workspace} ${objectKey}` -> ordered meta_key -> meta_value. */
   readonly metadata = new Map<string, Map<string, string>>();
@@ -127,7 +130,7 @@ export class FileMetadataTable {
       );
       return { success: true, results: results as T[], meta: {} };
     }
-    // findObjectsByMetadata: single equality, or multi-filter INTERSECT legs.
+    // findObjectsByMetadata: single equality, or one indexed leg plus EXISTS checks.
     // Args: (workspace, key, value)×N, optional prefix (bound twice), the
     // collapse wrapper's workspace (1), optional `after` (1), then the limit.
     //
@@ -138,10 +141,10 @@ export class FileMetadataTable {
     // which reads as "no results" rather than "the fake did not understand".
     if (
       normalizedSql.startsWith("SELECT object_key FROM") &&
-      normalizedSql.includes("meta_key = ? AND meta_value = ?") &&
+      FILTER_PAIR_RE.test(normalizedSql) &&
       normalizedSql.includes("ORDER BY object_key LIMIT ?")
     ) {
-      const filterCount = (normalizedSql.match(/meta_key = \? AND meta_value = \?/g) ?? []).length;
+      const filterCount = (normalizedSql.match(new RegExp(FILTER_PAIR_RE, "g")) ?? []).length;
       const hasPrefix = normalizedSql.includes("substr(object_key, 1, length(?)) = ?");
       const filters: Array<{ workspace: string; key: string; value: string }> = [];
       for (let i = 0; i < filterCount; i++) {

@@ -230,6 +230,47 @@ describe("GET /v1/workspaces/:ws/pulls", () => {
     ).toMatchObject({ title: "Add dark mode", state: "open" });
   });
 
+  it("serves stored titles without waiting on a slow lookup, then backfills after the response", async () => {
+    linkRepo("acme/app");
+    await putShot("alpha", "gh/acme/app/pull/5/a.png", prMeta("acme/app", 5));
+    sqlite.db
+      .prepare(`UPDATE github_pr_activity SET title = ?, state = ? WHERE ref = ?`)
+      .run("Old title", "open", "acme/app#5");
+    kv.store.set("ghref:acme/app#5", {
+      value: JSON.stringify({ v: { title: "New title", state: "merged", kind: "pull" } }),
+    });
+    const get = kv.get.bind(kv);
+    kv.get = async (key: string, type?: Parameters<FakeKv["get"]>[1]) => {
+      if (key === "ghref:acme/app#5") await new Promise((resolve) => setTimeout(resolve, 600));
+      return get(key, type);
+    };
+    const background: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (task: Promise<unknown>) => void background.push(task),
+      passThroughOnException: () => {},
+      props: {},
+    } as unknown as ExecutionContext;
+
+    const started = Date.now();
+    const res = await app.request(
+      "/v1/workspaces/alpha/pulls",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PullsResponse;
+    expect(Date.now() - started).toBeLessThan(550);
+    expect(body.pulls[0]).toMatchObject({ ref: "acme/app#5", title: "Old title", state: "open" });
+
+    await Promise.all(background);
+    expect(
+      sqlite.db
+        .prepare(`SELECT title, state FROM github_pr_activity WHERE ref = ?`)
+        .get("acme/app#5"),
+    ).toMatchObject({ title: "New title", state: "merged" });
+  });
+
   it("serves private titles only for repos linked to this workspace (#1065 member audience)", async () => {
     // acme/secret is not linked to alpha: its member-cache entry and a title
     // stored on its rollup row (written while another workspace owned the row)

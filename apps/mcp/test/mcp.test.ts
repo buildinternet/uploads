@@ -252,16 +252,20 @@ async function makeEnv(
                 meta: {},
               };
             }
-            // findObjectsByMetadata: single equality or multi-filter INTERSECT
-            // legs — args are (workspace, key, value)×N, optional escaped
+            // findObjectsByMetadata: single equality or multi-filter (one
+            // indexed leg plus EXISTS checks) — args are (workspace, key, value)×N, optional escaped
             // prefix, limit. Mirrors apps/api/test/helpers/fake-file-metadata-table.
             if (
               normalized.startsWith("SELECT object_key FROM file_metadata WHERE workspace") ||
-              normalized.startsWith("SELECT object_key FROM (SELECT object_key FROM file_metadata")
+              normalized.startsWith(
+                "SELECT object_key FROM (SELECT object_key FROM file_metadata",
+              ) ||
+              normalized.startsWith("SELECT object_key FROM file_metadata d INDEXED BY")
             ) {
               const vals = values as unknown[];
-              const filterCount = (normalized.match(/meta_key = \? AND meta_value = \?/g) ?? [])
-                .length;
+              const filterCount = (
+                normalized.match(/(?:\w+\.)?meta_key = \? AND (?:\w+\.)?meta_value = \?/g) ?? []
+              ).length;
               const hasPrefix = normalized.includes("object_key LIKE ? || '%'");
               const filters: Array<{ workspace: string; key: string; value: string }> = [];
               for (let i = 0; i < filterCount; i++) {
