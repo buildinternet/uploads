@@ -647,6 +647,22 @@ describe("fileUnfurlDescription", () => {
     ).toBe("Add settings page\nPNG · 182 KB · /settings");
   });
 
+  it("prefers the caption over the PR title", () => {
+    expect(
+      fileUnfurlDescription({
+        ...base,
+        metadata: { caption: "Saved settings toast" },
+        github: {
+          repo: "acme/app",
+          kind: "pull",
+          number: 42,
+          url: "https://github.com/acme/app/pull/42",
+          title: "Add settings page",
+        },
+      }),
+    ).toBe("Saved settings toast\nPNG · 182 KB");
+  });
+
   it("lists facts alone without GitHub context, and falls back when there are none", () => {
     expect(fileUnfurlDescription(base)).toBe("PNG · 182 KB");
     expect(fileUnfurlDescription({ contentType: "application/x-unknown", size: 0 })).toBe(

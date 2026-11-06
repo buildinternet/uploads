@@ -508,10 +508,10 @@ const UNFURL_TYPE_LABELS: Record<string, string> = {
 export const FILE_UNFURL_FALLBACK = "Public file hosted by uploads.sh.";
 
 /**
- * Card description for a file page (Discord, iMessage, X): the issue or PR
- * title on the first line, then type · size · path. Mirrors the Slack
- * unfurl's subtitle and facts; the `repo#number` itself goes in the oEmbed
- * author line so Discord can link it.
+ * Card description for a file page (Discord, iMessage, X): the `caption`
+ * metadata (else the issue or PR title) on the first line, then
+ * type · size · path. Mirrors the Slack unfurl's subtitle and facts; the
+ * `repo#number` itself goes in the oEmbed author line so Discord can link it.
  */
 export function fileUnfurlDescription(
   file: Pick<PublicFile, "contentType" | "size" | "github" | "metadata">,
@@ -522,7 +522,9 @@ export function fileUnfurlDescription(
     file.size > 0 ? formatBytes(file.size) : undefined,
     file.metadata?.path?.trim() || undefined,
   ].filter(Boolean);
-  const lines = [file.github?.title?.trim(), facts.join(" · ")].filter(Boolean);
+  // The uploader's caption says what the shot shows, so it beats the PR title.
+  const lead = file.metadata?.caption?.trim() || file.github?.title?.trim();
+  const lines = [lead, facts.join(" · ")].filter(Boolean);
   const text = lines.join("\n");
   if (!text) return FILE_UNFURL_FALLBACK;
   return text.length > 300 ? `${text.slice(0, 299)}…` : text;
