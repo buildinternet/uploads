@@ -658,6 +658,8 @@ describe("GET /v1/workspaces/:ws/scope/:owner/:repo/files", () => {
       "/v1/workspaces/alpha/scope/acme/app/files?number=8&limit=1",
     );
     expect(counted.privateCount).toBe(1);
+    // Hydration and the count reach storage once per object (no exists probe first).
+    expect(headed).toHaveLength(5);
 
     headed.length = 0;
     const skipped = await getJson<ScopeFilesResponse>(
