@@ -15,6 +15,8 @@ const MIGRATION = [
   "migrations/20260720120000_github_repo_links.sql",
   "migrations/20260728120000_daily_metrics.sql",
   "migrations/20260811210000_github_private_prefixes.sql",
+  "migrations/20260903120000_github_attachments.sql",
+  "migrations/20261027120000_github_attachments_size.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 

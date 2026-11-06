@@ -6,10 +6,13 @@ import {
   getActivePrefixId,
   getOrMintPrefixId,
   listActivePrefixIds,
+  listPrefixIdsForTarget,
+  PREFIX_IDS_FOR_TARGET_SQL,
   PRIVATE_PREFIX_ID_RE,
   repoForPrefixId,
   retirePrefixId,
 } from "../src/github-private-prefixes";
+import { recordAttachment } from "../src/github-attachment-index";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = ["migrations/20260811210000_github_private_prefixes.sql"];
@@ -170,6 +173,68 @@ describe("repoForPrefixId", () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       expect(await repoForPrefixId(database(sqlite), "f".repeat(32))).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("listPrefixIdsForTarget against SQLite", () => {
+  const WITH_INDEX = [
+    ...MIGRATIONS,
+    "migrations/20260903120000_github_attachments.sql",
+    "migrations/20261027120000_github_attachments_size.sql",
+  ];
+  const target = { kind: "pull" as const, num: 12 };
+
+  it("reads the attachment target index, not a workspace-wide scan", () => {
+    const sqlite = new SqliteD1(WITH_INDEX);
+    try {
+      const plan = (
+        sqlite.db
+          .prepare(`EXPLAIN QUERY PLAN ${PREFIX_IDS_FOR_TARGET_SQL}`)
+          .all("acme", "acme/web", "pull", 12) as Array<{ detail: string }>
+      )
+        .map((row) => row.detail)
+        .join("\n");
+      expect(plan).toContain("USING INDEX github_attachments_target_idx");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns ids from this target's attached rows plus the sentinel and head branch", async () => {
+    const sqlite = new SqliteD1(WITH_INDEX);
+    const db = database(sqlite);
+    try {
+      const used = await getOrMintPrefixId(db, "acme/web", "feature/shots");
+      const detached = await getOrMintPrefixId(db, "acme/web", "feature/old");
+      const otherRepo = await getOrMintPrefixId(db, "acme/api", "feature/a");
+      const sentinel = await getOrMintPrefixId(db, "acme/web", "");
+      const head = await getOrMintPrefixId(db, "acme/web", "main");
+      await getOrMintPrefixId(db, "acme/web", "claude/unrelated");
+      const row = (prefixId: string, repo: string, file: string) => ({
+        workspace: "acme",
+        repo,
+        kind: "pull" as const,
+        num: 12,
+        objectKey: `gh/private/${prefixId}/pull/12/${file}`,
+        prefixId,
+        laneId: null,
+        source: "put" as const,
+      });
+      await recordAttachment(db, row(used, "acme/web", "a.png"));
+      await recordAttachment(db, row(used, "acme/web", "b.png"));
+      await recordAttachment(db, row(otherRepo, "acme/api", "c.png"));
+      await recordAttachment(db, row(detached, "acme/web", "d.png"));
+      sqlite.db
+        .prepare("UPDATE github_attachments SET detached_at = ? WHERE prefix_id = ?")
+        .run("2026-11-06T00:00:00.000Z", detached);
+
+      const ids = await listPrefixIdsForTarget(db, "acme", "Acme/Web", target, {
+        headBranch: "main",
+      });
+      expect(ids).toEqual([used, sentinel, head].sort());
     } finally {
       sqlite.close();
     }

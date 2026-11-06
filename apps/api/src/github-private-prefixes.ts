@@ -94,9 +94,16 @@ export async function getOrMintPrefixId(
   return active;
 }
 
-/** `gh/private/` is 11 chars; the 32-hex id occupies 12..43; the target segment starts at 44. */
-const GH_PRIVATE_ROOT_LEN = "gh/private/".length;
-const GH_PRIVATE_TARGET_OFFSET = GH_PRIVATE_ROOT_LEN + 32 + 1;
+/**
+ * Distinct private prefix ids among one target's attached index rows. Pinned
+ * to the target index: without stats the planner picks
+ * github_attachments_prefix_idx and walks every private row in the
+ * workspace. Exported so test fakes match this exact text.
+ */
+export const PREFIX_IDS_FOR_TARGET_SQL = `SELECT DISTINCT prefix_id FROM github_attachments
+       INDEXED BY github_attachments_target_idx
+       WHERE workspace = ? AND repo = ? AND kind = ? AND num = ?
+         AND detached_at IS NULL AND prefix_id IS NOT NULL`;
 
 /**
  * The private prefix ids worth listing for one PR/issue target — the
@@ -108,14 +115,17 @@ const GH_PRIVATE_TARGET_OFFSET = GH_PRIVATE_ROOT_LEN + 32 + 1;
  * id returned here is still *listed* under the target's own key path, which
  * remains the boundary that decides what renders:
  *
- * 1. Ids parsed from this workspace's `file_metadata` keys shaped
- *    `gh/private/<id>/<kind>/<num>/…`. Every server and CLI writer of a
- *    private attachment stamps at least one metadata row, so this finds the
- *    prefix an attachment actually landed under, whichever branch minted it.
+ * 1. Ids from this target's `github_attachments` rows. Every write of a
+ *    managed attachment key records one (see github-attachment-index.ts),
+ *    with the repo resolved server-side, so this finds the prefix an
+ *    attachment actually landed under, whichever branch minted it. Reads
+ *    the target index (a handful of rows) instead of range-scanning the
+ *    workspace's `gh/private/` file_metadata rows, which read ~10k rows per
+ *    call on large workspaces.
  * 2. The repo-level sentinel prefix (`branch = ""`), where issue attachments
- *    and branch-less uploads resolve. Covers a metadata-less raw PUT there.
+ *    and branch-less uploads resolve.
  * 3. The PR head branch's prefix when the caller knows it (the webhook
- *    payload carries `head.ref`). Covers a metadata-less raw PUT on a PR.
+ *    payload carries `head.ref`).
  */
 export async function listPrefixIdsForTarget(
   db: D1Queryable,
@@ -124,38 +134,16 @@ export async function listPrefixIdsForTarget(
   target: { kind: "pull" | "issues"; num: number },
   opts: { headBranch?: string } = {},
 ): Promise<string[]> {
-  const segment = `/${target.kind}/${target.num}/`;
   const { results } = await db
-    .prepare(
-      // Key-range on the PK (workspace, object_key) rather than LIKE/GLOB: D1
-      // caps pattern length (see file-metadata.ts PREFIX_FILTER_SQL), and a
-      // range scan is cheaper than a pattern over the workspace's rows.
-      `SELECT DISTINCT substr(object_key, ?, 32) AS prefix_id FROM file_metadata
-       WHERE workspace = ?
-         AND object_key >= 'gh/private/' AND object_key < 'gh/private0'
-         AND substr(object_key, ?, ?) = ?`,
-    )
-    .bind(GH_PRIVATE_ROOT_LEN + 1, workspace, GH_PRIVATE_TARGET_OFFSET, segment.length, segment)
+    .prepare(PREFIX_IDS_FOR_TARGET_SQL)
+    .bind(workspace, normalizeRepo(repo), target.kind, target.num)
     .all<PrefixRow>();
-  const discovered = (results ?? [])
-    .map((row) => row.prefix_id)
-    .filter((id) => PRIVATE_PREFIX_ID_RE.test(id));
 
-  // Private keys omit the repo, so a workspace bound to two private repos
-  // with the same PR/issue number would otherwise surface repo A's prefix
-  // for repo B's comment. Keep only ids this repo minted (rotated or not:
-  // ownership is what matters, and rotation re-keys objects anyway).
+  // The index row's repo is server-resolved, so these ids already belong to
+  // this repo (private keys omit the repo; the row is what pins it).
   const ids = new Set<string>();
-  if (discovered.length > 0) {
-    const placeholders = discovered.map(() => "?").join(", ");
-    const owned = await db
-      .prepare(
-        `SELECT prefix_id FROM github_private_prefixes
-         WHERE repo_full_name = ? AND prefix_id IN (${placeholders})`,
-      )
-      .bind(normalizeRepo(repo), ...discovered)
-      .all<PrefixRow>();
-    for (const row of owned.results ?? []) ids.add(row.prefix_id);
+  for (const row of results ?? []) {
+    if (PRIVATE_PREFIX_ID_RE.test(row.prefix_id)) ids.add(row.prefix_id);
   }
 
   const sentinel = await getActivePrefixId(db, repo, "");

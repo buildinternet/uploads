@@ -14,6 +14,7 @@
  */
 
 import { ATTACHMENT_INDEX_SQL } from "../../src/github-attachment-index";
+import { PREFIX_IDS_FOR_TARGET_SQL } from "../../src/github-private-prefixes";
 import type { FakeRunResult } from "./fake-repo-links-table";
 
 const normalize = (sql: string) => sql.replace(/\s+/g, " ").trim();
@@ -27,6 +28,7 @@ const SQL = {
   deleteForKeysPrefix: normalize(ATTACHMENT_INDEX_SQL.deleteForKeysPrefix),
   deleteForWorkspace: normalize(ATTACHMENT_INDEX_SQL.deleteForWorkspace),
   selectOne: normalize(ATTACHMENT_INDEX_SQL.selectOne),
+  prefixIdsForTarget: normalize(PREFIX_IDS_FOR_TARGET_SQL),
 };
 
 export interface AttachmentIndexDbRow {
@@ -178,6 +180,26 @@ export class AttachmentIndexTable {
       return { success: true, meta: { changes }, results: [] };
     }
     return undefined;
+  }
+
+  tryAll<T>(
+    normalizedSql: string,
+    args: unknown[],
+  ): { success: true; results: T[]; meta: Record<string, never> } | undefined {
+    if (normalizedSql !== SQL.prefixIdsForTarget) return undefined;
+    const [workspace, repo, kind, num] = args as [string, string, string, number];
+    const ids = new Set<string>();
+    for (const row of this.rows.values()) {
+      if (row.workspace !== workspace || row.repo !== repo) continue;
+      if (row.kind !== kind || row.num !== num) continue;
+      if (row.detached_at !== null || row.prefix_id === null) continue;
+      ids.add(row.prefix_id);
+    }
+    return {
+      success: true,
+      results: [...ids].map((prefix_id) => ({ prefix_id })) as T[],
+      meta: {},
+    };
   }
 
   tryFirst<T>(normalizedSql: string, args: unknown[]): T | null | undefined {

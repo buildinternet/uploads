@@ -409,7 +409,17 @@ describe("gatherCommentBody", () => {
     const usedId = await getOrMintPrefixId(env.DB, "acme/web", "feature/shots");
     const key = `${ghPrivateKeyPrefix(usedId, target)}private.png`;
     await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
-    await replaceFileMetadata(env.DB, workspaceName, key, { "gh.ref": "acme/web#12" });
+    // The index row every server write path records for a managed key.
+    await recordAttachment(env.DB, {
+      workspace: workspaceName,
+      repo: "acme/web",
+      kind: "pull",
+      num: 12,
+      objectKey: key,
+      prefixId: usedId,
+      laneId: null,
+      source: "put",
+    });
     // Many other agent branches minted prefixes in this repo; none hold
     // anything for PR 12.
     for (const branch of ["claude/a", "claude/b", "claude/c", "claude/d"]) {
@@ -435,7 +445,16 @@ describe("gatherCommentBody", () => {
     const idA = await getOrMintPrefixId(env.DB, targetA.repo, "feature/a");
     const keyA = `${ghPrivateKeyPrefix(idA, targetA)}secret.png`;
     await bucket.put(`acme/${keyA}`, PNG, { httpMetadata: { contentType: "image/png" } });
-    await replaceFileMetadata(env.DB, workspaceName, keyA, { "gh.ref": "acme/web#12" });
+    await recordAttachment(env.DB, {
+      workspace: workspaceName,
+      repo: targetA.repo,
+      kind: "pull",
+      num: 12,
+      objectKey: keyA,
+      prefixId: idA,
+      laneId: null,
+      source: "put",
+    });
 
     bucket.listCalls = 0;
     const result = await gatherCommentBody(env, ws, workspaceName, targetB);
@@ -1008,7 +1027,10 @@ describe("gatherCommentBody attachment index shadow compare (#934 phase 2)", () 
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const realPrepare = env.DB.prepare.bind(env.DB);
       vi.spyOn(env.DB, "prepare").mockImplementation((sql: string) => {
-        if (!sql.includes("FROM github_attachments")) return realPrepare(sql);
+        // The listing reads only; prefix discovery is not the shadow.
+        if (!sql.includes("FROM github_attachments") || sql.includes("DISTINCT prefix_id")) {
+          return realPrepare(sql);
+        }
         return { bind: () => ({ all: () => new Promise(() => {}) }) } as never;
       });
 
@@ -1040,7 +1062,9 @@ describe("gatherCommentBody attachment index shadow compare (#934 phase 2)", () 
     (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
     const realPrepare = env.DB.prepare.bind(env.DB);
     vi.spyOn(env.DB, "prepare").mockImplementation((sql: string) => {
-      if (sql.includes("FROM github_attachments")) throw new Error("d1 down");
+      if (sql.includes("FROM github_attachments") && !sql.includes("DISTINCT prefix_id")) {
+        throw new Error("d1 down");
+      }
       return realPrepare(sql);
     });
     expect((await gatherCommentBody(env, ws, workspaceName, target)).count).toBe(1);
@@ -1331,10 +1355,10 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // The private-prefix discovery scan (issue #934) and the unconditional
-    // gh.detached + feed-scope read. The held-key lookup reads blob_hold.
-    // The path/state fetch is skipped.
-    expect(metadataQueries).toBe(2);
+    // Only the unconditional gh.detached + feed-scope read (private-prefix
+    // discovery reads the attachment index). The held-key lookup reads
+    // blob_hold. The path/state fetch is skipped.
+    expect(metadataQueries).toBe(1);
     expect(result.body).not.toContain("<code>/settings");
   });
 
