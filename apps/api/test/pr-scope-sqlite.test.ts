@@ -372,3 +372,49 @@ describe("scope cursor codec", () => {
     expectRejected(btoa(JSON.stringify({ v: 1, u: "2026-10-01T00:00:00.000Z", k: "" })));
   });
 });
+
+describe("findObjectsByMetadata multi-filter plan", () => {
+  it("walks the narrowest filter on the lookup index and checks the rest per row", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      for (let index = 0; index < 6; index++) {
+        const branch = index < 3 ? "feat/a" : "feat/b";
+        await seed(
+          sqlite,
+          `gh/acme/app/branch/${branch.replace("/", "-")}/${index}.png`,
+          { "gh.repo": "acme/app", "gh.branch": branch, "gh.kind": "pull" },
+          "2026-10-01T01:00:00.000Z",
+        );
+      }
+      await seed(
+        sqlite,
+        "gh/acme/other/branch/feat-a/x.png",
+        { "gh.repo": "acme/other", "gh.branch": "feat/a", "gh.kind": "pull" },
+        "2026-10-01T01:00:00.000Z",
+      );
+      const { db, seen } = recordingDb(sqlite);
+      // Filter order puts the broad keys first; the driver is still gh.branch.
+      const found = await findObjectsByMetadata(
+        db,
+        "alpha",
+        { "gh.repo": "Acme/App", "gh.kind": "pull", "gh.branch": "feat/a" },
+        { prefix: "gh/acme/app/", after: "gh/acme/app/branch/feat-a/0.png" },
+      );
+      expect(found.map((row) => row.key)).toEqual([
+        "gh/acme/app/branch/feat-a/1.png",
+        "gh/acme/app/branch/feat-a/2.png",
+      ]);
+      const search = seen.find((entry) => entry.sql.includes("INDEXED BY"));
+      if (!search) throw new Error("multi-filter search not issued");
+      expect(search.values.slice(0, 3)).toEqual(["alpha", "gh.branch", "feat/a"]);
+      const plan = queryPlan(sqlite, search);
+      expect(plan).toContain(
+        "USING INDEX file_metadata_lookup_idx (workspace=? AND meta_key=? AND meta_value=?)",
+      );
+      expect(plan).toContain("(workspace=? AND object_key=? AND meta_key=?)");
+      expect(plan).not.toMatch(/USING INDEX sqlite_autoindex_file_metadata_1 \(workspace=\?\)$/m);
+    } finally {
+      sqlite.close();
+    }
+  });
+});

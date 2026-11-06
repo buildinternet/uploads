@@ -593,13 +593,23 @@ export const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_v
 const MERGED_STATUS_SQL = `s2.meta_key = 'gh.merged' AND s2.meta_value = 'true'`;
 
 /**
+ * Keys whose values are shared by most of a workspace's files (every PR
+ * upload has `gh.kind=pull`; a repo's files share `gh.repo`). A multi-filter
+ * search never drives from one of these while a narrower filter is present.
+ */
+const BROAD_META_KEYS: readonly string[] = ["gh.kind", "gh.repo", "gh.status", "gh.merged"];
+
+/**
  * Objects whose metadata matches ALL `filters`, with optional key prefix and
  * limit. Returns each match's full metadata.
  *
- * Multiple filters INTERSECT per-filter key sets, each using
- * `file_metadata_lookup_idx`, rather than OR + GROUP BY, which over-reads on
- * common values. `collapsePromotedShadows` drops promoted branch originals.
- * `after` is a keyset continuation on `object_key`, stable across inserts.
+ * Multiple filters walk ONE filter's rows on `file_metadata_lookup_idx` (the
+ * narrowest by `BROAD_META_KEYS`) and check every other filter with a PK
+ * lookup per row. `INDEXED BY` pins that plan: without it SQLite walks the
+ * whole workspace on the PK to satisfy `ORDER BY object_key` (D1 insights:
+ * 14,000 to 32,000 rows read per call for repo + branch + kind, Nov 2026).
+ * `collapsePromotedShadows` drops promoted branch originals. `after` is a
+ * keyset continuation on `object_key`, stable across inserts.
  */
 export async function findObjectsByMetadata(
   db: D1Queryable,
@@ -618,24 +628,37 @@ export async function findObjectsByMetadata(
   // Allows `pageSize + 1` for an exact truncation signal.
   const limit = Math.max(1, Math.min(opts.limit ?? FIND_DEFAULT_LIMIT, FIND_PROBE_MAX_LIMIT));
   const params: unknown[] = [];
-  const legs = entries.map(([key, value]) => {
-    params.push(workspace, key, canonicalMetaValue(key, value));
-    return `SELECT object_key FROM file_metadata WHERE workspace = ? AND meta_key = ? AND meta_value = ?`;
-  });
 
-  // Single filter: prefix in-leg so LIMIT applies to the narrowed set.
-  // Multi-filter: INTERSECT first, then prefix/limit on the intersection.
+  // The prefix sits in the WHERE either way, so LIMIT applies to the narrowed set.
   let sql: string;
   if (entries.length === 1) {
-    sql = legs[0]!;
+    const [key, value] = entries[0]!;
+    params.push(workspace, key, canonicalMetaValue(key, value));
+    sql = `SELECT object_key FROM file_metadata WHERE workspace = ? AND meta_key = ? AND meta_value = ?`;
     if (opts.prefix) {
       sql += ` AND ${PREFIX_FILTER_SQL}`;
       params.push(opts.prefix, opts.prefix);
     }
   } else {
-    sql = `SELECT object_key FROM (${legs.join(" INTERSECT ")})`;
+    const driverIndex = Math.max(
+      0,
+      entries.findIndex(([key]) => !BROAD_META_KEYS.includes(key)),
+    );
+    const [driverKey, driverValue] = entries[driverIndex]!;
+    params.push(workspace, driverKey, canonicalMetaValue(driverKey, driverValue));
+    sql = `SELECT object_key FROM file_metadata d INDEXED BY file_metadata_lookup_idx
+           WHERE d.workspace = ? AND d.meta_key = ? AND d.meta_value = ?`;
+    entries.forEach(([key, value], index) => {
+      if (index === driverIndex) return;
+      sql += ` AND EXISTS (
+                 SELECT 1 FROM file_metadata e
+                 WHERE e.workspace = ? AND e.object_key = d.object_key
+                   AND e.meta_key = ? AND e.meta_value = ?
+               )`;
+      params.push(workspace, key, canonicalMetaValue(key, value));
+    });
     if (opts.prefix) {
-      sql += ` WHERE ${PREFIX_FILTER_SQL}`;
+      sql += ` AND ${PREFIX_FILTER_SQL}`;
       params.push(opts.prefix, opts.prefix);
     }
   }
@@ -651,7 +674,7 @@ export async function findObjectsByMetadata(
     params.push(workspace);
   }
   // Keyset continuation wraps last so it applies uniformly to the single-leg,
-  // INTERSECT, and collapse-wrapped forms.
+  // multi-filter, and collapse-wrapped forms.
   if (opts.after !== undefined) {
     sql = `SELECT object_key FROM (${sql}) AS page WHERE object_key > ?`;
     params.push(opts.after);
