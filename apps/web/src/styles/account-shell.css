@@ -15,6 +15,12 @@
 .account-shell .shell {
   margin-left: 0;
   margin-right: auto;
+  /* Tighter than the shared 28px so the nav starts right under the header
+     and docks closer to the viewport bottom. Keep --shell-side-pad in sync
+     with the sticky offset below. */
+  --shell-side-pad: 12px;
+  padding-top: var(--shell-side-pad);
+  padding-bottom: var(--shell-side-pad);
 }
 .account-shell .layout {
   grid-template-columns: auto minmax(0, 1fr) 272px;
@@ -39,13 +45,14 @@
    `.layout` rule above sets that track). */
 
 /* The nav runs to the bottom of the viewport so the usage footer docks
-   there. It is sticky at 28px, but at the top of the page it starts below
-   the 61px site header, so it grows by that much as the header scrolls away
-   (scroll-driven; without support it keeps the shorter height). Nav rows
-   scroll inside SidebarContent when the viewport is short. */
+   there. It is sticky at --shell-side-pad, but at the top of the page it
+   starts below the 61px site header, so it grows by that much as the header
+   scrolls away (scroll-driven; without support it keeps the shorter height).
+   Nav rows scroll inside SidebarContent when the viewport is short. */
 .account-shell nav.shell-side {
   --shell-side-head: 61px;
-  height: calc(100svh - var(--shell-side-head) - 56px);
+  top: var(--shell-side-pad);
+  height: calc(100svh - var(--shell-side-head) - 2 * var(--shell-side-pad));
 }
 @supports (animation-timeline: scroll()) {
   .account-shell nav.shell-side {
@@ -56,7 +63,7 @@
 }
 @keyframes shell-side-grow {
   to {
-    height: calc(100svh - 56px);
+    height: calc(100svh - 2 * var(--shell-side-pad));
   }
 }
 
@@ -77,7 +84,7 @@
   gap: 22px;
   font-size: var(--text-meta);
   position: sticky;
-  top: 28px;
+  top: var(--shell-side-pad);
   min-width: 0;
 }
 

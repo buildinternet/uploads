@@ -33,6 +33,8 @@ import {
   Link2,
   Mail,
   ChartColumn,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Settings,
   Terminal,
@@ -159,6 +161,37 @@ function SidebarToggleBridge(): null {
   return null;
 }
 
+/**
+ * Collapse/expand control at the foot of the column. The kit already handles
+ * the `sidebar_state` cookie and the Cmd/Ctrl+B shortcut; this is just the
+ * visible handle for it. Desktop only: below md the sidebar is a Sheet drawer
+ * opened from the header button, so collapsing to a rail means nothing there.
+ */
+function CollapseToggle(): ReactNode {
+  const { state, toggleSidebar, isMobile } = useSidebar();
+  if (isMobile) return null;
+  const collapsed = state === "collapsed";
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          size="sm"
+          tooltip={label}
+          aria-label={label}
+          aria-expanded={!collapsed}
+          aria-controls="shell-sidebar"
+          className="text-sidebar-foreground/70"
+          onClick={toggleSidebar}
+        >
+          {collapsed ? <PanelLeftOpen aria-hidden /> : <PanelLeftClose aria-hidden />}
+          <span>Collapse</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
 /** One group. Nested rows (settings sub-pages) fold under the row above them. */
 function NavGroup({ section }: { section: ShellNavSection }): ReactNode {
   const rows: ReactNode[] = [];
@@ -227,11 +260,18 @@ function WorkspaceSwitcher({ switcher }: { switcher: ShellSwitcher }): ReactNode
                 className="data-open:bg-sidebar-accent"
                 aria-label="Switch workspace"
               >
-                <span className="flex min-w-0 items-center gap-1.5 font-medium">
+                {/* Icon rail: the workspace's initial stands in for its name. */}
+                <span
+                  aria-hidden
+                  className="hidden size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-xs font-semibold uppercase group-data-[collapsible=icon]:flex"
+                >
+                  {switcher.activeLabel.slice(0, 1)}
+                </span>
+                <span className="flex min-w-0 items-center gap-1.5 font-medium group-data-[collapsible=icon]:hidden">
                   <span className="truncate">{switcher.activeLabel}</span>
                   {switcher.activePro && <ProBadge />}
                 </span>
-                <Glyph name="switcher" className="ml-auto" />
+                <Glyph name="switcher" className="ml-auto group-data-[collapsible=icon]:hidden" />
               </SidebarMenuButton>
             }
           />
@@ -360,15 +400,16 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
           ))}
         </SidebarContent>
 
-        {/* Workspace routes only. Its own boundary, so a usage crash never
-            takes the navigation down with it. */}
-        {account?.section === "workspaces" && account.workspace && (
-          <SidebarFooter>
+        <SidebarFooter>
+          {/* Workspace routes only. Its own boundary, so a usage crash never
+              takes the navigation down with it. */}
+          {account?.section === "workspaces" && account.workspace && (
             <IslandErrorBoundary fallback={null}>
               <SidebarUsage apiOrigin={account.apiOrigin} workspace={account.workspace} />
             </IslandErrorBoundary>
-          </SidebarFooter>
-        )}
+          )}
+          <CollapseToggle />
+        </SidebarFooter>
       </Sidebar>
     </SidebarProvider>
   );
