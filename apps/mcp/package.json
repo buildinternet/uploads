@@ -24,7 +24,7 @@
     "@uploads/errors": "workspace:^",
     "@uploads/observability": "workspace:^",
     "@uploads/storage": "workspace:^",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "jose": "^6.2.3",
     "@modelcontextprotocol/ext-apps": "^2.0.3",
     "@uploads/ui": "workspace:*",
