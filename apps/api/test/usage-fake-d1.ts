@@ -139,6 +139,8 @@ export class UsageFakeD1 {
         if (adoptAllResult) return adoptAllResult;
         const renameAllResult = this.branchRenamesTable.tryAll<T>(normalized, values);
         if (renameAllResult) return renameAllResult;
+        const attachmentAllResult = this.attachmentIndexTable.tryAll<T>(normalized, values);
+        if (attachmentAllResult) return attachmentAllResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that
