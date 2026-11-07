@@ -85,7 +85,7 @@
     "@types/node": "^26.1.0",
     "@uploads/auth": "workspace:^",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.12",
+    "vitest": "^5.1.0",
     "wrangler": "^4.158.0"
   }
 }

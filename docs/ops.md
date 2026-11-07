@@ -924,7 +924,7 @@ Two changes landed in sequence:
 
 2. **Confirm the Phase 1 migration already applied** to `uploads-production`
    (it did automatically, on #755 merging to main — `wrangler d1 migrations
-list uploads-production --remote` should show
+   list uploads-production --remote` should show
    `20260822120000_auth_tables.sql` as applied, nothing pending).
 
 3. **Merge this cutover PR to main.** `d1-migrations.yml` re-runs (a no-op —
@@ -2017,12 +2017,12 @@ With it on, a sync makes no R2 `ListObjects` call unless one of these holds:
 - **List-on-miss.** The index has no rows for the target but `file_metadata`
   has a `gh.ref` row for it: objects that predate #938. The sync lists R2
   as before and logs `component: "attachment-index"`, `event:
-"list-on-miss"`. That count is the backfill's sizing number; it drops to
+  "list-on-miss"`. That count is the backfill's sizing number; it drops to
   zero once the backfill lands.
 - **Imports.** The ingest ledger has a live row for the target, so the
   import folders are listed (imports have no index rows).
 - **Read failure.** The index read threw (`"attachment index: read
-failed"`); the sync lists R2.
+  failed"`); the sync lists R2.
 
 Object and poster URLs come from the row's `lane_id` (NULL or a removed
 lane means the active lane). The poster is no longer probed with `exists()`,

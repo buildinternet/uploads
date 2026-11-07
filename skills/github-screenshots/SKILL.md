@@ -302,7 +302,7 @@ The comment is identified by a hidden HTML comment at the top:
 - **Without the App**, the next `uploads attach` you run against that PR
   triggers the same promotion + comment refresh as a side effect. If you have
   nothing new to add right after opening the PR, run `uploads attach
---promote` (zero file arguments) to promote and refresh explicitly — it
+  --promote` (zero file arguments) to promote and refresh explicitly — it
   exits `0` even if nothing was staged. Skip auto-promotion on a given call
   with `--no-promote`.
 
@@ -424,7 +424,7 @@ handful of milestones reads better than a dumped folder.
   the managed comment. For a PR body, use a GIF, or a still that links to
   the video.
 - Write bodies to a file and use `gh pr edit --body-file` / `gh issue comment
---body-file` rather than inline HEREDOCs.
+  --body-file` rather than inline HEREDOCs.
 
 ## Setup and escalation
 

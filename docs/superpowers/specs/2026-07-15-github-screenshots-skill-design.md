@@ -63,7 +63,7 @@ skill).
 **Body outline** (short — target well under 150 lines):
 
 1. _Why_: GitHub's native image hosting is browser-session-only; `gh
-… --body-file` needs an already-public URL. uploads.sh provides it.
+   … --body-file` needs an already-public URL. uploads.sh provides it.
 2. _Get the visual_ (tool-agnostic): use the harness browser tools,
    Playwright MCP, OS screenshot, or an existing file; save locally. GIFs
    and video upload as-is (the optimizer only rewrites still images).

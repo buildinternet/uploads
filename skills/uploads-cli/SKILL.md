@@ -1066,7 +1066,7 @@ webhook path and has no effect on running `ingest` directly.
   | <img width="380" src="…/before.png"> | <img width="380" src="…/after.png"> |
   ```
 - Prefer writing the body to a file and using `gh pr edit --body-file` / `gh issue
-comment --body-file` over inline HEREDOCs.
+  comment --body-file` over inline HEREDOCs.
 - The host is agnostic — the same URLs work in issues, PR comments, discussions, and
   plain markdown docs.
 - **Prefer short, compressed clips (or an animated capture) over large raw
@@ -1165,7 +1165,7 @@ uploads --api-url http://localhost:8787 doctor
   `hint: uploads <cmd> --help`.
 - **Errors stay short (stderr), so trimming output never hides them.** A missing
   argument prints one `error:` line, a runnable example (`uploads put
-./shot.png --pr 123`), and that hint — not the command's help. In `--json`
+  ./shot.png --pr 123`), and that hint — not the command's help. In `--json`
   the example rides along as `example`. A
   mistyped command prints the error, a `did you mean: uploads <cmd>` line, and
   the help pointers; with `--json` it returns `{error,code:"USAGE",didYouMean}`

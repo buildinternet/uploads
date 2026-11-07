@@ -165,7 +165,7 @@ Today a "workspace" is an admin-provisioned tenant record in KV `REGISTRY`
 (`ws:<name>`, see `apps/api/src/workspace.ts`). Decision:
 
 - **One org per workspace**, linked by `organization.slug === workspace
-name`. KV record stays the source of truth for storage config/budgets; the
+  name`. KV record stays the source of truth for storage config/budgets; the
   org is the source of truth for _who belongs to it_.
 - **Flexibility for one-org-many-workspaces later**: treat the slug linkage
   as an implementation detail behind one module —

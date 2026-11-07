@@ -101,8 +101,8 @@ moved server-side):
 2. For each **present** field: a number sets `record[field] = n`; `null`
    deletes `record[field]`. Omitted fields are untouched.
 3. `REGISTRY.put(\`ws:${name}\`, JSON.stringify(record))` — the whole record is
-written back, so all non-budget fields (`retentionDays`,
-`allowedKeyPrefixes`, `maxKeyDepth`, `provider`, `bucket`, `prefix`, org
+   written back, so all non-budget fields (`retentionDays`,
+   `allowedKeyPrefixes`, `maxKeyDepth`, `provider`, `bucket`, `prefix`, org
    linkage, etc.) are preserved.
 
 Response: `200` with the same shape as GET (post-write limits + usage).

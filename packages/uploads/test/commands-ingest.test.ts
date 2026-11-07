@@ -59,17 +59,15 @@ async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
 
 describe("runIngest", () => {
   it("resolves the repo and calls ingestGithub with the derived target", async () => {
-    const ingestGithub = vi.fn(
-      async (): Promise<IngestGithubResult> => ({
-        repo: "acme/web",
-        kind: "pull",
-        num: 7,
-        ingested: ["gh/acme/web/pull/7/a.png", "gh/acme/web/pull/7/b.png"],
-        reattached: [],
-        detached: ["gh/acme/web/pull/7/old.png"],
-        skipped: [],
-      }),
-    );
+    const ingestGithub = vi.fn(async (): Promise<IngestGithubResult> => ({
+      repo: "acme/web",
+      kind: "pull",
+      num: 7,
+      ingested: ["gh/acme/web/pull/7/a.png", "gh/acme/web/pull/7/b.png"],
+      reattached: [],
+      detached: ["gh/acme/web/pull/7/old.png"],
+      skipped: [],
+    }));
     const client = fakeClient({ ingestGithub });
     const err = await captureStderr(() =>
       runIngest({ ...ctxWith(client), quiet: false }, ["--pr", "7"], false, repoRunner()),
@@ -144,19 +142,17 @@ describe("runIngest", () => {
   });
 
   it("renders skipped entries as human-readable lines", async () => {
-    const ingestGithub = vi.fn(
-      async (): Promise<IngestGithubResult> => ({
-        repo: "acme/web",
-        kind: "pull",
-        num: 7,
-        ingested: [],
-        reattached: [],
-        detached: [],
-        skipped: [
-          { url: "https://github.com/user-attachments/x", reason: "unsupported content type" },
-        ],
-      }),
-    );
+    const ingestGithub = vi.fn(async (): Promise<IngestGithubResult> => ({
+      repo: "acme/web",
+      kind: "pull",
+      num: 7,
+      ingested: [],
+      reattached: [],
+      detached: [],
+      skipped: [
+        { url: "https://github.com/user-attachments/x", reason: "unsupported content type" },
+      ],
+    }));
     const client = fakeClient({ ingestGithub });
     const err = await captureStderr(() =>
       runIngest({ ...ctxWith(client), quiet: false }, ["--pr", "7"], false, repoRunner()),

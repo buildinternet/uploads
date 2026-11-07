@@ -93,7 +93,7 @@ notifyAdminsOfMemberJoin(env, db, {
   `user.notifyMemberJoin = true`,
   `user.id NOT IN (joinerUserId, ...excludeUserIds)`.
 - For each recipient, `await sendAuthEmail(env, { to, template:
-"member-join-admin-notice", context })`. `sendAuthEmail` never throws, so
+  "member-join-admin-notice", context })`. `sendAuthEmail` never throws, so
   the whole helper is safe to `await` inside a join without a rollback risk.
 - Wrap the query in try/catch and log-only, so even a DB read failure can't
   fail the join.
