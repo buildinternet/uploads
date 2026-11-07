@@ -1,5 +1,5 @@
---- a/dist/authorize-BnSO_Slc.mjs
-+++ b/dist/authorize-BnSO_Slc.mjs
+--- a/dist/authorize-BzDrbYtI.mjs
++++ b/dist/authorize-BzDrbYtI.mjs
 @@ -4081,6 +4081,35 @@
  * jti is consumed, so a caller can refuse a client it does not serve without
  * spending the assertion or reaching out to a `jwks_uri`.
