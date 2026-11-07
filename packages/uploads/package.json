@@ -58,7 +58,7 @@
     "ai": "^6.0.0",
     "files-sdk": "^3.1.2",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.12"
+    "vitest": "^5.1.0"
   },
   "publishConfig": {
     "access": "public",
