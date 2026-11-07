@@ -32,7 +32,7 @@ gh/<org>/<repo>/issues/<num>/<filename>
 ```
 
 - `org`/`repo` inferred from the git remote (prefer `gh repo view
---json nameWithOwner`, fall back to parsing `origin`), overridable with
+  --json nameWithOwner`, fall back to parsing `origin`), overridable with
   `--repo org/name`.
 - Same filename → same key → overwrite → stable URL. This is the
   auto-update mechanism; it requires nothing else.

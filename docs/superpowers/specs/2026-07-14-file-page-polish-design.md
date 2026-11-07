@@ -218,7 +218,7 @@ in `apps/web/src/lib/public-file.ts` lines 44–49):
 | --------------- | ------------------------------------------- | ------------------ |
 | Page link       | `canonical`                                 | always             |
 | Direct file URL | `file.url`                                  | always             |
-| Markdown image  | `![​](${embedSrc})`                         | `kind === "image"` |
+| Markdown image  | `![​](${embedSrc})`                          | `kind === "image"` |
 | Markdown link   | `[${filename}](${canonical})`               | always             |
 | HTML `<img>`    | `<img src="${embedSrc}" alt="${filename}">` | `kind === "image"` |
 

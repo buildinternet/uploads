@@ -101,7 +101,7 @@ hosted on R2 via the uploads platform itself, never committed to the repo.
 
 - `apps/web/public/.well-known/releases.json`: add top-level entry
   `{ "title": "Changelog", "url": "https://uploads.sh/changelog",
-"feed": "https://uploads.sh/changelog.xml", "canonical": true }`; remove
+  "feed": "https://uploads.sh/changelog.xml", "canonical": true }`; remove
   `canonical` from the GitHub entry (keep the entry itself).
 - Validate with the creating-releases-json skill's `validate.mjs` before
   shipping.

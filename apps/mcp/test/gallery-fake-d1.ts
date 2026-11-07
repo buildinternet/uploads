@@ -141,8 +141,8 @@ class GalleryFakeStatement {
   }
 
   private createGallery(): D1Result {
-    const [id, workspace, title, description, createdAt, updatedAt, countWorkspace, limit] = this
-      .values as [string, string, string, string | null, string, string, string, number];
+    const [id, workspace, title, description, createdAt, updatedAt, countWorkspace, limit] =
+      this.values as [string, string, string, string | null, string, string, string, number];
     const changes =
       this.database.galleries.filter(
         (gallery) => gallery.workspace === countWorkspace && gallery.deleted_at === null,

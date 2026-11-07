@@ -228,8 +228,8 @@ stacked series). All are safe to land before any UI exists.
 - **Routes** (all `sessionAuth` + `requireSessionUser` +
   `adminWorkspaceOr403`, writes behind `allowWrite`):
   - `GET /me/workspaces/:name/storage` → `{ mode: "shared" | "byo",
-bucket?, accountIdMasked?, accessKeyIdLast4?, publicBaseUrl?,
-verifiedAt?, verify?: <last verify summary> }`. Never values.
+    bucket?, accountIdMasked?, accessKeyIdLast4?, publicBaseUrl?,
+    verifiedAt?, verify?: <last verify summary> }`. Never values.
   - `POST /me/workspaces/:name/storage/verify` → runs the pipeline above on
     the request body; persists nothing.
   - `PUT /me/workspaces/:name/storage` → requires a passing _required_ check

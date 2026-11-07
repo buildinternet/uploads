@@ -931,16 +931,12 @@ export const register: Register = (on, options) => {
     $.ui.toast(outcome.toast);
     const { record } = outcome;
     if (record) {
-      await update(
-        $,
-        attached,
-        (): Attached => ({
-          ...record,
-          repo: target.repo,
-          branch: head,
-          pr: target.pr,
-        }),
-      );
+      await update($, attached, (): Attached => ({
+        ...record,
+        repo: target.repo,
+        branch: head,
+        pr: target.pr,
+      }));
     }
     return outcome.context ? { ...ran, context: [...(ran.context ?? []), outcome.context] } : ran;
   });

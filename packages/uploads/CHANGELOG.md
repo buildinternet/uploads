@@ -618,7 +618,7 @@
 
   `uploads login` on an account with no workspace yet now offers a name derived
   from your GitHub login as a bracketed default (`… (lowercase, hyphens)
-[octocat]:`). Press Enter to accept it, or type anything else to override. When
+  [octocat]:`). Press Enter to accept it, or type anything else to override. When
   no name can be derived — no linked GitHub account, or the derived name is
   reserved or already taken — the prompt is exactly as before.
 

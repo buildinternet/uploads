@@ -123,7 +123,7 @@ no-cache host so overwrites propagate. Don't hand-build storage URLs.
 - **Motion:** GitHub markdown won't autoplay MP4 URLs — prefer a GIF, or a
   still image that links to the video URL.
 - Write bodies to a file and use `gh pr edit --body-file` / `gh issue comment
---body-file` rather than inline HEREDOCs.
+  --body-file` rather than inline HEREDOCs.
 
 ## Setup and escalation
 
