@@ -301,7 +301,7 @@ importers:
         version: 0.44.3(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))
       files-sdk:
         specifier: ^3.1.2
-        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@7.0.163(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
       img-comparison-slider:
         specifier: ^8.0.7
         version: 8.0.7
@@ -437,7 +437,7 @@ importers:
         version: 3.1080.0
       files-sdk:
         specifier: ^3.1.2
-        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@7.0.163(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260706.1
@@ -490,7 +490,7 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       files-sdk:
         specifier: ^3.1.2
-        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@7.0.163(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -538,11 +538,11 @@ importers:
         specifier: ^26.1.0
         version: 26.1.0
       ai:
-        specifier: ^6.0.0
-        version: 6.0.220(zod@4.5.4)
+        specifier: ^7.0.0
+        version: 7.0.163(zod@4.6.7)
       files-sdk:
         specifier: ^3.1.2
-        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.5.4))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
+        version: 3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@7.0.163(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -587,21 +587,21 @@ importers:
 
 packages:
 
-  '@ai-sdk/gateway@3.0.144':
-    resolution: {integrity: sha512-U0B6LI+12JNN7rCzYQ5hlaKJCMypFldnLBLzJSgioC4Z6hrCLA8K6ICl2MfRfpLfo9yz2EN30chgo/89RDe5ZQ==}
-    engines: {node: '>=18'}
+  '@ai-sdk/gateway@4.0.136':
+    resolution: {integrity: sha512-P851NL80P85Ee6MhblRuuCzNlQdOYU5rKmdt/Wuo5dMtkzvIHhyVZY9wtfKG3wBJUUoxHxWKsI2aR6O75o8diA==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@4.0.36':
-    resolution: {integrity: sha512-hy0V+eyKcYyjmIxdcSh1jvy4+zNC7DbP0/V45jkRmfVnz+lI6GslT0qsd0V/bfJKo/A+P2t1tYFypTQJdOH1Sg==}
-    engines: {node: '>=18'}
+  '@ai-sdk/provider-utils@5.0.75':
+    resolution: {integrity: sha512-k4yAsFliGZwoTpyTpm3ptxwIeaPvRh5vGh/UWoqDiLLXKoyz4zuBGS7p3ygf8to5Bh4fAOHynotLBsWLIYdu2A==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider@3.0.13':
-    resolution: {integrity: sha512-ZPtVYt5QIJzOta1kdUiDuCx4HhFkvNPv/rvmZ2b1iXwybYjJsCnNYR4PAw4kW7rgVfDARvHXcU64efWuqNp6bw==}
-    engines: {node: '>=18'}
+  '@ai-sdk/provider@4.0.36':
+    resolution: {integrity: sha512-GqvWZSZdBelCGughlBdOoupT258rgM3YMbaLAS9WSZJ0vlt8c9vm3My+ZT31mYhiReMCMCF2qF2axnGbILpk1A==}
+    engines: {node: '>=22'}
 
   '@astrojs/check@0.9.10':
     resolution: {integrity: sha512-zgx/UQMozdjOa3bOxjgeCFdtpE3c9rRX6xHwa+2QXvy8z8Akifu2AtubHyv/zzC2znO8dl8fFWL4K+Ba9kS8HQ==}
@@ -3726,6 +3726,9 @@ packages:
   '@webassemblyjs/wast-printer@1.14.1':
     resolution: {integrity: sha512-kPSSXE6De1XOR820C90RIo2ogvZG+c3KiHzqUoO/F34Y2shGzesfqv7o57xrxovZJH/MetF5UjroJ/R/3isoiw==}
 
+  '@workflow/serde@4.1.0':
+    resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
+
   '@xmldom/xmldom@0.9.12':
     resolution: {integrity: sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==}
     engines: {node: '>=14.6'}
@@ -3751,9 +3754,9 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  ai@6.0.220:
-    resolution: {integrity: sha512-S0zifFbegc4CjfEo3nsEtBraXP22JKchN5SkcLDvIUNCefkWavmp8pPF0ey1yipBPRdTF7oy7EchLIZM1HmtuQ==}
-    engines: {node: '>=18'}
+  ai@7.0.163:
+    resolution: {integrity: sha512-nm8+qn36NQXO4Hjfj7SlbcNRhUyNXKtdoS9xhXr/z92lvdGFuPkzHmA2tFzhaUQy13IitNYrcw2QSNpEJC/iSA==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
@@ -7119,37 +7122,23 @@ packages:
 
 snapshots:
 
-  '@ai-sdk/gateway@3.0.144(zod@4.5.4)':
+  '@ai-sdk/gateway@4.0.136(zod@4.6.7)':
     dependencies:
-      '@ai-sdk/provider': 3.0.13
-      '@ai-sdk/provider-utils': 4.0.36(zod@4.5.4)
-      '@vercel/oidc': 3.2.0
-      zod: 4.5.4
-
-  '@ai-sdk/gateway@3.0.144(zod@4.6.7)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.13
-      '@ai-sdk/provider-utils': 4.0.36(zod@4.6.7)
+      '@ai-sdk/provider': 4.0.36
+      '@ai-sdk/provider-utils': 5.0.75(zod@4.6.7)
       '@vercel/oidc': 3.2.0
       zod: 4.6.7
-    optional: true
 
-  '@ai-sdk/provider-utils@4.0.36(zod@4.5.4)':
+  '@ai-sdk/provider-utils@5.0.75(zod@4.6.7)':
     dependencies:
-      '@ai-sdk/provider': 3.0.13
+      '@ai-sdk/provider': 4.0.36
       '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.0
-      zod: 4.5.4
-
-  '@ai-sdk/provider-utils@4.0.36(zod@4.6.7)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.13
-      '@standard-schema/spec': 1.1.0
-      eventsource-parser: 3.1.0
+      undici: 7.30.2
       zod: 4.6.7
-    optional: true
 
-  '@ai-sdk/provider@3.0.13':
+  '@ai-sdk/provider@4.0.36':
     dependencies:
       json-schema: 0.4.0
 
@@ -8703,7 +8692,8 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
 
-  '@opentelemetry/api@1.9.1': {}
+  '@opentelemetry/api@1.9.1':
+    optional: true
 
   '@oslojs/encoding@1.1.0': {}
 
@@ -8928,7 +8918,7 @@ snapshots:
       react-refresh: 0.18.0
       remotion: 4.0.496(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       style-loader: 4.0.0(webpack@5.105.0(esbuild@0.28.1)(postcss@8.5.32))
-      webpack: 5.105.0(esbuild@0.28.2)(postcss@8.5.32)
+      webpack: 5.105.0(esbuild@0.28.1)(postcss@8.5.32)
     transitivePeerDependencies:
       - '@minify-html/node'
       - '@swc/core'
@@ -9771,7 +9761,7 @@ snapshots:
 
   '@types/estree-jsx@1.0.5':
     dependencies:
-      '@types/estree': 1.0.9
+      '@types/estree': 1.0.10
 
   '@types/estree@1.0.10': {}
 
@@ -10024,6 +10014,8 @@ snapshots:
       '@webassemblyjs/ast': 1.14.1
       '@xtuc/long': 4.2.2
 
+  '@workflow/serde@4.1.0': {}
+
   '@xmldom/xmldom@0.9.12': {}
 
   '@xtuc/ieee754@1.2.0': {}
@@ -10041,22 +10033,12 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  ai@6.0.220(zod@4.5.4):
+  ai@7.0.163(zod@4.6.7):
     dependencies:
-      '@ai-sdk/gateway': 3.0.144(zod@4.5.4)
-      '@ai-sdk/provider': 3.0.13
-      '@ai-sdk/provider-utils': 4.0.36(zod@4.5.4)
-      '@opentelemetry/api': 1.9.1
-      zod: 4.5.4
-
-  ai@6.0.220(zod@4.6.7):
-    dependencies:
-      '@ai-sdk/gateway': 3.0.144(zod@4.6.7)
-      '@ai-sdk/provider': 3.0.13
-      '@ai-sdk/provider-utils': 4.0.36(zod@4.6.7)
-      '@opentelemetry/api': 1.9.1
+      '@ai-sdk/gateway': 4.0.136(zod@4.6.7)
+      '@ai-sdk/provider': 4.0.36
+      '@ai-sdk/provider-utils': 5.0.75(zod@4.6.7)
       zod: 4.6.7
-    optional: true
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
@@ -10578,7 +10560,7 @@ snapshots:
       semver: 7.8.5
     optionalDependencies:
       '@rspack/core': 1.7.11
-      webpack: 5.105.0(esbuild@0.28.2)(postcss@8.5.32)
+      webpack: 5.105.0(esbuild@0.28.1)(postcss@8.5.32)
 
   css-select@6.0.0:
     dependencies:
@@ -10972,7 +10954,7 @@ snapshots:
     dependencies:
       is-unicode-supported: 2.1.0
 
-  files-sdk@3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.5.4))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
+  files-sdk@3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@7.0.163(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
@@ -10987,7 +10969,7 @@ snapshots:
       '@aws-sdk/s3-request-presigner': 3.1080.0
       '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)
       '@opentelemetry/api': 1.9.1
-      ai: 6.0.220(zod@4.5.4)
+      ai: 7.0.163(zod@4.6.7)
       astro: 7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
       h3: 1.15.11
       hono: 4.13.16
@@ -10998,7 +10980,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  files-sdk@3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
+  files-sdk@3.1.2(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@7.0.163(zod@4.6.7))(astro@7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1))(h3@1.15.11)(hono@4.13.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.6.7):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
@@ -11013,7 +10995,7 @@ snapshots:
       '@aws-sdk/s3-request-presigner': 3.1080.0
       '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)
       '@opentelemetry/api': 1.9.1
-      ai: 6.0.220(zod@4.6.7)
+      ai: 7.0.163(zod@4.6.7)
       astro: 7.4.7(@types/node@26.1.0)(aws4fetch@1.0.20)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.1)
       h3: 1.15.11
       hono: 4.13.16
@@ -12625,7 +12607,7 @@ snapshots:
 
   style-loader@4.0.0(webpack@5.105.0(esbuild@0.28.1)(postcss@8.5.32)):
     dependencies:
-      webpack: 5.105.0(esbuild@0.28.2)(postcss@8.5.32)
+      webpack: 5.105.0(esbuild@0.28.1)(postcss@8.5.32)
 
   sucrase@3.35.1:
     dependencies:
@@ -12675,7 +12657,7 @@ snapshots:
       jest-worker: 27.5.1
       schema-utils: 4.3.3
       terser: 5.49.0
-      webpack: 5.105.0(esbuild@0.28.2)(postcss@8.5.32)
+      webpack: 5.105.0(esbuild@0.28.1)(postcss@8.5.32)
     optionalDependencies:
       esbuild: 0.28.1
       postcss: 8.5.32
@@ -13146,7 +13128,7 @@ snapshots:
 
   webpack-sources@3.5.1: {}
 
-  webpack@5.105.0(esbuild@0.28.2)(postcss@8.5.32):
+  webpack@5.105.0(esbuild@0.28.1)(postcss@8.5.32):
     dependencies:
       '@types/eslint-scope': 3.7.7
       '@types/estree': 1.0.9
