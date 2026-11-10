@@ -2,7 +2,11 @@ import { decode, encode } from "jpeg-js";
 import { describe, expect, it } from "vitest";
 import { makePoster, POSTER_MAX_DURATION_SECONDS, POSTER_MAX_INPUT_BYTES } from "./poster";
 import type { FrameExtractor, VideoProbe } from "./poster";
-import { PLAY_BUTTON_DIAMETER_RATIO } from "./poster-overlay";
+import { loadImageWasm } from "./image-wasm";
+
+/** Button diameter as a fraction of the shorter edge (`rust/image/src/jpeg.rs`). */
+const PLAY_BUTTON_DIAMETER_RATIO = 0.22;
+const wasm = await loadImageWasm();
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff]);
 
@@ -30,7 +34,7 @@ function deps(over: Partial<{ extractor: FrameExtractor; probe: VideoProbe }> = 
       return { durationSeconds: 14, dimensions: { width: 1920, height: 1080 } };
     },
   };
-  return { deps: { extractor, probe, ...over }, times };
+  return { deps: { extractor, probe, wasm, ...over }, times };
 }
 
 const bytes = new Uint8Array([1, 2, 3]);
@@ -121,7 +125,7 @@ describe("makePoster", () => {
   });
 
   it("keeps the extracted frame when the overlay cannot decode it", async () => {
-    // JPEG is a 3-byte stub — overlayPlayButton throws, makePoster fail-opens.
+    // JPEG is a 3-byte stub: the overlay cannot decode it, so the bare frame stays.
     const { deps: d } = deps();
     const out = await makePoster({ bytes, contentType: "video/mp4" }, d);
     expect(out!.jpeg).toEqual(JPEG);

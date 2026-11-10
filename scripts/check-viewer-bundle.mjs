@@ -73,7 +73,7 @@ for (const [path, artifact] of Object.entries(meta.outputs)) {
 // Check emitted contributions, not esbuild's parsed inputs: a shared module
 // may contain owner functionality that tree shaking correctly removes.
 const forbidden =
-  /(?:^(?:.*apps\/api\/)?src\/index\.ts$|(?:^|\/)src\/(?:pdf-preview|poster-overlay|classifier)\.ts$|\/routes\/(?:files|admin|render|github-webhook)\.ts$|\/(?:clawpdf|mediabunny|jpeg-js|pngjs)(?:\/|@)|\.wasm$)/;
+  /(?:^(?:.*apps\/api\/)?src\/index\.ts$|(?:^|\/)src\/(?:pdf-preview|classifier)\.ts$|\/routes\/(?:files|admin|render|github-webhook)\.ts$|\/(?:clawpdf|mediabunny)(?:\/|@)|\.wasm$)/;
 const violations = [...linked].filter((path) => forbidden.test(path));
 function wasmFiles(directory) {
   return readdirSync(directory).flatMap((name) => {

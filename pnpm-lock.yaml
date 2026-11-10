@@ -13,7 +13,6 @@ overrides:
 
 patchedDependencies:
   '@better-auth/oauth-provider': 10c367a00e460e202ca39cb72b03a0521d628d5c97b45db0da0ad4042264788c
-  pngjs@7.0.0: 0ee690fd09f39449f02ed3c3a05c7878a0061c51507b0a884a85f3a86c5a6f7a
 
 importers:
 
@@ -91,15 +90,9 @@ importers:
       hono:
         specifier: ^4.13.16
         version: 4.13.16
-      jpeg-js:
-        specifier: ^0.4.4
-        version: 0.4.4
       mediabunny:
         specifier: ^1.50.9
         version: 1.50.9
-      pngjs:
-        specifier: ^7.0.0
-        version: 7.0.0(patch_hash=0ee690fd09f39449f02ed3c3a05c7878a0061c51507b0a884a85f3a86c5a6f7a)
     devDependencies:
       '@types/node':
         specifier: ^26.1.0
@@ -107,6 +100,9 @@ importers:
       '@uploads/auth':
         specifier: workspace:^
         version: link:../auth
+      jpeg-js:
+        specifier: ^0.4.4
+        version: 0.4.4
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -5804,10 +5800,6 @@ packages:
     resolution: {integrity: sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==}
     engines: {node: '>=18'}
     hasBin: true
-
-  pngjs@7.0.0:
-    resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
-    engines: {node: '>=14.19.0'}
 
   points-on-curve@0.2.0:
     resolution: {integrity: sha512-0mYKnYYe9ZcqMCWhUjItv/oHjvgEsfKvnUTg8sAtnHr3GVy7rGkXCb6d5cSyqrWqL4k81b9CPg3urd+T7aop3A==}
@@ -11948,8 +11940,6 @@ snapshots:
 
   playwright-core@1.61.1:
     optional: true
-
-  pngjs@7.0.0(patch_hash=0ee690fd09f39449f02ed3c3a05c7878a0061c51507b0a884a85f3a86c5a6f7a): {}
 
   points-on-curve@0.2.0: {}
 

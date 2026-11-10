@@ -1,13 +1,19 @@
-import { readFileSync } from "node:fs";
 import { decode, encode } from "jpeg-js";
 import { describe, expect, it } from "vitest";
-import { wasmEncodeJpeg, wasmPosterPlay } from "./image-wasm";
-import { overlayPlayButton } from "./poster-overlay";
-import { playButtonPng } from "./poster-play-button";
+import { loadImageWasm, wasmEncodeJpeg, wasmPosterPlay } from "./image-wasm";
 
-/** Workers types only declare the bundled-module form, so build it the Node way. */
-const NodeModule = WebAssembly.Module as unknown as new (bytes: Uint8Array) => WebAssembly.Module;
-const wasm = new NodeModule(readFileSync(new URL("./image.wasm", import.meta.url).pathname));
+const wasm = (await loadImageWasm())!;
+
+function solid(width: number, height: number, r: number, g: number, b: number): Uint8Array {
+  const data = new Uint8Array(width * height * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+    data[i + 3] = 255;
+  }
+  return data;
+}
 
 function gradient(width: number, height: number): Uint8Array {
   const data = new Uint8Array(width * height * 4);
@@ -23,8 +29,17 @@ function gradient(width: number, height: number): Uint8Array {
   return data;
 }
 
+function jpegOf(data: Uint8Array, width: number, height: number): Uint8Array {
+  return new Uint8Array(encode({ data, width, height }, 95).data);
+}
+
 function rgbaOf(jpeg: Uint8Array) {
   return decode(jpeg, { useTArray: true, formatAsRGBA: true });
+}
+
+function px(data: Uint8Array, width: number, x: number, y: number): [number, number, number] {
+  const i = (y * width + x) * 4;
+  return [data[i]!, data[i + 1]!, data[i + 2]!];
 }
 
 /** Mean absolute difference per channel, ignoring alpha. */
@@ -38,36 +53,37 @@ function meanDiff(a: Uint8Array, b: Uint8Array): number {
   return sum / n;
 }
 
-describe("image.wasm", () => {
-  it("embeds the same play-button PNG as poster-play-button.ts", () => {
-    const asset = readFileSync(
-      new URL("../rust/image/assets/play-button.png", import.meta.url).pathname,
-    );
-    expect(Buffer.from(playButtonPng()).equals(asset)).toBe(true);
+describe("wasmPosterPlay", () => {
+  it("composites the play-circle onto a dark frame", () => {
+    const out = wasmPosterPlay(wasm, jpegOf(solid(320, 180, 16, 18, 22), 320, 180));
+    const img = rgbaOf(out!);
+    expect([img.width, img.height]).toEqual([320, 180]);
+
+    // Disc fill left of the triangle, still inside the circle.
+    for (const c of px(img.data, 320, 160 - 12, 90)) expect(c).toBeGreaterThan(180);
+    // The triangle sits slightly east of center, so just right of center is dark.
+    const [tr, tg, tb] = px(img.data, 320, 164, 90);
+    expect((tr + tg + tb) / 3).toBeLessThan(120);
+    // Corners keep the frame.
+    for (const c of px(img.data, 320, 2, 2)) expect(c).toBeLessThan(50);
   });
 
-  it("bakes the play button like the JS overlay", () => {
-    const src = new Uint8Array(
-      encode({ data: gradient(640, 360), width: 640, height: 360 }, 90).data,
-    );
-    const rust = wasmPosterPlay(wasm, src);
-    expect(rust).toBeDefined();
-    const a = rgbaOf(rust!);
-    const b = rgbaOf(overlayPlayButton(src));
-    expect([a.width, a.height]).toEqual([640, 360]);
-    expect(meanDiff(a.data, b.data)).toBeLessThan(2);
+  it("leaves a tiny frame unpainted", () => {
+    const img = rgbaOf(wasmPosterPlay(wasm, jpegOf(solid(24, 16, 10, 10, 10), 24, 16))!);
+    for (const c of px(img.data, 24, 12, 8)) expect(c).toBeLessThan(30);
   });
 
   it("returns undefined for an unreadable frame", () => {
     expect(wasmPosterPlay(wasm, new Uint8Array([1, 2, 3]))).toBeUndefined();
   });
+});
 
-  it("encodes RGBA close to jpeg-js at the same quality", () => {
+describe("wasmEncodeJpeg", () => {
+  it("round-trips RGBA at the given size", () => {
     const rgba = gradient(640, 480);
-    const rust = wasmEncodeJpeg(wasm, rgba, 640, 480, 85);
-    expect(rust).toBeDefined();
-    const js = new Uint8Array(encode({ data: rgba, width: 640, height: 480 }, 85).data);
-    expect(meanDiff(rgbaOf(rust!).data, rgbaOf(js).data)).toBeLessThan(2);
+    const img = rgbaOf(wasmEncodeJpeg(wasm, rgba, 640, 480, 85)!);
+    expect([img.width, img.height]).toEqual([640, 480]);
+    expect(meanDiff(img.data, rgba)).toBeLessThan(2);
   });
 
   it("rejects a buffer that does not match its size", () => {

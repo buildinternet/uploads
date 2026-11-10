@@ -1,14 +1,14 @@
-//! Ports of `poster-overlay.ts` and the PDF preview's JPEG encode. The
-//! composite mirrors the TS step for step; the encoder is jpeg-encoder at
-//! 4:4:4, the same subsampling jpeg-js writes.
+//! The poster play-button overlay and the PDF preview's JPEG encode. Both
+//! started as ports of the TS (jpeg-js) versions, removed in Nov 2026; the
+//! encoder is jpeg-encoder at 4:4:4, the subsampling jpeg-js wrote.
 
 use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
 
-/// `PLAY_BUTTON_DIAMETER_RATIO` in poster-overlay.ts.
+/// Button diameter as a fraction of the shorter edge.
 const PLAY_BUTTON_DIAMETER_RATIO: f64 = 0.22;
 const PLAY_BUTTON_JPEG_QUALITY: u8 = 85;
 const MIN_EDGE_PX: usize = 32;
-/// jpeg-js `maxResolutionInMP: 8` in the TS overlay.
+/// The old TS overlay's jpeg-js `maxResolutionInMP: 8`.
 const MAX_POSTER_PIXELS: usize = 8_000_000;
 
 /// Same 256×256 PNG as `playButtonPng()`; a test checks they are equal.

@@ -5,7 +5,7 @@ import { deleteObject, putObject } from "../src/files-core";
 import { contentSha256Hex } from "../src/provenance";
 import { FakeR2Bucket } from "./fake-r2";
 import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
-import { imagePhash } from "../src/phash";
+import { resolveImagePhash } from "../src/phash";
 import {
   CLASSIFIER_JEV_MODEL,
   CLASSIFIER_LUNA_MODEL,
@@ -38,6 +38,8 @@ afterEach(() => {
 function jevAnswer(choice: string, confidence = 0.9) {
   return { type: "choice", choice, confidence, probabilities: { [choice]: confidence } };
 }
+
+const imagePhash = await resolveImagePhash();
 
 const DECIDED = {
   model: "~typesafe/jev-latest",

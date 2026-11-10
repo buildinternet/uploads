@@ -10,11 +10,7 @@ export interface PdfPreviewResult {
   meta: Record<string, string>;
 }
 
-/** `wasm` is the Rust JPEG encoder when the `rust-jpeg` flag is on. */
-export type PdfPreviewRenderer = (
-  bytes: Uint8Array,
-  wasm?: WebAssembly.Module,
-) => Promise<PdfPreviewResult | null>;
+export type PdfPreviewRenderer = (bytes: Uint8Array) => Promise<PdfPreviewResult | null>;
 
 let renderer: PdfPreviewRenderer | null = null;
 

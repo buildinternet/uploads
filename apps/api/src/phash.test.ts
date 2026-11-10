@@ -1,13 +1,10 @@
-import { readFileSync } from "node:fs";
 import { crc32, deflateSync } from "node:zlib";
 import { encode } from "jpeg-js";
 import { describe, expect, it } from "vitest";
-import { imagePhash } from "./phash";
-import { wasmImagePhash } from "./phash-wasm";
+import { loadImageWasm } from "./image-wasm";
+import { resolveImagePhash, wasmImagePhash } from "./phash";
 
-/** Workers types only declare the bundled-module form, so build it the Node way. */
-const NodeModule = WebAssembly.Module as unknown as new (bytes: Uint8Array) => WebAssembly.Module;
-const wasm = new NodeModule(readFileSync(new URL("./image.wasm", import.meta.url).pathname));
+const wasm = (await loadImageWasm())!;
 
 function rgba(width: number, height: number, seed: number): Uint8Array {
   const data = new Uint8Array(width * height * 4);
@@ -53,18 +50,18 @@ function png(width: number, height: number, seed: number): Uint8Array {
   );
 }
 
+const GOLDEN = ["5813f942d2dbf902", "22aba3bd7c2fac00", "314edaa70d335c58"];
+
 describe("wasmImagePhash", () => {
-  it("matches the TS hash on PNG", () => {
-    for (const [w, h, seed] of [
+  // Hashes the removed TS (pngjs) path wrote for these images. Stored PNG
+  // hashes must keep matching, or label reuse misses on old uploads.
+  it("keeps the TS hashes on PNG", () => {
+    const hashes = [
       [400, 300, 1],
       [333, 517, 9],
       [64, 40, 3],
-    ] as const) {
-      const bytes = png(w, h, seed);
-      const ts = imagePhash(bytes, "image/png");
-      expect(ts).toMatch(/^[0-9a-f]{16}$/);
-      expect(wasmImagePhash(wasm, bytes, "image/png")).toBe(ts);
-    }
+    ].map(([w, h, seed]) => wasmImagePhash(wasm, png(w!, h!, seed!), "image/png"));
+    expect(hashes).toEqual(GOLDEN);
   });
 
   it("hashes JPEG", () => {
@@ -76,5 +73,12 @@ describe("wasmImagePhash", () => {
     expect(wasmImagePhash(wasm, png(40, 40, 1), "image/webp")).toBeUndefined();
     const truncated = png(200, 200, 2).slice(0, 60);
     expect(wasmImagePhash(wasm, truncated, "image/png")).toBeUndefined();
+  });
+});
+
+describe("resolveImagePhash", () => {
+  it("hashes with the registered module", async () => {
+    const hash = await resolveImagePhash();
+    expect(hash(png(400, 300, 1), "image/png")).toBe(GOLDEN[0]);
   });
 });

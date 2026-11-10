@@ -2,7 +2,8 @@
  * First-page PDF raster (issue #1009).
  *
  * Engine: [clawpdf](https://github.com/openclaw/clawpdf) — PDFium WASM, no
- * native canvas. `render()` returns RGBA; jpeg-js encodes it. Browser Run is
+ * native canvas. `render()` returns RGBA; the Rust image
+ * module (`image-wasm.ts`) encodes it. Browser Run is
  * not on this path. unpdf's `renderPageAsImage` needs a Node canvas and does
  * not run on workerd.
  *
@@ -20,8 +21,7 @@
  */
 
 import { createEngine, PdfError, type PdfEngine } from "clawpdf";
-import { encode } from "jpeg-js";
-import { wasmEncodeJpeg } from "./image-wasm";
+import { loadImageWasm, wasmEncodeJpeg } from "./image-wasm";
 import { overlayPdfBadge } from "./pdf-badge";
 import { registerPdfPreviewRenderer, type PdfPreviewResult } from "./pdf-preview-hook";
 
@@ -84,12 +84,11 @@ function resetEngine(engine: PdfEngine | undefined): void {
  * Rasterize page 1, or return null. Password-protected, malformed, empty,
  * and over-budget documents are null. The caller stores the PDF either way.
  */
-export async function renderPdfPreview(
-  bytes: Uint8Array,
-  wasm?: WebAssembly.Module,
-): Promise<PdfPreviewResult | null> {
+export async function renderPdfPreview(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
   if (bytes.byteLength > PDF_PREVIEW_MAX_INPUT_BYTES) return skipPreview("too_large");
   if (bytes.byteLength < 5 || !isPdfHeader(bytes)) return skipPreview("not_pdf");
+  const wasm = await loadImageWasm();
+  if (!wasm) return skipPreview("no_encoder");
   return exclusive(() => renderExclusive(bytes, wasm));
 }
 
@@ -104,7 +103,7 @@ function skipPreview(reason: string, err?: unknown): null {
 
 async function renderExclusive(
   bytes: Uint8Array,
-  wasm: WebAssembly.Module | undefined,
+  wasm: WebAssembly.Module,
 ): Promise<PdfPreviewResult | null> {
   let engine: PdfEngine | undefined;
   try {
@@ -132,6 +131,7 @@ async function renderExclusive(
       // Copy out of the WASM heap before the document is destroyed.
       const rgba = overlayPdfBadge(rendered.rgba, rendered.width, rendered.height);
       const jpeg = encodeJpeg(rgba, rendered.width, rendered.height, wasm);
+      if (!jpeg) return skipPreview("encode_failed");
       const meta: Record<string, string> = {
         "pdf.poster": "1",
         "pdf.pages": String(pageCount),
@@ -155,17 +155,14 @@ function encodeJpeg(
   rgba: Uint8Array,
   width: number,
   height: number,
-  wasm: WebAssembly.Module | undefined,
-): Uint8Array {
-  if (wasm) {
-    try {
-      const out = wasmEncodeJpeg(wasm, rgba, width, height, JPEG_QUALITY);
-      if (out) return out;
-    } catch (err) {
-      console.error({ event: "image_wasm_failed", op: "encode_jpeg", err });
-    }
+  wasm: WebAssembly.Module,
+): Uint8Array | undefined {
+  try {
+    return wasmEncodeJpeg(wasm, rgba, width, height, JPEG_QUALITY);
+  } catch (err) {
+    console.error({ event: "image_wasm_failed", op: "encode_jpeg", err });
+    return undefined;
   }
-  return new Uint8Array(encode({ data: rgba, width, height }, JPEG_QUALITY).data);
 }
 
 function isPdfHeader(bytes: Uint8Array): boolean {

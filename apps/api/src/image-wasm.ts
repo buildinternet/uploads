@@ -1,21 +1,14 @@
 /**
  * The Rust image crate (`apps/api/rust/image`), checked in as `image.wasm`.
- * It holds the classifier pHash (`phash-wasm.ts`) and the JPEG work for
- * video posters and PDF previews. Every caller falls back to the JS path
- * when the module is missing or a call fails.
+ * It holds the classifier pHash (`phash.ts`) and the JPEG work for video
+ * posters and PDF previews. There is no JS fallback: when the module is
+ * missing or a call fails, the caller skips the hash, the play button, or
+ * the PDF preview.
  *
  * Only the API entry registers the module (`image-wasm-install.ts`), so the
  * MCP worker, which shares `files-core`, never bundles it. Rebuild with
  * `pnpm --filter @uploads/api image:wasm`.
  */
-
-import { type WorkspaceRecord } from "./workspace";
-
-/**
- * Flagship flag for the poster and PDF preview JPEG path. Same
- * `{ org, workspace }` context as the classifier flags.
- */
-export const RUST_JPEG_FLAG = "rust-jpeg";
 
 export interface ImageWasmExports {
   memory: WebAssembly.Memory;
@@ -82,26 +75,4 @@ export function wasmEncodeJpeg(
 ): Uint8Array | undefined {
   const { exports, ptr } = instantiateWith(module, rgba);
   return output(exports, exports.encode_jpeg(ptr, rgba.length, width, height, quality));
-}
-
-/**
- * The module when `rust-jpeg` is on for this workspace, else undefined.
- * A missing binding or a thrown evaluation is off.
- */
-export async function rustJpegWasm(
-  env: Env,
-  ws: Pick<WorkspaceRecord, "name">,
-  workspaceName: string,
-): Promise<WebAssembly.Module | undefined> {
-  if (!loader || !env.FLAGS) return undefined;
-  // Same slug rule as `classifierEvaluationContext`.
-  const slug = ws.name?.trim() || workspaceName;
-  try {
-    if (!(await env.FLAGS.getBooleanValue(RUST_JPEG_FLAG, false, { org: slug, workspace: slug }))) {
-      return undefined;
-    }
-  } catch {
-    return undefined;
-  }
-  return loadImageWasm();
 }

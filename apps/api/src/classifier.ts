@@ -53,7 +53,7 @@ import {
   getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
-import { resolveImagePhash, type ImagePhash } from "./phash-wasm";
+import { resolveImagePhash, type ImagePhash } from "./phash";
 import { contentSha256Hex } from "./provenance";
 import { CLASSIFIER_CLEAN_VALUES, type ClassifierConfidenceBucket } from "./classifier-admin-wire";
 import { writeClassifierCallPoint } from "./classifier-call-analytics";
@@ -1593,7 +1593,7 @@ export async function classifyAndStore(
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
     const [provider, imagePhash] = await Promise.all([
       resolveClassifierProvider(env, ws, workspaceName),
-      resolveImagePhash(env, classifierEvaluationContext(ws, workspaceName)),
+      resolveImagePhash(),
     ]);
     const trivial = trivialImageSkip(contentType, bytes);
     if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider, bytes);
