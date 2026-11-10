@@ -21,7 +21,7 @@ import {
   attachmentImageWidth,
 } from "./github-comment-render";
 import { allowPoster, VIDEO_TYPES } from "./guards";
-import { overlayPlayButton } from "./poster-overlay";
+import { wasmPosterPlay } from "./image-wasm";
 
 export {
   POSTER_KEY_PREFIX,
@@ -177,6 +177,7 @@ export interface MadePoster {
  */
 export async function makePoster(
   input: { bytes: Uint8Array; contentType: string },
+  /** `wasm` is the image module; without it the poster has no play button. */
   deps: { extractor: FrameExtractor; probe: VideoProbe; wasm?: WebAssembly.Module },
 ): Promise<MadePoster | null> {
   if (!POSTER_SOURCE_CONTENT_TYPES.has(input.contentType)) return null;
@@ -209,10 +210,12 @@ export async function makePoster(
   // GitHub Camo will not play an external MP4, so the still needs a play
   // glyph baked in or it reads as a screenshot. Overlay failure keeps the
   // bare frame — a still without a button still beats a bullet link.
-  try {
-    jpeg = overlayPlayButton(jpeg, deps.wasm);
-  } catch {
-    // leave `jpeg` as the extracted frame
+  if (deps.wasm) {
+    try {
+      jpeg = wasmPosterPlay(deps.wasm, jpeg) ?? jpeg;
+    } catch (err) {
+      console.error({ event: "image_wasm_failed", op: "poster_play", err });
+    }
   }
 
   const meta: Record<string, string> = { "video.poster": "1" };

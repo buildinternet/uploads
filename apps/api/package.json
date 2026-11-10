@@ -77,13 +77,12 @@
     "aws4fetch": "^1.0.20",
     "clawpdf": "^0.3.2",
     "hono": "^4.13.16",
-    "jpeg-js": "^0.4.4",
-    "mediabunny": "^1.50.9",
-    "pngjs": "^7.0.0"
+    "mediabunny": "^1.50.9"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
     "@uploads/auth": "workspace:^",
+    "jpeg-js": "^0.4.4",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0",
     "wrangler": "^4.158.0"

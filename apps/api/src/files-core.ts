@@ -68,7 +68,7 @@ import {
 } from "./lane-list";
 import { pdfPreviewAllowed } from "./pdf-preview-gate";
 import { getPdfPreviewRenderer } from "./pdf-preview-hook";
-import { rustJpegWasm } from "./image-wasm";
+import { loadImageWasm } from "./image-wasm";
 import {
   makePoster,
   mediabunnyProbe,
@@ -307,7 +307,7 @@ export async function generateAndStorePoster(
         {
           extractor: mediaFrameExtractor(env.MEDIA),
           probe: mediabunnyProbe(),
-          wasm: await rustJpegWasm(env, ws, workspaceName),
+          wasm: await loadImageWasm(),
         },
       ),
       POSTER_GENERATION_TIMEOUT_MS,
@@ -351,7 +351,7 @@ async function generateAndStorePdfPreview(
     if (!renderer) return;
     if (!(await pdfPreviewAllowed(env, ws, workspaceName))) return;
     const made = await raceWithTimeout(
-      renderer(bytes, await rustJpegWasm(env, ws, workspaceName)),
+      renderer(bytes),
       PDF_PREVIEW_TIMEOUT_MS,
       "pdf preview timed out",
     );

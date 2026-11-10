@@ -33,7 +33,8 @@ pub fn image_phash(bytes: &[u8], kind: u32) -> Option<u64> {
     Some(dct_phash(&frame))
 }
 
-/// Matches pngjs: 16-bit samples round to 8 bits, and a tRNS color key
+/// Matches the pngjs decode the TS hash used, so stored PNG hashes still
+/// match: 16-bit samples round to 8 bits, and a tRNS color key
 /// zeroes the whole pixel (RGB too, not only alpha).
 fn decode_png(bytes: &[u8]) -> Option<Frame> {
     let mut decoder = png::Decoder::new(bytes);

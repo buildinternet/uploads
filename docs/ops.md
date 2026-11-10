@@ -1151,7 +1151,7 @@ stores a `.jpg` frame at `_internal/posters/<key>.jpg`, flagging the source
 object with D1 metadata `video.poster=1`. The JPEG has a play-circle overlay baked in so GitHub Camo still reads the
 still as a video. The glyph is a raster of Heroicons 24 solid `play-circle`
 (MIT) — circle and triangle as one SVG (`apps/api/src/poster-play-button.svg`),
-composited by `overlayPlayButton`. Overlay failure keeps the bare frame. It does **not** run on
+composited by the Rust image module (see Rust image module below). Overlay failure keeps the bare frame. It does **not** run on
 `POST /sign` uploads — those hand the client a presigned URL straight to R2,
 bypassing the worker (and therefore `generateAndStorePoster`) entirely. Any
 video uploaded that way needs a backfill pass (below).
@@ -1300,23 +1300,19 @@ that replacement.
 There is no backfill script. A re-PUT of the PDF bytes generates a preview
 while the flag is on, the same way the video backfill re-PUTs.
 
-### Rust JPEG path
+### Rust image module
 
-Flagship `rust-jpeg` (same `{ org, workspace }` context as the classifier
-flags, served off) moves the JPEG work for video posters (decode, play
-button, re-encode) and the PDF preview's encode into the Rust crate
-(`apps/api/rust/image`, `src/image.wasm`). The PDF badge is still drawn in
-JS. On 640-wide frames the poster step is about 3x faster and the PDF
-encode about 2.5x, at the same quality (85, 4:4:4) and about the same file
-size. A missing flag or a wasm error uses jpeg-js. The API entry registers
-the module (`image-wasm-install.ts`), so the MCP worker does not bundle it.
-
-```bash
-wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-  rust-jpeg --description "poster and PDF preview JPEGs with the Rust wasm build"
-wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-  rust-jpeg --default off
-```
+The JPEG work for video posters (decode, play button, re-encode) and the
+PDF preview's encode run in the Rust crate `apps/api/rust/image`, checked
+in as `src/image.wasm`. The PDF badge is still drawn in JS. The classifier
+pHash runs there too. There is no JS fallback: if the module is missing or
+a call fails, the poster keeps the bare frame, the PDF preview is skipped
+(`pdf_preview_skipped`, reason `encode_failed`), and the image goes
+unhashed. Failures log `image_wasm_failed` or `phash_wasm_failed`. The API
+entry registers the module (`image-wasm-install.ts`), so the MCP worker
+does not bundle it. After editing the crate, run
+`pnpm --filter @uploads/api image:wasm` (needs Rust and the
+`wasm32-unknown-unknown` target) and commit the new `.wasm`.
 
 ## Experimental LLM file classifier
 
@@ -1515,22 +1511,10 @@ as much as a full classification. It skips the display questions. `screen`
 is the largest of those. A file with no image the provider can see stays
 `ai.classifier=skipped`. It does not take the donor's labels instead.
 
-**Rust pHash try.** Flagship `phash-rust` (same `{ org, workspace }`
-context, served off) hashes with a Rust build compiled to wasm
-(`apps/api/rust/image`, checked in as `src/image.wasm`). It is about 3x
-faster on PNG and 4x on JPEG. PNG hashes equal the TS ones. About 1 in 5
-JPEGs hash a few bits differently, so a re-upload of an older JPEG can
-miss reuse once. It also hashes large JPEGs that jpeg-js rejects. A
-missing flag or a wasm error uses the TS hash. After editing the crate,
-run `pnpm --filter @uploads/api image:wasm` (needs Rust and the
-`wasm32-unknown-unknown` target) and commit the new `.wasm`.
-
-```bash
-wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-  phash-rust --description "hash classifier images with the Rust wasm build"
-wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-  phash-rust --default off
-```
+**pHash.** The hash runs in the Rust image module (see Rust image module
+above). PNG hashes equal the TS hashes it replaced. About 1 in 5 JPEGs
+hashed before Nov 2026 differ by a few bits, so a re-upload of one of
+those can miss reuse once.
 
 ### Held uploads
 
