@@ -1,5 +1,11 @@
 # @uploads/plugin
 
+## 0.4.11
+
+### Patch Changes
+
+- 3400ceb: The Claude plugin's directory icon is now a PNG named by the manifest's `icon` field. The Claude directory refuses SVG files from plugins whose organization isn't Verified.
+
 ## 0.4.10
 
 ### Patch Changes
