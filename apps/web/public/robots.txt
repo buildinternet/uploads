@@ -1,5 +1,5 @@
 # https://uploads.sh — public marketing surface only.
-# Invite magic links and the operator console must not be crawled or indexed.
+# Invite magic links must not be crawled or indexed.
 #
 # Content Signals (https://contentsignals.org/): preferences for how collected
 # content may be used. search = indexing/snippets; ai-input = RAG/grounding;
@@ -9,7 +9,6 @@ User-agent: *
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -20,7 +19,6 @@ User-agent: GPTBot
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -28,7 +26,6 @@ User-agent: OAI-SearchBot
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -36,7 +33,6 @@ User-agent: Claude-Web
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -44,7 +40,6 @@ User-agent: ClaudeBot
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -52,7 +47,6 @@ User-agent: anthropic-ai
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -60,7 +54,6 @@ User-agent: Google-Extended
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -68,7 +61,6 @@ User-agent: Amazonbot
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -76,7 +68,6 @@ User-agent: Applebot-Extended
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -84,7 +75,6 @@ User-agent: Bytespider
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 
@@ -92,7 +82,6 @@ User-agent: CCBot
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 Disallow: /invite
-Disallow: /console
 Disallow: /404
 Disallow: /500
 

@@ -309,5 +309,4 @@ staged files are promoted into the PR's attachments comment automatically.
 
 ## Do not crawl as public product surface
 
-Enrollment invite pages (`/invite`) and the browser console (`/console`) are
-private operator surfaces. See https://uploads.sh/robots.txt.
+Enrollment invite pages (`/invite`) are private operator surfaces. See https://uploads.sh/robots.txt.
