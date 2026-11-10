@@ -1271,10 +1271,10 @@ describe("mcp worker", () => {
   });
 
   it("evaluates the active-content gate once for a whole SVG batch (issue #929)", async () => {
-    // The gate is a workspace-level answer costing a Flagship evaluation plus
-    // a KV read — one tool call must resolve it once, not once per file.
+    // The gate is a workspace-level answer costing a KV read per host — one
+    // tool call must resolve it once, not once per file.
     const { env: base, bucket } = await makeEnv();
-    let evaluated = 0;
+    const hostReads: string[] = [];
     const registry = base.REGISTRY;
     const env = {
       ...base,
@@ -1283,15 +1283,12 @@ describe("mcp worker", () => {
         // Every hosted host, plus this fixture's own — the shared-lane gate
         // requires a fresh `ok` record for all of them (issue #929
         // adversarial review H-1), not just the workspace's public host.
-        get: async (key: string, type?: unknown) =>
-          key.startsWith("host-active-content:")
-            ? { ok: true, verifiedAt: new Date().toISOString() }
-            : (registry.get as (k: string, t?: unknown) => Promise<unknown>)(key, type),
-      },
-      FLAGS: {
-        getBooleanValue: async () => {
-          evaluated += 1;
-          return true;
+        get: async (key: string, type?: unknown) => {
+          if (!key.startsWith("host-active-content:")) {
+            return (registry.get as (k: string, t?: unknown) => Promise<unknown>)(key, type);
+          }
+          hostReads.push(key);
+          return { ok: true, verifiedAt: new Date().toISOString() };
         },
       },
     } as unknown as Env;
@@ -1316,7 +1313,9 @@ describe("mcp worker", () => {
       "image/svg+xml",
     ]);
     expect(bucket.store.size).toBe(3);
-    expect(evaluated).toBe(1);
+    // Each host checked once for the whole batch.
+    expect(hostReads.length).toBeGreaterThan(0);
+    expect(new Set(hostReads).size).toBe(hostReads.length);
   });
 
   it("multi-file put returns partial failures without aborting the batch", async () => {
