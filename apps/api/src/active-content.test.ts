@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ACTIVE_CONTENT_FLAG,
   HOST_RECORD_MAX_AGE_MS,
   LANE_STAMP_MAX_AGE_MS,
   activeContentAllowed,
@@ -10,14 +9,6 @@ import { HOSTED_ACTIVE_CONTENT_HOSTS } from "./active-content-hosts";
 import type { WorkspaceRecord } from "./workspace";
 
 const NOW = new Date("2026-09-02T12:00:00.000Z");
-
-const flagsOn = { getBooleanValue: async () => true };
-const flagsOff = { getBooleanValue: async (_k: string, def: boolean) => def };
-const flagsThrows = {
-  getBooleanValue: async () => {
-    throw new Error("flagship unreachable");
-  },
-};
 
 /** In-memory REGISTRY KV stand-in — `get` over a Map, seeded with host records. */
 function fakeRegistry(records: Record<string, unknown> = {}) {
@@ -29,7 +20,6 @@ function fakeRegistry(records: Record<string, unknown> = {}) {
 
 function env(over: Record<string, unknown> = {}) {
   return {
-    FLAGS: flagsOn,
     REGISTRY: fakeRegistry(),
     ...over,
   } as unknown as Env;
@@ -71,39 +61,14 @@ function hostRecords(over: Record<string, unknown> = {}, ageMs = 1000) {
 }
 
 describe("activeContentAllowed — cheap local gates", () => {
-  it("denies when the workspace opted out, before touching FLAGS or REGISTRY", async () => {
+  it("denies when the workspace opted out, before touching REGISTRY", async () => {
     expect(
       await activeContentAllowed(
-        env({ FLAGS: undefined, REGISTRY: undefined }),
+        env({ REGISTRY: undefined }),
         { ...SHARED_WS, activeContentUploads: false },
         NOW,
       ),
     ).toBe(false);
-  });
-
-  it("denies when the FLAGS binding is absent entirely", async () => {
-    expect(await activeContentAllowed(env({ FLAGS: undefined }), SHARED_WS, NOW)).toBe(false);
-  });
-
-  it("fails closed when Flagship evaluation falls back to the default", async () => {
-    expect(await activeContentAllowed(env({ FLAGS: flagsOff }), SHARED_WS, NOW)).toBe(false);
-  });
-
-  it("fails closed when Flagship evaluation throws", async () => {
-    expect(await activeContentAllowed(env({ FLAGS: flagsThrows }), SHARED_WS, NOW)).toBe(false);
-  });
-
-  it("checks the flag with the documented flag key and a false default", async () => {
-    let seen: [string, boolean] | null = null;
-    const capturing = {
-      getBooleanValue: async (key: string, def: boolean) => {
-        seen = [key, def];
-        return true;
-      },
-    };
-    const registry = fakeRegistry(hostRecords({}, 0));
-    await activeContentAllowed(env({ FLAGS: capturing, REGISTRY: registry }), SHARED_WS, NOW);
-    expect(seen).toEqual([ACTIVE_CONTENT_FLAG, false]);
   });
 
   it("denies when the active lane is flagged unhealthy, regardless of lane state", async () => {
@@ -340,9 +305,6 @@ describe("activeContentStatus — the reason behind the verdict", () => {
   it("names the check that closed the gate", async () => {
     const cases: Array<[string, Env, WorkspaceRecord, string?]> = [
       ["opted_out", env(), { ...SHARED_WS, activeContentUploads: false }],
-      ["flag_off", env({ FLAGS: undefined }), SHARED_WS],
-      ["flag_off", env({ FLAGS: flagsOff }), SHARED_WS],
-      ["flag_off", env({ FLAGS: flagsThrows }), SHARED_WS],
       [
         "unhealthy",
         env({ REGISTRY: fakeRegistry(freshHosts) }),

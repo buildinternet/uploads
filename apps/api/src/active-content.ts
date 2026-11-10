@@ -31,9 +31,6 @@ import { isSharedLane } from "./storage";
 import { HOSTED_ACTIVE_CONTENT_HOSTS, readHostActiveContent } from "./active-content-hosts";
 import type { WorkspaceRecord } from "./workspace";
 
-/** Flagship kill switch, fail-closed like `POSTER_FLAG`. */
-export const ACTIVE_CONTENT_FLAG = "active-content-uploads";
-
 /**
  * How long a hosted host's daily-probed KV record stays trusted. Comfortably
  * wider than the daily cron interval so one missed/slow run doesn't flip
@@ -68,7 +65,6 @@ export function fresh(iso: string | undefined, maxAgeMs: number, now: Date): boo
 /** Why the gate is closed, when it is. Absent on an allowed status. */
 export type ActiveContentReason =
   | "opted_out"
-  | "flag_off"
   | "unhealthy"
   | "host_stale"
   | "host_missing"
@@ -130,20 +126,11 @@ export async function activeContentStatus(
   now = new Date(),
 ): Promise<ActiveContentStatus> {
   if (ws.activeContentUploads === false) return { allowed: false, reason: "opted_out" };
-  if (!env.FLAGS) return { allowed: false, reason: "flag_off" };
-  try {
-    if (!(await env.FLAGS.getBooleanValue(ACTIVE_CONTENT_FLAG, false))) {
-      return { allowed: false, reason: "flag_off" };
-    }
-  } catch {
-    return { allowed: false, reason: "flag_off" };
-  }
   if (ws.storageUnhealthyAt) return { allowed: false, reason: "unhealthy" };
   if (isSharedLane(ws)) {
     // `REGISTRY` backs every workspace record too, so a real deployment
-    // always has it bound — this guard exists so a caller/fixture that
-    // wires up `FLAGS` without `REGISTRY` fails closed instead of throwing,
-    // same fail-closed posture as the missing-`FLAGS` check above.
+    // always has it bound — this guard exists so a caller/fixture without
+    // `REGISTRY` fails closed instead of throwing.
     if (!env.REGISTRY) return { allowed: false, reason: "host_missing" };
     const host = hostOf(ws.publicBaseUrl);
     if (!host) return { allowed: false, reason: "host_missing" };
@@ -184,9 +171,9 @@ export async function activeContentStatus(
  * moment verification lapsed and would wedge private-prefix rotation
  * outright, without removing anything from the internet.
  *
- * The three that are NOT here are policy, not freshness: `opted_out`,
- * `flag_off` and `unhealthy` are somebody deciding this workspace (or the
- * whole platform) should stop taking gated types. A kill switch that new
+ * The two that are NOT here are policy, not freshness: `opted_out` and
+ * `unhealthy` are somebody deciding this workspace should stop taking gated
+ * types. A kill switch that new
  * copies can walk straight past is not a kill switch, so those deny — and
  * the batch copy paths (`github-promote.ts`,
  * `github-private-prefix-service.ts`) skip the individual object rather than

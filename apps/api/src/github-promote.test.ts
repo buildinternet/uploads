@@ -453,9 +453,10 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
       "gh.staged-at": new Date().toISOString(),
     });
 
-    // `seededEnv` binds no FLAGS, so the gate closes with `flag_off` — a
-    // policy close, which a server copy no longer walks past.
-    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+    // The workspace opted out of SVG/XML — a policy close, which a server
+    // copy does not walk past.
+    const optedOut = { ...seeded.ws, activeContentUploads: false };
+    const result = await promoteBranchAttachments(seeded.env, optedOut, WS, {
       repo: REPO,
       num: NUM,
       branch: BRANCH,

@@ -3,13 +3,10 @@ import { posterGenerationAllowed } from "./poster";
 
 const allowLimiter = { limit: async () => ({ success: true }) };
 const denyLimiter = { limit: async () => ({ success: false }) };
-const flagsOn = { getBooleanValue: async () => true };
-const flagsOff = { getBooleanValue: async (_k: string, def: boolean) => def };
 
 function env(over: Record<string, unknown> = {}) {
   return {
     MEDIA: {},
-    FLAGS: flagsOn,
     POSTER_LIMITER: allowLimiter,
     ...over,
   } as never;
@@ -34,27 +31,10 @@ describe("posterGenerationAllowed", () => {
     );
   });
 
-  it("fails closed when Flagship evaluation falls back to the default", async () => {
-    expect(await posterGenerationAllowed(env({ FLAGS: flagsOff }), {}, "acme")).toBe(false);
-  });
-
-  it("fails closed when the FLAGS binding is absent entirely", async () => {
-    expect(await posterGenerationAllowed(env({ FLAGS: undefined }), {}, "acme")).toBe(false);
-  });
-
   it("fails closed when the POSTER_LIMITER binding is absent entirely", async () => {
     expect(await posterGenerationAllowed(env({ POSTER_LIMITER: undefined }), {}, "acme")).toBe(
       false,
     );
-  });
-
-  it("fails closed when Flagship evaluation throws", async () => {
-    const flagsThrows = {
-      getBooleanValue: async () => {
-        throw new Error("flagship unreachable");
-      },
-    };
-    expect(await posterGenerationAllowed(env({ FLAGS: flagsThrows }), {}, "acme")).toBe(false);
   });
 
   it("checks cheap local gates before spending a limiter token", async () => {

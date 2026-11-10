@@ -928,13 +928,17 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     });
 
     it("reports the gate's reason on the active lane when a fresh host record isn't enough", async () => {
-      // Everything the host-record check wants is in place; the kill switch
-      // is off. The page must say so rather than showing "Verified <date>"
+      // Everything the host-record check wants is in place; the workspace
+      // opted out. The page must say so rather than showing "Verified <date>"
       // for uploads the gate is refusing.
       const { env } = makeEnv({
         role: "admin",
-        record: { ...SHARED_RECORD, ...SHARED_LANE, publicBaseUrl: "https://storage.uploads.sh" },
-        activeContentFlag: false,
+        record: {
+          ...SHARED_RECORD,
+          ...SHARED_LANE,
+          publicBaseUrl: "https://storage.uploads.sh",
+          activeContentUploads: false,
+        },
       });
       const verifiedAt = new Date(Date.now() - 1000).toISOString();
       // Every hosted host, not just this workspace's URL and its embed twin
@@ -956,7 +960,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         activeContentReason?: string;
       };
       expect(body.activeContentVerifiedAt).toBeUndefined();
-      expect(body.activeContentReason).toBe("flag_off");
+      expect(body.activeContentReason).toBe("opted_out");
     });
 
     it("omits activeContentVerifiedAt on a shared active lane when the host record has never probed ok", async () => {

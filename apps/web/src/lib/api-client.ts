@@ -2212,7 +2212,7 @@ export interface WorkspaceStorageStatus {
   verifiedAt?: string;
   /** Active lane's last successful SVG/XML sandboxing-CSP check. Absent when acceptance is off; see `activeContentReason`. */
   activeContentVerifiedAt?: string;
-  /** Why SVG/XML acceptance is off (`"opted_out"`, `"flag_off"`, `"unhealthy"`, `"host_stale"`, ...). Unknown values get generic copy. */
+  /** Why SVG/XML acceptance is off (`"opted_out"`, `"unhealthy"`, `"host_stale"`, ...). Unknown values get generic copy. */
   activeContentReason?: string;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */

@@ -72,20 +72,6 @@ describe("putObject serverCopy — freshness closes are tolerated", () => {
 });
 
 describe("putObject serverCopy — policy closes still refuse (issue #929 M-2)", () => {
-  it("415s a serverCopy when the Flagship kill switch is off", async () => {
-    const { env, ws } = makePosterEnv();
-    const e = {
-      ...env,
-      FLAGS: { getBooleanValue: async (_k: string, def: boolean) => def },
-    } as unknown as Env;
-    await expect(
-      putObject(e, ws, "diagrams/killed.svg", INERT_SVG, WORKSPACE, {
-        declaredContentType: "image/svg+xml",
-        serverCopy: true,
-      }),
-    ).rejects.toMatchObject({ status: 415 });
-  });
-
   it("415s a serverCopy for a workspace that opted out", async () => {
     const { env, ws } = makePosterEnv();
     await expect(

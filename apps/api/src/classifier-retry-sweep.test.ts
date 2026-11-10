@@ -146,8 +146,7 @@ function harness(
     REGISTRY: fakeRegistry(records),
     UPLOADS_DEFAULT: bucket,
     FLAGS: {
-      getBooleanValue: async (flag: string) =>
-        flag === "llm-file-classifier" || flag === "upload-holds",
+      getBooleanValue: async (flag: string) => flag === "llm-file-classifier",
     },
     OPENROUTER_API_KEY: "test-key",
     AI: {

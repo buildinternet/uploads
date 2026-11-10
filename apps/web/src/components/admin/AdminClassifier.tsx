@@ -583,8 +583,8 @@ function FlaggedSection({ apiOrigin }: AdminClassifierProps) {
 /**
  * Held uploads (upload-hold.ts) and the operator release: approves every
  * pending hold, or one workspace's, in server-sized batches until none are
- * left or a batch releases nothing. The kill switch for new holds is the
- * Flagship `upload-holds` flag, not this button.
+ * left or a batch releases nothing. New holds stop when the classifier is
+ * off or the workspace sets `holdFlaggedUploads: false`, not via this button.
  */
 function HoldsSection({ apiOrigin }: AdminClassifierProps) {
   const api = useMemo(() => makeAdminApi(apiOrigin), [apiOrigin]);
@@ -628,7 +628,7 @@ function HoldsSection({ apiOrigin }: AdminClassifierProps) {
         <Skeleton className="h-16 w-full" />
       ) : data.total === 0 ? (
         <p className="m-0 text-(length:--text-meta) text-muted-foreground">
-          Nothing is held. New holds stop when the Flagship <code>upload-holds</code> flag is off.
+          Nothing is held. New holds stop when the classifier is off.
         </p>
       ) : (
         <>
