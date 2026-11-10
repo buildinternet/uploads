@@ -150,7 +150,7 @@ Avoid changing placement or adding response caches based on one outlier.
 | `030fcb7edf324c0b9c966550c8b7d870` | `X-Content-Type-Options: nosniff` on every response from the three storage hosts                                                                                                                            |
 | `508226d5de4a4a0d8d861356b43cf912` | `Content-Security-Policy: … sandbox` + `nosniff` when the response content type is `image/svg+xml`, `application/xml`, or `text/xml` (the `eq` form; the zone is on Pro, so regex `matches` is unavailable) |
 
-The operator probe returned `ok: true` for all three hosts the same day. The `active-content-uploads` flag was still off at that point.
+The operator probe returned `ok: true` for all three hosts the same day.
 
 SVG and XML (`image/svg+xml`, `application/xml`, `text/xml`) are gated
 uploads: a lane only accepts them once its public host is **verified** to
@@ -241,17 +241,11 @@ global admin — reachable from the `/admin` panel) for a logged-in operator,
 and `POST /admin/active-content/probe` (the `curl` above — `ADMIN_TOKEN` or
 an `operator:write` scoped token) for scripted/CI use.
 
-**Kill switch:** Flagship flag `active-content-uploads`, same app as
-`video-poster-generation` above:
-
-```bash
-wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-  active-content-uploads --default off
-```
-
-Fails closed like the poster flag — a missing binding, a disabled flag, or a
-thrown evaluation are all indistinguishable from "off"
-(`activeContentAllowed`). A BYO lane's own verification is unaffected by
+**Turning it off:** there is no flag. The gate closes when the host records
+go stale or fail, so pulling the Transform Rule closes it for the shared
+lanes within `HOST_RECORD_MAX_AGE_MS` of the next sweep. A workspace can opt
+out under Settings (`activeContentUploads: false`). To stop it platform-wide
+at once, ship a deploy. A BYO lane's own verification is unaffected by
 this Transform Rule: its owner sets the headers on their own host, and its
 `storageActiveContentVerifiedAt` stamp comes from the lane-verify pipeline
 or the settings page's "Check now" button, never this sweep.
@@ -1164,31 +1158,21 @@ video uploaded that way needs a backfill pass (below).
 
 ### Kill switches (in order of blast radius)
 
-1. **Flagship flag (preferred, instant, reversible)** — turn generation off
-   globally without a deploy:
+There is no Flagship flag; generation is on wherever `MEDIA` and
+`POSTER_LIMITER` are bound. `posterGenerationAllowed`
+(`apps/api/src/poster.ts`) checks the switches below on every write.
 
-   ```bash
-   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-     video-poster-generation --default off
-   ```
-
-   Checked by `posterGenerationAllowed` (`apps/api/src/poster.ts`) on every
-   write. **On** in production. The evaluation fallback in code is still
-   `false`, so an unreachable Flagship disables generation rather than
-   leaving it running.
-
-2. **Remove the `MEDIA` binding** — `generateAndStorePoster` needs
+1. **Remove the `MEDIA` binding** — `generateAndStorePoster` needs
    `env.MEDIA` (Cloudflare Media Transformations) to extract a frame. Drop
    the binding from `wrangler.jsonc` and redeploy to hard-disable extraction
-   regardless of the flag. Slower (needs a deploy) but survives a Flagship
-   outage.
+   and redeploy.
 
-3. **Workspace opt-out.** A workspace owner or admin turns video posters off
+2. **Workspace opt-out.** A workspace owner or admin turns video posters off
    under Settings → Previews (`videoPosterEnabled: false`). That wins before
-   the rate limiter. Default (unset) generates when the Flagship flag is on.
+   the rate limiter. Default (unset) generates.
    The same page has the PDF-preview switch.
 
-4. **`POSTER_LIMITER` denial (fails closed, no action needed)** — poster
+3. **`POSTER_LIMITER` denial (fails closed, no action needed)** — poster
    generation is gated behind its own rate limiter,
    `posterRateLimitGuard` / `POSTER_LIMITER` (`apps/api/src/guards.ts`). If
    that binding is ever absent from the environment, generation fails closed
@@ -1225,9 +1209,9 @@ candidate's existing bytes back to their own key
 (`PUT /v1/:ws/files/:key`, no `X-Uploads-Meta-*` headers so existing D1
 metadata is left untouched) — the same write path a fresh upload takes, which
 already calls `generateAndStorePoster` after storing. **This means the
-backfill only has an effect while the `video-poster-generation` flag is on**
-(kill switch 1, above) — with it off, every re-put is a no-op write that
-leaves the object exactly as it was.
+backfill only has an effect while poster generation is allowed** (see the
+kill switches above). With it off, every re-put is a no-op write that leaves
+the object exactly as it was.
 
 **Idempotency:** a candidate that already carries `video.poster=1` is skipped
 up front, so re-running the script is always safe. Objects over 10 minutes
@@ -1826,18 +1810,10 @@ thrown evaluation are all off.
    `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
    which does not enable classification by itself.
 
-3. **Hold kill switch (preferred for holds)** — Flagship flag
-   `upload-holds`, same app and `{ org, workspace }` context as the
-   classifier. Serving off stops every new hold, platform-wide or for one
-   workspace via a targeting rule, with no deploy. Labels keep landing, and
-   each would-be hold logs `upload_hold_skipped` with `skip: "flag"`. Fails
-   closed: an unreachable Flagship also stops new holds. Files already held
-   stay held until approved.
-
-   ```bash
-   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-     upload-holds --default off
-   ```
+3. **Stopping new holds** — there is no separate hold flag. A workspace
+   stops holds with `holdFlaggedUploads: false`; turning the classifier off
+   (switches 1 and 2) stops them everywhere, since holds need labels. Files
+   already held stay held until approved.
 
    To release files already held, use **Held uploads** on
    `/admin/classifier`: per-workspace counts, a per-workspace Release, and
@@ -1939,8 +1915,7 @@ to the `github_attachments` D1 table; phase 2 reads that table alongside the
 fan-out and logs the difference, so the index's coverage can be measured
 before phase 3 switches the render to it.
 
-**Flag:** Flagship `attachment-index-shadow`, same app as
-`video-poster-generation`. Off by default; turning it on adds one D1 read per
+**Flag:** Flagship `attachment-index-shadow` (app "uploads"). Off by default; turning it on adds one D1 read per
 comment sync, overlapped with the R2 listing and abandoned after one second,
 and never changes what renders. Create it once (boolean, served off), then
 flip it:

@@ -17,9 +17,13 @@
     "@uploads/billing",
     "@uploads/comment-config",
     "@uploads/comment-render",
+    "@uploads/demos",
     "@uploads/email",
     "@uploads/errors",
     "@uploads/mcp",
+    "@uploads/observability",
+    "@uploads/read-gate",
+    "@uploads/slack",
     "@uploads/storage",
     "@uploads/ui",
     "@uploads/web"

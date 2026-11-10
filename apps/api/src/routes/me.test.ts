@@ -2765,9 +2765,9 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
         bucket: "uploads-default",
         lanes: [],
         health: { ok: true },
-        // No `FLAGS` binding in this fixture, so the active-content gate
+        // No verified lane stamp in this fixture, so the active-content gate
         // (issue #929) is closed and says which check closed it.
-        activeContentReason: "flag_off",
+        activeContentReason: "lane_missing",
       });
     });
 
@@ -2797,7 +2797,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
         verifiedAt: "2026-01-01T00:00:00.000Z",
         lanes: [],
         health: { ok: true },
-        activeContentReason: "flag_off",
+        activeContentReason: "lane_missing",
       });
     });
   });

@@ -612,53 +612,6 @@ describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", ()
     expect(bucket.store.get("default/diagrams/a.svg")?.contentType).toBe("image/svg+xml");
   });
 
-  it("never evaluates the gate for a put that claims an ungated type", async () => {
-    // The gate costs a Flagship evaluation and a KV read, and can only ever
-    // change whether the (declared-only) SVG/XML rows are admitted — so a
-    // PNG put must not reach `FLAGS` at all. This fake throws rather than
-    // counts: `activeContentAllowed` swallows a thrown evaluation, so a
-    // counter alone couldn't tell "evaluated and failed closed" apart from
-    // "never evaluated".
-    let evaluated = 0;
-    const { env } = await makeEnv(
-      {},
-      {
-        flags: {
-          getBooleanValue: async () => {
-            evaluated += 1;
-            throw new Error("the gate must not be evaluated for a PNG put");
-          },
-        },
-        registryExtra: FRESH_HOST_RECORDS,
-      },
-    );
-    expect((await putShot(env)).status).toBe(201);
-    expect(evaluated).toBe(0);
-  });
-
-  it("evaluates the gate for a put that claims a gated type", async () => {
-    let evaluated = 0;
-    const { env } = await makeEnv(
-      {},
-      {
-        flags: {
-          getBooleanValue: async () => {
-            evaluated += 1;
-            return true;
-          },
-        },
-        registryExtra: FRESH_HOST_RECORDS,
-      },
-    );
-    const res = await putShot(env, {
-      key: "diagrams/a.svg",
-      body: INERT_SVG,
-      headers: { "Content-Type": "image/svg+xml" },
-    });
-    expect(res.status).toBe(201);
-    expect(evaluated).toBe(1);
-  });
-
   it("still 415s an SVG carrying <script> even on a fully verified lane", async () => {
     const { env } = await makeEnv(
       {},

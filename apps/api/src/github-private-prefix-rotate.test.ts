@@ -415,15 +415,15 @@ describe("rotatePrivatePrefix", () => {
     await putObject(env, ws, pngKey, PNG, WS, {
       metadata: { "gh.repo": REPO, "gh.kind": "branch" },
     });
-    // Written straight to the bucket: `seededEnv` binds no FLAGS, so a
-    // direct put of a gated type would 415 here too. This stands in for an
-    // SVG stored while the gate was open.
+    // Written straight to the bucket: the workspace below has opted out of
+    // SVG/XML, so a direct put of a gated type would 415. This stands in for
+    // an SVG stored before it opted out.
     await bucket.put(`${PREFIX}${svgKey}`, svg, {
       httpMetadata: { contentType: "image/svg+xml" },
     });
 
     const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
-      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+      rotatePrivatePrefix(env, { ...ws, activeContentUploads: false }, WS, "user-1", REPO, BRANCH),
     );
 
     expect(result.rotated).toBe(true);

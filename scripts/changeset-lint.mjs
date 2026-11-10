@@ -15,6 +15,11 @@
  *    main and changeset-release/main") *before* the publish step, silently
  *    blocking every npm publish. See the uploads-release-changeset-poison note.
  *
+ * 3. STALE IGNORE — an `ignore` entry that no longer names a workspace package
+ *    (the package was deleted or renamed). changesets validates the list when it
+ *    parses the config, so `changeset version` throws a ValidationError on main
+ *    and blocks every npm publish. Landed once (#522, fixed in #523; #525).
+ *
  * Why not `changeset status`? It catches (1) but not (2) — an ignored-package
  * changeset reports as a clean, empty release plan, exit 0. It also resolves the
  * base branch through git history, so it fails outright on CI's shallow checkout
@@ -43,6 +48,10 @@ const known = new Set(packages.map((p) => p.packageJson.name));
 const files = readdirSync(changesetDir).filter(
   (f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md",
 );
+
+// Entries with glob characters are micromatch expressions; only literal names
+// can be checked by set membership.
+const staleIgnores = [...ignored].filter((name) => !/[*?{}[\]!]/.test(name) && !known.has(name));
 
 const unknown = [];
 const ignoredHits = [];
@@ -84,7 +93,17 @@ if (ignoredHits.length > 0) {
   for (const { file, pkg } of ignoredHits) console.error(`  - .changeset/${file} → ${pkg}`);
 }
 
-if (unknown.length > 0 || ignoredHits.length > 0) process.exit(1);
+if (staleIgnores.length > 0) {
+  console.error(
+    "changeset-lint: the changesets `ignore` list names package(s) that are not in\n" +
+      "the workspace. `changeset version` rejects the config and the Release job\n" +
+      "FAILS on main. A package was probably deleted or renamed: remove or update\n" +
+      "its entry in .changeset/config.json:\n",
+  );
+  for (const name of staleIgnores) console.error(`  - ${name}`);
+}
+
+if (unknown.length > 0 || ignoredHits.length > 0 || staleIgnores.length > 0) process.exit(1);
 
 console.log(
   `changeset-lint: ${files.length} changeset(s) OK — all name releasable workspace packages.`,

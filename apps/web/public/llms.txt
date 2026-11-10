@@ -107,4 +107,4 @@ Claude Code plugin (bundles the skills, the hosted MCP server, the /uploads:atta
 
 ## Do not crawl
 
-Enrollment invite pages (`/invite`) and the browser console (`/console`) are private operator surfaces. See https://uploads.sh/robots.txt.
+Enrollment invite pages (`/invite`) are private operator surfaces. See https://uploads.sh/robots.txt.
