@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.63.0
+
+### Minor Changes
+
+- 61016e6: Uploads aimed at a repo now go to the workspace that repo is linked to. When you're a member of that workspace, `uploads put`, `uploads attach` and `uploads screenshot` switch to it for PR, issue and staged uploads and print `>> sending to workspace "<name>"`; your login token works there too. They still stop with a clear error when you aren't a member. `uploads login` now saves a `upk_…` token, which works in every workspace your account belongs to.
+
+### Patch Changes
+
+- f2fa536: `uploads put` and `uploads attach` now stop before uploading to a PR or issue whose repo is linked to a different workspace, since those files would never appear in the PR comment. The error says to sign in to the workspace that owns the repo, or to pass `--no-comment` to upload anyway. A declined comment no longer asks whether gh is installed.
+
 ## 0.62.1
 
 ### Patch Changes
