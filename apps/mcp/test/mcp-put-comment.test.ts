@@ -122,7 +122,7 @@ function makeDb(
             return (links.tryFirst(normalized, values) ?? null) as T;
           }
           if (normalized.startsWith("SELECT id, workspace, token_hash")) {
-            const [, hash] = values as [string, string];
+            const hash = (values.length === 2 ? values[0] : values[1]) as string;
             if (scopedToken && hash === scopedToken.tokenHash) {
               return {
                 id: "token-id",

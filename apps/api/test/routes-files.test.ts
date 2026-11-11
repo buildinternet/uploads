@@ -61,7 +61,7 @@ function makeFakeDB(authToken?: FakeAuthToken) {
         },
         async first() {
           if (normalized.startsWith("SELECT id, workspace, token_hash") && authToken) {
-            const [, hash] = args as [string, string, string];
+            const hash = (args.length === 2 ? args[0] : args[1]) as string;
             if (hash === authToken.tokenHash) {
               return {
                 id: "token-id",

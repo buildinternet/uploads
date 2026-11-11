@@ -283,6 +283,11 @@ export interface GithubLinkUnlinkResult {
  */
 export interface GithubRepoLinkResult {
   binding: "self" | "other" | "none";
+  /**
+   * The owning workspace, sent only with `"other"` and only when this
+   * account is a member of it (so the same token can upload there).
+   */
+  workspace?: string;
 }
 
 /**
@@ -612,7 +617,12 @@ export function createWorkspaceInvite(
   );
 }
 
-/** POST /v1/tokens: mint an `up_<workspace>_…` token from a device-flow session bearer. */
+/**
+ * POST /v1/tokens: mint a personal token from a device-flow session bearer.
+ * Asks for the `upk_…` form, which names no workspace because it works in
+ * every workspace the account belongs to. Older servers ignore the field and
+ * return `up_<workspace>_…`.
+ */
 export function mintWorkspaceToken(
   apiUrl: string,
   accessToken: string,
@@ -639,6 +649,7 @@ export function mintWorkspaceToken(
       grants: [{ workspace: input.workspace, ...(input.scopes ? { scopes: input.scopes } : {}) }],
       ...(input.label ? { label: input.label } : {}),
       ...(input.ttlSeconds !== undefined ? { ttlSeconds: input.ttlSeconds } : {}),
+      tokenFormat: "upk",
     }),
   });
 }

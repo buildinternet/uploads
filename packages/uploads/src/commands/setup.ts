@@ -9,6 +9,8 @@ import {
   resolveConfig,
   resolveConfigPath,
   resolvePutDefaults,
+  isPersonalKey,
+  loadConfigFile,
   writeConfigKeys,
   workspaceFromToken,
   type UploadsConfigValues,
@@ -200,6 +202,13 @@ export async function runSetup(
 
   if (Object.keys(keys).length === 0) {
     throw new UsageError("no setup values provided");
+  }
+  // A `upk_` token works in every workspace its account is in, so it can't
+  // say which one to use by default.
+  if (token && isPersonalKey(token) && !workspace && !loadConfigFile(path).UPLOADS_WORKSPACE) {
+    throw new UsageError("this token works in several workspaces; pass --workspace <name>", {
+      example: "uploads setup --token <token> --workspace <name>",
+    });
   }
 
   const result = writeConfigKeys(path, keys, { force });

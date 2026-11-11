@@ -301,6 +301,42 @@ describe("runLogin device flow", () => {
     ).toBe(false);
   });
 
+  it("asks for a upk_ token and saves it with its workspace", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "upk_abcdefghijklmnopqrstuvwxyz012345";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "acme", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "acme", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).toBe(0);
+    const mint = fetchMock.mock.calls.find(
+      (c) => String(c[0]).endsWith("/v1/tokens") && (c[1] as RequestInit)?.method === "POST",
+    );
+    expect(JSON.parse(String((mint![1] as RequestInit).body))).toMatchObject({
+      tokenFormat: "upk",
+    });
+    const saved = readFileSync(path, "utf8");
+    expect(saved).toContain("UPLOADS_WORKSPACE=acme");
+    expect(saved).toContain(`UPLOADS_TOKEN=${token}`);
+  });
+
   it("errors when the account has multiple workspaces and none is chosen", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
     vi.spyOn(globalThis, "fetch")

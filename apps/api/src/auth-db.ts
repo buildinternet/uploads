@@ -1,4 +1,9 @@
-import { PERSONAL_TOKEN_PREFIX, SERVICE_TOKEN_PREFIX, sha256Hex } from "./workspace";
+import {
+  PERSONAL_KEY_PREFIX,
+  PERSONAL_TOKEN_PREFIX,
+  SERVICE_TOKEN_PREFIX,
+  sha256Hex,
+} from "./workspace";
 import { type D1Queryable } from "./db-session";
 
 export const FILE_SCOPES = ["files:read", "files:write", "files:delete"] as const;
@@ -234,6 +239,50 @@ export async function findActiveToken(
 }
 
 /**
+ * The active token `rawToken` names, in whichever workspace it was minted
+ * for. Personal tokens can act in other workspaces their minting user
+ * belongs to, and `upk_` tokens don't name a workspace, so the file plane
+ * looks tokens up by hash alone (`auth_tokens_active_hash_idx`).
+ */
+export async function findActiveTokenByHash(
+  db: D1Queryable,
+  rawToken: string,
+  now = new Date(),
+): Promise<AuthTokenRecord | null> {
+  if (!rawToken) return null;
+  const hash = await sha256Hex(rawToken);
+  return db
+    .prepare(
+      `SELECT ${TOKEN_COLUMNS}
+       FROM auth_tokens
+       WHERE token_hash = ? AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ?)
+       LIMIT 1`,
+    )
+    .bind(hash, now.toISOString())
+    .first<AuthTokenRecord>();
+}
+
+/** {@link findExpiredToken} without the workspace filter, for the same reason as {@link findActiveTokenByHash}. */
+export async function findExpiredTokenByHash(
+  db: D1Queryable,
+  rawToken: string,
+  now = new Date(),
+): Promise<Pick<AuthTokenRecord, "expires_at"> | null> {
+  if (!rawToken) return null;
+  const hash = await sha256Hex(rawToken);
+  return db
+    .prepare(
+      `SELECT expires_at FROM auth_tokens
+       WHERE token_hash = ? AND revoked_at IS NULL
+         AND expires_at IS NOT NULL AND expires_at <= ?
+       LIMIT 1`,
+    )
+    .bind(hash, now.toISOString())
+    .first<Pick<AuthTokenRecord, "expires_at">>();
+}
+
+/**
  * The unrevoked token `rawToken` names, when it is past `expires_at`. Lets a
  * 401 say "expired" to whoever already holds the token, and no one else.
  */
@@ -269,6 +318,8 @@ export interface CreateTokenInput {
   owner?: TokenOwner;
   /** Audit: the admin who minted a service token (issue #1026). */
   createdByUserId?: string | null;
+  /** `"upk"` mints a personal token with no workspace in its prefix. Ignored for service tokens. */
+  format?: "upk";
   now?: Date;
 }
 
@@ -287,8 +338,15 @@ export async function buildTokenRecord(
     // which is exactly what #1026 exists to avoid.
     throw new Error("workspace-owned tokens must not carry a minting user");
   }
-  const prefix = owner === "workspace" ? SERVICE_TOKEN_PREFIX : PERSONAL_TOKEN_PREFIX;
-  const token = randomSecret(`${prefix}${input.workspace}_`);
+  // `upk_` personal tokens carry no workspace name, since they can act in
+  // any workspace the minting user belongs to. Opt-in per mint until CLIs
+  // that read the workspace out of `up_<ws>_` have aged out.
+  const token =
+    owner === "workspace"
+      ? randomSecret(`${SERVICE_TOKEN_PREFIX}${input.workspace}_`)
+      : input.format === "upk"
+        ? randomSecret(PERSONAL_KEY_PREFIX)
+        : randomSecret(`${PERSONAL_TOKEN_PREFIX}${input.workspace}_`);
   const now = input.now ?? new Date();
   const record: AuthTokenRecord = {
     id: id(),

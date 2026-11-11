@@ -1,10 +1,13 @@
 # API
 
 Public developer routes use `Authorization: Bearer <token>`. That is a
-workspace token (`up_<workspace>_…`) from `uploads login` or
-`/account/developers`. The workspace is always in the URL path. The CLI infers
-it from the token. `POST /v1/tokens` defaults to 90 days; `ttlSeconds: null`
-mints a token that does not expire. Tokens carry named scopes `files:read`,
+personal token from `uploads login` or `/account/developers`: `upk_…` from
+newer CLIs, or the older `up_<workspace>_…`. The workspace is always in the
+URL path. A personal token works in the workspace it was minted for and in
+every other workspace its account is a member of; membership is checked on
+each request, and a non-member gets 403 `workspace_access_denied`.
+`POST /v1/tokens` defaults to 90 days; `ttlSeconds: null` mints a token that
+does not expire, and `tokenFormat: "upk"` mints the `upk_…` form. Tokens carry named scopes `files:read`,
 `files:write`, and `files:delete`. The OpenAPI document lists the required
 scope on each operation. REST v1 does not accept OAuth access tokens.
 
@@ -18,8 +21,8 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 
 A service token is a workspace token that belongs to the workspace, not to a
 member (issue #1026). Use one for CI jobs and bots. It starts with
-`ups_<workspace>_…` instead of `up_`, so it is easy to tell apart from a
-personal token. The CLI reads the workspace from either form. It has the same
+`ups_<workspace>_…`, so it is easy to tell apart from a personal token. It
+only works in its own workspace. It has the same
 file scopes as a personal token, with three differences:
 
 - Uploads tagged with `gh.*` metadata are attributed to the token's label:

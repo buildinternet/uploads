@@ -103,14 +103,14 @@ The server accepts two kinds of bearer token.
   on their own. You sign in at uploads.sh and choose a default workspace for the grant. If you
   belong to more than one workspace, a call that passes `repo` runs in the workspace that repo is
   linked to, and every tool takes an optional `workspace` to pick one. `whoami` lists them.
-- **Workspace token.** Send the `up_<workspace>_…` token that `uploads login` creates, or a
-  `ups_<workspace>_…` service token that a workspace admin creates for CI. The server reads the
-  workspace from the token.
+- **Workspace token.** Send the personal token that `uploads login` creates (`upk_…`, or
+  `up_<workspace>_…` from older CLIs), or a `ups_<workspace>_…` service token that a workspace
+  admin creates for CI. The server uses the workspace the token was created for.
 
 Send the token in the `Authorization` header:
 
 ```http
-Authorization: Bearer up_<workspace>_…
+Authorization: Bearer upk_…
 ```
 
 Most tools need one scope. The [tool reference](#tools) shows it next to each tool.

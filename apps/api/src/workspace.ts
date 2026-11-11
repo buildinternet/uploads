@@ -1,4 +1,9 @@
-import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
+import {
+  ForbiddenError,
+  InsufficientScopeError,
+  NotFoundError,
+  UnauthorizedError,
+} from "@uploads/errors";
 import type { NoUploadsCommentMode } from "@uploads/comment-config";
 import { insufficientScopeMessage } from "./scope-message";
 import {
@@ -14,7 +19,8 @@ import type { R2Jurisdiction, StorageProvider } from "@uploads/storage";
 import {
   FILE_SCOPES,
   findActiveToken,
-  findExpiredToken,
+  findActiveTokenByHash,
+  findExpiredTokenByHash,
   isWorkspaceScope,
   parseScopes,
   touchTokenLastUsed,
@@ -31,6 +37,7 @@ import {
   tokenClientPrincipal,
 } from "./client-activity";
 import { afterResponse } from "./after-response";
+import { memberWorkspaceOr404 } from "./org-workspaces";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 import { type UploaderIdentity, userUploaderIdentity } from "./uploader-identity";
@@ -456,24 +463,43 @@ function bearerToken(header: string | undefined): string {
 }
 
 /**
- * Token prefixes: `up_` personal, `ups_` workspace-owned service tokens, so a
- * leaked token says what it is. Lookup is always by hash.
+ * Token prefixes, so a leaked token says what it is. Lookup is always by
+ * hash. `upk_` personal tokens carry no workspace: they act in any workspace
+ * their minting user belongs to. Older `up_<ws>_` personal tokens behave the
+ * same, and `ups_<ws>_` service tokens stay in their own workspace.
  */
+export const PERSONAL_KEY_PREFIX = "upk_";
 export const PERSONAL_TOKEN_PREFIX = "up_";
 export const SERVICE_TOKEN_PREFIX = "ups_";
 
-/** True for a bearer shaped like a workspace token (`up_…` or `ups_…`). */
+/** True for a bearer shaped like a workspace token (`upk_…`, `up_…` or `ups_…`). */
 export function isWorkspaceTokenShaped(token: string | undefined): boolean {
   return (
     token !== undefined &&
-    (token.startsWith(PERSONAL_TOKEN_PREFIX) || token.startsWith(SERVICE_TOKEN_PREFIX))
+    (token.startsWith(PERSONAL_KEY_PREFIX) ||
+      token.startsWith(PERSONAL_TOKEN_PREFIX) ||
+      token.startsWith(SERVICE_TOKEN_PREFIX))
   );
 }
 
-/** Workspace name encoded in a bearer token (`up_<name>_…` or `ups_<name>_…`), if well-formed. */
+/**
+ * Workspace name encoded in a bearer token (`up_<name>_…` or
+ * `ups_<name>_…`), if well-formed. Undefined for `upk_` tokens, which name
+ * no workspace: use {@link resolveTokenWorkspace}.
+ */
 export function workspaceNameFromToken(token: string): string | undefined {
+  if (token.startsWith(PERSONAL_KEY_PREFIX)) return undefined;
   const match = /^ups?_([a-z0-9][a-z0-9-]{1,62})_./.exec(token);
   return match?.[1];
+}
+
+/**
+ * The workspace a token was minted for: the name in its prefix, or for a
+ * `upk_` token, its row's workspace (one D1 read by hash).
+ */
+export async function resolveTokenWorkspace(env: Env, token: string): Promise<string | undefined> {
+  if (!token.startsWith(PERSONAL_KEY_PREFIX)) return workspaceNameFromToken(token);
+  return (await findActiveTokenByHash(dbFor(env), token))?.workspace;
 }
 
 /**
@@ -577,31 +603,29 @@ export async function touchAfterResponse(
 }
 
 /**
- * Verifies the bearer against the workspace's token hashes and puts the
- * record on the context. Unknown workspaces 401 only after the token check,
- * so names can't be probed more cheaply than tokens. `nameOf` reads the name
- * from the path or from the token itself.
+ * Verifies the bearer and puts the workspace record on the context. Unknown
+ * workspaces 401 only after the token check, so names can't be probed more
+ * cheaply than tokens.
+ *
+ * `"path"` reads the workspace from `:workspace`. A personal token minted for
+ * another workspace is accepted there when its minting user is a member of
+ * that workspace now (the same rule the hosted MCP uses for its OAuth
+ * tokens), so one CLI login can upload to every workspace its user is in.
+ * Service tokens and tokens with no minting user stay in their own workspace.
+ *
+ * `"token"` reads the workspace from the token itself: the name in its
+ * prefix, or for a `upk_` token, the workspace it was minted for.
  */
-function workspaceAuthWith(
-  nameOf: (c: Parameters<MiddlewareHandler<WorkspaceVars>>[0], token: string) => string | undefined,
-): MiddlewareHandler<WorkspaceVars> {
+function workspaceAuthWith(mode: "path" | "token"): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
     const token = bearerToken(c.req.header("Authorization"));
-    const name = nameOf(c, token);
 
-    // The KV record and the D1 token row are independent reads, so run them
-    // together. Always pay the D1 round trip, with a dummy workspace when the
-    // name is malformed, so latency doesn't reveal whether a name exists.
-    // A real-but-unknown name finds no row, the same as the dummy.
+    // Always pay the D1 round trip, even for an empty bearer, so latency
+    // doesn't reveal anything. It runs alongside the KV read below.
     const timing = new ServerTiming();
     const thresholdMs = slowOpThresholdMs(c.env);
     const d1TokenPromise = timeOp(
-      () =>
-        findActiveToken(
-          dbFor(c.env),
-          name && WS_NAME_RE.test(name) ? name : "__unknown__",
-          token || "__unknown__",
-        ),
+      () => findActiveTokenByHash(dbFor(c.env), token || "__unknown__"),
       {
         name: "d1",
         timing,
@@ -612,10 +636,29 @@ function workspaceAuthWith(
     );
     // Settle the D1 read even if KV throws, so nothing outlives the request.
     d1TokenPromise.catch(() => undefined);
-    const [record, providedHash] = await Promise.all([
-      loadWorkspaceRecord(c.env, name),
-      sha256Hex(token),
-    ]);
+
+    let d1Token: Awaited<ReturnType<typeof findActiveToken>>;
+    let name: string | undefined;
+    let record: WorkspaceRecord | null;
+    let providedHash: string;
+    try {
+      if (mode === "path") {
+        name = c.req.param("workspace");
+      } else if (token.startsWith(PERSONAL_KEY_PREFIX)) {
+        // The row is the only place a `upk_` token's workspace lives.
+        name = (await d1TokenPromise)?.workspace;
+      } else {
+        name = workspaceNameFromToken(token);
+      }
+
+      [record, providedHash] = await Promise.all([
+        loadWorkspaceRecord(c.env, name),
+        sha256Hex(token),
+      ]);
+      d1Token = await d1TokenPromise;
+    } finally {
+      appendServerTiming(c, timing);
+    }
 
     const providedBytes = hexToBytes(providedHash);
     const candidates = record ? workspaceTokenHashes(record) : [];
@@ -646,21 +689,20 @@ function workspaceAuthWith(
       );
     }
     const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
-    let d1Token: Awaited<ReturnType<typeof findActiveToken>>;
-    try {
-      d1Token = await d1TokenPromise;
-    } finally {
-      appendServerTiming(c, timing);
+
+    // A D1 token only counts here when it belongs to this workspace, or is a
+    // personal token whose user is a member of it.
+    if (d1Token && d1Token.workspace !== name) {
+      if (mode === "path" && name && canActAcrossWorkspaces(d1Token)) {
+        await requireCrossWorkspaceMember(c.env, d1Token.minting_user_id!, name);
+      } else {
+        d1Token = null;
+      }
     }
     const ok = legacyOk || (record !== null && d1Token !== null);
 
     if (!ok || !record || !name) {
-      // Dummy inputs again, so this doesn't reveal whether the workspace exists.
-      const expired = await findExpiredToken(
-        dbFor(c.env),
-        record && name ? name : "__unknown__",
-        token || "__unknown__",
-      );
+      const expired = await findExpiredTokenByHash(dbFor(c.env), token || "__unknown__");
       if (expired?.expires_at) {
         throw new UnauthorizedError(`This token expired on ${expired.expires_at.slice(0, 10)}.`, {
           code: "token_expired",
@@ -696,6 +738,35 @@ function workspaceAuthWith(
 }
 
 /**
+ * Whether a token may act outside the workspace it was minted for: personal
+ * tokens with a tracked minting user. Service tokens belong to their
+ * workspace, and legacy or enrollment tokens have no user to check.
+ */
+export function canActAcrossWorkspaces(
+  token: Pick<AuthTokenRecord, "owner" | "minting_user_id">,
+): boolean {
+  return token.owner !== "workspace" && Boolean(token.minting_user_id);
+}
+
+/**
+ * Membership gate for a personal token used in another workspace. Checked
+ * live on every request, so leaving a workspace cuts the token off at once.
+ * A non-member gets the same 403 whether or not the workspace exists.
+ */
+async function requireCrossWorkspaceMember(env: Env, userId: string, name: string): Promise<void> {
+  try {
+    await memberWorkspaceOr404(env, userId, name);
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      throw new ForbiddenError(`This token's account is not a member of workspace "${name}".`, {
+        code: "workspace_access_denied",
+      });
+    }
+    throw err;
+  }
+}
+
+/**
  * Uploader identity for a D1 token row: a service token's label, else the
  * minting user, else `none`.
  */
@@ -710,10 +781,10 @@ export function uploaderIdentityOf(
 }
 
 /** Resolves `:workspace` from the path (the REST API's routes). */
-export const workspaceAuth = workspaceAuthWith((c) => c.req.param("workspace"));
+export const workspaceAuth = workspaceAuthWith("path");
 
-/** Resolves the workspace from the bearer token itself (`up_<name>_…` / `ups_<name>_…`). */
-export const tokenWorkspaceAuth = workspaceAuthWith((_c, token) => workspaceNameFromToken(token));
+/** Resolves the workspace from the bearer token itself (`up_<name>_…`, `ups_<name>_…`, or a `upk_` token's row). */
+export const tokenWorkspaceAuth = workspaceAuthWith("token");
 
 /** Stamped-field result of `stampSoftDelete`/`stampRestore` — the caller writes it back to KV. */
 export interface SoftDeleteStamp {
@@ -778,7 +849,7 @@ export type GovernanceVars = {
 export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandler<GovernanceVars> {
   return async (c, next) => {
     const token = bearerToken(c.req.header("Authorization"));
-    const tokenWorkspace = token ? workspaceNameFromToken(token) : undefined;
+    const tokenWorkspace = token ? await resolveTokenWorkspace(c.env, token) : undefined;
     if (!tokenWorkspace) throw new UnauthorizedError();
 
     const thresholdMs = slowOpThresholdMs(c.env);

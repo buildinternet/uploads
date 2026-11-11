@@ -53,7 +53,11 @@ export function withMintingUserToken<T extends { prepare: (sql: string) => unkno
         args = v;
         return {
           first: async () => {
-            const hash = args[1] as string;
+            // `findActiveToken` binds (workspace, hash, now) and only matches
+            // its own workspace; `findActiveTokenByHash` binds (hash, now).
+            const byWorkspace = normalized.includes("WHERE workspace = ?");
+            const hash = (byWorkspace ? args[1] : args[0]) as string;
+            if (byWorkspace && args[0] !== opts.workspace) return null;
             return hash === opts.tokenHash ? mintingUserTokenRow(opts) : null;
           },
           all: async () => ({ results: [] }),

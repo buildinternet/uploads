@@ -7,7 +7,7 @@ import {
 } from "@uploads/observability";
 import type { MiddlewareHandler } from "hono";
 import { findActiveToken, isOperatorScope } from "./auth-db";
-import { hexToBytes, sha256Hex, touchAfterResponse, workspaceNameFromToken } from "./workspace";
+import { hexToBytes, resolveTokenWorkspace, sha256Hex, touchAfterResponse } from "./workspace";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 
@@ -44,7 +44,7 @@ export const adminAuth: MiddlewareHandler<{
     return;
   }
 
-  const workspace = token ? workspaceNameFromToken(token) : undefined;
+  const workspace = token ? await resolveTokenWorkspace(c.env, token) : undefined;
   if (!workspace) throw new UnauthorizedError();
 
   // Instrumented per issue #814's noted follow-up: this bearer guard runs

@@ -35,7 +35,7 @@ function fakeD1(opts: { tokenHash: string; touchDurationMs: number }) {
         },
         async first() {
           if (!normalized.startsWith("SELECT id, workspace, token_hash")) return null;
-          const [, hash] = args as [string, string, string];
+          const hash = (args.length === 2 ? args[0] : args[1]) as string;
           return hash === opts.tokenHash
             ? {
                 id: "token-1",

@@ -184,7 +184,9 @@ async function makeEnv(
             return this;
           },
           async first() {
-            const [ws, hash] = values as string[];
+            // `findActiveTokenByHash` binds (hash, now); the workspace
+            // filtered lookups bind (workspace, hash, now).
+            const [ws, hash] = (values.length === 2 ? ["test-ws", values[0]] : values) as string[];
             const token = options.d1;
             if (ws === "test-ws" && token && token.tokenHash === hash) {
               return {

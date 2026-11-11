@@ -369,8 +369,19 @@ describe("runAttach", () => {
         false,
         run,
       ),
-    ).rejects.toThrow(/linked to a different uploads.sh workspace/);
+    ).rejects.toThrow(/linked to an uploads.sh workspace this account isn't a member of/);
     expect(puts).toEqual([]);
+  });
+
+  it("attaches in the repo's workspace when this account is a member there", async () => {
+    const home = fakeClient({ repoLinkStatus: { binding: "other", workspace: "relay" } });
+    const routed = fakeClient({ repoLinkStatus: { binding: "self" } });
+    const { run } = ghRunner();
+    const ctx: CliContext = { ...ctxWith(home.client), clientFor: () => routed.client };
+    await runAttach(ctx, [...files("after.png"), "--pr", "314", "--repo", "o/r"], false, run);
+    expect(ctx.config.workspace).toBe("relay");
+    expect(home.puts).toEqual([]);
+    expect(routed.puts.length).toBeGreaterThan(0);
   });
 
   it("requires an inferable current PR when no target is supplied", async () => {
