@@ -20,6 +20,7 @@
     "@astrojs/cloudflare": "^14.4.6",
     "@astrojs/mdx": "^8.1.3",
     "@astrojs/react": "^7.1.4",
+    "@astrojs/starlight": "0.42.10",
     "@tailwindcss/vite": "^4.3.5",
     "@uploads/billing": "workspace:^",
     "@uploads/comment-render": "workspace:^",

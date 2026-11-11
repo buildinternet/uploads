@@ -47,9 +47,12 @@ describe("ClientRouter boot scripts", () => {
       rel: "layouts/AdminLayout.astro",
       needles: ["ViewTransitions", "onAstroPageLoad"],
     },
+    // Docs pages are Starlight routes: the ClientRouter is mounted by the
+    // Head override, the docs chrome boot lives in the PageFrame override.
+    { rel: "components/starlight/Head.astro", needles: ["ViewTransitions"] },
     {
-      rel: "layouts/DocsLayout.astro",
-      needles: ["ViewTransitions", "onAstroPageLoad", "bindCopyButtons", "tocSpy"],
+      rel: "components/starlight/PageFrame.astro",
+      needles: ["onAstroPageLoad", "bindCopyButtons", "tocSpy"],
     },
   ] as const;
 

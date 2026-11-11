@@ -5,7 +5,7 @@
  */
 import type { APIRoute } from "astro";
 import { aliasesFor, renderDocsCatalog } from "../lib/docs-catalog";
-import { DOCS_HUB, getOrderedDocs, getPublishedGuides } from "../lib/docs-nav";
+import { DOCS_HUB, entrySlug, getOrderedDocs, getPublishedGuides } from "../lib/docs-nav";
 
 export const prerender = true;
 
@@ -22,11 +22,11 @@ export const GET: APIRoute = async () => {
       aliases: aliasesFor("docs", [DOCS_HUB.slug]),
     },
     ...entries.map((entry) => ({
-      page: entry.id,
-      path: `/docs/${entry.id}`,
+      page: entrySlug(entry.id),
+      path: `/docs/${entrySlug(entry.id)}`,
       title: entry.data.heading,
-      summary: entry.data.description,
-      aliases: aliasesFor(entry.id, [entry.data.navSlug]),
+      summary: entry.data.description ?? "",
+      aliases: aliasesFor(entrySlug(entry.id), [entry.data.navSlug!]),
     })),
     {
       page: "github-screenshots",
@@ -37,11 +37,11 @@ export const GET: APIRoute = async () => {
       aliases: aliasesFor("github-screenshots", ["walkthrough"]),
     },
     ...guides.map((entry) => ({
-      page: entry.id,
-      path: `/guides/${entry.id}`,
+      page: entrySlug(entry.id),
+      path: `/guides/${entrySlug(entry.id)}`,
       title: entry.data.heading,
-      summary: entry.data.description,
-      aliases: aliasesFor(entry.id),
+      summary: entry.data.description ?? "",
+      aliases: aliasesFor(entrySlug(entry.id)),
     })),
     {
       page: "changelog",

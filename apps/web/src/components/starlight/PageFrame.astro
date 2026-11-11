@@ -1,0 +1,85 @@
+---
+// Starlight PageFrame override: the site's full-bleed header and footer around
+// a constrained three-column docs grid (left nav · article · TOC rail). Below
+// the wide breakpoint the TOC rail drops, then the left nav collapses to a
+// dropdown (see Sidebar.astro and styles/docs.css).
+import Footer from "../Footer.astro";
+import SiteHeader from "../SiteHeader.astro";
+import { SAME_ORIGIN_AUTH_BASE } from "../../lib/auth-client";
+---
+
+<SiteHeader authOrigin={SAME_ORIGIN_AUTH_BASE} />
+
+<div class="docs-shell">
+  <div class="docs-grid">
+    <slot name="sidebar" />
+    <slot />
+  </div>
+</div>
+
+<Footer />
+
+<script>
+  // Module scripts run once per session; re-wire after every ClientRouter swap.
+  import { onAstroPageLoad } from "../../lib/account-shell";
+  import { bindCopyButtons } from "../../lib/workspace-ui";
+
+  let tocSpy: IntersectionObserver | null = null;
+  let copyBound = false;
+  let headingBound = false;
+
+  function bootDocsChrome(): void {
+    tocSpy?.disconnect();
+    tocSpy = null;
+
+    // TOC rail: highlight the section currently in view.
+    const tocLinks = new Map(
+      [...document.querySelectorAll(".docs-toc a")].map((a) => [
+        a.getAttribute("href")?.slice(1),
+        a,
+      ]),
+    );
+    if (tocLinks.size > 0) {
+      tocSpy = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            for (const link of tocLinks.values()) link.removeAttribute("aria-current");
+            tocLinks.get(entry.target.id)?.setAttribute("aria-current", "true");
+          }
+        },
+        { rootMargin: "0px 0px -70% 0px" },
+      );
+      for (const id of tocLinks.keys()) {
+        const section = id && document.getElementById(id);
+        if (section) tocSpy.observe(section);
+      }
+    }
+
+    // Once on document, scoped to docs cmd rows so account soft-navs do not
+    // double-fire (other shells bind their own copy handlers).
+    if (!copyBound) {
+      copyBound = true;
+      bindCopyButtons(document, ".doc .cmd button[data-copy]");
+    }
+
+    // Whole-heading click jumps to its section anchor (matching the visible
+    // gutter "#"), so the entire h2 is a hit target, not just the glyph.
+    if (!headingBound) {
+      headingBound = true;
+      document.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        // The anchor itself is a real link — let it handle its own click.
+        if (target.closest(".doc section h2 .anchor")) return;
+        const heading = target.closest(".doc section h2");
+        if (!heading) return;
+        // Don't hijack a text selection inside the heading.
+        if (window.getSelection()?.toString()) return;
+        const anchor = heading.querySelector<HTMLAnchorElement>(".anchor");
+        anchor?.click();
+      });
+    }
+  }
+
+  onAstroPageLoad(bootDocsChrome);
+</script>

@@ -1,0 +1,12 @@
+---
+// Starlight TwoColumnContent override: the article column, then the optional
+// "on this page" rail (PageSidebar). Both are flex items of the docs grid.
+import { getDocsPageData } from "../../lib/docs-page";
+
+const { toc } = getDocsPageData(Astro.locals);
+---
+
+<div class="docs-main">
+  <slot />
+</div>
+{toc && toc.length > 0 && <slot name="right-sidebar" />}

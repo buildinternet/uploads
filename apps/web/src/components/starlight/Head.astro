@@ -1,0 +1,53 @@
+---
+// Starlight <head> override: the site's own head (BaseHead tokens + theme
+// script, ClientRouter, OG tags) in place of Starlight's, so docs pages share
+// one head with the rest of uploads.sh. Guides add FAQPage JSON-LD and read
+// as articles; drafts are noindex. Anything a page passes in `head`
+// frontmatter (the walkthrough's JSON-LD) is rendered last.
+import BaseHead from "../BaseHead.astro";
+import ViewTransitions from "../ViewTransitions.astro";
+import { getDocsPageData } from "../../lib/docs-page";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../lib/og";
+
+const { title, description = "", faq, draft, head, ogType } = getDocsPageData(Astro.locals);
+// Prerendered routes build to files, so the build-time pathname may read
+// "/docs/agents.html". Canonical URLs never carry the extension.
+const path = Astro.url.pathname.replace(/(?:\/index)?\.html$/, "").replace(/\/+$/, "") || "/";
+const isGuide = path.startsWith("/guides/");
+const fullTitle = `${title} · uploads.sh`;
+const faqJsonLd =
+  faq.length > 0
+    ? JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: faq.map((item) => ({
+          "@type": "Question",
+          name: item.q,
+          acceptedAnswer: { "@type": "Answer", text: item.a },
+        })),
+      })
+    : undefined;
+---
+
+<BaseHead preloadSans manifest />
+<ViewTransitions />
+<title>{fullTitle}</title>
+<meta name="description" content={description} />
+<link rel="canonical" href={`https://uploads.sh${path}`} />
+<link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+<meta property="og:type" content={ogType ?? (isGuide ? "article" : "website")} />
+<meta property="og:url" content={`https://uploads.sh${path}`} />
+<meta property="og:site_name" content={OG_SITE_NAME} />
+<meta property="og:locale" content="en_US" />
+<meta property="og:title" content={fullTitle} />
+<meta property="og:description" content={description} />
+<meta property="og:image" content={OG_DEFAULT_IMAGE} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={fullTitle} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={OG_DEFAULT_IMAGE} />
+{draft && <meta name="robots" content="noindex" />}
+{faqJsonLd && <script type="application/ld+json" set:html={faqJsonLd} />}
+{head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}

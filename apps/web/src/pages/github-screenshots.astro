@@ -2,11 +2,11 @@
 // uploads.sh — discovery/landing page for the core use case: getting coding
 // agents (Claude Code, Codex, CI jobs, scripts) to upload screenshots and
 // video to GitHub PRs and issues. Prose targets the search question directly;
-// FAQ JSON-LD mirrors the on-page answers. Rendered in the shared DocsLayout
-// shell so it matches the /docs pages (left nav, "on this page" rail); the
-// FAQ structured data and article og:type ride along via the layout's head
-// slot and `ogType` prop.
-import DocsLayout from "../layouts/DocsLayout.astro";
+// FAQ JSON-LD mirrors the on-page answers. Rendered through <DocsPage>
+// (Starlight) so it matches the /docs pages (left nav, "on this page" rail);
+// the FAQ structured data and article og:type ride along as `head` and
+// `ogType` props.
+import DocsPage from "../components/starlight/DocsPage.astro";
 import { Code } from "astro:components";
 
 const REPO = "https://github.com/buildinternet/uploads";
@@ -99,18 +99,15 @@ const FAQ_JSON_LD = JSON.stringify({
 });
 ---
 
-<DocsLayout
+<DocsPage
   title="How to get agents to upload screenshots & video to GitHub"
   description="One command for Claude Code, CI jobs, and scripts that captures, hosts, and posts screenshots and video to PRs and issues, before or after the PR exists."
-  path="/github-screenshots"
   heading="How to get agents to upload screenshots & video to GitHub"
   tagline="Claude Code, CI jobs, review bots, plain scripts: anything without a browser."
-  active="walkthrough"
   ogType="article"
   toc={TOC}
+  head={[{ tag: "script", attrs: { type: "application/ld+json" }, content: FAQ_JSON_LD }]}
 >
-  <script type="application/ld+json" slot="head" set:html={FAQ_JSON_LD} />
-
   <aside class="callout">
     <p>
       <strong>As of September 2026, GitHub CLI supports attachments.</strong>
@@ -239,8 +236,11 @@ const FAQ_JSON_LD = JSON.stringify({
 
   <section id="attach">
     <h2>
-      Already have a PR open? <a class="anchor" href="#attach" aria-label="Link to this section"
-        >#</a
+      Already have a PR open? <a
+        class="anchor"
+        data-pagefind-ignore
+        href="#attach"
+        aria-label="Link to this section">#</a
       >
     </h2>
     <p>
@@ -266,7 +266,12 @@ const FAQ_JSON_LD = JSON.stringify({
 
   <section id="video">
     <h2>
-      Video and GIFs <a class="anchor" href="#video" aria-label="Link to this section">#</a>
+      Video and GIFs <a
+        class="anchor"
+        data-pagefind-ignore
+        href="#video"
+        aria-label="Link to this section">#</a
+      >
     </h2>
     <p>
       A short screen recording is often the best proof that a change works. The same <code>put</code
@@ -283,7 +288,9 @@ const FAQ_JSON_LD = JSON.stringify({
   </section>
 
   <section id="faq">
-    <h2>FAQ <a class="anchor" href="#faq" aria-label="Link to this section">#</a></h2>
+    <h2>
+      FAQ <a class="anchor" data-pagefind-ignore href="#faq" aria-label="Link to this section">#</a>
+    </h2>
     <dl class="faq">
       {
         FAQ.map((item) => (
@@ -307,7 +314,7 @@ const FAQ_JSON_LD = JSON.stringify({
     <a class="prev" href="/docs/agents"><span class="dir">← Back</span>Set up your agent</a>
     <a class="next" href="/docs"><span class="dir">Next →</span>Docs overview</a>
   </nav>
-</DocsLayout>
+</DocsPage>
 
 <style>
   /* Shiki-highlighted, non-copy command/output blocks: drop them into the same

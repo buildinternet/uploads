@@ -1,0 +1,72 @@
+---
+// Starlight Sidebar override: the docs left nav built from lib/docs-nav.ts
+// (frontmatter `navGroup` / `navOrder`), plus Starlight's Pagefind search.
+// Search sits on top of the rail; the nav renders twice: a sticky column on wide screens and a <details> dropdown on
+// narrow ones; CSS shows one or the other.
+import Search from "@astrojs/starlight/components/Search.astro";
+import { getDocsNav } from "../../lib/docs-nav";
+
+const nav = await getDocsNav();
+const path = Astro.url.pathname.replace(/(?:\/index)?\.html$/, "").replace(/\/+$/, "") || "/";
+const currentLabel =
+  nav.flatMap((s) => s.items).find((item) => item.href === path)?.label ?? "Docs";
+---
+
+<div class="docs-rail">
+  <Search class="docs-search" />
+  <nav class="docs-side" aria-label="Docs navigation">
+    {
+      nav.map((section) => (
+        <div class="group">
+          <p class="docs-nav-title">{section.title}</p>
+          <ul>
+            {section.items.map((item) => (
+              <li>
+                <a href={item.href} aria-current={item.href === path ? "page" : undefined}>
+                  {item.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </nav>
+
+  <details class="docs-nav-m">
+    <summary>
+      <span>{currentLabel}</span>
+      <svg
+        class="chev"
+        width="16"
+        height="16"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          fill-rule="evenodd"
+          d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+          clip-rule="evenodd"></path>
+      </svg>
+    </summary>
+    <div class="panel">
+      {
+        nav.map((section) => (
+          <div class="group">
+            <p class="docs-nav-title">{section.title}</p>
+            <ul>
+              {section.items.map((item) => (
+                <li>
+                  <a href={item.href} aria-current={item.href === path ? "page" : undefined}>
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+  </details>
+</div>

@@ -1,5 +1,6 @@
 /// <reference types="astro/client" />
 /// <reference path="../worker-configuration.d.ts" />
+/// <reference types="@astrojs/starlight" />
 
 // uploads#754 item 3 (minimal-binding profile): AUTH and API are optional
 // here even though wrangler.jsonc declares them unconditionally.

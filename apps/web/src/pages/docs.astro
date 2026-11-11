@@ -4,22 +4,25 @@
 // GitHub PRs, issues, and code reviews. Structure: understand → install → do —
 // one golden-path command (put), with attach demoted to a pointer into the
 // how-to guide; copy affordances reserved for commands you paste verbatim.
-import DocsLayout from "../layouts/DocsLayout.astro";
+import DocsPage from "../components/starlight/DocsPage.astro";
 
 const REPO = "https://github.com/buildinternet/uploads";
 ---
 
-<DocsLayout
+<DocsPage
   title="Docs"
   description="Install the uploads CLI, attach screenshots, video, and other artifacts to GitHub PRs, issues, and code reviews, and set up your agent. Hosted and open source."
-  path="/docs"
   heading="Docs"
   tagline="Put screenshots, recordings, and other artifacts on GitHub PRs, issues, and code reviews with one command."
-  active="overview"
 >
   <section class="lead" id="what-it-does">
     <h2>
-      What it does <a class="anchor" href="#what-it-does" aria-label="Link to this section">#</a>
+      What it does <a
+        class="anchor"
+        data-pagefind-ignore
+        href="#what-it-does"
+        aria-label="Link to this section">#</a
+      >
     </h2>
     <p>
       Agents produce screenshots, recordings, test reports, and logs long before a pull request
@@ -59,7 +62,11 @@ const REPO = "https://github.com/buildinternet/uploads";
 
   <section id="install">
     <h2>
-      Install &amp; sign in <a class="anchor" href="#install" aria-label="Link to this section">#</a
+      Install &amp; sign in <a
+        class="anchor"
+        data-pagefind-ignore
+        href="#install"
+        aria-label="Link to this section">#</a
       >
     </h2>
     <p>Install the CLI globally:</p>
@@ -83,8 +90,11 @@ const REPO = "https://github.com/buildinternet/uploads";
 
   <section id="first-upload">
     <h2>
-      Your first upload <a class="anchor" href="#first-upload" aria-label="Link to this section"
-        >#</a
+      Your first upload <a
+        class="anchor"
+        data-pagefind-ignore
+        href="#first-upload"
+        aria-label="Link to this section">#</a
       >
     </h2>
     <p>One command, on the branch you're already on — no pull request required:</p>
@@ -106,7 +116,12 @@ const REPO = "https://github.com/buildinternet/uploads";
 
   <section id="explore">
     <h2>
-      Explore the docs <a class="anchor" href="#explore" aria-label="Link to this section">#</a>
+      Explore the docs <a
+        class="anchor"
+        data-pagefind-ignore
+        href="#explore"
+        aria-label="Link to this section">#</a
+      >
     </h2>
     <div class="cards">
       <a class="card" href="/docs/attach-pull-request-images">
@@ -185,4 +200,4 @@ const REPO = "https://github.com/buildinternet/uploads";
       <code>search_docs</code>.
     </div>
   </section>
-</DocsLayout>
+</DocsPage>

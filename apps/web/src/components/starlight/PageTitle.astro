@@ -1,0 +1,10 @@
+---
+// Starlight PageTitle override: `heading` (not `title`, which is the <title>)
+// plus the one-line `tagline` under it.
+import { getDocsPageData } from "../../lib/docs-page";
+
+const { heading, tagline } = getDocsPageData(Astro.locals);
+---
+
+<h1 id="_top" class="docs-title">{heading}</h1>
+<p class="tagline">{tagline}</p>

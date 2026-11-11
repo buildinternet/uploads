@@ -11,7 +11,7 @@
  * tokens (panel surface, hairline border, mono face, meta type size) so a code
  * block reads as the same primitive the old `.cmd` / `.block` markup produced.
  * Frames are off by default: the docs pages showed bare panels, not terminal
- * chrome. `.doc` rules in DocsLayout.astro add the `$ ` prompt back for `bash`
+ * chrome. `.doc` rules in styles/docs.css add the `$ ` prompt back for `bash`
  * blocks and hide the copy button on `ansi` (terminal output) blocks.
  *
  * @type {import("astro-expressive-code").AstroExpressiveCodeOptions}
