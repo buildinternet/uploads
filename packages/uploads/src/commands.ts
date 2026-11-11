@@ -1919,6 +1919,10 @@ export async function runAttach(
     throw new UsageError("--move only applies to already-uploaded key/URL arguments");
   }
 
+  if (!parsed.flags.has("--no-comment")) {
+    await assertRepoTargetWorkspace(ctx.client, target, ctx.config.workspace);
+  }
+
   const logHuman = !ctx.quiet && !ctx.json;
   if (logHuman && localFiles.length > 0) {
     const n = localFiles.length;
@@ -2006,7 +2010,7 @@ export async function runAttach(
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
-        `warning: uploads succeeded but the GitHub comment failed (is gh installed and authenticated?): ${commentError}\n`,
+        `warning: uploads succeeded but the GitHub comment failed${err instanceof GithubCommentAuthorizationError ? "" : " (is gh installed and authenticated?)"}: ${commentError}\n`,
       );
     }
   }
@@ -2159,6 +2163,35 @@ async function runAttachBranch(
 }
 
 /**
+ * Preflight for uploads aimed at a PR or issue: when the repo is linked to a
+ * different workspace, the upload would land here while the bot comment is
+ * built from the other workspace, so the PR would say "No uploads yet".
+ * Refuse before uploading. `--no-comment` opts out. Any lookup failure lets
+ * the upload through (fail-open, same as the staging advisory).
+ */
+export async function assertRepoTargetWorkspace(
+  client: UploadsClient,
+  target: GhTarget,
+  workspace: string | undefined,
+): Promise<void> {
+  let binding: string;
+  try {
+    ({ binding } = await client.githubRepoLinkStatus(target.repo));
+  } catch {
+    return;
+  }
+  if (binding !== "other") return;
+  const here = workspace ? `workspace "${workspace}"` : "this workspace";
+  const where = `${target.kind === "pull" ? "PR" : "issue"} #${target.num}`;
+  throw new UsageError(
+    `${target.repo} is linked to a different uploads.sh workspace, so files uploaded to ` +
+      `${here} won't show on ${where}. Sign in to the workspace that owns ${target.repo} ` +
+      `and retry, or pass --no-comment to upload here anyway.`,
+    { example: "uploads login --workspace <name>" },
+  );
+}
+
+/**
  * The "staged, but won't auto-attach" advisory, shared by the stage-time
  * warning and `uploads staged`. Undefined for `"self"` and unknown values.
  */
@@ -2237,7 +2270,7 @@ async function runAttachPromoteOnly(
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
-        `warning: promotion succeeded but the GitHub comment failed (is gh installed and authenticated?): ${commentError}\n`,
+        `warning: promotion succeeded but the GitHub comment failed${err instanceof GithubCommentAuthorizationError ? "" : " (is gh installed and authenticated?)"}: ${commentError}\n`,
       );
     }
   }
@@ -3461,6 +3494,10 @@ export async function runPut(
     }
   }
 
+  if (effectiveGhTarget && wantComment && !dryRun) {
+    await assertRepoTargetWorkspace(ctx.client, effectiveGhTarget, ctx.config.workspace);
+  }
+
   // Derived `repo`, on every layout. Only folded in when `metadata` is
   // already defined: an undefined map leaves stored metadata untouched,
   // while a defined one replaces it, so synthesizing `{ repo }` on a plain
@@ -3646,7 +3683,7 @@ export async function runPut(
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
-        `warning: upload succeeded but the GitHub comment failed (is gh installed and authenticated?): ${commentError}\n`,
+        `warning: upload succeeded but the GitHub comment failed${err instanceof GithubCommentAuthorizationError ? "" : " (is gh installed and authenticated?)"}: ${commentError}\n`,
       );
     }
   }

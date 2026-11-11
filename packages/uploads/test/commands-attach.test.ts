@@ -359,6 +359,20 @@ describe("runAttach", () => {
     ]);
   });
 
+  it("refuses before uploading when the repo is linked to another workspace", async () => {
+    const { client, puts } = fakeClient({ repoLinkStatus: { binding: "other" } });
+    const { run } = ghRunner();
+    await expect(
+      runAttach(
+        ctxWith(client),
+        [...files("after.png"), "--pr", "314", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    ).rejects.toThrow(/linked to a different uploads.sh workspace/);
+    expect(puts).toEqual([]);
+  });
+
   it("requires an inferable current PR when no target is supplied", async () => {
     const { client } = fakeClient();
     await expect(
