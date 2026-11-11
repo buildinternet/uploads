@@ -56,11 +56,14 @@ markdown.
 
 ## Authentication <a class="anchor" data-pagefind-ignore href="#auth" aria-label="Link to this section">#</a>
 
-Send a workspace token on every request:
+Send a token on every request:
 
 ```http
-Authorization: Bearer up_<workspace>_…
+Authorization: Bearer upk_…
 ```
+
+A personal token works in every workspace your account belongs to. Older
+personal tokens look like `up_<workspace>_…` and work the same way.
 
 - **Personal token.** `uploads login` creates one, or create one under
   [Developers](/account/developers) in your account. Tokens last 90 days by default, and each

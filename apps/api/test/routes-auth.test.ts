@@ -77,7 +77,7 @@ function env(
             return this;
           },
           async first() {
-            const [, hash, now] = values as string[];
+            const [hash, now] = (values.length === 2 ? values : values.slice(1)) as string[];
             const token = options.d1;
             if (sql.includes("expires_at <=")) {
               const expired =

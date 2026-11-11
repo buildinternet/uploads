@@ -105,7 +105,7 @@ async function seededEnv(
             args = v;
             return {
               first: async () => {
-                const hash = args[1] as string;
+                const hash = (args.length === 2 ? args[0] : args[1]) as string;
                 if (hash !== scopedHash) return null;
                 return {
                   id: "token-id",

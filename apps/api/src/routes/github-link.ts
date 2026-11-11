@@ -24,6 +24,7 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
 import { mintingUserIdOf } from "../uploader-identity";
+import { membershipsForUser, workspacesFromMembership } from "../org-workspaces";
 
 // Same owner/name grammar + dot-only-segment guard as routes/github-comment.ts's
 // parseTarget (this repo string is looked up/stored, not interpolated into an
@@ -75,11 +76,34 @@ export async function githubLinkGetHandler(c: Context<WorkspaceVars>) {
 // Uses the lenient `findRepoLink` (never throws — a D1 blip degrades to
 // "none", not a 5xx) because this is advisory-only; the CLI already
 // silences anything but a clean 200.
+//
+// The one exception to "never say to whom": when the caller's own account
+// is a member of the owning workspace, "other" also carries `workspace`, so
+// the CLI can send the upload there with the same token (a personal token
+// acts in every workspace its user belongs to; see `workspaceAuthWith`).
+// A member already knows that name, so nothing leaks.
 export async function githubRepoLinkGetHandler(c: Context<WorkspaceVars>) {
   const repo = parseRepo(c.req.query("repo"));
   const workspaceName = c.get("workspaceName");
   const link = await findRepoLink(dbFor(c.env), repo);
-  return c.json({ binding: deriveRepoBinding(link, workspaceName) });
+  const binding = deriveRepoBinding(link, workspaceName);
+  if (binding === "other" && link) {
+    const userId = mintingUserIdOf(c.get("uploaderIdentity"));
+    if (userId && (await isMemberOf(c.env, userId, link.workspaceName))) {
+      return c.json({ binding, workspace: link.workspaceName });
+    }
+  }
+  return c.json({ binding });
+}
+
+/** Advisory membership check: an auth outage reads as "not a member". */
+async function isMemberOf(env: Env, userId: string, workspace: string): Promise<boolean> {
+  try {
+    const [membership] = await membershipsForUser(env, userId, { slug: workspace });
+    return membership !== undefined && workspacesFromMembership(membership).includes(workspace);
+  } catch {
+    return false;
+  }
 }
 
 export async function githubLinkPostHandler(c: Context<WorkspaceVars>) {

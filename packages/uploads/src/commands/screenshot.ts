@@ -36,6 +36,8 @@ import {
   putNudgeText,
   autoPrNoteText,
   type BranchTarget,
+  routeRepoTargetWorkspace,
+  routeToRepoWorkspace,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
 import { loadDefaultsRaw, resolveScreenshotDefaults } from "../config-file.js";
@@ -521,6 +523,16 @@ export async function runScreenshot(
     ...(deriveMeta ? safeCaptureFacts(target, viewport, colorScheme) : {}),
     ...(repoSlug ? { repo: repoSlug } : {}),
   });
+
+  // Same routing as `put`: repo captures go to the repo's workspace when this
+  // account can reach it, and `--comment` refuses when it can't.
+  if (!dryRun && !noUpload) {
+    if (effectiveGhTarget && wantComment) await routeRepoTargetWorkspace(ctx, effectiveGhTarget);
+    else {
+      const repo = effectiveGhTarget?.repo ?? stagingTarget?.repo;
+      if (repo) await routeToRepoWorkspace(ctx, repo);
+    }
+  }
 
   let metadata: Record<string, string> | undefined = withFacts;
   if (effectiveGhTarget) {

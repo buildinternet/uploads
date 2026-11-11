@@ -52,12 +52,19 @@ export function authUrlFromApi(apiUrl: string): string {
 export const DEFAULT_API_URL = "https://api.uploads.sh";
 export const DEFAULT_WORKSPACE = "default";
 
-// `up_` personal tokens and `ups_` workspace service tokens both carry the workspace.
+// Older `up_` personal tokens and `ups_` workspace service tokens carry the
+// workspace. `upk_` personal tokens don't: they work in every workspace the
+// account belongs to, so the workspace comes from config (login saves it).
 const TOKEN_WORKSPACE_RE = /^ups?_([a-z0-9][a-z0-9-]{1,62})_/;
 
-/** Workspace encoded in minted tokens: `up_<workspace>_…` or `ups_<workspace>_…` */
+/** Workspace encoded in minted tokens: `up_<workspace>_…` or `ups_<workspace>_…`. Undefined for `upk_…`. */
 export function workspaceFromToken(token: string): string | undefined {
   return TOKEN_WORKSPACE_RE.exec(token)?.[1];
+}
+
+/** A `upk_…` personal token, which names no workspace. */
+export function isPersonalKey(token: string | undefined): boolean {
+  return token?.startsWith("upk_") ?? false;
 }
 
 export function loadEnvFile(path: string): Partial<UploadsClientConfig> {

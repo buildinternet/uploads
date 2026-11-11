@@ -110,6 +110,8 @@ function parseMintRequest(parsed: unknown): {
   label?: string;
   /** `null` means never expire. Omit in the request to get the 90-day default. */
   ttlSeconds: number | null;
+  /** `"upk"`: mint a `upk_` token with no workspace in its prefix (newer CLIs ask for it). */
+  format?: "upk";
 } {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new ValidationError("request body must be a JSON object", { code: "invalid_request" });
@@ -153,7 +155,12 @@ function parseMintRequest(parsed: unknown): {
 
   const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
 
-  return { grant: { workspace, rawScopes: grantObj.scopes }, label, ttlSeconds };
+  if (body.tokenFormat !== undefined && body.tokenFormat !== "upk") {
+    throw new ValidationError('tokenFormat must be "upk"', { code: "invalid_request" });
+  }
+  const format = body.tokenFormat === "upk" ? ("upk" as const) : undefined;
+
+  return { grant: { workspace, rawScopes: grantObj.scopes }, label, ttlSeconds, format };
 }
 
 export const tokens = new Hono<SessionVars>()
@@ -206,7 +213,7 @@ export const tokens = new Hono<SessionVars>()
 
     // requireSessionUser guarantees this is set.
     const user = c.get("sessionUser")!;
-    const { grant, label, ttlSeconds } = parseMintRequest(parsed);
+    const { grant, label, ttlSeconds, format } = parseMintRequest(parsed);
 
     // Three independent lookups — resolve them concurrently, then gate. The
     // workspace must exist as a KV tenant record (a token is meaningless
@@ -257,6 +264,7 @@ export const tokens = new Hono<SessionVars>()
       scopes,
       expiresAt,
       mintedByUserId: user.id,
+      format,
     });
     const response = {
       token,
@@ -286,7 +294,12 @@ export const tokens = new Hono<SessionVars>()
         principal: user.id,
         key: idempotencyKey,
         record: tokenRecord,
-        fingerprint: { scopes, label: tokenRecord.label, ttlSeconds },
+        fingerprint: {
+          scopes,
+          label: tokenRecord.label,
+          ttlSeconds,
+          ...(format ? { format } : {}),
+        },
         response,
         masterSecret: c.env.WORKSPACE_SECRETS_KEY,
         ring: secretsKeyRingFromEnv(c.env),

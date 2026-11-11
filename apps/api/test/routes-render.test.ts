@@ -59,7 +59,7 @@ class RenderFakeD1 extends UsageFakeD1 {
             return stmt;
           },
           first: async () => {
-            const hash = args[1] as string;
+            const hash = (args.length === 2 ? args[0] : args[1]) as string;
             if (hash === authToken.tokenHash) {
               return {
                 id: "token-id",

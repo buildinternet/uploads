@@ -9,6 +9,7 @@ import {
   removeConfigKeys,
   resolveConfigPath,
   writeConfigKeys,
+  isPersonalKey,
   workspaceFromToken,
 } from "../config.js";
 import {
@@ -555,8 +556,10 @@ export async function runLogin(
     );
   }
 
+  // `upk_` tokens name no workspace; older `up_<ws>_` ones must match.
   const encoded = workspaceFromToken(result.token);
-  if (!encoded || encoded !== result.workspace || /[\r\n]/.test(result.token))
+  const shapeOk = isPersonalKey(result.token) || encoded === result.workspace;
+  if (!shapeOk || /[\r\n]/.test(result.token))
     throw new UsageError("login returned invalid credentials");
   const savedApiUrl = result.apiUrl ?? apiUrl;
   const write = writeConfigKeys(

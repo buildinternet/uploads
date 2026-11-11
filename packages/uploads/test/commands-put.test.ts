@@ -247,8 +247,29 @@ describe("runPut --pr/--issue", () => {
     const { client, puts } = fakeClient({ repoLinkStatus: { binding: "other" } });
     await expect(
       runPut(ctxWith(client), [tmpFile(), "--pr", "314", "--repo", "o/r"], false, noRun),
-    ).rejects.toThrow(/o\/r is linked to a different uploads.sh workspace.*PR #314/);
+    ).rejects.toThrow(
+      /o\/r is linked to an uploads.sh workspace this account isn't a member of.*PR #314/,
+    );
     expect(puts).toHaveLength(0);
+  });
+
+  it("uploads to the repo's workspace when this account is a member there", async () => {
+    const home = fakeClient({ repoLinkStatus: { binding: "other", workspace: "relay" } });
+    const routed = fakeClient({ repoLinkStatus: { binding: "self" } });
+    const configs: string[] = [];
+    const ctx: CliContext = {
+      ...ctxWith(home.client),
+      clientFor: (config) => {
+        configs.push(config.workspace);
+        return routed.client;
+      },
+    };
+    const code = await runPut(ctx, [tmpFile(), "--pr", "314", "--repo", "o/r"], false, noRun);
+    expect(code).toBe(0);
+    expect(configs).toEqual(["relay"]);
+    expect(ctx.config.workspace).toBe("relay");
+    expect(home.puts).toHaveLength(0);
+    expect(routed.puts[0].key).toBe("gh/o/r/pull/314/shot.png");
   });
 
   it("uploads anyway with --no-comment when the repo is linked elsewhere", async () => {

@@ -114,12 +114,15 @@ function createContext(
   const json = globals.json ?? false;
   // JSON callers are scripts and the Claude Code mod; the warning is for people and agents.
   const machine = json || flagString(cmdFlags, "--format") === "json";
-  return {
-    config,
-    client: createUploadsClient(config, {
+  const clientFor = (forConfig: typeof config) =>
+    createUploadsClient(forConfig, {
       expiredTokens: fileExpiredTokenStore(),
       ...(machine || globals.quiet ? {} : { onTokenExpiry: tokenExpiryWarner() }),
-    }),
+    });
+  return {
+    config,
+    client: clientFor(config),
+    clientFor,
     json,
     quiet: globals.quiet ?? false,
     envFile: globals.envFile,

@@ -7,6 +7,7 @@ import {
   type GalleryItem,
   type GithubCommentResult,
   type GithubHealthResult,
+  type GithubRepoLinkResult,
   type PromoteBranchAttachmentsResult,
   type PutResult,
   type ResolveGhPrefixOptions,
@@ -177,6 +178,8 @@ export { formatUsageHuman } from "./format-usage.js";
 export interface CliContext {
   config: ResolvedConfig;
   client: UploadsClient;
+  /** Builds the client for another workspace when an upload is routed there. Defaults to a plain client. */
+  clientFor?: (config: ResolvedConfig) => UploadsClient;
   json: boolean;
   quiet: boolean;
   envFile?: string;
@@ -1920,7 +1923,7 @@ export async function runAttach(
   }
 
   if (!parsed.flags.has("--no-comment")) {
-    await assertRepoTargetWorkspace(ctx.client, target, ctx.config.workspace);
+    await routeRepoTargetWorkspace(ctx, target);
   }
 
   const logHuman = !ctx.quiet && !ctx.json;
@@ -2103,6 +2106,9 @@ async function runAttachBranch(
   }
 
   const target: BranchTarget = { repo, branch };
+  // Stage in the repo's workspace when this account can reach it; otherwise
+  // the binding advisory below explains why the files won't auto-attach.
+  await routeToRepoWorkspace(ctx, repo);
   // So the promote at PR open also sweeps this branch's older names.
   await registerRenamesBestEffort(ctx.client, run, repo, branch);
   const { uploads, failures, firstError } = await uploadBranchAttachments({
@@ -2163,31 +2169,46 @@ async function runAttachBranch(
 }
 
 /**
- * Preflight for uploads aimed at a PR or issue: when the repo is linked to a
- * different workspace, the upload would land here while the bot comment is
- * built from the other workspace, so the PR would say "No uploads yet".
- * Refuse before uploading. `--no-comment` opts out. Any lookup failure lets
- * the upload through (fail-open, same as the staging advisory).
+ * Sends an upload aimed at a repo to the workspace that repo is linked to.
+ * When the repo belongs to another workspace and this account is a member
+ * there, the server names it and the same token works there, so the CLI
+ * switches `ctx` to it and says so. Returns false when the repo is linked
+ * elsewhere and the account can't reach it. Any lookup failure leaves `ctx`
+ * alone (fail-open, same as the staging advisory).
  */
-export async function assertRepoTargetWorkspace(
-  client: UploadsClient,
-  target: GhTarget,
-  workspace: string | undefined,
-): Promise<void> {
-  let binding: string;
+export async function routeToRepoWorkspace(ctx: CliContext, repo: string): Promise<boolean> {
+  let link: GithubRepoLinkResult;
   try {
-    ({ binding } = await client.githubRepoLinkStatus(target.repo));
+    link = await ctx.client.githubRepoLinkStatus(repo);
   } catch {
-    return;
+    return true;
   }
-  if (binding !== "other") return;
+  if (link.binding !== "other") return true;
+  if (!link.workspace) return false;
+  ctx.config = { ...ctx.config, workspace: link.workspace };
+  ctx.client = (ctx.clientFor ?? createUploadsClient)(ctx.config);
+  if (!ctx.quiet && !ctx.json) {
+    process.stderr.write(`>> sending to workspace "${link.workspace}" (linked to ${repo})\n`);
+  }
+  return true;
+}
+
+/**
+ * Preflight for uploads aimed at a PR or issue: route them to the repo's
+ * workspace, or, when this account can't reach it, refuse before uploading.
+ * Otherwise the files would land here while the bot comment is built from
+ * the other workspace, so the PR would say "No uploads yet". `--no-comment`
+ * opts out.
+ */
+export async function routeRepoTargetWorkspace(ctx: CliContext, target: GhTarget): Promise<void> {
+  const workspace = ctx.config.workspace;
+  if (await routeToRepoWorkspace(ctx, target.repo)) return;
   const here = workspace ? `workspace "${workspace}"` : "this workspace";
   const where = `${target.kind === "pull" ? "PR" : "issue"} #${target.num}`;
   throw new UsageError(
-    `${target.repo} is linked to a different uploads.sh workspace, so files uploaded to ` +
-      `${here} won't show on ${where}. Sign in to the workspace that owns ${target.repo} ` +
-      `and retry, or pass --no-comment to upload here anyway.`,
-    { example: "uploads login --workspace <name>" },
+    `${target.repo} is linked to an uploads.sh workspace this account isn't a member of, so ` +
+      `files uploaded to ${here} won't show on ${where}. Ask a member of that workspace to ` +
+      `invite you, or pass --no-comment to upload here anyway.`,
   );
 }
 
@@ -3454,6 +3475,14 @@ export async function runPut(
   // otherwise best-effort auto resolution where --meta wins. --no-git,
   // --no-auto and UPLOADS_NO_AUTO_META disable auto; --auto never overrides
   // --no-git.
+  // Send repo uploads to the repo's workspace before anything is written
+  // (the rename registration below included).
+  if (!dryRun) {
+    if (effectiveGhTarget && wantComment) await routeRepoTargetWorkspace(ctx, effectiveGhTarget);
+    else if (!effectiveGhTarget && stagingTarget)
+      await routeToRepoWorkspace(ctx, stagingTarget.repo);
+  }
+
   let metadata = userMeta;
   let attachedRef: string | undefined;
   if (effectiveGhTarget) {
@@ -3492,10 +3521,6 @@ export async function runPut(
         } catch {}
       }
     }
-  }
-
-  if (effectiveGhTarget && wantComment && !dryRun) {
-    await assertRepoTargetWorkspace(ctx.client, effectiveGhTarget, ctx.config.workspace);
   }
 
   // Derived `repo`, on every layout. Only folded in when `metadata` is
