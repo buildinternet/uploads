@@ -243,6 +243,32 @@ describe("runPut --pr/--issue", () => {
     expect(puts[0].key).toBe("gh/buildinternet/uploads/pull/123/shot.png");
   });
 
+  it("refuses before uploading when the repo is linked to another workspace", async () => {
+    const { client, puts } = fakeClient({ repoLinkStatus: { binding: "other" } });
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--pr", "314", "--repo", "o/r"], false, noRun),
+    ).rejects.toThrow(/o\/r is linked to a different uploads.sh workspace.*PR #314/);
+    expect(puts).toHaveLength(0);
+  });
+
+  it("uploads anyway with --no-comment when the repo is linked elsewhere", async () => {
+    const { client, puts } = fakeClient({ repoLinkStatus: { binding: "other" } });
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "314", "--repo", "o/r", "--no-comment"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].key).toBe("gh/o/r/pull/314/shot.png");
+  });
+
+  it("uploads when the link lookup fails", async () => {
+    const { client, puts } = fakeClient({ repoLinkStatus: new Error("offline") });
+    await runPut(ctxWith(client), [tmpFile(), "--pr", "314", "--repo", "o/r"], false, noRun);
+    expect(puts).toHaveLength(1);
+  });
+
   it("builds an issue key", async () => {
     const { client, puts } = fakeClient();
     await runPut(ctxWith(client), [tmpFile(), "--issue", "7", "--repo", "o/r"], false, noRun);
