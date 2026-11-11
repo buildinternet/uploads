@@ -1,0 +1,281 @@
+---
+title: GitHub App
+description: Install the uploads-sh GitHub App so attachment comments post as the bot, private-repo PR and issue titles show on file pages, and titles stay current.
+heading: GitHub App
+tagline: "The recommended setup: bot-posted comments and live PR/issue titles."
+navLabel: GitHub App
+navSlug: github-app
+navOrder: 10
+navGroup: github
+toc:
+  - { id: what-it-adds, label: What it adds }
+  - { id: install, label: Install it }
+  - { id: staging, label: Staging before a PR exists }
+  - { id: ingest, label: Imported attachments }
+  - { id: check, label: Check for visuals }
+  - { id: permissions, label: Permissions & events }
+  - { id: bindings, label: Repo bindings }
+  - { id: self-healing, label: Self-healing comments }
+  - { id: without-it, label: Without the App }
+---
+
+import GithubAppInstalledBanner from "../../../components/docs/GithubAppInstalledBanner.astro";
+import { GITHUB_APP_INSTALL_URL, GITHUB_APP_URL } from "../../../lib/github-app";
+
+<GithubAppInstalledBanner />
+
+<aside class="callout">
+  **Landed here from an `uploads-sh` bot comment?** That's an auto-updating list of files uploaded
+  for the PR or issue. Anyone with repo access can add to it with the [uploads
+  CLI](/docs/attach-pull-request-images). This page covers the GitHub App that posts it.
+</aside>
+
+<section class="lead" id="what-it-adds">
+
+## What it adds <a class="anchor" data-pagefind-ignore href="#what-it-adds" aria-label="Link to this section">#</a>
+
+<div class="cta-row">
+  <a class="cta-solid" href={GITHUB_APP_INSTALL_URL}><span class="cta-icon"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></span> Install the GitHub App</a>
+  <p class="cta-note">Free, takes about a minute. Pick the repos you attach files to.</p>
+</div>
+
+Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what makes the staged
+loop hands-off. Seven things change:
+
+- **The bot posts all linked media automatically.** The attachments comment is created and kept
+  current on the server — no local `gh` auth, no comments under contributors' own accounts.
+- **File pages show titles for private repos.** Public repos work out of the box; the App grants read
+  access for private ones.
+- **Titles stay current.** Webhooks pick up when a PR or issue is renamed, closed, or merged.
+- **Screenshots staged before the PR exists get promoted automatically.** See
+  [Staging before a PR exists](#staging).
+- **Images dropped directly on GitHub get mirrored in.** Attachments people drag into PR and issue
+  text, and public Cursor `art-*` rewrite URLs, are imported into the workspace. See
+  [Imported attachments](#ingest).
+- **PRs get a "Check for visuals" check.** One row in the checks list says what's attached and
+  whether anything is held for review. See [Check for visuals](#check).
+- **UI changes can require screenshots.** The check notes a PR that changes UI files with nothing
+  attached, and can fail until screenshots arrive. See
+  [Require screenshots on pull requests](/docs/require-screenshots).
+
+Everything in these docs still works without it — see [Without the App](#without-it).
+
+</section>
+
+<section id="install">
+
+## Install it <a class="anchor" data-pagefind-ignore href="#install" aria-label="Link to this section">#</a>
+
+<div class="cta-row">
+  <a class="cta-solid" href={GITHUB_APP_INSTALL_URL}>Install the App on GitHub</a>
+</div>
+
+Pick the repositories you attach files to (add more later in GitHub's settings). That's the whole
+setup — the next command run against an installed repo posts as the bot instead of your own account:
+
+```bash
+uploads attach ./after.png
+```
+
+</section>
+
+<section id="staging">
+
+## Staging before a PR exists <a class="anchor" data-pagefind-ignore href="#staging" aria-label="Link to this section">#</a>
+
+No PR open yet? On a branch, a bare `put` stages against it by default — no flag needed. Staged files
+are hosted and public immediately; there's just no PR to comment on yet.
+
+```bash
+uploads put ./progress.png
+```
+
+A bare `uploads screenshot` stages the same way, carrying its derived `path`/`url`/`env`/`viewport`
+metadata through promotion once the PR opens.
+
+<div class="pointer">
+  Staging several files at once? Use `uploads attach --branch` instead — [see staging & binding
+  states
+  <span class="go">→</span>](/docs/attach-pull-request-images#staging).
+</div>
+
+The moment a PR opens for that branch (or reopens, or gets new commits), the App promotes the staged
+files onto it and posts or updates the bot comment — no CLI involvement. Without the App, the next
+`uploads attach` against that PR promotes them, or run `uploads attach --promote` with no files
+(`--no-promote` skips it).
+
+Promotion copies — it never deletes the staged original, so URLs you've already embedded keep
+working. Staged files stick around under the same rules as anything else in your workspace. The one
+caveat: a file staged more than 30 days before its PR opens won't auto-promote (it's still there,
+just not attached automatically).
+
+</section>
+
+<section id="ingest">
+
+## Imported attachments <a class="anchor" data-pagefind-ignore href="#ingest" aria-label="Link to this section">#</a>
+
+When someone drags an image or video into a PR or issue on GitHub itself, or attaches one with
+`gh --attach`, the App imports it into the workspace automatically. The same webhook imports public
+Cursor cloud-agent rewrite URLs (`cursor.com/artifacts/c/art-*`) from a linked PR or issue body or
+comment. It does this on create and on edit. Imported files carry the same `gh.*` metadata as CLI
+uploads, so they show up in search and on the "From GitHub" rail of file pages. They survive even
+if the original host's copy goes away. They also appear in the managed attachments comment and
+count toward the check, so the comment stays the full set of visuals for the PR, even when the same
+images are inline in the description.
+
+Viewer pages (`/artifacts/v/`) and login-walled agent artifact links are skipped — turn
+on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets a public link.
+`uploads ingest` runs the same import on demand when you want a backfill.
+
+Importing is **on by default** for linked repos. Turn it off per workspace on the workspace's
+[comment settings](/account) page, or per repo with `ingestGithubAttachments: false` in
+[`.uploads.yml`](/docs/comment-config).
+
+Two filters keep low-value files out:
+
+- **Bot authors are skipped.** An attachment in a body or comment authored by a `[bot]` account — CI
+  status GIFs, badge images, and the like — is not imported. Repos that genuinely want bot-posted
+  media can re-admit it with `ingestBotAttachments: true` in `.uploads.yml`.
+- **Tiny images are skipped.** An image under 200 pixels on either side (emoji, badges, tracking
+  pixels) is not imported. The original still renders on GitHub either way.
+
+</section>
+
+<section id="check">
+
+## Check for visuals <a class="anchor" data-pagefind-ignore href="#check" aria-label="Link to this section">#</a>
+
+The App adds an **Uploads.sh / Check for visuals** row to a pull request's checks, next to your tests and builds. It says
+what's attached and whether anything is held for review, and notes when a PR changes UI files with
+nothing attached. A PR with no UI changes and nothing attached still gets the row, marked skipped,
+so you can see the App is working. It can also fail until a UI change has screenshots, so you can
+require it before merging. See [Require screenshots on pull requests](/docs/require-screenshots).
+
+A held file never fails the check, so a hold can't block a merge: a hold is about the uploaded file,
+not the PR's code.
+
+</section>
+
+<section id="no-uploads">
+
+## PRs with no uploads <a class="anchor" data-pagefind-ignore href="#no-uploads" aria-label="Link to this section">#</a>
+
+A pull request that changes UI files with nothing attached gets a neutral check, and a short how-to
+comment once UI file paths are set. Which files count, and how to turn the comment off, are on
+[Require screenshots on pull requests](/docs/require-screenshots#ui-files).
+
+</section>
+
+<section id="required">
+
+## Required uploads <a class="anchor" data-pagefind-ignore href="#required" aria-label="Link to this section">#</a>
+
+To make the check fail when a UI change is missing screenshots, and to block merges on it, see
+[Require screenshots on pull requests](/docs/require-screenshots#basic).
+
+</section>
+
+<section id="permissions">
+
+## Permissions & events <a class="anchor" data-pagefind-ignore href="#permissions" aria-label="Link to this section">#</a>
+
+The App asks for three permissions:
+
+- **Issues and Pull requests, read & write.** Reads titles and state, and posts the one managed
+  attachments comment. It never touches other comments, PR descriptions, or your code.
+- **Checks, read & write.** Shows the [Check for visuals](#check) check on pull requests. It only creates
+  and updates its own check. It can't change, re-run, or cancel your CI.
+- **Single file, read.** Reads the repo's comment settings file (`.uploads.yml` and its five
+  sibling paths) and nothing else.
+
+If your org installed the App before a permission was added, GitHub holds the upgrade until an org
+admin approves it. Until then, comments fall back to the CLI posting via `gh` (it prints the
+approval link), and the check simply doesn't appear.
+
+The App also needs **webhook event subscriptions** (Settings → your App → _Permissions & events_ →
+_Subscribe to events_):
+
+- **Required — `issues` and `pull_request`.** Without these the ping still shows green, but title
+  updates and staged-file auto-promotion silently do nothing.
+- **Recommended — `issue_comment`.** Enables [self-healing comments](#self-healing); the App works
+  fully without it.
+- **Recommended — `repository`.** When a repo is made private, its PR and issue titles stop showing
+  on public pages right away. Without it, those cached titles expire on their own within 24 hours.
+
+`uploads github doctor` checks the `issues`, `pull_request`, and `issue_comment` subscriptions
+directly and reports anything missing.
+
+Branch-rename following for staged uploads (see
+[Attach artifacts to pull requests](/docs/attach-pull-request-images)) is done client-side by the CLI on purpose, so
+the App doesn't need `Contents: read` ("read access to code"); that can be revisited if more use
+cases justify asking for it. The follow-up happens the next time `uploads` stages or promotes on the
+renamed branch; if the PR opens before that, `attach --from-branch <old>` still recovers the files.
+
+</section>
+
+<section id="bindings">
+
+## Repo bindings <a class="anchor" data-pagefind-ignore href="#bindings" aria-label="Link to this section">#</a>
+
+Each repo maps to at most one workspace's managed comment. The binding is created implicitly the
+first time a workspace comments, attaches, or promotes against a repo; inspect or claim it explicitly
+with `uploads github link --status`.
+
+- **Bindings can't be stolen.** Claiming a bound repo just reports the current owner.
+  `uploads github unlink` releases your own binding; an operator can reassign stuck ones from the
+  admin panel.
+- **Other workspaces can't post to your repo.** Their `comment`/`attach` calls get a
+  `not_authorized` decline with no `gh` fallback — nobody can deface or duplicate the bot comment on
+  your repo.
+- **First claims require push access.** Before a workspace can bind an unclaimed repo, the server
+  verifies live against GitHub that the calling token's linked GitHub account can push to it. Tokens
+  with no linked GitHub identity can't make first claims (they still work on repos already bound to
+  them), and repos bound before this check existed keep working.
+
+</section>
+
+<section id="held-files">
+
+## Held files <a class="anchor" data-pagefind-ignore href="#held-files" aria-label="Link to this section">#</a>
+
+If uploads.sh thinks an attachment shows a secret (an API key, a password, a token) or sensitive
+personal data (an ID document, a card number), it holds the file for review. The comment then leaves
+the file out and shows one line instead:
+
+```text
+🔒 1 file is held for your review · approve with uploads approve --pr 12
+```
+
+The line never names the file. A workspace member checks the file, then runs
+`uploads approve --pr 12 --all`, and the comment and the [Check for visuals](#check) check update. While a
+file is held, the comment's **View on uploads.sh** button turns golden yellow. If the file does show a real credential,
+rotate it and delete the file instead. See [Held uploads](/docs/ai-labels#held-uploads).
+
+</section>
+
+<section id="self-healing">
+
+## Self-healing comments <a class="anchor" data-pagefind-ignore href="#self-healing" aria-label="Link to this section">#</a>
+
+If the managed comment is deleted or edited out from under the bot, the App restores it automatically
+on the next comment activity in that PR or issue — same attachment list, no CLI call needed. This
+requires the `issue_comment` event (see [Permissions & events](#permissions)). A briefly missing
+comment is expected and not a reason to repost one manually.
+
+Duplicate marker comments — the occasional webhook-vs-CLI race that creates two — are collapsed the
+same way: the next sync keeps the oldest, updates it, and deletes the extras. And `uploads meta set`
+on a `gh/…`-keyed object refreshes the comment automatically whenever it changes `path` or `state`,
+so backfilled metadata shows up without waiting on the next `attach`.
+
+</section>
+
+<section id="without-it">
+
+## Without the App <a class="anchor" data-pagefind-ignore href="#without-it" aria-label="Link to this section">#</a>
+
+`uploads attach` posts the same managed comment through your local `gh` CLI, and file pages still
+resolve titles for public repos. Uninstalling just returns you to that behavior — hosted files and
+their URLs are unaffected either way.
+
+</section>

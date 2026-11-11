@@ -1,0 +1,21 @@
+---
+// A docs-chrome page written in .astro rather than MDX (the /docs hub, the
+// agent walkthrough). Wraps <StarlightPage>; see lib/docs-page.ts for why the
+// heading, tagline, and rail travel on Astro.locals rather than frontmatter.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import type { StarlightPageProps } from "@astrojs/starlight/props";
+import { type DocsPageExtras, setDocsPageExtras } from "../../lib/docs-page";
+
+type Props = DocsPageExtras & {
+  title: string;
+  description: string;
+  head?: StarlightPageProps["frontmatter"]["head"];
+};
+
+const { title, description, head, ...extras } = Astro.props;
+setDocsPageExtras(Astro.locals, extras);
+---
+
+<StarlightPage frontmatter={{ title, description, head }}>
+  <slot />
+</StarlightPage>

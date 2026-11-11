@@ -1,0 +1,27 @@
+---
+// Starlight Footer override (the in-article footer, not the site footer):
+// prev/next for docs pages, walking `navOrder` and wrapping through the hub at
+// both ends. Guides, the hub, and the walkthrough have none, as before.
+import { getDocsPagination, getOrderedDocs } from "../../lib/docs-nav";
+
+const { id } = Astro.locals.starlightRoute.entry;
+const isDocsPage = id.startsWith("docs/");
+const pagination = isDocsPage ? getDocsPagination(await getOrderedDocs(), id) : undefined;
+---
+
+{
+  pagination && (
+    <div class="doc">
+      <nav class="page-nav" aria-label="More docs">
+        <a class="prev" href={pagination.prev.href}>
+          <span class="dir">← Back</span>
+          {pagination.prev.label}
+        </a>
+        <a class="next" href={pagination.next.href}>
+          <span class="dir">{pagination.nextIsHub ? "Docs →" : "Next →"}</span>
+          {pagination.next.label}
+        </a>
+      </nav>
+    </div>
+  )
+}

@@ -1,0 +1,33 @@
+---
+// Starlight MarkdownContent override: page content is styled by the `.doc`
+// rules in styles/docs.css rather than Starlight's `.sl-markdown-content`.
+// Guides with `faq` frontmatter get the on-page FAQ after their content; the
+// same answers ship as FAQPage JSON-LD from Head.astro.
+import { getDocsPageData } from "../../lib/docs-page";
+
+const { faq } = getDocsPageData(Astro.locals);
+---
+
+<div class="doc">
+  <slot />
+  {
+    faq.length > 0 && (
+      <section id="faq">
+        <h2>
+          FAQ{" "}
+          <a class="anchor" data-pagefind-ignore href="#faq" aria-label="Link to this section">
+            #
+          </a>
+        </h2>
+        <dl class="faq">
+          {faq.map((item) => (
+            <>
+              <dt>{item.q}</dt>
+              <dd>{item.a}</dd>
+            </>
+          ))}
+        </dl>
+      </section>
+    )
+  }
+</div>

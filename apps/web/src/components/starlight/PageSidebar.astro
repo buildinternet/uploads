@@ -1,0 +1,22 @@
+---
+// Starlight PageSidebar override: the "on this page" rail from the `toc`
+// frontmatter, keyed to each page's `<section id>` so long-standing deep links
+// keep working. Guides with an FAQ get an "FAQ" entry appended.
+import { getDocsPageData } from "../../lib/docs-page";
+
+const { toc = [], faq } = getDocsPageData(Astro.locals);
+const entries = toc.length > 0 && faq.length > 0 ? [...toc, { id: "faq", label: "FAQ" }] : toc;
+---
+
+<aside class="docs-toc" aria-label="On this page">
+  <p class="head">On this page</p>
+  <ol>
+    {
+      entries.map((entry) => (
+        <li>
+          <a href={`#${entry.id}`}>{entry.label}</a>
+        </li>
+      ))
+    }
+  </ol>
+</aside>

@@ -6,6 +6,7 @@ import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
 import mdx from "@astrojs/mdx";
 import react from "@astrojs/react";
+import starlight from "@astrojs/starlight";
 import tailwindcss from "@tailwindcss/vite";
 import expressiveCode from "astro-expressive-code";
 import { expressiveCodeOptions } from "./src/lib/expressive-code-options.mjs";
@@ -89,9 +90,45 @@ function servePublicInDev() {
 export default defineConfig({
   site: "https://uploads.sh",
   adapter: cloudflare({ imageService: "compile" }),
-  // astro-expressive-code MUST come before mdx() — it installs the remark/rehype
-  // handling that mdx() then picks up for fenced code blocks.
-  integrations: [expressiveCode(expressiveCodeOptions), mdx(), react()],
+  // astro-expressive-code MUST come before starlight() and mdx() — it installs
+  // the remark/rehype handling they pick up for fenced code blocks. Starlight
+  // sees it (and mdx()) already registered and skips its own copies, so code
+  // blocks keep the site's themes everywhere, docs or not.
+  integrations: [
+    expressiveCode(expressiveCodeOptions),
+    starlight({
+      // Docs and guides (src/content/docs/{docs,guides}/*.mdx). Starlight
+      // provides routing, drafts, and Pagefind search; the overrides below
+      // draw the site's own chrome so docs pages match the rest of uploads.sh.
+      title: "uploads.sh",
+      disable404Route: true,
+      // The "on this page" rail comes from `toc` frontmatter, keyed to each
+      // page's `<section id>` (PageSidebar.astro), and every h2 carries its
+      // own "#" anchor, so Starlight's generated ToC and heading links stay off.
+      tableOfContents: false,
+      markdown: { headingLinks: false },
+      customCss: ["./src/styles/docs.css"],
+      components: {
+        Head: "./src/components/starlight/Head.astro",
+        ThemeProvider: "./src/components/starlight/ThemeProvider.astro",
+        PageFrame: "./src/components/starlight/PageFrame.astro",
+        Sidebar: "./src/components/starlight/Sidebar.astro",
+        TwoColumnContent: "./src/components/starlight/TwoColumnContent.astro",
+        PageSidebar: "./src/components/starlight/PageSidebar.astro",
+        ContentPanel: "./src/components/starlight/ContentPanel.astro",
+        PageTitle: "./src/components/starlight/PageTitle.astro",
+        DraftContentNotice: "./src/components/starlight/DraftContentNotice.astro",
+        MarkdownContent: "./src/components/starlight/MarkdownContent.astro",
+        Footer: "./src/components/starlight/Footer.astro",
+      },
+    }),
+    mdx(),
+    react(),
+    // public/sitemap.xml is hand-maintained. Starlight adds @astrojs/sitemap
+    // unless an integration by that name is already registered; this no-op
+    // stands in so the build doesn't emit a second, generated sitemap.
+    { name: "@astrojs/sitemap", hooks: {} },
+  ],
   trailingSlash: "never",
   // Legacy /feed and /feed/* 301 from pages/feed.astro and pages/feed/[...path].astro.
   // Config redirects cannot map a rest param onto /c/[id] or /c/[id]/[item].
