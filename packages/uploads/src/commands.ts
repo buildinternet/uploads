@@ -2206,9 +2206,10 @@ export async function routeRepoTargetWorkspace(ctx: CliContext, target: GhTarget
   const here = workspace ? `workspace "${workspace}"` : "this workspace";
   const where = `${target.kind === "pull" ? "PR" : "issue"} #${target.num}`;
   throw new UsageError(
-    `${target.repo} is linked to an uploads.sh workspace this account isn't a member of, so ` +
-      `files uploaded to ${here} won't show on ${where}. Ask a member of that workspace to ` +
-      `invite you, or pass --no-comment to upload here anyway.`,
+    `${target.repo} is linked to an uploads.sh workspace this account can't upload to, so ` +
+      `files uploaded to ${here} won't show on ${where}. Link the GitHub account that can ` +
+      `push to ${target.repo} at https://uploads.sh/account/profile, ask a member of that ` +
+      `workspace to invite you, or pass --no-comment to upload here anyway.`,
   );
 }
 

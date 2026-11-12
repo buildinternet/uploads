@@ -384,7 +384,9 @@ uploads doctor --json
 workspace. The token works in every workspace your account belongs to: a
 `--pr`, `--issue` or staged upload goes to the workspace its repo is linked
 to, and the CLI prints `>> sending to workspace "<name>"` when it switches.
-Older `up_<workspace>_…` personal tokens behave the same. A `ups_<workspace>_…`
+Contributors who can write to the repo on GitHub (with a linked GitHub
+account) get the same routing for that repo's uploads without joining the
+workspace. Older `up_<workspace>_…` personal tokens behave the same. A `ups_<workspace>_…`
 service token stays in its own workspace. `/account/developers` mints
 personal tokens too and can skip expiry (revoke is then the only off switch).
 Legacy administrator-minted tokens remain valid.

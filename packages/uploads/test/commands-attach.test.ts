@@ -369,7 +369,7 @@ describe("runAttach", () => {
         false,
         run,
       ),
-    ).rejects.toThrow(/linked to an uploads.sh workspace this account isn't a member of/);
+    ).rejects.toThrow(/linked to an uploads.sh workspace this account can't upload to/);
     expect(puts).toEqual([]);
   });
 
