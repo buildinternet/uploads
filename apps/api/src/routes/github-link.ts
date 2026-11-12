@@ -23,6 +23,7 @@ import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
+import { hasRepoWriteAccess } from "../repo-collaborator";
 import { mintingUserIdOf } from "../uploader-identity";
 import { membershipsForUser, workspacesFromMembership } from "../org-workspaces";
 
@@ -78,9 +79,11 @@ export async function githubLinkGetHandler(c: Context<WorkspaceVars>) {
 // silences anything but a clean 200.
 //
 // The one exception to "never say to whom": when the caller's own account
-// is a member of the owning workspace, "other" also carries `workspace`, so
-// the CLI can send the upload there with the same token (a personal token
-// acts in every workspace its user belongs to; see `workspaceAuthWith`).
+// is a member of the owning workspace, or can write to the repo on GitHub,
+// "other" also carries `workspace`, so the CLI can send the upload there
+// with the same token (a personal token acts in every workspace its user
+// belongs to, and for one repo's uploads in the workspace that repo is
+// linked to; see `workspaceAuthWith` and repo-collaborator.ts).
 // A member already knows that name, so nothing leaks.
 export async function githubRepoLinkGetHandler(c: Context<WorkspaceVars>) {
   const repo = parseRepo(c.req.query("repo"));
@@ -89,7 +92,13 @@ export async function githubRepoLinkGetHandler(c: Context<WorkspaceVars>) {
   const binding = deriveRepoBinding(link, workspaceName);
   if (binding === "other" && link) {
     const userId = mintingUserIdOf(c.get("uploaderIdentity"));
-    if (userId && (await isMemberOf(c.env, userId, link.workspaceName))) {
+    // Members, and anyone who can write to the repo on GitHub (they may
+    // upload for it there, see repo-collaborator.ts).
+    if (
+      userId &&
+      ((await isMemberOf(c.env, userId, link.workspaceName)) ||
+        (await hasRepoWriteAccess(c.env, repo, userId).catch(() => false)))
+    ) {
       return c.json({ binding, workspace: link.workspaceName });
     }
   }

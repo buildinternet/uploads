@@ -248,7 +248,7 @@ describe("runPut --pr/--issue", () => {
     await expect(
       runPut(ctxWith(client), [tmpFile(), "--pr", "314", "--repo", "o/r"], false, noRun),
     ).rejects.toThrow(
-      /o\/r is linked to an uploads.sh workspace this account isn't a member of.*PR #314/,
+      /o\/r is linked to an uploads.sh workspace this account can't upload to.*PR #314/,
     );
     expect(puts).toHaveLength(0);
   });

@@ -5,7 +5,13 @@ personal token from `uploads login` or `/account/developers`: `upk_…` from
 newer CLIs, or the older `up_<workspace>_…`. The workspace is always in the
 URL path. A personal token works in the workspace it was minted for and in
 every other workspace its account is a member of; membership is checked on
-each request, and a non-member gets 403 `workspace_access_denied`.
+each request, and a non-member gets 403 `workspace_access_denied`. One
+exception: someone who can write to a GitHub repo (write, maintain or admin,
+through a linked GitHub account) may upload for that repo in the workspace
+it's linked to without being a member. That covers keys under the repo's
+`gh/` prefixes, `github/comment`, `promote`, `branch-rename`,
+`private-prefix`, `repo-link`, and galleries by reference for the repo, with
+`files:read` and `files:write` only.
 `POST /v1/tokens` defaults to 90 days; `ttlSeconds: null` mints a token that
 does not expire, and `tokenFormat: "upk"` mints the `upk_…` form. Tokens carry named scopes `files:read`,
 `files:write`, and `files:delete`. The OpenAPI document lists the required

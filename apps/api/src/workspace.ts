@@ -38,6 +38,7 @@ import {
 } from "./client-activity";
 import { afterResponse } from "./after-response";
 import { memberWorkspaceOr404 } from "./org-workspaces";
+import { COLLABORATOR_SCOPES, isRepoCollaboratorRequest } from "./repo-collaborator";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 import { type UploaderIdentity, userUploaderIdentity } from "./uploader-identity";
@@ -691,10 +692,12 @@ function workspaceAuthWith(mode: "path" | "token"): MiddlewareHandler<WorkspaceV
     const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
 
     // A D1 token only counts here when it belongs to this workspace, or is a
-    // personal token whose user is a member of it.
+    // personal token whose user is a member of it, or (for one repo's files
+    // and comment) can write to a repo linked to it.
+    let collaborator = false;
     if (d1Token && d1Token.workspace !== name) {
       if (mode === "path" && name && canActAcrossWorkspaces(d1Token)) {
-        await requireCrossWorkspaceMember(c.env, d1Token.minting_user_id!, name);
+        collaborator = await requireCrossWorkspaceAccess(c, d1Token.minting_user_id!, name);
       } else {
         d1Token = null;
       }
@@ -714,7 +717,13 @@ function workspaceAuthWith(mode: "path" | "token"): MiddlewareHandler<WorkspaceV
 
     c.set("workspace", record);
     c.set("workspaceName", name);
-    c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
+    const scopes = d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES];
+    c.set(
+      "authScopes",
+      collaborator
+        ? scopes.filter((s) => (COLLABORATOR_SCOPES as readonly string[]).includes(s))
+        : scopes,
+    );
     c.set("authSource", d1Token ? "d1" : "legacy");
     c.set("authPrincipal", d1Token ? `d1-token:${d1Token.id}` : `legacy-token:${providedHash}`);
     c.set(
@@ -749,21 +758,28 @@ export function canActAcrossWorkspaces(
 }
 
 /**
- * Membership gate for a personal token used in another workspace. Checked
- * live on every request, so leaving a workspace cuts the token off at once.
- * A non-member gets the same 403 whether or not the workspace exists.
+ * Access gate for a personal token used in another workspace: its user is a
+ * member, or this is a repo-scoped request for a repo linked to the
+ * workspace that the user can write to on GitHub (repo-collaborator.ts).
+ * Checked live on every request, so leaving a workspace cuts the token off
+ * at once. Anyone else gets the same 403 whether or not the workspace
+ * exists. Returns true for the collaborator case.
  */
-async function requireCrossWorkspaceMember(env: Env, userId: string, name: string): Promise<void> {
+async function requireCrossWorkspaceAccess(
+  c: Context,
+  userId: string,
+  name: string,
+): Promise<boolean> {
   try {
-    await memberWorkspaceOr404(env, userId, name);
+    await memberWorkspaceOr404(c.env, userId, name);
+    return false;
   } catch (err) {
-    if (err instanceof NotFoundError) {
-      throw new ForbiddenError(`This token's account is not a member of workspace "${name}".`, {
-        code: "workspace_access_denied",
-      });
-    }
-    throw err;
+    if (!(err instanceof NotFoundError)) throw err;
   }
+  if (await isRepoCollaboratorRequest(c, userId, name)) return true;
+  throw new ForbiddenError(`This token's account is not a member of workspace "${name}".`, {
+    code: "workspace_access_denied",
+  });
 }
 
 /**

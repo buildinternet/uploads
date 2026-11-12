@@ -63,7 +63,10 @@ Authorization: Bearer upk_…
 ```
 
 A personal token works in every workspace your account belongs to. Older
-personal tokens look like `up_<workspace>_…` and work the same way.
+personal tokens look like `up_<workspace>_…` and work the same way. If you
+can write to a GitHub repo, your token can also upload for that repo's pull
+requests and issues in the workspace the repo is linked to, without joining
+it. Your GitHub account must be linked.
 
 - **Personal token.** `uploads login` creates one, or create one under
   [Developers](/account/developers) in your account. Tokens last 90 days by default, and each

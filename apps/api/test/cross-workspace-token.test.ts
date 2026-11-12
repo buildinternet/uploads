@@ -12,6 +12,8 @@ import {
   sha256Hex,
   type WorkspaceRecord,
 } from "../src/workspace";
+import { Hono } from "hono";
+import { isRepoCollaboratorRequest } from "../src/repo-collaborator";
 import { UsageFakeD1 } from "./usage-fake-d1";
 import { withMintingUserToken } from "./helpers/fake-minting-user-token";
 
@@ -43,6 +45,8 @@ async function setup(opts: {
   owner?: "workspace";
   mintingUserId?: string | null;
   repoLinkedTo?: string;
+  /** Seeds the cached GitHub write-access answer for user-1 on REPO. */
+  canWrite?: boolean;
 }) {
   const db = new UsageFakeD1();
   const tokenHash = await sha256Hex(TOKEN);
@@ -95,6 +99,15 @@ async function setup(opts: {
             : null) as unknown as KVNamespace["get"],
     },
     DB: db,
+    GITHUB_CACHE: {
+      get: async (key: string) =>
+        opts.canWrite !== undefined && key === `repo-write:${REPO}:user-1`
+          ? opts.canWrite
+            ? "1"
+            : "0"
+          : null,
+      put: async () => undefined,
+    },
     AUTH: {
       fetch: async (input: string) => {
         const url = new URL(input);
@@ -231,5 +244,90 @@ describe("resolveTokenWorkspace", () => {
     expect(await resolveTokenWorkspace(env, "ups_acme_xyz")).toBe("acme");
     expect(await resolveTokenWorkspace(env, upk)).toBe(HOME);
     expect(await resolveTokenWorkspace(env, "upk_unknown")).toBeUndefined();
+  });
+});
+
+describe("GitHub collaborators who aren't members", () => {
+  it("can make repo-scoped requests in the workspace the repo is linked to", async () => {
+    const { env } = await setup({ memberOf: [HOME], repoLinkedTo: OTHER, canWrite: true });
+    const res = await repoLink(env, OTHER);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ binding: "self" });
+  });
+
+  it("are refused without write access", async () => {
+    const { env } = await setup({ memberOf: [HOME], repoLinkedTo: OTHER, canWrite: false });
+    const res = await repoLink(env, OTHER);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: "workspace_access_denied" } });
+  });
+
+  it("are refused when the repo is linked to a different workspace", async () => {
+    const { env } = await setup({ memberOf: [HOME], repoLinkedTo: HOME, canWrite: true });
+    expect((await repoLink(env, OTHER)).status).toBe(403);
+  });
+
+  it("are refused outside the repo's files", async () => {
+    const { env } = await setup({ memberOf: [HOME], repoLinkedTo: OTHER, canWrite: true });
+    const res = await app.request(
+      `/v1/${OTHER}/files?prefix=${encodeURIComponent("gh/relay/other/")}`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("learn the repo's workspace from the repo link", async () => {
+    const { env } = await setup({ memberOf: [HOME], repoLinkedTo: OTHER, canWrite: true });
+    const res = await repoLink(env, HOME);
+    expect(await res.json()).toEqual({ binding: "other", workspace: OTHER });
+  });
+});
+
+describe("isRepoCollaboratorRequest", () => {
+  async function allowed(method: string, path: string, body?: unknown) {
+    const { env } = await setup({ memberOf: [], repoLinkedTo: OTHER, canWrite: true });
+    const probe = new Hono<{ Bindings: Env }>().all("*", async (c) =>
+      c.json(await isRepoCollaboratorRequest(c, "user-1", OTHER)),
+    );
+    const res = await probe.request(
+      path,
+      body === undefined
+        ? { method }
+        : { method, body: JSON.stringify(body), headers: { "content-type": "application/json" } },
+      env,
+    );
+    return (await res.json()) as boolean;
+  }
+
+  it("allows the repo's files, comment, staging and galleries", async () => {
+    expect(await allowed("PUT", `/v1/${OTHER}/files/gh/relay/site/pull/3/a.png`)).toBe(true);
+    expect(await allowed("PUT", `/v1/workspaces/${OTHER}/files/gh/relay/site/branch/x/a.png`)).toBe(
+      true,
+    );
+    expect(await allowed("GET", `/v1/${OTHER}/files?prefix=gh/relay/site/pull/3/`)).toBe(true);
+    expect(await allowed("GET", `/v1/${OTHER}/files/held?prefix=gh/relay/site/`)).toBe(true);
+    expect(await allowed("POST", `/v1/${OTHER}/github/comment`, { repo: REPO })).toBe(true);
+    expect(await allowed("POST", `/v1/${OTHER}/github/promote`, { repo: REPO })).toBe(true);
+    expect(
+      await allowed(
+        "GET",
+        `/v1/${OTHER}/galleries/by-reference?provider=github&coordinate=${encodeURIComponent(`${REPO}#3`)}`,
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses everything else", async () => {
+    expect(await allowed("PUT", `/v1/${OTHER}/files/gh/relay/other/pull/3/a.png`)).toBe(false);
+    expect(await allowed("PUT", `/v1/${OTHER}/files/gh/relay/site/../x/a.png`)).toBe(false);
+    expect(await allowed("PUT", `/v1/${OTHER}/files/f/abc/a.png`)).toBe(false);
+    expect(await allowed("DELETE", `/v1/${OTHER}/files/gh/relay/site/pull/3/a.png`)).toBe(false);
+    expect(await allowed("GET", `/v1/${OTHER}/files`)).toBe(false);
+    expect(await allowed("POST", `/v1/${OTHER}/github/attach`, { repo: REPO })).toBe(false);
+    expect(await allowed("POST", `/v1/${OTHER}/github/comment`, { repo: "relay/other" })).toBe(
+      false,
+    );
+    expect(await allowed("GET", `/v1/${OTHER}/galleries`)).toBe(false);
+    expect(await allowed("PUT", `/v1/${HOME}/files/gh/relay/site/pull/3/a.png`)).toBe(false);
   });
 });
