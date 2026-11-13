@@ -20,7 +20,9 @@ successor to the external `github-screenshots` skill's bundled R2 scripts),
 `skills/annotate-screenshots` covers callouts and redaction
 (`uploads annotate` / `screenshot --annotate`), and `skills/uploads-cli` is
 the full CLI reference the others defer to. Keep all three in sync when the
-CLI's commands or flags change.
+CLI's commands or flags change. The hosted MCP also serves them as
+`skill://<name>/SKILL.md` (Skills extension, SEP-2640; `apps/mcp/src/skills.ts`),
+so a new root skill must be added there too.
 
 The agent plugin in `plugins/claude/uploads/` uses the common plugin layout
 (listed in the Claude Code marketplace; submitted to the xAI plugin

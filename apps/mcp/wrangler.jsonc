@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
+  // The repo-root skills/*.md served over MCP (src/skills.ts) bundle as text.
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   // Deploy-time guard: `wrangler deploy` fails if this secret is not set on
   // the worker, rather than shipping a build that 503s on every BYO-storage
   // request. Both this worker and uploads-api decrypt workspace credentials

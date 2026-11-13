@@ -21,6 +21,7 @@ import {
   isLegacyRequest,
   WebStandardStreamableHTTPServerTransport,
 } from "@modelcontextprotocol/server";
+import type { SkillsExtension } from "@modelcontextprotocol/server/ext/skills";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/server/validators/cf-worker";
 import {
   AppError,
@@ -59,6 +60,7 @@ import {
 } from "./oauth";
 import { ROBOTS_TXT } from "./robots";
 import { registerStagedMediaResource, withStagedMediaApp } from "./staged-media-ui";
+import { loadSkills } from "./skills";
 
 /**
  * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
@@ -244,7 +246,7 @@ function requestWaitUntil(
 }
 
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
-function buildServer(c: Context<WorkspaceVars>): McpServer {
+function buildServer(c: Context<WorkspaceVars>, skills: SkillsExtension | undefined): McpServer {
   const server = createMcpServer({
     // Advertise the published CLI version (the MCP Registry listing), not
     // this worker's private package.json, which is inert.
@@ -266,6 +268,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
     validator,
   });
   if (c.get("authScopes").includes("files:read")) registerStagedMediaResource(server);
+  skills?.attach(server);
   return server;
 }
 
@@ -288,12 +291,13 @@ const MCP_MAX_REQUEST_BODY_BYTES = 100_000_000;
  */
 async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   await recordMcpClient(c);
+  const skills = await loadSkills();
   if (
     await isLegacyRequest(c.req.raw, undefined, {
       maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
     })
   ) {
-    const server = buildServer(c);
+    const server = buildServer(c, skills);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -325,7 +329,7 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
     }
   }
 
-  const handler = createMcpHandler(() => buildServer(c), {
+  const handler = createMcpHandler(() => buildServer(c, skills), {
     legacy: "reject",
     maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
   });

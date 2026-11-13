@@ -2029,6 +2029,21 @@ describe("mcp worker", () => {
  * SDK owns this envelope's validation and the `resultType`/cache-hint/error
  * shapes; these tests only cover that our routing reaches it correctly.
  */
+describe("skills for clients without the Skills extension", () => {
+  it("lists each SKILL.md in resources/list", async () => {
+    const { env } = await makeEnv();
+    const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "resources/list" });
+    const body = (await response.json()) as { result: { resources: { uri: string }[] } };
+    expect(body.result.resources.map((resource) => resource.uri)).toEqual(
+      expect.arrayContaining([
+        "skill://annotate-screenshots/SKILL.md",
+        "skill://github-screenshots/SKILL.md",
+        "skill://uploads-cli/SKILL.md",
+      ]),
+    );
+  });
+});
+
 describe("modern-era (2026-07-28) requests", () => {
   const MODERN_META = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -2154,6 +2169,42 @@ describe("modern-era (2026-07-28) requests", () => {
     expect(body.result.isError).toBe(false);
     expect(body.result.structuredContent).toMatchObject({ ok: true, workspace: "test-ws" });
     expect(body.result.resultType).toBe("complete");
+  });
+
+  it("serves the repo skills over the Skills extension (SEP-2640)", async () => {
+    const { env } = await makeEnv();
+    const call = async (method: string, params: Record<string, unknown> = {}) => {
+      const response = await modernRpc(
+        env,
+        { jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: MODERN_META } },
+        { "Mcp-Method": method, ...(params.uri ? { "Mcp-Name": String(params.uri) } : {}) },
+      );
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { result: Record<string, unknown> }).result;
+    };
+
+    const discover = (await call("server/discover")) as {
+      capabilities: { resources?: object; extensions?: Record<string, unknown> };
+    };
+    expect(discover.capabilities.resources).toBeDefined();
+    expect(discover.capabilities.extensions?.["io.modelcontextprotocol/skills"]).toBeDefined();
+
+    const list = (await call("skills/list")) as {
+      skills: { uri: string; frontmatter: { name: string } }[];
+      cacheScope: string;
+    };
+    expect(list.skills.map((skill) => skill.uri)).toEqual([
+      "skill://annotate-screenshots/SKILL.md",
+      "skill://github-screenshots/SKILL.md",
+      "skill://uploads-cli/SKILL.md",
+    ]);
+    expect(list.cacheScope).toBe("public");
+
+    const read = (await call("resources/read", { uri: "skill://uploads-cli/SKILL.md" })) as {
+      contents: { mimeType: string; text: string }[];
+    };
+    expect(read.contents[0].mimeType).toBe("text/markdown");
+    expect(read.contents[0].text).toMatch(/^---\nname: uploads-cli\n/);
   });
 
   it("rejects a modern request missing the required Mcp-Method header with 400", async () => {
