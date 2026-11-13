@@ -4,23 +4,17 @@ description: >-
   Embed screenshots, images, diagrams, GIFs, and screen recordings in GitHub
   PRs and issues — or stage them ahead of a PR, collect them into one
   attachments comment, or get a durable public link to share a visual with a
-  person. Use this whenever a visual needs to end up in a PR description,
-  issue body, or PR/issue comment, in front of a teammate, or saved for a PR
-  that doesn't exist yet. Triggers include "attach a screenshot to the PR",
-  "add a before/after to the issue", "include a screenshot of …", "share a GIF
-  of the flow", "record the bug and put it in the issue", "get me a link I can
-  paste in Slack", "share a live feed of this PR's screenshots", "create a
-  change feed", "stage screenshots for the PR", "attach this when I open
-  the PR", "save this for the PR", "collect the PR's media", or having just
-  captured or changed something visual that a shot would make clearer — even
-  mid-task, before a PR exists. Also applies when an agent has no local
-  filesystem and is uploading via the hosted MCP (agents.uploads.sh). Reach
-  for this instead of drag-and-drop or hand-rolling cloud-storage uploads.
-  GitHub CLI 2.99+ can attach a single image to an existing PR or issue with
-  `gh … --attach`, and `gh issue artifact create --attach` can hold GitHub-only
-  media on an issue plan; this skill says when that is enough and when it is not.
-  Capture the visual with whatever browser or screenshot tooling you have;
-  this skill covers hosting and embedding it.
+  person. Use this whenever a visual should end up in a PR or issue, in front
+  of a teammate, or saved for a PR that doesn't exist yet. Triggers include
+  "attach a screenshot to the PR", "add a before/after to the issue", "share
+  a GIF of the flow", "get me a link I can paste in Slack", "share a live
+  feed of this PR's screenshots", "stage screenshots for the PR", or having
+  just changed something visual that a shot would make clearer — even
+  mid-task, before a PR exists. Also applies when uploading via the hosted
+  MCP (agents.uploads.sh) without a local filesystem. Reach for this instead
+  of drag-and-drop or hand-rolled cloud-storage uploads; it also says when
+  `gh … --attach` is enough. Capture with whatever screenshot tooling you
+  have; this skill covers hosting and embedding.
 ---
 
 # Screenshots and recordings in GitHub PRs and issues
