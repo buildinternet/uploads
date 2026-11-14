@@ -49,10 +49,15 @@ Requests time out after 15 seconds (60 seconds for uploads). A GET, or a PUT or 
 createUploadsClient(
   { token, workspace, apiUrl: "https://api.uploads.sh" },
   {
-    fetch, // a custom fetch, e.g. for tests or tracing
+    fetch, // a custom fetch, e.g. for tests
+    tracer, // an OpenTelemetry tracer, or false (see Tracing)
     userAgent, // sent where the runtime allows it
     onRetry: ({ reason, delayMs }) => {},
     onTokenExpiry: (expiresAt) => {}, // the API reports when the token expires
   },
 );
 ```
+
+## Tracing
+
+If your app runs OpenTelemetry, each call becomes an `uploads.<method>` client span on the tracer your app registered. The SDK has no OpenTelemetry dependency and does nothing without a registered tracer. Attributes are the workspace, API host, file size and content type for `put`, and the error code on failure: never the token, keys, metadata or file contents. Pass `tracer` to pick one, or `tracer: false` to turn spans off. Span names are experimental. Details at [uploads.sh/docs/sdk#tracing](https://uploads.sh/docs/sdk#tracing).
