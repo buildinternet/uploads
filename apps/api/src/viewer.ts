@@ -3,12 +3,14 @@ import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { respondError } from "./error-response";
 import { requestDbSession } from "./request-db-session";
+import { traceRoute } from "./trace-route";
 import { publicFiles } from "./routes/public-files";
 import { publicFeeds } from "./routes/public-feeds";
 import { publicGalleries } from "./routes/public-galleries";
 import type { WorkspaceVars } from "./workspace";
 
 export const app = new Hono<WorkspaceVars>()
+  .use("*", traceRoute)
   .use("*", requestDbSession)
   .get("/health", (c) => c.json({ ok: true }))
   .route("/public/files", publicFiles)

@@ -60,6 +60,7 @@ import {
 } from "./oauth";
 import { ROBOTS_TXT } from "./robots";
 import { registerStagedMediaResource, withStagedMediaApp } from "./staged-media-ui";
+import { traceTools } from "./tool-spans";
 import { loadSkills } from "./skills";
 
 /**
@@ -251,19 +252,21 @@ function buildServer(c: Context<WorkspaceVars>, skills: SkillsExtension | undefi
     // Advertise the published CLI version (the MCP Registry listing), not
     // this worker's private package.json, which is inert.
     serverInfo: { name: "uploads-mcp", version: uploadsVersion, ...MCP_SERVER_DISPLAY },
-    tools: withStagedMediaApp(
-      createRemoteTools({
-        env: c.env,
-        workspace: c.get("workspace"),
-        workspaceName: c.get("workspaceName"),
-        workspaceChoices: c.get("workspaceChoices"),
-        authScopes: c.get("authScopes"),
-        uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
-        resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
-        waitUntil: requestWaitUntil(c),
-        classifierHandoff: classifierHandoff(c.env),
-      }),
-      c.get("authScopes").includes("files:read"),
+    tools: traceTools(
+      withStagedMediaApp(
+        createRemoteTools({
+          env: c.env,
+          workspace: c.get("workspace"),
+          workspaceName: c.get("workspaceName"),
+          workspaceChoices: c.get("workspaceChoices"),
+          authScopes: c.get("authScopes"),
+          uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
+          resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
+          waitUntil: requestWaitUntil(c),
+          classifierHandoff: classifierHandoff(c.env),
+        }),
+        c.get("authScopes").includes("files:read"),
+      ),
     ),
     validator,
   });

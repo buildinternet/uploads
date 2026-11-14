@@ -13,6 +13,7 @@
  *  - the `VideoProbe` seam: wraps Mediabunny's decoder-free demux path.
  */
 
+import { withSpan } from "@uploads/observability/tracing";
 import { ALL_FORMATS, BufferSource, Input } from "mediabunny";
 import {
   ATTACHMENT_IMAGE_WIDTH_DEFAULT,
@@ -174,8 +175,25 @@ export interface MadePoster {
  * Extract a poster frame, or return null. Every failure is silent by design:
  * no poster means the comment renderer falls back to a bullet link, which is
  * exactly today's behavior.
+ *
+ * Runs inside an `uploads.poster` span.
  */
-export async function makePoster(
+export function makePoster(
+  ...args: Parameters<typeof extractPoster>
+): ReturnType<typeof extractPoster> {
+  const [input] = args;
+  return withSpan(
+    "uploads.poster",
+    { "file.content_type": input.contentType, "file.size": input.bytes.byteLength },
+    async (span) => {
+      const made = await extractPoster(...args);
+      span.setAttributes({ "uploads.poster.made": made !== null });
+      return made;
+    },
+  );
+}
+
+async function extractPoster(
   input: { bytes: Uint8Array; contentType: string },
   /** `wasm` is the image module; without it the poster has no play button. */
   deps: { extractor: FrameExtractor; probe: VideoProbe; wasm?: WebAssembly.Module },

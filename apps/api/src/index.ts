@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { dbFor } from "./db-session";
 import { requestDbSession } from "./request-db-session";
+import { traceRoute } from "./trace-route";
 import { respondError } from "./error-response";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
@@ -95,6 +96,7 @@ const consoleCors = cors({
 
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
+  .use("*", traceRoute)
   .use("*", requestDbSession)
   .get("/health", (c) => c.json({ ok: true }))
   .get("/robots.txt", (c) =>

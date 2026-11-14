@@ -13,6 +13,11 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers tracing: automatic fetch/service-binding spans, and the
+    // user/workspace attributes Issues reads off the active span.
+    "traces": {
+      "enabled": true,
+    },
     // Workers Issues. A deploy that omits `issues.enabled` turns the
     // dashboard toggle back off. The Astro build copies this file into the
     // generated worker config, so the flag has to live here.

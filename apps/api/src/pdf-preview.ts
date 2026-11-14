@@ -20,6 +20,7 @@
  * `createRequire` a bundled `import.meta.url`.
  */
 
+import { withSpan } from "@uploads/observability/tracing";
 import { createEngine, PdfError, type PdfEngine } from "clawpdf";
 import { loadImageWasm, wasmEncodeJpeg } from "./image-wasm";
 import { overlayPdfBadge } from "./pdf-badge";
@@ -83,8 +84,17 @@ function resetEngine(engine: PdfEngine | undefined): void {
 /**
  * Rasterize page 1, or return null. Password-protected, malformed, empty,
  * and over-budget documents are null. The caller stores the PDF either way.
+ * Runs inside an `uploads.pdf_preview` span.
  */
-export async function renderPdfPreview(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
+export function renderPdfPreview(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
+  return withSpan("uploads.pdf_preview", { "file.size": bytes.byteLength }, async (span) => {
+    const result = await renderPdfPreviewUntraced(bytes);
+    span.setAttributes({ "uploads.pdf_preview.made": result !== null });
+    return result;
+  });
+}
+
+async function renderPdfPreviewUntraced(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
   if (bytes.byteLength > PDF_PREVIEW_MAX_INPUT_BYTES) return skipPreview("too_large");
   if (bytes.byteLength < 5 || !isPdfHeader(bytes)) return skipPreview("not_pdf");
   const wasm = await loadImageWasm();

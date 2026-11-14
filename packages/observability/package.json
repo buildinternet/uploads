@@ -6,7 +6,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./issues": "./src/issues.ts"
+    "./issues": "./src/issues.ts",
+    "./tracing": "./src/tracing.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

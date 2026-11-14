@@ -42,6 +42,7 @@
  * `env.AI.gateway()`. A missing `OPENROUTER_API_KEY` skips classification.
  */
 
+import { withSpan } from "@uploads/observability/tracing";
 import { contentHashDonorKeys, contentHashForKey } from "./content-hash";
 import { appendClassificationEvent, type ClassificationEventKind } from "./file-events";
 import {
@@ -1572,7 +1573,36 @@ async function tryReuseClassification(
   }
 }
 
-export async function classifyAndStore(
+/**
+ * Classifies one upload inside an `uploads.classify` span: content type and
+ * size in, outcome (none, labeled, flagged) out. See {@link classifyUpload}.
+ */
+export function classifyAndStore(
+  ...args: Parameters<typeof classifyUpload>
+): ReturnType<typeof classifyUpload> {
+  const [, , , , bytes, contentType, deps] = args;
+  return withSpan(
+    "uploads.classify",
+    {
+      "file.content_type": contentType,
+      "file.size": bytes.byteLength,
+      "uploads.hold.enforce": deps?.enforceHold === true,
+    },
+    async (span) => {
+      const meta = await classifyUpload(...args);
+      const flagged = meta ? holdReason(meta) !== undefined : false;
+      span.setAttributes({
+        "uploads.classify.outcome": !meta ? "none" : flagged ? "flagged" : "labeled",
+        "uploads.classify.labels": meta
+          ? Object.keys(meta).filter((k) => k.startsWith("ai.")).length
+          : 0,
+      });
+      return meta;
+    },
+  );
+}
+
+async function classifyUpload(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,

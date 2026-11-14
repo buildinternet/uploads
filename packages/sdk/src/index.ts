@@ -15,4 +15,5 @@ export {
   type RetryInfo,
   type TransportOptions,
 } from "./request.js";
+export type { TelemetrySpan, TelemetryTracer } from "./telemetry.js";
 export * from "./types.js";

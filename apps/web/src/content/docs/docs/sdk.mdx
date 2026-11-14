@@ -13,6 +13,7 @@ toc:
   - { id: methods, label: Methods }
   - { id: errors, label: Errors and retries }
   - { id: options, label: Options }
+  - { id: tracing, label: Tracing }
 ---
 
 <section class="lead" id="install">
@@ -137,5 +138,41 @@ const uploads = createUploadsClient(
 ```
 
 The client never reads environment variables or config files. Pass everything in.
+
+</section>
+
+<section id="tracing">
+
+## Tracing <a class="anchor" data-pagefind-ignore href="#tracing" aria-label="Link to this section">#</a>
+
+If your app already runs OpenTelemetry, every client call shows up in your traces as a client
+span named after the method: `uploads.put`, `uploads.approve`, `uploads.findFiles`. The SDK
+has no OpenTelemetry dependency. It uses the tracer your app registered, and does nothing
+when there isn't one.
+
+| Attribute                                | Set on                          |
+| ---------------------------------------- | ------------------------------- |
+| `uploads.workspace`, `server.address`    | Every call                      |
+| `file.size`, `file.content_type`         | `put`                           |
+| `uploads.replaced`, `uploads.hold_check` | `put`, from the response        |
+| `error.type`                             | Failed calls, the `UploadsError` code |
+
+Spans never carry your token, file keys, metadata values or file contents. Pass `tracer` to
+use a specific tracer, or `tracer: false` to turn spans off.
+
+```ts
+import { trace } from "@opentelemetry/api";
+
+const uploads = createUploadsClient(
+  { token, workspace },
+  { tracer: trace.getTracer("my-app") },
+);
+```
+
+<div class="note">
+
+Span names and attributes are experimental and may change in a minor release.
+
+</div>
 
 </section>

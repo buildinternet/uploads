@@ -9,9 +9,15 @@
   // `@better-auth/sso` for SCIM/SAML — features this worker doesn't use and
   // packages we don't install. The Workers bundler can't leave those dynamic
   // imports unresolved, so alias both to a stub (see src/optional-infra-stub.ts).
+  //
+  // `@better-auth/core/instrumentation` resolves to a no-op build under the
+  // `workerd` condition. The alias swaps in one that sends Better Auth's
+  // endpoint, hook and adapter spans to Workers tracing
+  // (src/better-auth-instrumentation.ts).
   "alias": {
     "@better-auth/scim": "./src/optional-infra-stub.ts",
     "@better-auth/sso": "./src/optional-infra-stub.ts",
+    "@better-auth/core/instrumentation": "./src/better-auth-instrumentation.ts",
   },
   // Pinned so the dev GitHub OAuth app's redirect URI
   // (http://127.0.0.1:8788/api/auth/callback/github) stays deterministic —
@@ -64,6 +70,12 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers tracing: automatic D1/fetch spans, Better Auth's own spans
+    // (see the alias above), and the user/workspace attributes Issues
+    // reads off the active span.
+    "traces": {
+      "enabled": true,
+    },
     // Workers Issues. A deploy that omits `issues.enabled` turns the
     // dashboard toggle back off.
     "issues": {
