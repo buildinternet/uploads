@@ -9,6 +9,7 @@
  * (`hold-email-notify.ts`).
  */
 
+import { withSpan } from "@uploads/observability/tracing";
 import { ConflictError, ValidationError } from "@uploads/errors";
 import { dbFor } from "./db-session";
 import { appendOverrideEvent, blobHoldsFor, claimHeldBlob } from "./file-events";
@@ -73,7 +74,21 @@ function holdPendingIfBlobHeld(
     .bind(workspace, objectKey, HOLD_META_KEY, HOLD_PENDING, now, workspace, contentSha256);
 }
 
-export async function applyUploadHold(
+export function applyUploadHold(
+  ...args: Parameters<typeof applyUploadHoldUntraced>
+): ReturnType<typeof applyUploadHoldUntraced> {
+  return withSpan(
+    "uploads.hold.apply",
+    { "uploads.hold.enforce": args[5]?.enforce === true },
+    async (span) => {
+      const placed = await applyUploadHoldUntraced(...args);
+      span.setAttributes({ "uploads.hold.placed": placed });
+      return placed;
+    },
+  );
+}
+
+async function applyUploadHoldUntraced(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
@@ -170,7 +185,20 @@ export type ApproveUploadResult = { approved: true } | { approved: false; reason
  * `ai.hold` stays `pending`. A failed write throws. It does not fall
  * back to `ai.hold`.
  */
-export async function approveUpload(
+export function approveUpload(
+  ...args: Parameters<typeof approveUploadUntraced>
+): ReturnType<typeof approveUploadUntraced> {
+  return withSpan("uploads.hold.approve", {}, async (span) => {
+    const result = await approveUploadUntraced(...args);
+    span.setAttributes({
+      "uploads.hold.approved": result.approved,
+      "uploads.hold.reason": result.approved ? undefined : result.reason,
+    });
+    return result;
+  });
+}
+
+async function approveUploadUntraced(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
@@ -297,7 +325,20 @@ export type HoldAgainResult = { held: true } | { held: false; reason: "not_appro
  * The public URL may already be cached or copied, so this is no substitute
  * for rotating a credential.
  */
-export async function holdAgain(
+export function holdAgain(
+  ...args: Parameters<typeof holdAgainUntraced>
+): ReturnType<typeof holdAgainUntraced> {
+  return withSpan("uploads.hold.reapply", {}, async (span) => {
+    const result = await holdAgainUntraced(...args);
+    span.setAttributes({
+      "uploads.hold.placed": result.held,
+      "uploads.hold.reason": result.held ? undefined : result.reason,
+    });
+    return result;
+  });
+}
+
+async function holdAgainUntraced(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
@@ -465,7 +506,20 @@ export interface ReleaseHoldsResult {
  * (its workspace is gone) is counted and stays held, so a caller looping until
  * `remaining` is 0 must also stop when a batch releases nothing.
  */
-export async function releaseHolds(
+export function releaseHolds(
+  ...args: Parameters<typeof releaseHoldsUntraced>
+): ReturnType<typeof releaseHoldsUntraced> {
+  return withSpan("uploads.hold.release", {}, async (span) => {
+    const result = await releaseHoldsUntraced(...args);
+    span.setAttributes({
+      "uploads.hold.released": result.released,
+      "uploads.hold.failed": result.failed,
+    });
+    return result;
+  });
+}
+
+async function releaseHoldsUntraced(
   env: Env,
   opts: { workspace?: string } = {},
 ): Promise<ReleaseHoldsResult> {

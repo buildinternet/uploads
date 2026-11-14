@@ -68,6 +68,12 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers tracing: automatic D1/R2/KV/fetch/service-binding spans,
+    // our custom spans (@uploads/observability/tracing), and the
+    // user/workspace attributes Issues reads off the active span.
+    "traces": {
+      "enabled": true,
+    },
     // Workers Issues. A deploy that omits `issues.enabled` turns the
     // dashboard toggle back off.
     "issues": {

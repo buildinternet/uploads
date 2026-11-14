@@ -17,6 +17,7 @@
  * permission is accepted) so a pending approval costs one call, not one per
  * sync. Never throws: a failed check must never fail the comment sync.
  */
+import { withSpan } from "@uploads/observability/tracing";
 import { githubFetch, githubHeaders, installationToken } from "./github-app";
 import type { GithubAppConfig } from "./github-app";
 import {
@@ -254,7 +255,21 @@ async function prHeadSha(
  * the caller already has it (the webhook payload carries it). Every PR gets a
  * run, skipped when there is nothing to check, so an install visibly works.
  */
-export async function syncUploadsCheck(
+export function syncUploadsCheck(
+  ...args: Parameters<typeof syncUploadsCheckUntraced>
+): ReturnType<typeof syncUploadsCheckUntraced> {
+  const target = args[3];
+  return withSpan(
+    "uploads.github.check_run",
+    {
+      "vcs.repository.name": target.repo,
+      "vcs.change.id": target.kind === "pull" ? String(target.num) : undefined,
+    },
+    () => syncUploadsCheckUntraced(...args),
+  );
+}
+
+async function syncUploadsCheckUntraced(
   env: Env,
   cfg: GithubAppConfig,
   installationId: number,

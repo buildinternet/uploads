@@ -10,6 +10,7 @@
  * A dead letter is terminal. The consumer logs the full event (including
  * the GitHub delivery id), acks it, and sends one operator email per batch.
  */
+import { withSpan } from "@uploads/observability/tracing";
 import { reportHandledError } from "@uploads/observability";
 import { authInternalHeaders } from "./auth-internal";
 import { processWebhookEvent, type WebhookEvent } from "./github-webhook";
@@ -43,7 +44,11 @@ export async function handleGithubWebhookBatch(
       continue;
     }
     try {
-      await processWebhookEvent(env, msg.body);
+      await withSpan(
+        "uploads.github.webhook",
+        { "uploads.github.webhook.work": webhookWork(msg.body), "messaging.message.id": msg.id },
+        () => processWebhookEvent(env, msg.body),
+      );
       msg.ack();
     } catch (err) {
       reportHandledError(
@@ -53,6 +58,14 @@ export async function handleGithubWebhookBatch(
     }
   }
   if (dead.length > 0) await alertDeadLetters(env, dead);
+}
+
+/** Which parts of a queued event carry work, e.g. `promote,ingest`. Never ids or text. */
+function webhookWork(event: WebhookEvent): string {
+  const parts = Object.entries(event)
+    .filter(([key, value]) => key !== "keys" && key !== "deliveryId" && value != null)
+    .map(([key]) => key);
+  return parts.length > 0 ? parts.sort().join(",") : "cache";
 }
 
 /**

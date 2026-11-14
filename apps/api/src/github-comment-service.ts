@@ -7,6 +7,7 @@
  * bot-post problem returns `{ posted: false, reason }` so callers can fall
  * back (the CLI to its local-gh path; the hosted MCP surfaces the decline).
  */
+import { withSpan } from "@uploads/observability/tracing";
 import { recordAdoptionSafe } from "./adoption";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { syncUploadsCheck } from "./github-check-run";
@@ -196,7 +197,35 @@ export type PostCommentResult =
  * duplicate-comment dedupe, instead of trusting the cached comment id (issue
  * #480). Costs one extra listing, so ordinary attach/promote syncs leave it off.
  */
-export async function postManagedComment(
+export function postManagedComment(
+  ...args: Parameters<typeof postManagedCommentUntraced>
+): ReturnType<typeof postManagedCommentUntraced> {
+  const target = args[4];
+  return withSpan(
+    "uploads.github.comment",
+    {
+      "vcs.repository.name": target.repo,
+      "vcs.change.id": String(target.num),
+      "uploads.github.target": target.kind,
+      "uploads.github.resync": args[5]?.resync === true,
+    },
+    async (span) => {
+      const result = await postManagedCommentUntraced(...args);
+      span.setAttributes(
+        result.posted
+          ? {
+              "uploads.github.comment.action": result.action,
+              "uploads.github.comment.files": result.count,
+              "uploads.github.comment.held": "held" in result ? result.held : undefined,
+            }
+          : { "uploads.github.comment.skipped": result.reason },
+      );
+      return result;
+    },
+  );
+}
+
+async function postManagedCommentUntraced(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
