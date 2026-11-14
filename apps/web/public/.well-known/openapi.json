@@ -3,7 +3,7 @@
   "info": {
     "title": "uploads.sh API",
     "version": "1.0.0",
-    "description": "Workspace-scoped file hosting for agents and humans. The canonical public hierarchy is `/v1/workspaces/{workspace}/...`. Full narrative docs: https://github.com/buildinternet/uploads/blob/main/docs/api.md",
+    "description": "Workspace-scoped file hosting for agents and humans. The canonical public hierarchy is `/v1/workspaces/{workspace}/...`. Full narrative docs: https://uploads.sh/docs/api",
     "contact": { "url": "https://github.com/buildinternet/uploads" },
     "license": {
       "name": "Apache-2.0",
@@ -13,14 +13,31 @@
   "servers": [{ "url": "https://api.uploads.sh", "description": "Production API" }],
   "tags": [
     {
-      "name": "Maintenance",
-      "description": "Advanced workspace operations that can scan or delete stored objects."
+      "name": "Files",
+      "description": "Upload files, read and update their metadata, and find them again."
     },
     {
-      "name": "Activity",
-      "description": "Pull requests, repos and files grouped by GitHub context."
+      "name": "Review",
+      "description": "Files held for review because they may contain a secret or sensitive content."
     },
-    { "name": "GitHub", "description": "The managed PR comment." }
+    {
+      "name": "Galleries",
+      "description": "An ordered set of media behind one public link, linkable to a pull request or issue."
+    },
+    {
+      "name": "Live links",
+      "description": "A live, newest-first page of files for one repo or pull request. The API calls a live link a feed."
+    },
+    {
+      "name": "Public",
+      "description": "Read public files, galleries and live links without a token."
+    },
+    { "name": "GitHub", "description": "Pull requests, repositories and the managed PR comment." },
+    { "name": "Usage", "description": "Usage counters, limits, and plan for a workspace." },
+    {
+      "name": "Maintenance",
+      "description": "Advanced workspace operations that can scan or delete stored objects."
+    }
   ],
   "security": [{ "bearerAuth": [] }],
   "paths": {
@@ -28,7 +45,7 @@
       "parameters": [{ "$ref": "#/components/parameters/FeedId" }],
       "get": {
         "operationId": "getPublicFeed",
-        "summary": "Read a public change feed",
+        "summary": "Get a public live link",
         "description": "Returns one page (up to 50) of the public newest-first item list for a feed, plus `nextCursor` for the next page. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` and optional `gh.number` metadata.",
         "security": [],
         "parameters": [{ "$ref": "#/components/parameters/Cursor" }],
@@ -46,14 +63,15 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
             }
           }
-        }
+        },
+        "tags": ["Public"]
       }
     },
     "/public/galleries/{galleryId}": {
       "parameters": [{ "$ref": "#/components/parameters/GalleryId" }],
       "get": {
         "operationId": "getPublicGallery",
-        "summary": "Read a public gallery",
+        "summary": "Get a public gallery",
         "description": "Returns the public allowlisted projection. It omits workspace ownership and object keys.",
         "security": [],
         "responses": {
@@ -70,7 +88,8 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
             }
           }
-        }
+        },
+        "tags": ["Public"]
       }
     },
     "/v1/workspaces/{workspace}/files": {
@@ -78,7 +97,7 @@
       "get": {
         "operationId": "listFiles",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List workspace files",
+        "summary": "List files",
         "parameters": [
           { "$ref": "#/components/parameters/Prefix" },
           {
@@ -105,7 +124,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/search": {
@@ -113,7 +133,7 @@
       "get": {
         "operationId": "searchFiles",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Search workspace files",
+        "summary": "Search files",
         "description": "Requires at least one `meta.<key>` equality filter or a `name` substring. Metadata filter names are dynamic query parameters.",
         "parameters": [
           {
@@ -145,7 +165,8 @@
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/facets": {
@@ -153,7 +174,7 @@
       "get": {
         "operationId": "listFileFacets",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List metadata keys or values",
+        "summary": "List metadata keys",
         "parameters": [
           {
             "name": "key",
@@ -171,7 +192,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/sign": {
@@ -179,7 +201,7 @@
       "post": {
         "operationId": "signFileUpload",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Create a presigned upload",
+        "summary": "Create an upload URL",
         "requestBody": {
           "required": true,
           "content": {
@@ -198,7 +220,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/by-path": {
@@ -206,7 +229,7 @@
       "get": {
         "operationId": "listFilesByPath",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Group workspace files by GitHub path",
+        "summary": "List files by path",
         "description": "Powers the web Screenshots page's grouped-by-path view. Groups recently uploaded `gh.*`-tagged files by project and path. Files with a `screen` and no `path` group by screen name, marked `by: \"screen\"`.",
         "parameters": [
           {
@@ -243,7 +266,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/file-url": {
@@ -251,7 +275,7 @@
       "get": {
         "operationId": "getFileUrl",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Resolve a usable URL for a file",
+        "summary": "Get a file URL",
         "description": "Returns the workspace's public URL when configured, otherwise a short-lived signed download URL. Resolves across storage lanes so a file uploaded before a storage switch still resolves.",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
@@ -273,7 +297,8 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/visibility": {
@@ -281,7 +306,7 @@
       "patch": {
         "operationId": "setFileVisibility",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Set a file's visibility flag",
+        "summary": "Update visibility",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
         ],
@@ -318,7 +343,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/files/held": {
@@ -326,7 +352,7 @@
       "get": {
         "operationId": "listHeldFiles",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List files held for review",
+        "summary": "List held files",
         "description": "Keys held for approval, optionally under one key prefix. A held file on hosted storage is moved out of the public bucket, so the file list does not show it.",
         "parameters": [
           { "name": "prefix", "in": "query", "required": false, "schema": { "type": "string" } }
@@ -374,7 +400,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Review"]
       }
     },
     "/v1/workspaces/{workspace}/files/held/download": {
@@ -382,7 +409,7 @@
       "get": {
         "operationId": "downloadHeldFile",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Download a held file for review",
+        "summary": "Download a held file",
         "description": "Streams a held file as an attachment. A legacy hold comes from the held bucket. A hosted hold that never moved comes from the public object. 404 when neither is available.",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
@@ -397,7 +424,8 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Review"]
       }
     },
     "/v1/workspaces/{workspace}/files/approve": {
@@ -405,7 +433,7 @@
       "post": {
         "operationId": "approveHeldFile",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Release a file held for review",
+        "summary": "Approve a file",
         "description": "The classifier holds a file that likely shows a secret or sensitive personal data. A held file is left out of the managed PR comment, public feeds, galleries, and its file page until a member approves it. A key that is not held answers 200 with `approved: false`.",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
@@ -431,7 +459,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Review"]
       }
     },
     "/v1/workspaces/{workspace}/files/hold": {
@@ -439,7 +468,7 @@
       "post": {
         "operationId": "holdFileAgain",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Hold an approved file for review again",
+        "summary": "Hold a file",
         "description": "For a file approved by mistake: puts it back under review, so its link stops working until a member approves it again. Only a file that was held and approved can be held again; any other key answers 200 with `held: false`.",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
@@ -465,7 +494,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Review"]
       }
     },
     "/v1/workspaces/{workspace}/files/review": {
@@ -473,7 +503,7 @@
       "get": {
         "operationId": "getFileReview",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "A file's review state",
+        "summary": "Get review state",
         "description": "Whether a file is held, was approved (with who approved it and when), or was never held. For workspace members; the public file API does not return it.",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
@@ -500,7 +530,8 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Review"]
       }
     },
     "/v1/workspaces/{workspace}/files/{key}": {
@@ -560,12 +591,13 @@
           "413": { "$ref": "#/components/responses/PayloadTooLarge" },
           "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Files"]
       },
       "get": {
         "operationId": "getFile",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Read file metadata",
+        "summary": "Get file metadata",
         "parameters": [
           {
             "name": "metadata",
@@ -591,12 +623,13 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Files"]
       },
       "patch": {
         "operationId": "patchFileMetadata",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Merge file metadata",
+        "summary": "Update metadata",
         "requestBody": {
           "required": true,
           "content": {
@@ -615,7 +648,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Files"]
       },
       "delete": {
         "operationId": "deleteFile",
@@ -632,7 +666,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Files"]
       }
     },
     "/v1/workspaces/{workspace}/usage": {
@@ -640,7 +675,7 @@
       "get": {
         "operationId": "getUsage",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Read workspace usage",
+        "summary": "Get usage",
         "responses": {
           "200": {
             "description": "Usage counters, configured limits, credential scopes, and plan.",
@@ -650,7 +685,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Usage"]
       }
     },
     "/v1/workspaces/{workspace}/usage/reconcile": {
@@ -658,7 +694,7 @@
       "post": {
         "operationId": "reconcileUsage",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Rebuild workspace usage counters",
+        "summary": "Recount usage",
         "tags": ["Maintenance"],
         "description": "Potentially expensive: scans every object in the workspace's active storage lanes and rebuilds the usage ledger. Requires a bearer token with `files:write`; browser sessions are not accepted.",
         "x-uploads-potentially-expensive": true,
@@ -679,7 +715,7 @@
       "post": {
         "operationId": "purgeExpiredFiles",
         "security": [{ "bearerAuth": ["files:delete"] }],
-        "summary": "Purge files past the retention window",
+        "summary": "Purge expired files",
         "tags": ["Maintenance"],
         "description": "Destructive: permanently deletes objects older than the workspace's `retentionDays`, then reconciles usage. Requires a bearer token with `files:delete`; browser sessions are not accepted. The response is either `{ skipped: true }` or a purge and reconciliation result.",
         "x-uploads-destructive": true,
@@ -727,12 +763,13 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       },
       "get": {
         "operationId": "listGalleries",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List workspace galleries",
+        "summary": "List galleries",
         "parameters": [
           { "$ref": "#/components/parameters/GalleryLimit" },
           { "$ref": "#/components/parameters/Cursor" }
@@ -746,7 +783,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/by-reference": {
@@ -754,7 +792,7 @@
       "get": {
         "operationId": "findGalleriesByReference",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Find galleries by external reference",
+        "summary": "Find galleries by reference",
         "parameters": [
           { "name": "provider", "in": "query", "required": true, "schema": { "type": "string" } },
           { "name": "coordinate", "in": "query", "required": true, "schema": { "type": "string" } },
@@ -771,7 +809,8 @@
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/{galleryId}": {
@@ -782,7 +821,7 @@
       "get": {
         "operationId": "getGallery",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Read a gallery",
+        "summary": "Get a gallery",
         "responses": {
           "200": {
             "description": "The gallery and its items.",
@@ -793,7 +832,8 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Galleries"]
       },
       "patch": {
         "operationId": "updateGallery",
@@ -818,7 +858,8 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       },
       "delete": {
         "operationId": "deleteGallery",
@@ -843,7 +884,8 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/{galleryId}/items": {
@@ -854,7 +896,7 @@
       "post": {
         "operationId": "addGalleryItem",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Add a file to a gallery",
+        "summary": "Add an item",
         "requestBody": {
           "required": true,
           "content": {
@@ -880,7 +922,8 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/{galleryId}/items/order": {
@@ -891,7 +934,7 @@
       "put": {
         "operationId": "reorderGalleryItems",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Replace the gallery item order",
+        "summary": "Reorder items",
         "requestBody": {
           "required": true,
           "content": {
@@ -923,7 +966,8 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/{galleryId}/items/{itemId}": {
@@ -935,7 +979,7 @@
       "delete": {
         "operationId": "removeGalleryItem",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Remove an item from a gallery",
+        "summary": "Remove an item",
         "requestBody": {
           "required": true,
           "content": {
@@ -955,7 +999,8 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/{galleryId}/external-references": {
@@ -966,7 +1011,7 @@
       "get": {
         "operationId": "listGalleryReferences",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List gallery external references",
+        "summary": "List references",
         "responses": {
           "200": {
             "description": "Linked references.",
@@ -988,12 +1033,13 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Galleries"]
       },
       "post": {
         "operationId": "addGalleryReference",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Add an external reference",
+        "summary": "Add a reference",
         "requestBody": {
           "required": true,
           "content": {
@@ -1021,7 +1067,8 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/feeds": {
@@ -1029,7 +1076,7 @@
       "post": {
         "operationId": "createFeed",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Create a change feed",
+        "summary": "Create a live link",
         "description": "Creates a public newest-first screenshot feed for a GitHub owner/repo, optionally scoped to one pull request or issue. The same scope returns the existing feed.",
         "requestBody": {
           "required": true,
@@ -1051,12 +1098,13 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Live links"]
       },
       "get": {
         "operationId": "listFeeds",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List workspace feeds",
+        "summary": "List live links",
         "parameters": [
           { "$ref": "#/components/parameters/GalleryLimit" },
           { "$ref": "#/components/parameters/Cursor" }
@@ -1070,7 +1118,8 @@
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" }
-        }
+        },
+        "tags": ["Live links"]
       }
     },
     "/v1/workspaces/{workspace}/feeds/{feedId}": {
@@ -1081,7 +1130,7 @@
       "get": {
         "operationId": "getFeed",
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "Read one owned feed",
+        "summary": "Get a live link",
         "responses": {
           "200": {
             "description": "The feed and its current newest-first items.",
@@ -1090,12 +1139,13 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Live links"]
       },
       "delete": {
         "operationId": "deleteFeed",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Soft-delete a feed",
+        "summary": "Delete a live link",
         "responses": {
           "200": {
             "description": "The feed record was deleted. Uploaded objects stay.",
@@ -1107,7 +1157,8 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Live links"]
       }
     },
     "/v1/workspaces/{workspace}/galleries/{galleryId}/external-references/{referenceId}": {
@@ -1119,7 +1170,7 @@
       "delete": {
         "operationId": "removeGalleryReference",
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Remove an external reference",
+        "summary": "Remove a reference",
         "requestBody": {
           "required": true,
           "content": {
@@ -1139,16 +1190,17 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
-        }
+        },
+        "tags": ["Galleries"]
       }
     },
     "/v1/workspaces/{workspace}/pulls": {
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "listPulls",
-        "tags": ["Activity"],
+        "tags": ["GitHub"],
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List pull requests with media",
+        "summary": "List pull requests",
         "description": "PRs in this workspace with uploads, newest media first. By default only PRs with media in the last 90 days; pass `all=1` for every PR or `since` for a custom window. `type` and `surface` narrow the thumbnails, not the list.",
         "parameters": [
           {
@@ -1204,9 +1256,9 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "listRepos",
-        "tags": ["Activity"],
+        "tags": ["GitHub"],
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List repositories with media",
+        "summary": "List repositories",
         "description": "Repos with GitHub-tagged uploads. `since` narrows the list; `type` and `surface` narrow the thumbnails. `thumbnails=0` returns names only.",
         "parameters": [
           {
@@ -1255,9 +1307,9 @@
       ],
       "get": {
         "operationId": "listScopeFiles",
-        "tags": ["Activity"],
+        "tags": ["GitHub"],
         "security": [{ "bearerAuth": ["files:read"] }],
-        "summary": "List files for a repo or pull request",
+        "summary": "List files for a repo or PR",
         "description": "Newest-first files tagged to a repo, or to one PR or issue with `number`.",
         "parameters": [
           { "name": "number", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
@@ -1304,7 +1356,7 @@
         "operationId": "syncGithubComment",
         "tags": ["GitHub"],
         "security": [{ "bearerAuth": ["files:write"] }],
-        "summary": "Create or update the managed PR comment",
+        "summary": "Sync the PR comment",
         "description": "Renders this workspace's files and galleries for a PR or issue and posts or updates the uploads.sh comment as the GitHub App. Call it once after uploading. Bearer token only.",
         "requestBody": {
           "required": true,
@@ -1338,7 +1390,7 @@
       "get": {
         "operationId": "getPublicFile",
         "security": [],
-        "summary": "Read a public file",
+        "summary": "Get a public file",
         "description": "Public details for one file. Private and held files return 404. `download=1` streams the bytes as an attachment instead.",
         "parameters": [
           {
@@ -1356,7 +1408,8 @@
             }
           },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Public"]
       }
     },
     "/public/galleries/{galleryId}/items/{itemId}/download": {
@@ -1367,7 +1420,7 @@
       "get": {
         "operationId": "downloadPublicGalleryItem",
         "security": [],
-        "summary": "Download a public gallery item",
+        "summary": "Download a gallery item",
         "description": "Streams the item as an attachment. Items that are missing, private or held return 404.",
         "responses": {
           "200": {
@@ -1383,7 +1436,8 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
             }
           }
-        }
+        },
+        "tags": ["Public"]
       }
     },
     "/public/feeds/{feedId}/items/{itemId}": {
@@ -1394,7 +1448,7 @@
       "get": {
         "operationId": "getPublicFeedItem",
         "security": [],
-        "summary": "Read one public feed item",
+        "summary": "Get a live link item",
         "description": "One item with its neighbours, for paging through a feed.",
         "responses": {
           "200": {
@@ -1406,7 +1460,8 @@
             }
           },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
+        },
+        "tags": ["Public"]
       }
     }
   },
@@ -2490,5 +2545,10 @@
         }
       }
     }
-  }
+  },
+  "x-tagGroups": [
+    { "name": "Core", "tags": ["Files", "Review"] },
+    { "name": "Sharing", "tags": ["Galleries", "Live links", "Public"] },
+    { "name": "Workspace", "tags": ["GitHub", "Usage", "Maintenance"] }
+  ]
 }
