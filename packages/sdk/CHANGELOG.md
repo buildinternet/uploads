@@ -1,5 +1,11 @@
 # @buildinternet/uploads-sdk
 
+## 0.2.0
+
+### Minor Changes
+
+- 51a3ce6: Emit OpenTelemetry client spans (`uploads.<method>`) on the tracer your app registered. No new dependency; does nothing without a tracer. New `tracer` client option picks a tracer or turns spans off.
+
 ## 0.1.1
 
 ### Patch Changes
