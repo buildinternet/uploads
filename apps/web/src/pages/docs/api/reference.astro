@@ -4,8 +4,18 @@
 // served at /openapi.json). The spec is checked against the real routes by
 // apps/api/src/openapi-contract.test.ts. /docs/api keeps the narrative parts:
 // auth, pagination, errors, rate limits.
+//
+// A separate, full-width page like Stripe's API reference: the site header,
+// then Scalar with its own endpoint sidebar and search. It skips the docs
+// chrome (left nav, Pagefind) so the reference gets one navigation column.
 import { ScalarComponent } from "@scalar/astro";
-import DocsPage from "../../../components/starlight/DocsPage.astro";
+import BaseHead from "../../../components/BaseHead.astro";
+import SiteHeader from "../../../components/SiteHeader.astro";
+import { SAME_ORIGIN_AUTH_BASE } from "../../../lib/auth-client";
+
+const title = "API reference";
+const description =
+  "Every uploads.sh REST endpoint with its scope, parameters, request and response schemas, and examples. Rendered from the OpenAPI document.";
 
 // Pin the standalone bundle so a Scalar release can't change this page
 // between deploys. Keep in step with @scalar/astro when bumping it.
@@ -28,42 +38,55 @@ const SCALAR_CSS = `
 `;
 ---
 
-<DocsPage
-  title="API reference"
-  description="Every uploads.sh REST endpoint with its scope, parameters, request and response schemas, and examples. Rendered from the OpenAPI document."
-  heading="API reference"
-  tagline="Every REST endpoint, with schemas, examples, and a request builder."
->
-  <ScalarComponent
-    renderMode="client"
-    configuration={{
-      url: "/openapi.json",
-      cdn: SCALAR_CDN,
-      withDefaultFonts: false,
-      hideDarkModeToggle: true,
-      showDeveloperTools: "never",
-      agent: { disabled: true },
-      customCss: SCALAR_CSS,
-    }}
-  />
-</DocsPage>
+<html lang="en">
+  <head>
+    <BaseHead preloadSans />
+    <title>{title} · uploads.sh</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href="https://uploads.sh/docs/api/reference" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+      }
+    </style>
+  </head>
+  <body>
+    <SiteHeader authOrigin={SAME_ORIGIN_AUTH_BASE} />
+    <main>
+      <ScalarComponent
+        renderMode="client"
+        configuration={{
+          url: "/openapi.json",
+          cdn: SCALAR_CDN,
+          withDefaultFonts: false,
+          hideDarkModeToggle: true,
+          showDeveloperTools: "never",
+          agent: { disabled: true },
+          customCss: SCALAR_CSS,
+        }}
+      />
+    </main>
 
-<script is:inline>
-  // Scalar picks light or dark from the OS unless told otherwise. Follow the
-  // site's own toggle (<html data-theme>) instead: force the mode before the
-  // deferred mount script reads the config, and track later toggles.
-  (function () {
-    const theme = () =>
-      document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-    const el = document.querySelector("[data-scalar-client]");
-    if (el) {
-      const config = JSON.parse(el.getAttribute("data-configuration") || "{}");
-      config.forceDarkModeState = theme();
-      el.setAttribute("data-configuration", JSON.stringify(config));
-    }
-    new MutationObserver(() => {
-      document.body.classList.toggle("dark-mode", theme() === "dark");
-      document.body.classList.toggle("light-mode", theme() === "light");
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  })();
-</script>
+    <script is:inline>
+      // Scalar picks light or dark from the OS unless told otherwise. Follow the
+      // site's own toggle (<html data-theme>) instead: force the mode before the
+      // deferred mount script reads the config, and track later toggles.
+      (function () {
+        const theme = () =>
+          document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        const el = document.querySelector("[data-scalar-client]");
+        if (el) {
+          const config = JSON.parse(el.getAttribute("data-configuration") || "{}");
+          config.forceDarkModeState = theme();
+          el.setAttribute("data-configuration", JSON.stringify(config));
+        }
+        new MutationObserver(() => {
+          document.body.classList.toggle("dark-mode", theme() === "dark");
+          document.body.classList.toggle("light-mode", theme() === "light");
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      })();
+    </script>
+  </body>
+</html>
