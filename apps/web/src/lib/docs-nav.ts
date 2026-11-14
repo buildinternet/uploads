@@ -26,6 +26,14 @@ export interface DocsPageLink {
 
 export const DOCS_HUB: DocsNavItem = { slug: "overview", href: "/docs", label: "Overview" };
 
+// The API reference is an .astro page (Scalar, rendered from the OpenAPI
+// document), so it is hand-written into "Get started" right after REST API.
+const API_REFERENCE: DocsNavItem = {
+  slug: "api-reference",
+  href: "/docs/api/reference",
+  label: "API reference",
+};
+
 // The agent walkthrough is its own .astro page, not a collection entry, so it
 // is hand-written into the "Get started" section.
 const WALKTHROUGH: DocsNavItem = {
@@ -88,6 +96,8 @@ export async function getDocsNav(): Promise<DocsNavSection[]> {
       })),
   }));
   sections[0].items.unshift(DOCS_HUB);
+  const restApi = sections[0].items.findIndex((item) => item.slug === "api");
+  sections[0].items.splice(restApi + 1, 0, API_REFERENCE);
   sections[0].items.push(WALKTHROUGH);
   const guides = await getPublishedGuides();
   if (guides.length > 0) {

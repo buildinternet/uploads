@@ -16,8 +16,6 @@ toc:
   - { id: endpoints, label: Endpoints }
 ---
 
-import ApiReference from "../../../components/docs/ApiReference.astro";
-
 <section class="lead" id="first-request">
 
 ## First request <a class="anchor" data-pagefind-ignore href="#first-request" aria-label="Link to this section">#</a>
@@ -27,7 +25,7 @@ or use the [TypeScript SDK](/docs/sdk) from JavaScript and TypeScript.
 With the API you can:
 
 - Upload a file and get a public URL and a GitHub-ready embed URL.
-- List, search, and tag files with [metadata](#endpoints-files).
+- List, search, and tag files with [metadata](/docs/api/reference).
 - Create [galleries](/docs/galleries) and [live links](/docs/feeds).
 - Read usage for a workspace.
 
@@ -77,17 +75,17 @@ it. Your GitHub account must be linked.
 The workspace in the URL must match the token's workspace. An unknown workspace and a bad token
 both return `401`.
 
-Each endpoint needs one scope. The [endpoint reference](#endpoints) shows it next to each route.
+Each endpoint needs one scope. The [API reference](/docs/api/reference) lists it on each route.
 
-| Scope          | Grants                                                       |
-| -------------- | ------------------------------------------------------------ |
-| `files:read`   | List, search, and read files, metadata, usage, galleries, feeds |
+| Scope          | Grants                                                                                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `files:read`   | List, search, and read files, metadata, usage, galleries, feeds                                                                                            |
 | `files:write`  | Upload, update metadata, galleries, feeds, usage reconcile. Also delete a `gh/` file the server stamped as this token's. Older uploads need `files:delete` |
-| `files:delete` | Delete any file, and purge expired ones                      |
+| `files:delete` | Delete any file, and purge expired ones                                                                                                                    |
 
 <div class="note">
-  The REST API does not accept OAuth access tokens. Those work only on the
-  [hosted MCP server](/docs/mcp#auth).
+  The REST API does not accept OAuth access tokens. Those work only on the [hosted MCP
+  server](/docs/mcp#auth).
 </div>
 
 </section>
@@ -142,8 +140,8 @@ The monthly upload budget also returns `429`, with the code `upload_budget_excee
 the start of the next UTC month, so it has no `Retry-After`. See [Plans & limits](/docs/limits).
 
 <div class="note">
-  To make an upload or gallery create safe to retry, send an `Idempotency-Key` header. A repeat
-  with the same key and request returns the first response for 24 hours.
+  To make an upload or gallery create safe to retry, send an `Idempotency-Key` header. A repeat with
+  the same key and request returns the first response for 24 hours.
 </div>
 
 </section>
@@ -152,9 +150,16 @@ the start of the next UTC month, so it has no `Retry-After`. See [Plans & limits
 
 ## Endpoints <a class="anchor" data-pagefind-ignore href="#endpoints" aria-label="Link to this section">#</a>
 
-Every route in the [OpenAPI document](/openapi.json), grouped by resource. `{workspace}` is your
-workspace name. `{key}` is the file's object key and can include slashes.
-
-<ApiReference />
+Every route, with its scope, parameters, request and response schemas, and examples, is in the
+[API reference](/docs/api/reference). It renders the [OpenAPI document](/openapi.json), which is
+checked against the real routes, so the two can't drift.
 
 </section>
+
+{/* The endpoint list used to live on this page; send its old #endpoints-* and #<operationId> deep links to the reference. */}
+
+<script is:inline>{`
+  if (location.hash && !document.getElementById(decodeURIComponent(location.hash.slice(1)))) {
+    location.replace("/docs/api/reference");
+  }
+`}</script>
