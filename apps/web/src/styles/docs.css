@@ -457,14 +457,14 @@ body {
    rather than a wrapper element. Reference components that set their
    own scroll wrapper and min-width are left alone. */
 @media (max-width: 880px) {
-  .doc :not(.api-scroll, .mcp-params) > table {
+  .doc :not(.mcp-params) > table {
     display: block;
     max-width: 100%;
     overflow-x: auto;
   }
   /* Keep prose columns readable; the table scrolls rather than
      squeezing a column down to one word per line. */
-  .doc :not(.api-scroll, .mcp-params) > table td {
+  .doc :not(.mcp-params) > table td {
     min-width: 6rem;
   }
 }
