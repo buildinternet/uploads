@@ -30,6 +30,22 @@ describe("resolveUploaderAccountId", () => {
     expect(await resolveUploaderAccountId(envWith(kv), "user_1")).toBe(12345);
   });
 
+  it("sends the shared internal key to AUTH (issue #1419)", async () => {
+    let sent: string | null = null;
+    const env = {
+      GITHUB_CACHE: new FakeKv(),
+      AUTH_INTERNAL_KEY: "k-test",
+      AUTH: {
+        fetch: async (_url: string, init?: RequestInit) => {
+          sent = new Headers(init?.headers).get("x-uploads-internal-key");
+          return Response.json({ githubAccountId: "12345" });
+        },
+      },
+    } as unknown as Env;
+    expect(await resolveUploaderAccountId(env, "user_1")).toBe(12345);
+    expect(sent).toBe("k-test");
+  });
+
   it("caches a no-linked-account miss and returns null", async () => {
     const kv = new FakeKv();
     const env = envWith(kv, () => new Response("nf", { status: 404 }));
