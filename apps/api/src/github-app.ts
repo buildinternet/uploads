@@ -214,7 +214,17 @@ export async function collaboratorPermission(
       `https://api.github.com/repos/${repo}/collaborators/${login}/permission`,
       { headers: githubHeaders(token) },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(
+        JSON.stringify({
+          message: "collaborator permission lookup failed",
+          repo,
+          login,
+          status: res.status,
+        }),
+      );
+      return null;
+    }
     const body = (await res.json().catch(() => null)) as { permission?: unknown } | null;
     return typeof body?.permission === "string" ? body.permission : null;
   } catch {

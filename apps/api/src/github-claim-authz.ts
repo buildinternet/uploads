@@ -56,14 +56,22 @@ export async function isEntitledToClaimRepo(
   fetchImpl: typeof fetch = fetch,
   knownInstallationId?: number,
 ): Promise<boolean> {
+  // Each decline logs which step failed, since every path returns the same
+  // `false` and the caller only sees "not entitled" (issue #1419).
+  const decline = (step: string) => {
+    console.warn(JSON.stringify({ message: "repo claim declined", repo, mintingUserId, step }));
+    return false;
+  };
   if (!mintingUserId) return false;
   const cfg = githubAppConfig(env);
-  if (!cfg) return false;
+  if (!cfg) return decline("app_unconfigured");
   const installationId =
     knownInstallationId ?? (await installationForRepo(env, cfg, repo, fetchImpl));
-  if (installationId === null) return false;
+  if (installationId === null) return decline("not_installed");
   const login = await resolveUploaderLogin(env, mintingUserId, repo, fetchImpl);
-  if (!login) return false;
+  if (!login) return decline("no_github_login");
   const permission = await collaboratorPermission(env, cfg, installationId, repo, login, fetchImpl);
-  return permission !== null && WRITE_PERMISSIONS.has(permission);
+  if (permission === null) return decline("permission_lookup_failed");
+  if (!WRITE_PERMISSIONS.has(permission)) return decline(`permission_${permission}`);
+  return true;
 }
