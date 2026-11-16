@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.63.2
+
+### Patch Changes
+
+- Updated dependencies [51a3ce6]
+  - @buildinternet/uploads-sdk@0.2.0
+
 ## 0.63.1
 
 ### Patch Changes
