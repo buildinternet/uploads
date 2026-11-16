@@ -90,15 +90,18 @@ describe("uploaderTags", () => {
   });
 
   it("degrades to id-only when the GitHub user lookup fails", async () => {
-    const { env } = makeEnv({ accountId: "583231" });
+    const { env, kv } = makeEnv({ accountId: "583231" });
     const tags = await uploaderTags(env, "user-1", undefined, githubFetch(null, 500));
     expect(tags).toEqual({ "gh.uploader-id": "user-1" });
+    // An error is not a "no login" answer, so it isn't cached (issue #1419).
+    expect(kv.has("ghlogin:user-1")).toBe(false);
   });
 
   it("degrades to id-only on an auth-worker error", async () => {
-    const { env } = makeEnv({ authStatus: 503 });
+    const { env, kv } = makeEnv({ authStatus: 503 });
     const tags = await uploaderTags(env, "user-1", undefined, githubFetch("never-called"));
     expect(tags).toEqual({ "gh.uploader-id": "user-1" });
+    expect(kv.has("ghlogin:user-1")).toBe(false);
   });
 
   // Regression (found live): GitHub rejects App JWTs on /user/:id — only /app/*

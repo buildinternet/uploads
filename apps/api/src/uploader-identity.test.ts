@@ -46,9 +46,16 @@ describe("resolveUploaderAccountId", () => {
     expect(sent).toBe("k-test");
   });
 
-  it("caches a no-linked-account miss and returns null", async () => {
+  it("does not cache an AUTH error as a miss (issue #1419)", async () => {
     const kv = new FakeKv();
     const env = envWith(kv, () => new Response("nf", { status: 404 }));
+    expect(await resolveUploaderAccountId(env, "user_1")).toBeNull();
+    expect(kv.store.size).toBe(0);
+  });
+
+  it("caches a no-linked-account miss and returns null", async () => {
+    const kv = new FakeKv();
+    const env = envWith(kv, () => Response.json({ githubAccountId: null }));
     expect(await resolveUploaderAccountId(env, "user_1")).toBeNull();
     expect(kv.store.get("ghacct:user_1")?.value).toBe("\0none");
     expect(await resolveUploaderAccountId(envWith(kv), "user_1")).toBeNull();
