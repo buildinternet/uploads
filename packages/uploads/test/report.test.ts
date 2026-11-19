@@ -78,6 +78,19 @@ describe("buildReportPayload / submitReport", () => {
     expect(payload.cliVersion).toBe("0.10.0");
   });
 
+  it("carries follow-up consent only when answered", () => {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-report-"));
+    process.env.UPLOADS_TELEMETRY_DISABLED = "1";
+    const yes = buildReportPayload(
+      "please reassign acme/web",
+      { contact: "dev@example.com", followUpOk: true },
+      { dataDir: dir, version: "0.10.0" },
+    );
+    expect(yes.followUpOk).toBe(true);
+    const unasked = buildReportPayload("please reassign acme/web", {}, { dataDir: dir });
+    expect("followUpOk" in unasked && unasked.followUpOk !== undefined).toBe(false);
+  });
+
   it("POSTs payload and returns id", async () => {
     const result = await submitReport(
       buildReportPayload("something broke during put", { type: "bug" }, { version: "0.10.0" }),

@@ -37,6 +37,8 @@ export interface ReportPayload {
   message: string;
   type: ReportType;
   contact?: string;
+  /** Whether the sender is happy to be contacted for more details; omitted when not answered. */
+  followUpOk?: boolean;
   surface: "cli" | "mcp";
   cliVersion: string;
   clientKind: string;
@@ -131,6 +133,7 @@ export function buildReportPayload(
   opts: {
     type?: ReportType;
     contact?: string;
+    followUpOk?: boolean;
     surface?: "cli" | "mcp";
     command?: string;
     errorCode?: string;
@@ -148,6 +151,7 @@ export function buildReportPayload(
     message,
     type: opts.type ?? "other",
     contact: opts.contact?.trim() || undefined,
+    followUpOk: opts.followUpOk,
     surface: opts.surface ?? "cli",
     cliVersion: deps.version ?? packageVersion(),
     clientKind: ctx.kind,

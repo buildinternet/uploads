@@ -59,7 +59,9 @@ export async function checkRepoAuthorization(
       reason: "not_authorized",
       message:
         `${repo} is bound to a different workspace ("${link.workspaceName}") — this ` +
-        `workspace is not authorized to post the uploads-sh[bot] comment there.`,
+        `workspace is not authorized to post the uploads-sh[bot] comment there. If it ` +
+        `should be yours, ask the uploads team to reassign it (\`uploads report\` or the ` +
+        `MCP \`feedback\` tool).`,
     };
   }
   const entitled = await isEntitledToClaimRepo(
@@ -76,7 +78,8 @@ export async function checkRepoAuthorization(
       message:
         `${repo} isn't linked to any workspace yet, and this workspace couldn't be ` +
         `verified as entitled to claim it. Link a GitHub account with push access ` +
-        `to ${repo}, or ask an operator to bind the repo explicitly.`,
+        `to ${repo}, or ask the uploads team to bind it (\`uploads report\` or the MCP ` +
+        `\`feedback\` tool).`,
     };
   }
   return null;

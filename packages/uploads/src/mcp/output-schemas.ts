@@ -660,6 +660,13 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   whoami: whoamiResultSchema,
   changelog: changelogResultSchema,
   search_docs: searchDocsResultSchema,
+  feedback: objectSchema(
+    {
+      ok: { type: "boolean" },
+      id: { type: "string" },
+    },
+    ["ok"],
+  ),
 };
 
 /** Shared-shape stdio tools. Hosted-only tools (`promote`, `repo_link_status`) omitted. */

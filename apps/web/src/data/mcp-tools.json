@@ -1333,6 +1333,55 @@
     ]
   },
   {
+    "name": "feedback",
+    "title": "Send feedback",
+    "description": "Send feedback to the uploads.sh team: a bug, an error, a confusing result, a missing capability, a docs gap, or an access problem a person has to fix (for example a repo linked to another workspace that needs reassigning). Write it as a clear issue: what you tried, what happened, what you expected, and a proposed fix if you have one. Use it when the user asks, or when one of these tools blocks the user's task in a way only the uploads team can fix; tell the user you sent it and what it said. Ask the user before including their contact details or setting followUpOk. Never include tokens, secrets, or private file contents.",
+    "access": "write",
+    "scopes": [],
+    "params": [
+      {
+        "name": "message",
+        "type": "string",
+        "required": true,
+        "description": "The feedback, written as an issue (5–4000 chars): what you tried, what happened, what you expected."
+      },
+      {
+        "name": "type",
+        "type": "\"bug\" | \"error\" | \"idea\" | \"other\"",
+        "required": false,
+        "description": "Kind of feedback (default: other). Use idea for feature requests and docs gaps."
+      },
+      {
+        "name": "tool",
+        "type": "string",
+        "required": false,
+        "description": "The uploads tool the feedback is about, if any (e.g. put)."
+      },
+      {
+        "name": "proposedFix",
+        "type": "string",
+        "required": false,
+        "description": "Optional: how you think it should behave or be fixed."
+      },
+      {
+        "name": "contact",
+        "type": "string",
+        "required": false,
+        "description": "Optional: how to reach the user (email or handle), only if they chose to share it."
+      },
+      {
+        "name": "followUpOk",
+        "type": "boolean",
+        "required": false,
+        "description": "Optional: true if the user is happy to be contacted for more details, false if not. Omit if you didn't ask."
+      }
+    ],
+    "returns": [
+      "ok",
+      "id"
+    ]
+  },
+  {
     "name": "whoami",
     "title": "Who am I",
     "description": "Show the current uploads.sh identity: the workspace this call acts in, every workspace this connection can use (`workspaces`; pass one as `workspace` on any tool), and its scopes. A successful result also means the server is up.",

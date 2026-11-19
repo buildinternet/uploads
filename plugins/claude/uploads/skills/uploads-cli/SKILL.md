@@ -1181,7 +1181,9 @@ uploads --api-url http://localhost:8787 doctor
 - **Telemetry:** anonymous command-name pings (no paths/tokens). Opt out with
   `UPLOADS_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or `uploads telemetry disable`.
 - **Reports:** only when the user asks — `uploads report "what broke"` or
-  `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
+  `--file ./trace.log`. Never auto-send logs. MCP tool: `report` (hosted MCP:
+  `feedback`). Add `--contact` and `--follow-up` only if the user agrees to be
+  contacted. Also the way to ask for a repo binding to be reassigned.
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
   `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
   local filesystem or git checkout to shell out from (send base64 content,

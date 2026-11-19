@@ -4830,11 +4830,11 @@ async function runGithubLink(ctx: CliContext, repo: string, statusOnly: boolean)
       process.stderr.write(
         `note: ${repo} isn't linked to any workspace yet, and this workspace couldn't be ` +
           `verified as entitled to claim it. Link a GitHub account with push access to ` +
-          `${repo}, or ask an operator to bind it explicitly.\n`,
+          `${repo}, or ask us to bind it: uploads report --follow-up --contact <you> "bind ${repo}".\n`,
       );
     } else {
       process.stderr.write(
-        `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten. Run "uploads github unlink --repo ${repo}" from that workspace, or ask an operator to reassign it.\n`,
+        `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten. Run "uploads github unlink --repo ${repo}" from that workspace, or ask us to reassign it: uploads report --follow-up --contact <you> "reassign ${repo}".\n`,
       );
     }
   }
@@ -4854,7 +4854,7 @@ async function runGithubUnlink(ctx: CliContext, repo: string): Promise<number> {
     }
     if (err instanceof UploadsError && err.status === 403) {
       throw new UsageError(
-        `${repo} is bound to a different workspace — ask an operator to reassign or remove it (${err.message})`,
+        `${repo} is bound to a different workspace — ask us to reassign it with: uploads report --follow-up --contact <you> "reassign ${repo}" (${err.message})`,
       );
     }
     throw err;

@@ -880,6 +880,7 @@ describe("mcp worker", () => {
       "delete",
       "feed_create",
       "feed_get",
+      "feedback",
       "find_files",
       "gallery_add",
       "gallery_create",
@@ -1980,6 +1981,42 @@ describe("mcp worker", () => {
       workspace: "test-ws",
       scopes: expect.arrayContaining(["files:read", "files:write"]),
     });
+  });
+
+  it("relays feedback to uploads-api over the service binding", async () => {
+    const { env } = await makeEnv();
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    (env as unknown as { API: Fetcher }).API = {
+      fetch: async (url: string, init: RequestInit) => {
+        calls.push({
+          url: String(url),
+          headers: new Headers(init.headers),
+          body: JSON.parse(String(init.body)) as Record<string, unknown>,
+        });
+        return Response.json({ ok: true, id: "rpt_1", hasAttachment: false }, { status: 202 });
+      },
+    } as unknown as Fetcher;
+    const result = await callTool(env, "feedback", {
+      message: "repo_link_status says other, need the repo reassigned",
+      type: "other",
+      tool: "repo_link_status",
+      proposedFix: "Let repo admins reclaim it",
+      contact: "dev@example.com",
+      followUpOk: true,
+    });
+    expect(result.structuredContent).toEqual({ ok: true, id: "rpt_1" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://api.internal/v1/reports");
+    expect(calls[0]!.headers.get("x-uploads-workspace")).toBe("test-ws");
+    expect(calls[0]!.body).toMatchObject({
+      type: "other",
+      surface: "mcp",
+      clientKind: "agent",
+      command: "repo_link_status",
+      contact: "dev@example.com",
+      followUpOk: true,
+    });
+    expect(calls[0]!.body.message).toContain("Proposed fix:\nLet repo admins reclaim it");
   });
 
   it("returns 202 with an empty body for notifications", async () => {
