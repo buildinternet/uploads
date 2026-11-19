@@ -26,6 +26,7 @@ Options:
   --file <path>         Attach a text log/trace (max 256 KiB)
   --type <t>            bug | error | idea | other (default: other)
   --contact <value>     Optional email/handle for follow-up
+  --follow-up           OK to contact you for more details (--no-follow-up: please don't)
   --command <name>      Command that failed (e.g. put) — no args/paths
   --error-code <code>   Optional UploadsError code (e.g. KEY_POLICY)
   --dry-run             Print the payload without sending
@@ -64,6 +65,15 @@ export async function runReport(
   opts: { json?: boolean; apiUrl?: string } = {},
   help = false,
 ): Promise<number> {
+  // Pulled out before parsing so `--follow-up "message"` can't swallow the
+  // message as the flag's value.
+  let followUpOk: boolean | undefined;
+  args = args.filter((arg) => {
+    if (arg === "--follow-up") followUpOk = true;
+    else if (arg === "--no-follow-up") followUpOk = false;
+    else return true;
+    return false;
+  });
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
     writeCommandHelp(REPORT_HELP);
@@ -141,6 +151,7 @@ export async function runReport(
   const payload = buildReportPayload(validated.message, {
     type,
     contact: flagString(parsed.flags, "--contact")?.trim() || undefined,
+    followUpOk,
     surface: "cli",
     command: flagString(parsed.flags, "--command"),
     errorCode: flagString(parsed.flags, "--error-code"),

@@ -2300,6 +2300,100 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       },
     },
     {
+      name: "feedback",
+      title: "Send feedback",
+      annotations: mcpWriteInternal,
+      securitySchemes: mcpOAuthAny,
+      description:
+        "Send feedback to the uploads.sh team: a bug, an error, a confusing result, a missing " +
+        "capability, a docs gap, or an access problem a person has to fix (for example a repo " +
+        "linked to another workspace that needs reassigning). Write it as a clear issue: what " +
+        "you tried, what happened, what you expected, and a proposed fix if you have one. Use " +
+        "it when the user asks, or when one of these tools blocks the user's task in a way " +
+        "only the uploads team can fix; tell the user you sent it and what it said. Ask the " +
+        "user before including their contact details or setting followUpOk. Never include " +
+        "tokens, secrets, or private file contents.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
+            description:
+              "The feedback, written as an issue (5–4000 chars): what you tried, what happened, what you expected.",
+          },
+          type: {
+            type: "string",
+            enum: ["bug", "error", "idea", "other"],
+            description:
+              "Kind of feedback (default: other). Use idea for feature requests and docs gaps.",
+          },
+          tool: {
+            type: "string",
+            description: "The uploads tool the feedback is about, if any (e.g. put).",
+          },
+          proposedFix: {
+            type: "string",
+            description: "Optional: how you think it should behave or be fixed.",
+          },
+          contact: {
+            type: "string",
+            description:
+              "Optional: how to reach the user (email or handle), only if they chose to share it.",
+          },
+          followUpOk: {
+            type: "boolean",
+            description:
+              "Optional: true if the user is happy to be contacted for more details, false if not. Omit if you didn't ask.",
+          },
+        },
+        required: ["message"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const message = optString(args, "message")?.trim() ?? "";
+        const proposedFix = optString(args, "proposedFix")?.trim();
+        const full = proposedFix ? `${message}\n\nProposed fix:\n${proposedFix}` : message;
+        if (message.length < 5 || full.length > 4000) {
+          usage("message must be 5–4000 characters (including proposedFix)");
+        }
+        const typeArg = optString(args, "type");
+        const followUpOk = args.followUpOk;
+        if (followUpOk !== undefined && typeof followUpOk !== "boolean") {
+          usage("followUpOk must be a boolean");
+        }
+        if (!env.API) throw new Error("feedback is unavailable on this server");
+        // Relayed over the service binding: uploads-api trusts these identity
+        // headers only on host api.internal (routes/reports.ts).
+        const headers: Record<string, string> = {
+          "content-type": "application/json",
+          "x-uploads-workspace": workspaceName,
+        };
+        if (mintingUserId) headers["x-uploads-user-id"] = mintingUserId;
+        const res = await env.API.fetch("https://api.internal/v1/reports", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            message: full,
+            type: typeArg ?? "other",
+            contact: optString(args, "contact"),
+            followUpOk,
+            surface: "mcp",
+            clientKind: "agent",
+            command: optString(args, "tool"),
+          }),
+        });
+        const body = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          id?: string;
+          error?: { message?: string };
+        } | null;
+        if (!res.ok || !body?.ok) {
+          throw new Error(body?.error?.message ?? `feedback failed (${res.status})`);
+        }
+        return { ok: true, id: body.id };
+      },
+    },
+    {
       name: "whoami",
       title: "Who am I",
       annotations: mcpRead,

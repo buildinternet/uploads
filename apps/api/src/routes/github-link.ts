@@ -178,7 +178,7 @@ export async function githubLinkDeleteHandler(c: Context<WorkspaceVars>) {
   }
   if (before.workspaceName !== workspaceName) {
     throw new ForbiddenError(
-      `${repo} is bound to a different workspace ("${before.workspaceName}") — ask an operator to reassign it`,
+      `${repo} is bound to a different workspace ("${before.workspaceName}") — ask the uploads team to reassign it (\`uploads report\` or the MCP \`feedback\` tool)`,
       { code: "not_link_owner" },
     );
   }

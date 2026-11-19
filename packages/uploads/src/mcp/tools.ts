@@ -2131,6 +2131,11 @@ export function createUploadsMcpTools(opts: {
             type: "string",
             description: "Optional contact for follow-up (email or handle).",
           },
+          followUpOk: {
+            type: "boolean",
+            description:
+              "Optional: true if the user is happy to be contacted for more details, false if not. Omit if you didn't ask.",
+          },
           command: {
             type: "string",
             description: "Command that failed (e.g. put) — name only, no paths or args.",
@@ -2180,6 +2185,7 @@ export function createUploadsMcpTools(opts: {
         const payload = buildReportPayload(validated.message, {
           type,
           contact: optString(args, "contact"),
+          followUpOk: typeof args.followUpOk === "boolean" ? args.followUpOk : undefined,
           surface: "mcp",
           command: optString(args, "command"),
           errorCode: optString(args, "errorCode"),

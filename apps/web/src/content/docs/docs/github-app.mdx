@@ -223,8 +223,13 @@ first time a workspace comments, attaches, or promotes against a repo; inspect o
 with `uploads github link --status`.
 
 - **Bindings can't be stolen.** Claiming a bound repo just reports the current owner.
-  `uploads github unlink` releases your own binding; an operator can reassign stuck ones from the
-  admin panel.
+  `uploads github unlink` releases your own binding. If a repo is bound to the wrong workspace, or
+  you can't claim one you own, ask us to fix it with `uploads report` (or the hosted MCP's
+  `feedback` tool), and include a way to reach you:
+
+  ```bash
+  uploads report --follow-up --contact you@example.com "reassign acme/web to workspace acme"
+  ```
 - **Other workspaces can't post to your repo.** Their `comment`/`attach` calls get a
   `not_authorized` decline with no `gh` fallback — nobody can deface or duplicate the bot comment on
   your repo.

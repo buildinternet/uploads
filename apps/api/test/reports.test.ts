@@ -5,7 +5,10 @@ import { app } from "../src/index";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 import { MAX_ATTACHMENT_BYTES } from "../src/routes/reports";
 
-const MIGRATION = "migrations/20260715120000_uploads_cli_observability.sql";
+const MIGRATION = [
+  "migrations/20260715120000_uploads_cli_observability.sql",
+  "migrations/20261119120000_report_context.sql",
+];
 
 function fakeR2() {
   const objects = new Map<string, Uint8Array>();
@@ -30,16 +33,30 @@ function env(
     r2?: ReturnType<typeof fakeR2>;
     reportsDisabled?: string;
     inviteAllowed?: boolean;
+    sent?: Array<{ to: string; subject: string; text?: string }>;
+    limiterKeys?: string[];
   } = {},
 ) {
   return {
+    EMAIL: options.sent
+      ? {
+          send: async (m: { to: string; subject: string; text?: string }) => {
+            options.sent!.push(m);
+          },
+        }
+      : undefined,
     DB: options.db,
     UPLOADS_DEFAULT: options.r2,
     REPORTS_DISABLED: options.reportsDisabled,
     INVITE_LIMITER:
       options.inviteAllowed === undefined
         ? undefined
-        : { limit: async () => ({ success: options.inviteAllowed }) },
+        : {
+            limit: async ({ key }: { key: string }) => {
+              options.limiterKeys?.push(key);
+              return { success: options.inviteAllowed };
+            },
+          },
     REGISTRY: { get: async () => null, put: async () => undefined },
   } as unknown as Env;
 }
@@ -198,6 +215,74 @@ describe("POST /v1/reports", () => {
         .prepare("SELECT attachment_key FROM uploads_cli_reports WHERE id = ?")
         .get(json.id) as { attachment_key: string };
       expect(row.attachment_key).toBe(`_internal/uploads-cli-reports/${json.id}/passwd`);
+    } finally {
+      sqlite.close();
+    }
+  });
+  it("emails the operator with contact and follow-up consent", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    const sent: Array<{ to: string; subject: string; text?: string }> = [];
+    try {
+      const res = await app.request(
+        "http://localhost/v1/reports",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "acme/web is bound to another workspace, please reassign",
+            type: "other",
+            contact: "dev@example.com",
+            followUpOk: true,
+            surface: "cli",
+            // Public callers can't set relay identity, even by header.
+          }),
+        },
+        env({ db: database(sqlite), sent }),
+      );
+      expect(res.status).toBe(202);
+      const { id } = (await res.json()) as { id: string };
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.to).toBe("hi@uploads.sh");
+      expect(sent[0]!.text).toContain("OK to follow up: yes");
+      expect(sent[0]!.text).toContain("dev@example.com");
+      const row = sqlite.db
+        .prepare("SELECT follow_up_ok, workspace FROM uploads_cli_reports WHERE id = ?")
+        .get(id) as { follow_up_ok: number; workspace: string | null };
+      expect(row).toEqual({ follow_up_ok: 1, workspace: null });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("trusts relay identity only over the service binding, and limits per workspace", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    const limiterKeys: string[] = [];
+    const headers = {
+      "content-type": "application/json",
+      "x-uploads-workspace": "acme",
+      "x-uploads-user-id": "user-1",
+    };
+    const body = JSON.stringify({ message: "feedback from an agent", surface: "mcp" });
+    try {
+      const pub = await app.request(
+        "http://localhost/v1/reports",
+        { method: "POST", headers, body },
+        env({ db: database(sqlite), inviteAllowed: true, limiterKeys }),
+      );
+      const relayed = await app.request(
+        "https://api.internal/v1/reports",
+        { method: "POST", headers, body },
+        env({ db: database(sqlite), inviteAllowed: true, limiterKeys }),
+      );
+      const pubId = ((await pub.json()) as { id: string }).id;
+      const relayId = ((await relayed.json()) as { id: string }).id;
+      const pick = (id: string) =>
+        sqlite.db
+          .prepare("SELECT workspace, user_id FROM uploads_cli_reports WHERE id = ?")
+          .get(id);
+      expect(pick(pubId)).toEqual({ workspace: null, user_id: null });
+      expect(pick(relayId)).toEqual({ workspace: "acme", user_id: "user-1" });
+      expect(limiterKeys).toEqual(["cli-report:unknown", "mcp-report:acme"]);
     } finally {
       sqlite.close();
     }

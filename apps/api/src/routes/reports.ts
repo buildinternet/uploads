@@ -1,6 +1,12 @@
 /**
  * Explicit diagnostic reports → D1 `uploads_cli_reports` (+ optional R2 log).
- * Never automatic — requires `uploads report` / MCP `report`.
+ * Sent by `uploads report`, the stdio MCP `report` tool, and the hosted MCP
+ * `feedback` tool. Each report emails the operator (report-email.ts).
+ *
+ * The hosted MCP relays over its `API` service binding (host `api.internal`,
+ * which only a service binding can send). Only those requests may set
+ * `workspace` / `userId`, and they are rate-limited per workspace rather than
+ * per IP, since every relayed request shares the MCP worker's address.
  */
 import {
   InternalError,
@@ -30,6 +36,8 @@ import {
 } from "../cli-intake";
 import type { WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
+import { notifyReport } from "../report-email";
+import { INTERNAL_API_HOST } from "./internal-slack";
 
 export { MAX_ATTACHMENT_BYTES };
 
@@ -40,10 +48,15 @@ reports.post("/", async (c) => {
     throw new ValidationError("report intake is disabled", { code: "reports_disabled" });
   }
 
+  const internal = new URL(c.req.url).hostname === INTERNAL_API_HOST;
+  const relayWorkspace = internal ? sanitizeString(c.req.header("x-uploads-workspace"), 64) : null;
+  const relayUserId = internal ? sanitizeString(c.req.header("x-uploads-user-id"), 128) : null;
+
   const limiter = c.env.INVITE_LIMITER;
   if (limiter) {
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    const { success } = await limiter.limit({ key: `cli-report:${ip}` });
+    const key = relayWorkspace ? `mcp-report:${relayWorkspace}` : `cli-report:${ip}`;
+    const { success } = await limiter.limit({ key });
     if (!success) {
       throw new RateLimitedError("too many reports; retry shortly", { retryAfterSeconds: 60 });
     }
@@ -64,6 +77,7 @@ reports.post("/", async (c) => {
   const type = pickReportType(body.type);
   const contactRaw = sanitizeString(body.contact, 200);
   const contact = contactRaw ? stripControl(contactRaw).trim() || null : null;
+  const followUpOk = typeof body.followUpOk === "boolean" ? body.followUpOk : null;
   const surface = pickSurface(body.surface);
   const clientKind = pickClientKind(body.clientKind);
   const id = newId("rpt");
@@ -119,8 +133,9 @@ reports.post("/", async (c) => {
         `INSERT INTO uploads_cli_reports (
         id, message, type, contact, surface, client_kind, anon_id,
         cli_version, os, arch, runtime, command, error_code,
-        attachment_key, attachment_filename, attachment_bytes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        attachment_key, attachment_filename, attachment_bytes,
+        workspace, user_id, follow_up_ok
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -139,6 +154,9 @@ reports.post("/", async (c) => {
         attachmentKey,
         attachmentFilename,
         attachmentBytes,
+        relayWorkspace,
+        relayUserId,
+        followUpOk === null ? null : followUpOk ? 1 : 0,
       )
       .run();
   } catch (err) {
@@ -181,6 +199,26 @@ reports.post("/", async (c) => {
       }
       throw new InternalError("failed to store report attachment");
     }
+  }
+
+  const notify = notifyReport(c.env, {
+    id,
+    type,
+    message,
+    surface,
+    contact,
+    followUpOk,
+    workspace: relayWorkspace,
+    userId: relayUserId,
+    command: sanitizeString(body.command, MAX_COMMAND),
+    cliVersion: sanitizeString(body.cliVersion, MAX_VERSION),
+    hasAttachment: Boolean(attachmentKey),
+  });
+  // Workers have executionCtx; vitest app.request often does not.
+  try {
+    c.executionCtx.waitUntil(notify);
+  } catch {
+    await notify;
   }
 
   return c.json({ ok: true, id, hasAttachment: Boolean(attachmentKey) }, 202);
