@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.63.3
+
+### Patch Changes
+
+- f681887: `uploads report` takes `--follow-up` / `--no-follow-up` to say whether the uploads team may contact you for more details, and the stdio MCP `report` tool takes `followUpOk`. Repo-binding notes from `uploads github link` and `unlink` now say how to ask for a reassignment.
+
 ## 0.63.2
 
 ### Patch Changes
