@@ -314,23 +314,6 @@ describe("POST /v1/workspaces/:workspace/github/private-prefix (token-only)", ()
   });
 });
 
-describe("old bearer path /v1/:workspace/github/private-prefix is untouched (issue #631/#613)", () => {
-  it("still reachable at the old bearer-only path", async () => {
-    const { env } = await makeEnv();
-    const res = await app.request(
-      "/v1/acme/github/private-prefix",
-      {
-        method: "POST",
-        headers: { ...bearer(), "content-type": "application/json" },
-        body: JSON.stringify({ repo: "acme/web", branch: "main" }),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ mode: "plain" });
-  });
-});
-
 describe("POST /v1/workspaces/:workspace/github/private-prefix/rotate (token-only)", () => {
   it("bearer with files:write reaches the handler", async () => {
     const { env, db } = await makeEnv();
@@ -391,24 +374,6 @@ describe("POST /v1/workspaces/:workspace/github/private-prefix/rotate (token-onl
       env,
     );
     expect(res.status).toBe(404);
-  });
-});
-
-describe("old bearer path /v1/:workspace/github/private-prefix/rotate is untouched (issue #631/#613)", () => {
-  it("still reachable at the old bearer-only path", async () => {
-    const { env, db } = await makeEnv();
-    await recordRepoLink(db as unknown as D1Database, "acme/web", WS, "test");
-    const res = await app.request(
-      "/v1/acme/github/private-prefix/rotate",
-      {
-        method: "POST",
-        headers: { ...bearer(), "content-type": "application/json" },
-        body: JSON.stringify({ repo: "acme/web", repoLevel: true }),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ rotated: false, reason: "no_prefix" });
   });
 });
 
@@ -893,7 +858,7 @@ describe("old-path bearer routes are untouched by the canonical mount (issue #61
 });
 
 describe("GET /v1/workspaces/:workspace/github/titles (session-only, member-gated, issue #613 final phase)", () => {
-  it("member session 200s", async () => {
+  it("member session passes the gate and reaches validation (400 refs_required)", async () => {
     const { env } = await makeEnv();
     const res = await app.request(
       "/v1/workspaces/acme/github/titles",

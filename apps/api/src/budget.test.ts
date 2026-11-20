@@ -19,6 +19,10 @@ describe("resolveBudgetLimits — plan-aware resolution", () => {
       maxStorageBytes: undefined,
       maxUploadsPerPeriod: undefined,
     });
+    expect(resolveBudgetLimits({ maxStorageBytes: 0, maxUploadsPerPeriod: -1 })).toEqual({
+      maxStorageBytes: undefined,
+      maxUploadsPerPeriod: undefined,
+    });
   });
 
   it("an explicit maxStorageBytes override still applies with no plan set (existing PR #280 behavior)", () => {
@@ -132,6 +136,7 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
   it("denies a storage-exceeding put on a shared-bucket workspace", () => {
     const denial = checkPutBudget(usage, { maxStorageBytes: 1_000 }, { bytes: 200, uploads: 1 });
     expect(denial?.code).toBe("storage_quota_exceeded");
+    expect(denial?.status).toBe(507);
     expect(denial?.message).toBe(
       "Storage full: acme is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket",
     );
@@ -149,9 +154,35 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
     expect(denial.detail).toMatchObject({ bytes: 900, maxStorageBytes: 1_000 });
   });
 
-  it("allows the same put on a BYO workspace when shared residue stays under cap", () => {
-    const denial = checkPutBudget(usage, byoLimits, { bytes: 200, uploads: 1 });
+  it("allows overwrites that shrink or stay under the cap", () => {
+    expect(
+      checkPutBudget(
+        { ...usage, bytes: 1_000 },
+        { maxStorageBytes: 1_000 },
+        { bytes: -100, uploads: 1 },
+      ),
+    ).toBeNull();
+    expect(
+      checkPutBudget(usage, { maxStorageBytes: 1_000 }, { bytes: 100, uploads: 1 }),
+    ).toBeNull();
+  });
+
+  // Total bytes are far over the cap; only shared residue counts for BYO.
+  it("allows a BYO put when total bytes are large but shared residue is below the cap", () => {
+    const denial = checkPutBudget({ ...usage, bytes: 50_000 }, byoLimits, {
+      bytes: 20_000,
+      uploads: 1,
+    });
     expect(denial).toBeNull();
+  });
+
+  it("denies a BYO put when shared residue is already over the cap", () => {
+    const denial = checkPutBudget({ ...usage, bytes: 50_000, sharedBytes: 1_100 }, byoLimits, {
+      bytes: 200,
+      uploads: 1,
+    });
+    expect(denial?.code).toBe("storage_quota_exceeded");
+    expect(denial?.detail).toMatchObject({ bytes: 1_100, deltaBytes: 0 });
   });
 
   it("still enforces maxUploadsPerPeriod on a BYO workspace", () => {
@@ -160,6 +191,7 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
       uploads: 1,
     });
     expect(denial?.code).toBe("upload_budget_exceeded");
+    expect(denial?.status).toBe(429);
   });
 });
 
@@ -204,10 +236,17 @@ describe("usageWithLimits — storage fields use the active lane's budget attrib
     expect(out.storageBudgetBasis).toBe("shared");
   });
 
-  it("includes maxStorageBytes/storageRemainingBytes for a shared-bucket record", () => {
-    const out = usageWithLimits(usage, { maxStorageBytes: 1_000 });
+  it("includes remaining storage and uploads for a shared-bucket record", () => {
+    const out = usageWithLimits(usage, { maxStorageBytes: 1_000, maxUploadsPerPeriod: 10 });
     expect(out.maxStorageBytes).toBe(1_000);
     expect(out.storageRemainingBytes).toBe(100);
     expect(out.storageBudgetBasis).toBe("total");
+    expect(out.uploadsRemaining).toBe(8);
+  });
+
+  it("omits limit fields when unlimited", () => {
+    const out = usageWithLimits(usage, {});
+    expect(out).not.toHaveProperty("maxStorageBytes");
+    expect(out).not.toHaveProperty("maxUploadsPerPeriod");
   });
 });

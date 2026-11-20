@@ -44,6 +44,7 @@ describe("PLANS catalog", () => {
 
 describe("getPlan", () => {
   it("returns the matching catalog entry for a known id", () => {
+    expect(getPlan("free")).toBe(PLANS.free);
     expect(getPlan("pro")).toBe(PLANS.pro);
   });
 
@@ -56,10 +57,5 @@ describe("getPlan", () => {
   it("fails open to free for inherited-property names, not the prototype value", () => {
     expect(getPlan("constructor")).toBe(PLANS.free);
     expect(getPlan("__proto__")).toBe(PLANS.free);
-  });
-
-  it("still resolves real plan ids unaffected by the hasOwn check", () => {
-    expect(getPlan("free")).toBe(PLANS.free);
-    expect(getPlan("pro")).toBe(PLANS.pro);
   });
 });

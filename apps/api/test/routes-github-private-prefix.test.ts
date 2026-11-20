@@ -209,10 +209,9 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
     githubCache.store.set(`ghpriv:${REPO}`, { value: "1" });
 
     const res = await post("/v1/acme/github/private-prefix", { repo: REPO, branch: "" }, env);
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: { code?: string } };
-    expect(body.error).toBeDefined();
+    expect(body.error?.code).toBe("validation_error");
   });
 
   it("no bearer token: 401", async () => {
@@ -229,25 +228,23 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
     expect(res.status).toBe(401);
   });
 
-  it("malformed body (bad repo grammar): 4xx AppError envelope", async () => {
+  it("malformed body (bad repo grammar): 400", async () => {
     const { env } = await makeEnv();
     const res = await post("/v1/acme/github/private-prefix", { repo: "not-a-repo" }, env);
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-    const body = (await res.json()) as { error?: { code?: string; message?: string } };
-    expect(body.error).toBeDefined();
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("invalid_repo");
   });
 
-  it("malformed body (bad target.kind): 4xx AppError envelope", async () => {
+  it("malformed body (bad target.kind): 400", async () => {
     const { env } = await makeEnv();
     const res = await post(
       "/v1/acme/github/private-prefix",
       { repo: REPO, target: { kind: "commits", num: 1 } },
       env,
     );
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: { code?: string } };
-    expect(body.error).toBeDefined();
+    expect(body.error?.code).toBe("validation_error");
   });
 });

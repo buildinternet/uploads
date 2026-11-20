@@ -23,9 +23,9 @@ vi.mock("./github-repo-links", async (importOriginal) => {
   const original = await importOriginal<typeof import("./github-repo-links")>();
   return { ...original, findRepoLinkStrict: vi.fn(original.findRepoLinkStrict) };
 });
-vi.mock("./github-link-adopt", () => ({
+vi.mock("./github-link-adopt", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./github-link-adopt")>()),
   adoptLinkedFilesForWebhook: vi.fn(),
-  hasLinkCandidate: (text: string) => /https?:\/\//i.test(text),
 }));
 
 class FakeQueue {

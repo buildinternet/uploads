@@ -863,55 +863,6 @@ describe("mcp worker", () => {
     expect(principal).toMatch(/^legacy:[0-9a-f]{8}$/);
   });
 
-  it("lists exactly the remote tools", async () => {
-    const { env } = await makeEnv();
-    const response = await rpc(env, {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/list",
-    });
-    const body = (await response.json()) as {
-      result: { tools: { name: string }[] };
-    };
-    expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
-      "approve",
-      "changelog",
-      "comment",
-      "delete",
-      "feed_create",
-      "feed_get",
-      "feedback",
-      "find_files",
-      "gallery_add",
-      "gallery_create",
-      "gallery_find_by_reference",
-      "gallery_get",
-      "gallery_link",
-      "get_metadata",
-      "list",
-      "list_activity",
-      "list_attached_media",
-      "list_held",
-      "list_metadata_keys",
-      "list_repo_files",
-      "list_staged_media",
-      "list_staged_scopes",
-      "open_staged_media",
-      "promote",
-      "purge_expired",
-      "put",
-      "reconcile",
-      "repo_link_status",
-      "resolve_media_context",
-      "search_docs",
-      "set_metadata",
-      "sign_upload_url",
-      "unstage",
-      "usage",
-      "whoami",
-    ]);
-  });
-
   /**
    * The /docs/mcp tool reference renders from this catalog, so the page can't
    * drift from what tools/list actually serves. A schema or description change

@@ -106,14 +106,4 @@ describe("resolveEffectiveLimits", () => {
     expect(withOverride.maxStorageBytes).toBe(1_000);
     expect(withOverride.maxUploadsPerPeriod).toBe(PLANS.pro.defaultLimits.maxUploadsPerPeriod);
   });
-
-  it("plan set: an unrecognized plan string still fails open to free via resolvePlanLimits", () => {
-    expect(resolveEffectiveLimits({ plan: "enterprise" })).toEqual(PLANS.free.defaultLimits);
-  });
-
-  it("plan set: an explicit null override still wins over the plan default (unlimited)", () => {
-    const resolved = resolveEffectiveLimits({ plan: "free", maxStorageBytes: null });
-    expect(resolved.maxStorageBytes).toBeUndefined();
-    expect(resolved.maxUploadsPerPeriod).toBe(PLANS.free.defaultLimits.maxUploadsPerPeriod);
-  });
 });

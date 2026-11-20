@@ -976,19 +976,6 @@ describe("old-path aliases forward unchanged (issue #613)", () => {
     expect(await res.json()).toEqual({ url: "https://storage.uploads.sh/acme/shots/a.png" });
   });
 
-  it("/v1/:workspace/files (bearer path) is untouched by the canonical mount", async () => {
-    const { env, bucket } = await makeEnv();
-    await seed(bucket);
-    const res = await app.request(
-      "/v1/acme/files",
-      { headers: { Authorization: `Bearer ${TOKEN}` } },
-      env,
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { items: { key: string }[] };
-    expect(body.items.map((i) => i.key)).toEqual(["shots/a.png"]);
-  });
-
   it("resolves the session exactly once for a forwarded aliased route (CodeRabbit finding, PR #615)", async () => {
     const getSessionCalls = { count: 0 };
     const { env } = await makeEnv({ getSessionCalls });

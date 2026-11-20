@@ -1045,16 +1045,19 @@ describe("upgradeOrganizationSubscription", () => {
   });
 });
 
-describe("updateNotifyMemberJoin", () => {
+describe.each([
+  { name: "updateNotifyMemberJoin", fn: updateNotifyMemberJoin, key: "notifyMemberJoin" },
+  { name: "updateNotifyUsageLimits", fn: updateNotifyUsageLimits, key: "notifyUsageLimits" },
+])("$name", ({ fn, key }) => {
   it("POSTs update-user with the boolean and returns true on ok", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("{}", { status: 200 }));
-    const ok = await updateNotifyMemberJoin("", false);
+    const ok = await fn("", false);
     expect(ok).toBe(true);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/api/auth/update-user");
-    expect(JSON.parse(String(init?.body))).toEqual({ notifyMemberJoin: false });
+    expect(JSON.parse(String(init?.body))).toEqual({ [key]: false });
     fetchMock.mockRestore();
   });
 
@@ -1062,29 +1065,7 @@ describe("updateNotifyMemberJoin", () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("nope", { status: 500 }));
-    expect(await updateNotifyMemberJoin("", true)).toBe(false);
-    fetchMock.mockRestore();
-  });
-});
-
-describe("updateNotifyUsageLimits", () => {
-  it("POSTs update-user with the boolean and returns true on ok", async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("{}", { status: 200 }));
-    const ok = await updateNotifyUsageLimits("", false);
-    expect(ok).toBe(true);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toContain("/api/auth/update-user");
-    expect(JSON.parse(String(init?.body))).toEqual({ notifyUsageLimits: false });
-    fetchMock.mockRestore();
-  });
-
-  it("returns false on a non-ok response", async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("nope", { status: 500 }));
-    expect(await updateNotifyUsageLimits("", true)).toBe(false);
+    expect(await fn("", true)).toBe(false);
     fetchMock.mockRestore();
   });
 });

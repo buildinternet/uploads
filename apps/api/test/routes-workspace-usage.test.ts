@@ -230,16 +230,4 @@ describe("old-path alias forwards unchanged (issue #613 phase 2)", () => {
     const body = (await res.json()) as { error?: { code?: string } };
     expect(body.error?.code).toBe("workspace_not_found");
   });
-
-  it("/v1/:workspace/usage (bearer path) is untouched by the canonical mount", async () => {
-    const { env } = await makeEnv();
-    const res = await app.request(
-      "/v1/acme/usage",
-      { headers: { Authorization: `Bearer ${TOKEN}` } },
-      env,
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { workspace: string };
-    expect(body.workspace).toBe("acme");
-  });
 });

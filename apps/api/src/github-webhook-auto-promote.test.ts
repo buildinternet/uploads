@@ -108,12 +108,6 @@ function withMockPost(handler: () => Promise<void>) {
 }
 
 describe("handleWebhook pull_request auto-promotion", () => {
-  it("no-ops when the repo has no binding", async () => {
-    const { env } = await baseEnv();
-    await handleWebhook(env, "pull_request", prPayload());
-    // No throw, no comment attempt (fetch never stubbed/called) — nothing to assert beyond survival.
-  });
-
   it("promotes staged attachments and upserts the bot comment when a binding exists", async () => {
     const { env, bucket } = await baseEnv();
     await recordRepoLink(env.DB, REPO, WS, "promote");
@@ -286,12 +280,13 @@ describe("handleWebhook pull_request auto-promotion", () => {
   // deletes a stale one (deleteRepoLink) — it must never create one, even for a
   // same-repo, promote-eligible PR event on a previously unbound repo.
   it("never creates a binding for an unbound repo, even on a promotable same-repo PR event", async () => {
-    const { env, db } = await baseEnv();
+    const { env, db, bucket } = await baseEnv();
     await seedStaged(env, "hero.png");
 
     await withMockPost(() => handleWebhook(env, "pull_request", prPayload({ action: "opened" })));
 
     expect(db.repoLinks.has(REPO)).toBe(false);
+    expect(bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(false);
   });
 
   it("does not import any binding-write helper (recordRepoLink/setRepoLink) — read/delete only", async () => {

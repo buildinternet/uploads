@@ -4,7 +4,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  AUTO_COMMENT_OPTIONS,
   parseRepoCommentConfig,
   readLocalRepoCommentConfig,
   resolveCommentOptions,
@@ -117,31 +116,6 @@ describe("readLocalRepoCommentConfig", () => {
     const { config, path: matched } = readLocalRepoCommentConfig(root);
     expect(matched).toBe(".uploads.json");
     expect(config).toEqual({ note: "hi" });
-  });
-});
-
-// Smoke subset of the parser/resolver cases (full coverage lives in
-// packages/comment-config/src/index.test.ts — this is a byte-copy).
-describe("parseRepoCommentConfig / resolveCommentOptions (smoke)", () => {
-  it("clamps numeric imageWidth to 160-1000", () => {
-    expect(parseRepoCommentConfig("comment:\n  imageWidth: 40\n", "yaml").config).toEqual({
-      imageWidth: 160,
-    });
-  });
-
-  it("drops an over-500-char note whole, with a warning", () => {
-    const { config, warnings } = parseRepoCommentConfig(
-      `comment:\n  note: "${"x".repeat(501)}"\n`,
-      "yaml",
-    );
-    expect(config).toEqual({});
-    expect(warnings[0]).toContain("note");
-  });
-
-  it("returns AUTO options with all-auto sources for null inputs", () => {
-    const { options, source } = resolveCommentOptions(null, null);
-    expect(options).toEqual(AUTO_COMMENT_OPTIONS);
-    expect(Object.values(source).every((s) => s === "auto")).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { notifyAbuseReport, withinAbuseNotifyBudget } from "./abuse-email";
+import { notifyAbuseReport } from "./abuse-email";
 
 const ROW = {
   id: "report-1",
@@ -13,7 +13,7 @@ const ROW = {
   createdAt: "2026-08-22T00:00:00.000Z",
 };
 
-describe("notifyAbuseReport — EMAIL binding absent", () => {
+describe("notifyAbuseReport — no-send paths", () => {
   it("logs instead of throwing when EMAIL is absent (issue #754 item 3)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
@@ -24,31 +24,17 @@ describe("notifyAbuseReport — EMAIL binding absent", () => {
     warn.mockRestore();
   });
 
-  it("still applies the notify-rate budget check even without EMAIL", async () => {
+  it("skips the send and logs notify-rate-capped once the hourly budget is spent", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    let calls = 0;
-    const registry = {
-      get: async () => (calls > 0 ? "20" : null),
-      put: async () => {
-        calls++;
-      },
-    };
-    await notifyAbuseReport({ WEB_ORIGIN: "https://uploads.sh", REGISTRY: registry }, ROW);
-    warn.mockRestore();
-    // No throw either way — asserted implicitly by reaching this line.
-    expect(true).toBe(true);
-  });
-
-  it("sends when EMAIL is present", async () => {
     const send = vi.fn().mockResolvedValue({});
-    await notifyAbuseReport({ EMAIL: { send }, WEB_ORIGIN: "https://uploads.sh" }, ROW);
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]?.[0].to).toBe("abuse@uploads.sh");
-  });
-});
-
-describe("withinAbuseNotifyBudget", () => {
-  it("fails open (allows) when REGISTRY is absent", async () => {
-    await expect(withinAbuseNotifyBudget(undefined, 20)).resolves.toBe(true);
+    const registry = { get: async () => "20", put: vi.fn(async () => {}) };
+    await notifyAbuseReport(
+      { EMAIL: { send }, WEB_ORIGIN: "https://uploads.sh", REGISTRY: registry },
+      ROW,
+    );
+    expect(send).not.toHaveBeenCalled();
+    expect(registry.put).not.toHaveBeenCalled();
+    expect(warn.mock.calls.at(-1)?.[0]).toContain("notify-rate-capped");
+    warn.mockRestore();
   });
 });

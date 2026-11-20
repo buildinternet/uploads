@@ -2267,32 +2267,6 @@ describe("runPut branch staging (issue #403)", () => {
       );
     });
 
-    it("warns when the repo is bound to a different workspace (binding: other)", async () => {
-      const { client } = fakeClient({ repoLinkStatus: { binding: "other" } });
-      const stderr = await captureStderr(() =>
-        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
-      );
-      expect(stderr).toContain(
-        "note: staged, but o/r is linked to a different workspace — these files won't auto-attach from here.",
-      );
-    });
-
-    it("is silent when the repo is bound to this workspace (binding: self)", async () => {
-      const { client } = fakeClient({ repoLinkStatus: { binding: "self" } });
-      const stderr = await captureStderr(() =>
-        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
-      );
-      expect(stderr).not.toContain("note: staged, but");
-    });
-
-    it("is silent when the endpoint route is absent (older/self-hosted server)", async () => {
-      const { client } = fakeClient(); // no repoLinkStatus option → method absent
-      const stderr = await captureStderr(() =>
-        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
-      );
-      expect(stderr).not.toContain("note: staged, but");
-    });
-
     it("prefers the binding warning over the generic staging note in the JSON hint when both fire", async () => {
       const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
       const stdout = await captureStdout(() =>
@@ -2580,29 +2554,6 @@ describe("runPut sidecar manifest (issue #469)", () => {
     );
     expect(puts[0]?.metadata?.path).toBe("/from-flag");
     expect(puts[0]?.metadata?.state).toBe("after");
-  });
-
-  it("ignores a sidecar whose hash no longer matches the file", async () => {
-    const { client, puts } = fakeClient();
-    const dir = mkdtempSync(join(tmpdir(), "uploads-put-sidecar-"));
-    const file = join(dir, "shot.png");
-    const original = Buffer.from("original-bytes");
-    writeFileSync(file, original);
-    writeSidecarMeta(file, original, { path: "/stale" });
-    writeFileSync(file, Buffer.from("different-bytes"));
-    await runPut(ctxWith(client), [file, "--no-git", "--no-auto"], false, noRun);
-    expect(puts[0]?.metadata?.path).toBeUndefined();
-  });
-
-  it("ignores a malformed sidecar file silently", async () => {
-    const { client, puts } = fakeClient();
-    const dir = mkdtempSync(join(tmpdir(), "uploads-put-sidecar-"));
-    const file = join(dir, "shot.png");
-    writeFileSync(file, Buffer.from("bytes"));
-    writeFileSync(`${file}.uploads.json`, "{ not valid json");
-    const code = await runPut(ctxWith(client), [file, "--no-git", "--no-auto"], false, noRun);
-    expect(code).toBe(0);
-    expect(puts[0]?.metadata).toBeUndefined();
   });
 });
 

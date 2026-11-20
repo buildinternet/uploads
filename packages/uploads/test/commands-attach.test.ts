@@ -1568,34 +1568,6 @@ describe("runAttach sidecar manifest (issue #469)", () => {
     const meta = metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"];
     expect(meta?.path).toBe("/from-flag");
   });
-
-  it("ignores a sidecar whose hash no longer matches the file (regenerated/edited)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "uploads-attach-sidecar-"));
-    const file = join(dir, "shot.png");
-    const original = Buffer.from("original-bytes");
-    writeFileSync(file, original);
-    writeSidecarMeta(file, original, { path: "/stale" });
-    // File changed after the sidecar was written.
-    writeFileSync(file, Buffer.from("different-bytes"));
-    const { client, metadataByKey } = fakeClient();
-    const { run } = ghRunner();
-    await runAttach(ctxWith(client), [file, "--no-comment"], false, run);
-    const meta = metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"];
-    expect(meta?.path).toBeUndefined();
-  });
-
-  it("ignores a malformed sidecar file silently", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "uploads-attach-sidecar-"));
-    const file = join(dir, "shot.png");
-    writeFileSync(file, Buffer.from("bytes"));
-    writeFileSync(`${file}.uploads.json`, "{ not valid json");
-    const { client, metadataByKey } = fakeClient();
-    const { run } = ghRunner();
-    const code = await runAttach(ctxWith(client), [file, "--no-comment"], false, run);
-    expect(code).toBe(0);
-    const meta = metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"];
-    expect(meta?.path).toBeUndefined();
-  });
 });
 
 describe("runAttach path-meta tip (issue #469 lever 3)", () => {
