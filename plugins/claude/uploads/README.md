@@ -13,12 +13,12 @@ serves every listing below. The plugin runs no hooks or local code.
 
 ## What it bundles
 
-| Component                   | Invocation                      | Purpose                                                                 |
-| --------------------------- | ------------------------------- | ----------------------------------------------------------------------- |
-| github-screenshots skill    | `/uploads:github-screenshots`   | Capture, host, and embed a visual in a PR or issue                      |
-| annotate-screenshots skill  | `/uploads:annotate-screenshots` | Add boxes, arrows, labels, and redactions to a capture                  |
-| uploads-cli skill           | `/uploads:uploads-cli`          | Full reference for the optional `uploads` CLI                           |
-| uploads MCP server          | (tools)                         | Hosted server at `https://agents.uploads.sh/mcp`                        |
+| Component                  | Invocation                      | Purpose                                                |
+| -------------------------- | ------------------------------- | ------------------------------------------------------ |
+| github-screenshots skill   | `/uploads:github-screenshots`   | Capture, host, and embed a visual in a PR or issue     |
+| annotate-screenshots skill | `/uploads:annotate-screenshots` | Add boxes, arrows, labels, and redactions to a capture |
+| uploads-cli skill          | `/uploads:uploads-cli`          | Full reference for the optional `uploads` CLI          |
+| uploads MCP server         | (tools)                         | Hosted server at `https://agents.uploads.sh/mcp`       |
 
 The slash names in the table are how Claude Code invokes the skills. Other
 agents discover the same `skills/` directory by layout.
