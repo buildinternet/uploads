@@ -44,7 +44,7 @@ Same product, two transports. Skills do not install a binary.
 | Need                                                  | Use                                             | Why                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
-| File on a sandbox disk, shell but no CLI              | Hosted MCP `sign_upload_url`                    | Returns one URL + `curl -T` line per file (15 min, up to the plan's upload limit). The PUT response is `put`'s JSON. With `pr`/`issue`, call `comment` once after. Sandbox must allow agents.uploads.sh.                                                                                                               |
+| File on a sandbox disk, shell but no CLI              | Hosted MCP `sign_upload_url`                    | Returns one upload command per file: an HTTPS PUT of that file to `https://agents.uploads.sh/u/<ticket>` (15 min, up to the plan's upload limit). The PUT response is `put`'s JSON. With `pr`/`issue`, call `comment` once after. Sandbox must allow agents.uploads.sh.                                                                                                               |
 | File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
 | List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
 | Recent tagged files, by pull request or by repo       | Hosted MCP `list_activity` / `list_repo_files`  | Hosted only. `list_activity` groups by pull (default) or repo. `list_repo_files` needs `repo`. Times are tag metadata, not upload time. Does not publish a feed.                                                                                                                                                       |
@@ -298,10 +298,9 @@ comment already prefer `embedUrl`. Override with `UPLOADS_EMBED_PUBLIC_BASE_URL`
 - **No shell / ChatGPT?** Skip this section. Use the hosted MCP
   (`https://agents.uploads.sh/mcp`) and the table above. Do not install the CLI.
 - **Node.js ≥ 22.**
-- **The CLI.** Install globally for repeated agent use, or run it once with `npx`:
+- **The CLI.** Install it globally:
   ```bash
   npm install --global @buildinternet/uploads
-  npx @buildinternet/uploads --help
   uploads --version
   ```
   Every example in this skill uses the **global** `uploads …` binary (as after
@@ -601,8 +600,8 @@ staging note as bare `put` (see above) — same stderr wording, same JSON
 `hint` field, same `--quiet`/`UPLOADS_NO_NUDGE` suppression.
 
 **Errors and hints:** a local capture with no usable browser fails with
-`BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install a
-browser (`npx playwright install chromium`). A remote render that the server
+`BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install
+Chromium ([Playwright's browser docs](https://playwright.dev/docs/browsers)). A remote render that the server
 can't complete returns `RENDER_FAILED`. A burst rate limit on the render
 endpoint returns `RATE_LIMITED` (exit `4`) — hint: wait ~60s and retry. A
 remote render over the workspace's monthly upload budget surfaces the usual

@@ -94,8 +94,9 @@ opencode mcp add uploads --url https://agents.uploads.sh/mcp
 
 ## Claude Code & Codex plugins <a class="anchor" data-pagefind-ignore href="#plugin" aria-label="Link to this section">#</a>
 
-The plugin bundles the skills, the MCP server, the [pre-PR reminder](#pre-pr-reminder), and, in
-Claude Code, [mods](#mods). In Claude Code, add the marketplace, then install:
+The plugin bundles the skills and the MCP server. In Claude Code, the `uploads-mod` add-on from the
+same marketplace adds the [pre-PR reminder](#pre-pr-reminder) and [mods](#mods). Add the
+marketplace, then install both:
 
 ```text
 /plugin marketplace add buildinternet/uploads
@@ -103,6 +104,7 @@ Claude Code, [mods](#mods). In Claude Code, add the marketplace, then install:
 
 ```text
 /plugin install uploads@uploads
+/plugin install uploads-mod@uploads
 ```
 
 Codex loads the same repo as a plugin. After you enable it, open `/hooks` once and trust the hook
@@ -166,15 +168,15 @@ see [Require screenshots on pull requests](/docs/require-screenshots).
 
 ## Claude Code mods <a class="anchor" data-pagefind-ignore href="#mods" aria-label="Link to this section">#</a>
 
-In Claude Code, the plugin also ships [mods](https://code.claude.com/docs/en/plugins/mods/overview):
-code that runs inside Claude Code and can add to its interface. The plugin includes:
+In Claude Code, the `uploads-mod` plugin ships [mods](https://code.claude.com/docs/en/plugins/mods/overview):
+code that runs inside Claude Code and can add to its interface. It includes:
 
 - **Staged media band:** shows the files staged for your branch above the prompt, and attaches them
   when `gh pr create` opens the PR.
 
 Mods use the local `uploads` CLI, so install it and run `uploads login` once. Change their options,
 such as the automatic attach, in `/plugin`. Mods need Claude Code 2.1.287 or later. Older versions,
-Codex, and hosted MCP setups get the rest of the plugin.
+Codex, and hosted MCP setups skip them.
 
 </section>
 

@@ -27,15 +27,17 @@ assert.match(version, /^\d+\.\d+\.\d+$/, "@uploads/plugin version must be semver
 for (const rel of [
   "plugin.json",
   "plugins/claude/uploads/.claude-plugin/plugin.json",
+  "plugins/claude/uploads-mod/.claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
 ]) {
   assert.equal(readJson(rel).version, version, `${rel} version`);
 }
 
 const marketplace = readJson(".claude-plugin/marketplace.json");
-const listed = marketplace.plugins?.[0];
-assert.ok(listed, ".claude-plugin/marketplace.json must list a plugin");
-assert.equal(listed.name, "uploads");
-assert.equal(listed.version, version, "marketplace.json plugins[0].version");
+const names = (marketplace.plugins ?? []).map((p) => p.name);
+assert.deepEqual(names, ["uploads", "uploads-mod"], ".claude-plugin/marketplace.json plugins");
+for (const listed of marketplace.plugins) {
+  assert.equal(listed.version, version, `marketplace.json ${listed.name} version`);
+}
 
 console.log(`plugin manifests ok (${version})`);

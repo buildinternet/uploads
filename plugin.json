@@ -16,7 +16,7 @@
       "pluginManifest": "plugins/claude/uploads/.claude-plugin/plugin.json",
       "marketplace": ".claude-plugin/marketplace.json",
       "mcp": "plugins/claude/uploads/.mcp.json",
-      "hooks": "plugins/claude/uploads/hooks/hooks.json"
+      "hooks": "plugins/claude/uploads-mod/hooks/hooks.json"
     },
     "com.openai.codex": {
       "pluginManifest": ".codex-plugin/plugin.json"

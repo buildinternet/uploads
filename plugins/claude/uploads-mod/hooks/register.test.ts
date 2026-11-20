@@ -2,7 +2,7 @@ import type { On } from "claude-code";
 import type { Engine, MockClock } from "claude-code/testing";
 import { describe, expect, mock, test } from "claude-code/testing";
 
-const PLUGIN = "uploads";
+const PLUGIN = "uploads-mod";
 const REPO = "buildinternet/uploads";
 const PR_OUTPUT = `Creating pull request\nhttps://github.com/${REPO}/pull/1051\n`;
 const STAGE = "uploads attach shot.png --branch";

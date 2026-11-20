@@ -3,19 +3,19 @@ import type { EngineInterface, Register } from "claude-code";
 
 import type { Attached, BandRow, Binding, FileRef, Staged } from "../types";
 
-const staged = atom({ plugin: "uploads", key: "staged" } as const, null);
-const attached = atom({ plugin: "uploads", key: "attached" } as const, null);
-const isExpanded = atom({ plugin: "uploads", key: "isExpanded" } as const, false);
+const staged = atom({ plugin: "uploads-mod", key: "staged" } as const, null);
+const attached = atom({ plugin: "uploads-mod", key: "attached" } as const, null);
+const isExpanded = atom({ plugin: "uploads-mod", key: "isExpanded" } as const, false);
 // Desktop: JPEG data URIs of the staged images (storage URL -> URI; "" = failed).
-const thumbs = atom({ plugin: "uploads", key: "thumbs" } as const, {});
-const large = atom({ plugin: "uploads", key: "large" } as const, {});
+const thumbs = atom({ plugin: "uploads-mod", key: "thumbs" } as const, {});
+const large = atom({ plugin: "uploads-mod", key: "large" } as const, {});
 // The row the pane's detail view shows; null shows the grid.
-const preview = atom({ plugin: "uploads", key: "preview" } as const, null);
+const preview = atom({ plugin: "uploads-mod", key: "preview" } as const, null);
 // The open PR for the session branch, for the pane's feed link.
-const openPr = atom({ plugin: "uploads", key: "openPr" } as const, null);
-const feedUrl = atom({ plugin: "uploads", key: "feedUrl" } as const, null);
+const openPr = atom({ plugin: "uploads-mod", key: "openPr" } as const, null);
+const feedUrl = atom({ plugin: "uploads-mod", key: "feedUrl" } as const, null);
 // The staged set the desktop band is hidden for; a change shows it again.
-const dismissed = atom({ plugin: "uploads", key: "dismissed" } as const, null);
+const dismissed = atom({ plugin: "uploads-mod", key: "dismissed" } as const, null);
 
 const PANE = "uploads-staged";
 const PANE_TITLE = "Staged attachments";

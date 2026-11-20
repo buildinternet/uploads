@@ -25,6 +25,7 @@ if (typeof version !== "string" || version.length === 0) {
 const files = [
   "plugin.json",
   "plugins/claude/uploads/.claude-plugin/plugin.json",
+  "plugins/claude/uploads-mod/.claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
 ];
 let changed = 0;
@@ -37,12 +38,16 @@ for (const rel of files) {
 }
 
 const marketplace = readJson(".claude-plugin/marketplace.json");
-const listed = marketplace.plugins?.[0];
-if (!listed) {
-  throw new Error(".claude-plugin/marketplace.json is missing plugins[0]");
+if (!marketplace.plugins?.length) {
+  throw new Error(".claude-plugin/marketplace.json is missing plugins");
 }
-if (listed.version !== version) {
+let marketplaceChanged = false;
+for (const listed of marketplace.plugins) {
+  if (listed.version === version) continue;
   listed.version = version;
+  marketplaceChanged = true;
+}
+if (marketplaceChanged) {
   writeJson(".claude-plugin/marketplace.json", marketplace);
   changed += 1;
 }
