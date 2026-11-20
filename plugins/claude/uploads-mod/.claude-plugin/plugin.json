@@ -1,7 +1,7 @@
 {
   "name": "uploads-mod",
   "displayName": "uploads.sh mod",
-  "version": "0.4.11",
+  "version": "0.5.0",
   "description": "Claude Code add-on for the uploads plugin: shows staged screenshots above the prompt, attaches them when gh pr create opens a PR, and reminds you to stage screenshots before a UI PR.",
   "author": {
     "name": "Build Internet",
