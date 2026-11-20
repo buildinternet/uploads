@@ -1,0 +1,25 @@
+{
+  "name": "uploads-mod",
+  "displayName": "uploads.sh mod",
+  "version": "0.4.11",
+  "description": "Claude Code add-on for the uploads plugin: shows staged screenshots above the prompt, attaches them when gh pr create opens a PR, and reminds you to stage screenshots before a UI PR.",
+  "author": {
+    "name": "Build Internet",
+    "url": "https://buildinternet.com"
+  },
+  "icon": "./icon.png",
+  "homepage": "https://uploads.sh",
+  "repository": "https://github.com/buildinternet/uploads",
+  "license": "Apache-2.0",
+  "keywords": ["uploads", "screenshots", "github", "pull-requests"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoPromote": {
+      "type": "boolean",
+      "title": "Attach staged files on gh pr create",
+      "description": "When the repo isn't linked to your workspace, run `uploads attach --promote` after `gh pr create` opens a PR. Off: the mod only tells you and Claude what is waiting.",
+      "required": false,
+      "default": true
+    }
+  }
+}

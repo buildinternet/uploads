@@ -125,7 +125,8 @@ Why existing installs must pick this up.
 
 `changeset version` bumps `packages/plugin` and copies the number into
 `plugin.json`, `plugins/claude/uploads/.claude-plugin/plugin.json`,
-`.claude-plugin/marketplace.json`, and `.codex-plugin/plugin.json`. CI runs
+`plugins/claude/uploads-mod/.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json` (every entry), and `.codex-plugin/plugin.json`. CI runs
 `pnpm plugin-version:check` so those files cannot drift. A plugin-only
 version PR does not publish to npm; the MCP Registry listing still follows
 the CLI version via `server.json`.
@@ -169,16 +170,20 @@ Rules that follow from this:
 - **Describe what the plugin runs.** The security scan compares behavior with
   the README. A new hook or mod that runs a command or calls a service needs a
   line in the plugin README's data and network access section.
-- **Expect a reviewer hold for code.** The plugin is a subfolder of the
-  repository, so a hook or mod that runs a non-shell file (such as
-  `hooks/register.tsx`) is held as **Scripts the validator couldn't follow**.
-  A hold delays publishing; it is not a rejection.
+- **Keep hooks, mods, and code files out of this folder.** The directory
+  accepts command hooks, mods (`modules` in hooks.json), and files other than
+  Markdown, text, JSON, YAML, and PNG/JPEG/GIF/WebP/ICO only from Verified
+  organizations, and Build Internet isn't one. The mod and the pre-PR hook
+  live in `plugins/claude/uploads-mod`, which only our own marketplace lists.
+  Skills must not carry download-and-run lines (`npx …`, `curl … | sh`) or a
+  `curl` upload without its full https URL.
 
 Before a change to the plugin folder lands, check it:
 
 ```bash
 claude plugin validate --strict plugins/claude/uploads
-claude plugin test plugins/claude/uploads    # the mod's tests
+claude plugin validate --strict plugins/claude/uploads-mod
+claude plugin test plugins/claude/uploads-mod    # the mod's tests
 ```
 
 The portal runs more checks than the CLI. To run them on a branch before it

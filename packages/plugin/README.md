@@ -14,6 +14,7 @@ Why existing installs must pick this up.
 ```
 
 `changeset version` writes `CHANGELOG.md` here and copies the new version into
-`plugin.json`, `plugins/claude/uploads/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+`plugin.json`, `plugins/claude/uploads/.claude-plugin/plugin.json`,
+`plugins/claude/uploads-mod/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
 and `.codex-plugin/plugin.json`. See
 [docs/releasing.md](../../docs/releasing.md#plugin-version-claude--codex).

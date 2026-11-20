@@ -213,9 +213,10 @@ That installs three skills: `github-screenshots` (visuals → PRs/issues),
 redaction on a capture).
 
 On Claude Code or Codex, the [plugin](https://uploads.sh/docs/agents#plugin)
-bundles the skills, the MCP server, and a pre-PR screenshot reminder. In
-Claude Code it also shows staged screenshots above the prompt and attaches
-them when the PR opens. On claude.ai and in Cowork, add uploads from the
+bundles the skills and the MCP server (Codex also gets a pre-PR screenshot
+reminder). In Claude Code, the optional `uploads-mod` add-on adds that
+reminder, shows staged screenshots above the prompt, and attaches them when
+the PR opens. On claude.ai and in Cowork, add uploads from the
 [Claude directory](https://claude.ai/directory/uploads). The same folder
 (`plugins/claude/uploads`) is the common agent-plugin layout, and it is
 submitted to the [xAI plugin marketplace](https://github.com/xai-org/plugin-marketplace)

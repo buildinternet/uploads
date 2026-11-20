@@ -58,7 +58,8 @@ Then finish setup for your agent:
 <Tabs syncKey="agent-runtime">
   <TabItem label="Claude Code">
 
-Install the plugin to add the reminder that runs before the agent opens a PR:
+Install the plugin, plus its `uploads-mod` add-on for the reminder that runs before the agent
+opens a PR:
 
 ```text
 /plugin marketplace add buildinternet/uploads
@@ -66,6 +67,7 @@ Install the plugin to add the reminder that runs before the agent opens a PR:
 
 ```text
 /plugin install uploads@uploads
+/plugin install uploads-mod@uploads
 ```
 
   </TabItem>

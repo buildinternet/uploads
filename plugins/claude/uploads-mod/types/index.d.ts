@@ -51,7 +51,7 @@ export type Attached = {
 
 declare module "claude-code" {
   interface PluginState {
-    uploads: {
+    "uploads-mod": {
       staged: Staged | null;
       attached: Attached | null;
       /** Whether the band lists the staged files under its header. */

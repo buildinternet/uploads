@@ -37,7 +37,11 @@ outside its folder and the directory rejects symlinks. Edit the root
 `pnpm plugin-skills:check`. The root `skills/` stays canonical because the
 Agent Plugins spec, Codex, `npx skills add`, and the web worker read it there.
 Don't move `.claude-plugin/plugin.json` back to the repo root: that makes the
-whole repo the plugin again.
+whole repo the plugin again. The Claude Code mod and pre-PR hook live in a
+second plugin, `plugins/claude/uploads-mod/`, listed only in our own
+marketplace: the Claude directory refuses hooks, mods, and `.sh`/`.ts`/`.tsx`
+files from orgs that aren't Verified, so keep `plugins/claude/uploads/` to
+skills, `.mcp.json`, Markdown, JSON, and the PNG icon.
 
 **Screenshots: stage as you go.** If your change is visually observable (web
 UI, email templates, rendered output), capture and stage screenshots at each

@@ -115,7 +115,7 @@
     ".agents/**",
     ".claude/skills/security-audit/**",
     ".design-sync/**",
-    "plugins/claude/uploads/hooks/*.ts",
-    "plugins/claude/uploads/hooks/*.tsx"
+    "plugins/claude/uploads-mod/hooks/*.ts",
+    "plugins/claude/uploads-mod/hooks/*.tsx"
   ]
 }
