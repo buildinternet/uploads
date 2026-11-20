@@ -16,10 +16,15 @@
   // Secrets that degrade gracefully when unset (GITHUB_APP_PRIVATE_KEY,
   // GITHUB_APP_WEBHOOK_SECRET, OPENAI_APPS_CHALLENGE) are deliberately absent:
   // this list is for secrets whose absence silently breaks core function.
+  // AUTH_INTERNAL_KEY is shared with uploads-auth and uploads-api
+  // (byte-identical). This worker runs api's uploader-identity code, which
+  // sends it on AUTH service-binding calls to /internal/*. Without it every
+  // GitHub account lookup 404s and hosted MCP uploads silently lose uploader
+  // attribution and GitHub-access routing (it was missing from Nov 4 to 20).
   // Like apps/auth's list, these are worker-level; Workers Builds branch
   // previews run against production bindings and are unaffected.
   "secrets": {
-    "required": ["WORKSPACE_SECRETS_KEY"],
+    "required": ["WORKSPACE_SECRETS_KEY", "AUTH_INTERNAL_KEY"],
   },
   "vars": {
     "WEB_ORIGIN": "https://uploads.sh",

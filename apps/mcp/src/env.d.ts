@@ -3,6 +3,9 @@
 interface Env {
   WORKSPACE_SECRETS_KEY?: string;
   WORKSPACE_SECRETS_KEY_PREVIOUS?: string;
+  // Shared with uploads-auth and uploads-api. Sent on AUTH /internal/* calls
+  // by api's uploader-identity code (apps/api/src/auth-internal.ts).
+  AUTH_INTERNAL_KEY?: string;
   // GitHub App identity (apps/api/src/github-app.ts, pulled in transitively
   // via uploader-identity.ts for issue #345). This worker has no App
   // configured — githubAppConfig() degrades to null (unauthenticated GitHub
