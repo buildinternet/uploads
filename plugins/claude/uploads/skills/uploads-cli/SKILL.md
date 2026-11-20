@@ -1128,7 +1128,7 @@ uploads config show                              # effective settings (token red
 uploads config path                              # resolved config file path
 uploads config set UPLOADS_DEFAULT_REPO myorg/myapp
 uploads config set UPLOADS_DEFAULT_WIDTH 700
-uploads config init --api-url http://localhost:8787 --workspace acme --token up_acme_…
+uploads config init --api-url http://localhost:8787 --workspace acme --token YOUR_API_KEY
 ```
 
 `init` writes only the keys you pass. With no flags it seeds `UPLOADS_API_URL`
