@@ -82,7 +82,7 @@ describe("device/code validateClient allowlist", () => {
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("invalid_grant");
+    expect(body.error).toBe("invalid_client");
   });
 });
 
@@ -288,12 +288,12 @@ describe("validateClient DB lookup (issue #251)", () => {
       },
       env,
     );
-    // better-auth's device-authorization token endpoint returns "invalid_grant"
-    // (not "invalid_client") when validateClient fails — see
-    // node_modules/better-auth/dist/plugins/device-authorization/routes.mjs:181-186.
+    // Since better-auth 1.7.19 the device-authorization token endpoint returns
+    // "invalid_client" when validateClient fails, matching /device/code and
+    // RFC 6749 §5.2 (it returned "invalid_grant" before).
     expect(tokenRes.status).toBe(400);
     const body = (await tokenRes.json()) as { error?: string };
-    expect(body.error).toBe("invalid_grant");
+    expect(body.error).toBe("invalid_client");
   });
 
   it("rejects device/token for a client whose grant types no longer include the device-code grant", async () => {
@@ -322,7 +322,7 @@ describe("validateClient DB lookup (issue #251)", () => {
     );
     expect(tokenRes.status).toBe(400);
     const body = (await tokenRes.json()) as { error?: string };
-    expect(body.error).toBe("invalid_grant");
+    expect(body.error).toBe("invalid_client");
   });
 });
 
