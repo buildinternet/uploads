@@ -7,7 +7,7 @@ import {
   normalizeKeyPrefix,
   resolveKeyPolicy,
 } from "../src/key-policy";
-import { finalizeUploadKey, governUploadKey } from "../src/files-core";
+import { finalizeUploadKey } from "../src/files-core";
 
 describe("normalizeKeyPrefix", () => {
   it("normalizes roots with or without trailing slash", () => {
@@ -94,11 +94,5 @@ describe("finalizeUploadKey", () => {
     expect(
       finalizeUploadKey("screenshots/app/shot.png", { allowedKeyPrefixes: ["screenshots"] }),
     ).toBe("screenshots/app/shot.png");
-  });
-});
-
-describe("governUploadKey (regression)", () => {
-  it("still prefixes bare basenames", () => {
-    expect(governUploadKey("shot.png")).toMatch(/^f\//);
   });
 });

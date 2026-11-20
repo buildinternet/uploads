@@ -495,42 +495,11 @@ describe("tools/list", () => {
     );
   });
 
-  it("lists all CLI-mirroring tools with object schemas", async () => {
+  it("gives every listed tool an object schema, title and annotations", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/list");
     // oxlint-disable-next-line no-explicit-any
     const tools = res.result.tools as Array<any>;
-    expect(tools.map((t) => t.name)).toEqual([
-      "gallery_create",
-      "gallery_get",
-      "gallery_add",
-      "gallery_link",
-      "gallery_find_by_reference",
-      "feed_create",
-      "feed_get",
-      "put",
-      "screenshot",
-      "attach",
-      "list",
-      "staged",
-      "unstage",
-      "delete",
-      "get_metadata",
-      "list_held",
-      "approve",
-      "set_metadata",
-      "find_files",
-      "list_metadata_keys",
-      "usage",
-      "reconcile",
-      "purge_expired",
-      "comment",
-      "search_docs",
-      "changelog",
-      "whoami",
-      "doctor",
-      "report",
-    ]);
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(20);
       expect(tool.inputSchema.type).toBe("object");

@@ -698,7 +698,10 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
     // 400s — the point of this test is that the strict-overwrite gate does
     // NOT block the request when replace is opted in (a 409 here would mean
     // the gate fired regardless of replace).
-    expect(res.status).not.toBe(409);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "presign_unavailable",
+    );
   });
 
   it("does not gate signing a key that has never been uploaded to", async () => {
@@ -715,7 +718,10 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
       },
       env,
     );
-    expect(res.status).not.toBe(409);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "presign_unavailable",
+    );
   });
 
   it("always allows signing a gh/-prefixed key even when it already exists", async () => {
@@ -743,7 +749,10 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
       },
       env,
     );
-    expect(res.status).not.toBe(409);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "presign_unavailable",
+    );
   });
 });
 
@@ -882,35 +891,12 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
       },
       env,
     );
-    // Not a content-type rejection — without S3 credentials this is typically
-    // presign_unavailable (400), never 415 / content_type_required.
-    expect(res.status).not.toBe(415);
-    const json = (await res.json()) as { error?: { code: string; details?: { detail?: string } } };
-    expect(json.error?.code).not.toBe("content_type_required");
-    expect(json.error?.code).not.toBe("unsupported_media_type");
-    if (json.error?.code === "presign_unavailable") {
-      expect(json.error.details?.detail).toBeUndefined();
-    }
-  });
-
-  it("accepts image/png without content-type rejection", async () => {
-    const { env } = await makeEnv();
-    const res = await app.request(
-      "/v1/default/files/sign",
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          key: "screenshots/ok.png",
-          contentType: "image/png",
-        }),
-      },
-      env,
+    // Passes the content-type policy; the fake has no S3 credentials, so
+    // signing itself stops at presign_unavailable.
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "presign_unavailable",
     );
-    expect(res.status).not.toBe(415);
-    const json = (await res.json()) as { error?: { code: string } };
-    expect(json.error?.code).not.toBe("unsupported_media_type");
-    expect(json.error?.code).not.toBe("content_type_required");
   });
 
   it("accepts a declared text/plain on presign", async () => {
@@ -924,10 +910,10 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
       },
       env,
     );
-    expect(res.status).not.toBe(415);
-    const json = (await res.json()) as { error?: { code: string } };
-    expect(json.error?.code).not.toBe("unsupported_media_type");
-    expect(json.error?.code).not.toBe("content_type_required");
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "presign_unavailable",
+    );
   });
 
   it("does not include raw provider detail on presign_unavailable", async () => {

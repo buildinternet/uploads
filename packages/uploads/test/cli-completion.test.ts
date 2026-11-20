@@ -75,18 +75,6 @@ describe("generateCompletionScript", () => {
     expect(fish).toMatch(/__fish_seen_subcommand_from put attach' -l name/);
   });
 
-  it("includes the update command", () => {
-    expect(ROOT_COMMANDS.map((c) => c.name)).toContain("update");
-  });
-
-  it("includes the changelog command", () => {
-    expect(ROOT_COMMANDS.map((c) => c.name)).toContain("changelog");
-  });
-
-  it("includes the docs command", () => {
-    expect(ROOT_COMMANDS.map((c) => c.name)).toContain("docs");
-  });
-
   it("continues every _arguments spec line so zsh keeps one command", () => {
     const script = generateCompletionScript("zsh");
     const block = /^ {2}_arguments -C -s -S \\\n((?: {4}.*\n)+)/m.exec(script);

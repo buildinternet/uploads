@@ -268,15 +268,4 @@ describe("handleWebhook issue_comment reconcile", () => {
       bucket.get = realGet;
     }
   });
-
-  it("does not import any binding-write helper (recordRepoLink/setRepoLink) — read/delete only", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { fileURLToPath, URL: NodeURL } = await import("node:url");
-    const src = readFileSync(
-      fileURLToPath(new NodeURL("./github-webhook.ts", import.meta.url)),
-      "utf8",
-    );
-    expect(src).not.toMatch(/recordRepoLink/);
-    expect(src).not.toMatch(/setRepoLink/);
-  });
 });

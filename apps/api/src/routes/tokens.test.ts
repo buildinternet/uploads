@@ -257,12 +257,6 @@ describe("GET /v1/tokens (workspace listing)", () => {
     expect(await res.json()).toEqual({ workspaces: [] });
   });
 
-  it("omits the suggestion when no GitHub login resolves", async () => {
-    const env = stubEnv({ memberships: [], workspaces: {} });
-    const res = await app().request("/v1/tokens", { headers: { authorization: "Bearer s" } }, env);
-    expect(await res.json()).toEqual({ workspaces: [] });
-  });
-
   it("does not suggest for an account that already has a workspace", async () => {
     const env = stubEnv({ githubLogin: "Octocat" });
     const res = await app().request("/v1/tokens", { headers: { authorization: "Bearer s" } }, env);

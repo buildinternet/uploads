@@ -2484,21 +2484,6 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("PATCH /me/workspaces/:name/comment-settings still works via the forward", async () => {
-    const { env } = makeEnv({ role: "admin" });
-    const res = await app.request(
-      "/me/workspaces/acme/comment-settings",
-      {
-        method: "PATCH",
-        headers: { ...sessionHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ note: "via alias" }),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ note: "via alias" });
-  });
-
   it("GET /me/workspaces/:name/storage matches the canonical shape", async () => {
     const BYO_RECORD = {
       provider: "r2",

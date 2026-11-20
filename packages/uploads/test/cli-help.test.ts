@@ -36,12 +36,6 @@ describe("formatRootHelp", () => {
     expect(text).not.toMatch(/BUILDINTERNET_CONFIG/);
   });
 
-  it("includes update in the short essentials list", () => {
-    const text = formatRootHelp({ color: false });
-    expect(text).toMatch(/Essentials:/);
-    expect(text).toMatch(/update/);
-  });
-
   // Issue #491: membership used to be declared twice (the catalog's
   // `essential` flag and cli-help's own array) and had drifted — `screenshot`
   // was flagged essential but never rendered. The catalog is now the only

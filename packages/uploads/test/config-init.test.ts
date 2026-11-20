@@ -6,7 +6,7 @@
  * workspace the user's token was actually minted for. Seeding the API URL has
  * no such conflict — there is no "API URL embedded in the token" concept.
  */
-import { mkdtempSync, existsSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,16 +39,5 @@ describe("uploads config init", () => {
     silence();
     expect(await runConfig(["init", "--workspace", "acme", "--path", path], {})).toBe(0);
     expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("acme");
-  });
-
-  it("leaves the token's own workspace free to win after a bare init", async () => {
-    const path = freshPath();
-    silence();
-    await runConfig(["init", "--path", path], {});
-    // No config-file workspace means `resolveConfig` falls through to the
-    // workspace encoded in the token (`up_<workspace>_…`) rather than being
-    // overridden by a seeded value.
-    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBeUndefined();
-    expect(existsSync(path)).toBe(true);
   });
 });

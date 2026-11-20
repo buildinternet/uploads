@@ -2,8 +2,7 @@
  * Guards the sign-in-wrap consent notice (components/LegalConsent.astro).
  *
  * Why a source-level test rather than a rendered-DOM one: this app has no
- * harness that renders `.astro` to HTML in a unit test (see
- * pages-reachability.test.ts for the same constraint), and the regression
+ * harness that renders `.astro` to HTML in a unit test, and the regression
  * actually worth catching is coarse — someone refactors a sign-in page and
  * the notice quietly stops rendering. Reading the source catches exactly
  * that, without a build step.

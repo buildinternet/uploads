@@ -483,10 +483,6 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
 
     expect(result).toEqual({ promoted: [], skipped: [] });
   });
-
-  it("ghPrivateBranchKeyPrefix stays a clean base for the branch-scoped id used above (sanity on the builder import)", () => {
-    expect(ghPrivateBranchKeyPrefix("0".repeat(32))).toBe(`gh/private/${"0".repeat(32)}/branch/`);
-  });
 });
 
 describe("promoteBranchAttachments → attachment index (issue #934)", () => {

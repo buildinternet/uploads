@@ -71,33 +71,12 @@ describe("request timeouts", () => {
 });
 
 describe("bounded retry", () => {
-  it("retries a 503 GET once and succeeds", async () => {
+  it.each([503, 429])("retries a %i GET once and succeeds", async (status) => {
     vi.useFakeTimers();
     let calls = 0;
     const fetchMock = vi.fn(async () => {
       calls++;
-      if (calls === 1) return new Response(null, { status: 503 });
-      return new Response(listBody, {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const promise = client().list();
-    await vi.advanceTimersByTimeAsync(2_000);
-    const result = await promise;
-
-    expect(result.items).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("retries a 429 GET once and succeeds", async () => {
-    vi.useFakeTimers();
-    let calls = 0;
-    const fetchMock = vi.fn(async () => {
-      calls++;
-      if (calls === 1) return new Response(null, { status: 429 });
+      if (calls === 1) return new Response(null, { status });
       return new Response(listBody, {
         status: 200,
         headers: { "Content-Type": "application/json" },

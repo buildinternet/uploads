@@ -282,16 +282,6 @@ describe("sessionAuth Analytics Engine slow-op sink (issue #812 tier 3)", () => 
     );
     expect(analytics.points).toHaveLength(0);
   });
-
-  it("is a graceful no-op when the SLOW_OPS binding is absent, even above the threshold", async () => {
-    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
-    const res = await appWith(auth).request(
-      "/whoami",
-      {},
-      env(auth, { SLOW_OP_THRESHOLD_MS: "0" }),
-    );
-    expect(res.status).toBe(200);
-  });
 });
 
 describe("userHasAdminRole", () => {

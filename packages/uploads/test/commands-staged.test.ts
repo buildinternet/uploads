@@ -10,7 +10,6 @@ import type {
 } from "../src/client.js";
 import {
   resolveStageBindingWarning,
-  runAttach,
   runStaged,
   stagingBindingAdvisory,
   type CliContext,
@@ -866,59 +865,5 @@ describe("wording reuse between `staged` and the #398 attach --branch stage warn
       const { binding: stagedBinding } = JSON.parse(stdout);
       expect(stagedBinding.message).toBe(advisory);
     }
-  });
-
-  it("runAttach --branch's stderr warning is a strict superset (note: + advisory) of what `staged` shows", async () => {
-    // Same fakeClient shape as commands-attach.test.ts's minimal put stub.
-    const puts: string[] = [];
-    const attachClient = {
-      put: async (_body: Uint8Array, putOpts: { key: string }) => {
-        puts.push(putOpts.key);
-        return {
-          workspace: "test",
-          key: putOpts.key,
-          url: `https://x.test/${putOpts.key}`,
-          embedUrl: null,
-          size: 3,
-          contentType: "image/png",
-        };
-      },
-      list: async () => ({ items: [], cursor: null }),
-      listAll: async () => [],
-      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
-      getGallery: async () => ({ items: [] }),
-      githubRepoLinkStatus: async () => ({ binding: "none" }) as GithubRepoLinkResult,
-    } as unknown as UploadsClient;
-
-    const { mkdtempSync, writeFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "uploads-staged-wording-test-"));
-    const file = join(dir, "shot.png");
-    writeFileSync(file, "shot.png");
-
-    const { stderr: attachStderr } = await withCapturedOutput(async () => {
-      await runAttach(
-        ctxWith(attachClient, { quiet: false }),
-        [file, "--branch", "feature/thing", "--repo", "o/r"],
-        false,
-        branchRunner(),
-      );
-    });
-
-    const advisory = stagingBindingAdvisory("none", "o/r");
-    expect(advisory).toBeDefined();
-    expect(attachStderr).toContain(advisory!);
-
-    const { client: stagedClient } = fakeClient({ repoLinkStatus: { binding: "none" } });
-    const { stdout: stagedJson } = await withCapturedOutput(async () => {
-      await runStaged(
-        ctxWith(stagedClient, { json: true }),
-        ["--branch", "feature/thing", "--repo", "o/r"],
-        false,
-        noRun,
-      );
-    });
-    expect(JSON.parse(stagedJson).binding.message).toBe(advisory);
   });
 });

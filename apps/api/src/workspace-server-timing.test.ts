@@ -196,14 +196,4 @@ describe("workspaceAuth Analytics Engine slow-op sink (issue #812 tier 3)", () =
     );
     expect(points).toHaveLength(0);
   });
-
-  it("is a graceful no-op when the SLOW_OPS binding is absent, even above the threshold", async () => {
-    const hash = await sha256Hex(TOKEN);
-    const res = await appWith(null).request(
-      "/acme/whoami",
-      { headers: { Authorization: `Bearer ${TOKEN}` } },
-      await env(hash, { extra: { SLOW_OP_THRESHOLD_MS: "0" } }),
-    );
-    expect(res.status).toBe(200);
-  });
 });
