@@ -55,10 +55,10 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
-    "ai": "^7.0.0",
-    "files-sdk": "^3.1.2",
+    "ai": "^7.0.177",
+    "files-sdk": "^3.2.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   },
   "publishConfig": {
     "access": "public",

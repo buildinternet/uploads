@@ -76,7 +76,7 @@
     "@uploads/storage": "workspace:^",
     "aws4fetch": "^1.0.20",
     "clawpdf": "^0.3.2",
-    "hono": "^4.13.16",
+    "hono": "^4.13.19",
     "mediabunny": "^1.50.9"
   },
   "devDependencies": {
@@ -84,7 +84,7 @@
     "@uploads/auth": "workspace:^",
     "jpeg-js": "^0.4.4",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0",
-    "wrangler": "^4.158.0"
+    "vitest": "^5.1.1",
+    "wrangler": "^4.165.0"
   }
 }
