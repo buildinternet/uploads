@@ -45,9 +45,8 @@ export interface PlanDefinition {
    * `byoBucketEnabled` record flag (`apps/api/src/workspace.ts`'s
    * `byoBucketAllowed`), on by default since the 2026-08-24 GA with an
    * operator-set explicit `false` as the kill switch. This field
-   * exists so a future billing decision (e.g. Pro-only) is a one-line flip
-   * here rather than new plumbing. See `packages/billing/src/byo-bucket.ts`
-   * — callers read that predicate, never switch on plan id (precedent:
+   * exists so a future billing decision (e.g. Pro-only) can flip it here;
+   * read it from the plan rather than switching on plan id (precedent:
    * `marketsMemberCap`).
    */
   byoBucket: boolean;
