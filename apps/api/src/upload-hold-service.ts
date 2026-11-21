@@ -470,7 +470,7 @@ export async function resyncCommentAfterClassification(
 }
 
 /** Best-effort. `postManagedComment` already degrades instead of throwing. */
-async function resyncAttachmentComment(
+export async function resyncAttachmentComment(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,

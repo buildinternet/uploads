@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
 import { PDF, ZIP } from "./helpers/media-fixtures";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
@@ -8,6 +8,13 @@ import { presignExpiresIn } from "../src/routes/files-shared-handlers";
 import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { HOSTED_ACTIVE_CONTENT_HOSTS } from "../src/active-content-hosts";
+import { postManagedComment } from "../src/github-comment-service";
+
+// Pass-through spy: behavior is unchanged, but tests can see comment resyncs.
+vi.mock("../src/github-comment-service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github-comment-service")>();
+  return { ...actual, postManagedComment: vi.fn(actual.postManagedComment) };
+});
 
 const TOKEN = "secret-token";
 
@@ -1393,6 +1400,36 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
     const patch = await patchMeta(env, "screenshots/shot.png", { delete: ["gh_pr"] });
     expect(patch.status).toBe(200);
     expect(await patch.json()).toEqual({ metadata: { app: "web" } });
+  });
+
+  it("PATCH of a caption on a PR attachment resyncs the managed comment", async () => {
+    const { env } = await makeEnv();
+    const key = "gh/acme/web/pull/7/shot.png";
+    await putShot(env, { key });
+    vi.mocked(postManagedComment).mockClear();
+
+    const patch = await patchMeta(env, key, { set: { caption: "New empty state" } });
+    expect(patch.status).toBe(200);
+    expect(postManagedComment).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(postManagedComment).mock.calls[0][4]).toEqual({
+      repo: "acme/web",
+      kind: "pull",
+      num: 7,
+    });
+
+    // Keys the comment never shows leave it alone.
+    vi.mocked(postManagedComment).mockClear();
+    await patchMeta(env, key, { set: { title: "Empty state" } });
+    expect(postManagedComment).not.toHaveBeenCalled();
+  });
+
+  it("PATCH of a caption off GitHub keys never touches a comment", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+    vi.mocked(postManagedComment).mockClear();
+    const patch = await patchMeta(env, "screenshots/shot.png", { set: { caption: "Hi" } });
+    expect(patch.status).toBe(200);
+    expect(postManagedComment).not.toHaveBeenCalled();
   });
 
   it("PATCH past the 24-key cap is rejected with 4xx and leaves metadata untouched", async () => {
