@@ -1,7 +1,7 @@
 /**
  * Literal-form private/loopback/link-local host checks. Mirrors the API's
- * `isPrivateRenderTarget` so CLI `--via remote` and `put --url` reject the
- * same targets the render/fetch endpoints would.
+ * `isPrivateRenderTarget` so CLI `put --url` rejects the same targets the
+ * fetch endpoint would.
  *
  * Accepts a bare hostname or an IPv6 literal with its brackets still attached
  * (as returned by `new URL(...).hostname`, e.g. `"[::1]"`).

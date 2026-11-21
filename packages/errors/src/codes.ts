@@ -75,6 +75,9 @@ export const ERROR_CODES = [
   "file_metadata_duplicate_filter",
   "file_metadata_too_many_filters",
 
+  // Removed routes (410)
+  "render_removed",
+
   // Admin
   "invalid_workspace",
   "workspace_not_found",
