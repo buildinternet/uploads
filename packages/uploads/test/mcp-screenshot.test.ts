@@ -12,7 +12,7 @@ import { rpc, validator } from "./mcp-harness.js";
 // launches a browser or hits the network, while keeping the real parsers.
 // State-aware: mimics the real captureScreenshot's state-folding (issue
 // #618) closely enough to assert the tool wires `state` through correctly,
-// without going through the real backend-selection code.
+// without going through the real capture code.
 vi.mock("../src/screenshot.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/screenshot.js")>();
   return {
@@ -20,7 +20,7 @@ vi.mock("../src/screenshot.js", async (importOriginal) => {
     captureScreenshot: vi.fn(async (opts: { state?: string }) => ({
       png: new Uint8Array([1, 2, 3]),
       filename: opts.state ? `example-com-${opts.state}.png` : "example-com.png",
-      backend: "remote" as const,
+      backend: "local" as const,
     })),
   };
 });
@@ -126,7 +126,7 @@ describe("mcp screenshot tool", () => {
       markdown: string;
       backend: string;
     };
-    expect(content.backend).toBe("remote");
+    expect(content.backend).toBe("local");
     expect(content.url).toContain("https://x.test/");
     expect(content.markdown).toContain("![");
   });
@@ -135,6 +135,16 @@ describe("mcp screenshot tool", () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/call", { name: "screenshot", arguments: {} });
     expect(res.result.isError).toBe(true);
+  });
+
+  it("rejects via: remote with a pointer to the local browser", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", via: "remote" },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(JSON.stringify(res.result.content)).toContain("remote screenshot rendering was removed");
   });
 
   it("rejects an invalid via value", async () => {
@@ -249,7 +259,7 @@ describe("mcp screenshot canonical metadata", () => {
       arguments: { target: "https://app.example/settings?tab=billing", noGit: true },
     });
     expect(puts[0]?.metadata?.path).toBe("/settings");
-    expect(puts[0]?.metadata?.url).toBe("https://app.example/settings?tab=billing");
+    expect(puts[0]?.metadata?.url).toBe("https://app.example/settings");
     expect(puts[0]?.metadata?.viewport).toBeDefined();
   });
 

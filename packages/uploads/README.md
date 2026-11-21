@@ -17,8 +17,7 @@ uploads --version
 uploads attach ./before.png ./after.png
 uploads screenshot https://app.example --pr 123   # capture + host in one step
 uploads screenshot ./report.html --dark --selector "main"
-uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
-uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
+uploads screenshot http://localhost:3000/settings --redact '[data-testid=api-key]'
 uploads put ./shot.png
 uploads put ./shot.png --destination screenshots
 uploads put ./shot.png --no-optimize
@@ -45,7 +44,7 @@ Inside this monorepo only, `pnpm uploads …` builds the package first so you pi
 up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
-Commands: `attach`, `put`, `screenshot`, `annotate`, `gallery`, `feed`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
+Commands: `attach`, `put`, `screenshot`, `gallery`, `feed`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
 `reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
 `logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `changelog`, `docs`, `mcp`,
 `completion`.
@@ -130,12 +129,12 @@ same `gh.*` metadata. The classic dated layout
 HEAD/non-repo/`--no-git` behavior, and the explicit-flags opt-out.
 
 **Screenshot capture:** `uploads screenshot <url|file.html>` renders a page to a
-hosted image in one step — no separate browser tooling needed. `--via auto`
-(default) drives a Chrome/Chromium already on the machine (`playwright-core`
-ships no browser; `--browser <path>`, `--cdp <endpoint>`, or the Playwright/
-Puppeteer caches all work), and falls back to server-side rendering when none
-is found. localhost/private URLs are local-only; `.html` files work on both
-backends. After capture it joins the same pipeline as `put` (optimize, frames,
+hosted image in one step — no separate browser tooling needed. It drives a
+Chrome/Chromium already on the machine (`playwright-core` ships no browser;
+`--browser <path>`, `--cdp <endpoint>`, or the Playwright/Puppeteer caches all
+work), so localhost and private URLs work. `--redact <css>` blacks out matching
+elements (API keys, emails) before upload and fails if a selector matches
+nothing. After capture it joins the same pipeline as `put` (optimize, frames,
 `--pr`/`--issue` comments, galleries). See `uploads screenshot --help`.
 
 **Keys / destinations:** default put uses the `screenshots` layout. Typed destinations
@@ -158,21 +157,6 @@ the key already exists).
 **before** optimize. `phone`/`browser` are procedural; `iphone-16-pro` fetches
 community art from [device-frames-media](https://github.com/jonnyjackson26/device-frames-media)
 into `~/.cache/uploads/frames` (not bundled).
-
-## Annotating screenshots
-
-Bake hand-drawn boxes, arrows, labels, freeform strokes, and redactions onto
-a screenshot before it's uploaded:
-
-```bash
-uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
-uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
-```
-
-`screenshot --annotate` resolves CSS selectors against the live page (local
-capture backend only); `annotate` works on an existing image and accepts
-pixel coordinates only, no selectors. Spec format and workflow:
-[`skills/annotate-screenshots/SKILL.md`](../../skills/annotate-screenshots/SKILL.md).
 
 ## Public galleries
 
@@ -271,4 +255,4 @@ pnpm pack:check   # verify the npm tarball contents
 
 Maintainer release instructions: [`docs/releasing.md`](../../docs/releasing.md).
 
-Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md) (full CLI reference), [`skills/github-screenshots/SKILL.md`](../../skills/github-screenshots/SKILL.md) (visuals into PRs/issues), and [`skills/annotate-screenshots/SKILL.md`](../../skills/annotate-screenshots/SKILL.md) (callouts and redaction). REST details: [`docs/api.md`](../../docs/api.md).
+Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md) (full CLI reference), and [`skills/github-screenshots/SKILL.md`](../../skills/github-screenshots/SKILL.md) (visuals into PRs/issues). REST details: [`docs/api.md`](../../docs/api.md).

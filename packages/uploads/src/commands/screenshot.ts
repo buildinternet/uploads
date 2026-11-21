@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import {
-  extractDashValue,
   flagBool,
   flagInt,
   flagString,
@@ -40,7 +39,7 @@ import {
   routeToRepoWorkspace,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
-import { loadDefaultsRaw, resolveScreenshotDefaults } from "../config-file.js";
+import { loadDefaultsRaw } from "../config-file.js";
 import { resolvePutPrefix } from "../destinations.js";
 import {
   execRunner,
@@ -55,7 +54,7 @@ import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { writeSidecarMeta } from "../sidecar.js";
-import { readStdin, writeJson, writeStdout } from "../io.js";
+import { writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
   captureScreenshot,
@@ -63,44 +62,16 @@ import {
   DEFAULT_FULL_PAGE_MAX_HEIGHT,
   parseViewport,
   parseWaitUntil,
-  type ScreenshotBackend,
+  remoteBackendRemovedError,
 } from "../screenshot.js";
-
-/**
- * The slice of `../annotate/index.js` this command needs. Typed against the
- * real module (so signatures stay honest) but loaded only via dynamic
- * `import()` — never statically — to keep sharp/roughjs out of any bundle
- * that pulls in commands/screenshot.ts. Injectable for tests as
- * `loadAnnotateModule`, mirroring the `captureLocalImpl`-style seams
- * elsewhere in this file's tests.
- */
-export type AnnotateModule = Pick<
-  typeof import("../annotate/index.js"),
-  | "validateSpec"
-  | "hasSelectors"
-  | "specSelectors"
-  | "resolveSelectors"
-  | "renderAnnotations"
-  | "clampReport"
-  | "AnnotateSpecError"
->;
 
 const SCREENSHOT_HELP = `uploads screenshot <target> [options]
 
 Capture a URL or a local .html file and host it — a hosted, PR-embeddable
 image in one step. target is an http(s) URL or a path to an .html file.
 
-Two capture backends: "local" drives an already-installed Chrome/Chromium via
-playwright-core (no browser download); "remote" renders server-side via the
-uploads.sh render endpoint (no local browser needed, counts against the
-workspace's monthly upload budget). Default --via auto prefers local when a
-browser is found, else remote.
-
-.html files work on both backends (sent inline to remote, ≤ 2 MiB; anything
-they reference via file:// or relative paths only resolves with --via local).
-localhost/private-network URLs are reachable only by the
-local backend — with --via remote (or auto falling back to remote) these
-fail fast with a clear error instead of sending a doomed request.
+Captures run in an already-installed Chrome/Chromium via playwright-core (no
+browser download), so localhost and private-network URLs work.
 
 The object name is derived from the target URL (host + path), not chosen by
 you — e.g. https://app.example/settings becomes app.example-settings.png.
@@ -135,7 +106,6 @@ branch's PR once it opens (or run "uploads attach --promote"). Use --no-git,
 or an explicit --ref/--prefix, to opt back into the dated layout.
 
 Options:
-  --via auto|local|remote   Capture backend (default: auto, or UPLOADS_SCREENSHOT_VIA)
   --browser <path>          Explicit local browser executable (or UPLOADS_CHROME_PATH / CHROME_PATH)
   --cdp <endpoint>          Attach to a running Chrome via CDP (http://host:port or ws://…)
   --viewport <WxH[@Sx]>     Size + device scale factor (default: 1280x800@2)
@@ -143,34 +113,26 @@ Options:
   --full-page               Capture the full scrollable page
   --max-height <px>         Cap on full-page capture height in CSS px (default: ${DEFAULT_FULL_PAGE_MAX_HEIGHT},
                             or 0 for uncapped). A page over the cap is clipped, with a note printed
-                            to stderr and a --format json \`hint\`. Requires --full-page. Applied on
-                            both --via local and --via remote so behavior matches.
-  --dark / --light          Emulate prefers-color-scheme (full media-query emulation on --via local
-                            only; --via remote just sets the CSS color-scheme property, so a page's
-                            own prefers-color-scheme queries won't flip)
-  --wait <load|domcontentloaded|networkidle|ms>  Settle strategy (default: load); a millisecond
-                            count is local-only — use --via local
+                            to stderr and a --format json \`hint\`. Requires --full-page.
+  --dark / --light          Emulate prefers-color-scheme
+  --wait <load|domcontentloaded|networkidle|ms>  Settle strategy (default: load), or a
+                            millisecond delay
   --hide <css>              Hide matching elements before capture (repeatable)
+  --redact <css>            Black out matching elements before capture (repeatable), e.g. an API
+                            key or an email address. Fails if a selector matches nothing.
   --no-hide-dev-tools       Don't auto-hide framework dev toolbars (auto-hidden on localhost/private)
-  --reduced-motion          Emulate prefers-reduced-motion: reduce so animations settle (best-effort
-                            on --via remote — neutralizes animations via injected CSS)
+  --reduced-motion          Emulate prefers-reduced-motion: reduce so animations settle
   --wait-for <js>           Poll this JS expression in the page until truthy before --eval and
-                            capture (--via local only). Bridges framework hydration: load/
+                            capture. Bridges framework hydration: load/
                             networkidle settle before React/Next attach handlers, so a synthetic
                             click in --eval hits the inert server-rendered DOM. Express the app's
                             own "interactive" signal, e.g. --wait-for 'window.__hydrated===true' or
                             --wait-for 'document.querySelector("[data-hydrated]")'. Times out with
                             the capture timeout if it never becomes truthy.
-  --eval <js>               Run JS in the page after settle, before capture (--via local only).
+  --eval <js>               Run JS in the page after settle, before capture.
                             Note: synthetic events (el.click()) won't reach framework handlers
                             until the app hydrates — pair with --wait-for on React/Next apps.
-  --init-script <file>      Inject a JS file before navigation (--via local only)
-  --annotate <file|->       Bake hand-drawn boxes, arrows, labels, and redactions from a JSON
-                            annotation spec onto the capture before upload (file path or - for
-                            stdin; see the annotate-screenshots skill for the spec format). Specs
-                            that target a CSS selector instead of pixel coordinates need a live
-                            page to resolve, so they require --via local (or auto resolving to
-                            local) — a selector spec on the remote backend is rejected up front.
+  --init-script <file>      Inject a JS file before navigation
   --out <file>              Also write the PNG to a local file. Also writes a sidecar manifest,
                             <file>.uploads.json, recording this capture's derived metadata
                             (path/url/env/viewport, plus --state if given) with a content hash; a
@@ -222,11 +184,11 @@ Examples:
   uploads screenshot https://uploads.sh
   uploads screenshot ./card.html --out ./card.png
   uploads screenshot https://app.example/settings --selector main --dark
-  uploads screenshot http://localhost:3000 --via local --full-page
+  uploads screenshot http://localhost:3000 --full-page
   uploads screenshot https://uploads.sh --pr 128 --comment
   uploads screenshot ./card.html --no-upload --out ./card.png
   uploads screenshot https://app.example/settings --branch
-  uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+  uploads screenshot http://localhost:3000/settings --redact '[data-testid=api-key]'
 `;
 
 function colorSchemeFromFlags(
@@ -240,14 +202,11 @@ function colorSchemeFromFlags(
   return undefined;
 }
 
-function viaFromFlags(
-  flags: ReturnType<typeof parseCommandArgs>["flags"],
-  fallback: ScreenshotBackend,
-): ScreenshotBackend {
+function assertViaFlag(flags: ReturnType<typeof parseCommandArgs>["flags"]): void {
   const raw = flagString(flags, "--via");
-  if (!raw) return fallback;
-  if (raw === "auto" || raw === "local" || raw === "remote") return raw;
-  throw new UsageError(`invalid --via: ${raw} (use auto, local, or remote)`);
+  if (raw === undefined || raw === "auto" || raw === "local") return;
+  if (raw === "remote") throw remoteBackendRemovedError();
+  throw new UsageError(`invalid --via: ${raw} (use auto or local)`);
 }
 
 export async function runScreenshot(
@@ -255,19 +214,14 @@ export async function runScreenshot(
   args: string[],
   help = false,
   run: CommandRunner = execRunner,
-  /** Injectable for tests — avoids launching a real browser or hitting the network. */
+  /** Injectable for tests — avoids launching a real browser. */
   captureImpl: typeof captureScreenshot = captureScreenshot,
-  /** Injectable for tests — avoids depending on a real stdin stream. */
-  readStdinImpl: () => Promise<string> = readStdin,
-  /** Injectable for tests — avoids depending on sharp/roughjs. */
-  loadAnnotateModule: () => Promise<AnnotateModule> = () => import("../annotate/index.js"),
 ): Promise<number> {
   if (help) {
     writeCommandHelp(SCREENSHOT_HELP);
     return 0;
   }
-  const { args: preArgs, dash: annotateFromDash } = extractDashValue(args, "--annotate");
-  const parsed = parseCommandArgs(preArgs);
+  const parsed = parseCommandArgs(args);
   if (parsed.help) {
     writeCommandHelp(SCREENSHOT_HELP);
     return 0;
@@ -283,11 +237,10 @@ export async function runScreenshot(
     throw new UsageError("screenshot takes exactly one target");
   }
 
-  // Read the on-disk config once and share it between the screenshot and
-  // put-style default resolvers (both would otherwise read the same file).
   const rawDefaults = loadDefaultsRaw({ envFile: ctx.envFile });
-  const screenshotDefaults = resolveScreenshotDefaults({ envFile: ctx.envFile }, rawDefaults);
-  const via = viaFromFlags(parsed.flags, screenshotDefaults.via ?? "auto");
+  // --via is validated only: the local browser is the sole backend now, and
+  // `--via remote` fails with a pointer to install Chrome.
+  assertViaFlag(parsed.flags);
   const browserPath = flagString(parsed.flags, "--browser");
   const cdp = flagString(parsed.flags, "--cdp");
   const viewport = parseViewport(flagString(parsed.flags, "--viewport"));
@@ -308,6 +261,8 @@ export async function runScreenshot(
   // Fail fast before capture, using the shared policy (throws UploadsError
   // code USAGE → exit 2, same as UsageError) so there's one source of truth.
   for (const sel of hide) assertHideSelector(sel);
+  const redact = flagValues(parsed.flags, "--redact");
+  for (const sel of redact) assertHideSelector(sel, "redact");
   // --no-hide-dev-tools opts out of auto-hiding framework toolbars; undefined
   // lets captureScreenshot apply its localhost-aware default.
   const hideDevTools = flagBool(parsed.flags, "--no-hide-dev-tools") ? false : undefined;
@@ -322,66 +277,6 @@ export async function runScreenshot(
     } catch (err) {
       throw new UsageError(
         `could not read --init-script ${initScriptPath}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  // Parse + validate the annotation spec (if any) before capturing anything —
-  // fail fast rather than burning a browser launch / render-endpoint budget
-  // hit on a spec that was never going to work.
-  const annotateArg = annotateFromDash ? "-" : flagString(parsed.flags, "--annotate");
-  let annotateModule: AnnotateModule | undefined;
-  let annotateSpec: Awaited<ReturnType<AnnotateModule["validateSpec"]>> | undefined;
-  let annotateSelectors: string[] = [];
-  if (annotateArg !== undefined) {
-    annotateModule = await loadAnnotateModule();
-    let specText: string;
-    if (annotateArg === "-") {
-      specText = await readStdinImpl();
-    } else {
-      try {
-        specText = readFileSync(annotateArg, "utf8");
-      } catch (err) {
-        throw new UsageError(
-          `could not read --annotate ${annotateArg}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    let specJson: unknown;
-    try {
-      specJson = JSON.parse(specText);
-    } catch (err) {
-      throw new UsageError(
-        `--annotate spec is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    try {
-      annotateSpec = annotateModule.validateSpec(specJson);
-    } catch (err) {
-      if (err instanceof annotateModule.AnnotateSpecError) {
-        const lines = err.errors.map((e) =>
-          e.index === null ? e.message : `annotations[${e.index}]: ${e.message}`,
-        );
-        throw new UsageError(`--annotate spec is invalid: ${lines.join("; ")}`);
-      }
-      throw err;
-    }
-    annotateSelectors = annotateModule.specSelectors(annotateSpec);
-    // The remote render endpoint has no eval escape hatch to measure a live
-    // selector — fail fast on an explicit --via remote rather than let the
-    // capture succeed and only then discover the annotation step can't
-    // resolve. (auto resolving to remote is caught below, after capture,
-    // once the actual backend is known.)
-    if (annotateSelectors.length > 0 && via === "remote") {
-      throw new UsageError("selector annotations need --via local in v1");
-    }
-    // An element capture (--selector) crops the PNG to the element, but the
-    // annotation boxes are measured in viewport coordinates (and playwright
-    // may scroll the element into view first) — the two coordinate systems
-    // don't line up, so annotations would land in the wrong place.
-    if (annotateSelectors.length > 0 && selector) {
-      throw new UsageError(
-        "--annotate with selector targets cannot combine with --selector element capture; use pixel coordinates or capture the full viewport",
       );
     }
   }
@@ -568,7 +463,6 @@ export async function runScreenshot(
 
   const captured = await captureImpl({
     target,
-    via,
     browserPath,
     cdp,
     viewport,
@@ -578,6 +472,7 @@ export async function runScreenshot(
     colorScheme,
     waitUntil,
     hide,
+    redact,
     hideDevTools,
     reducedMotion,
     waitForExpr,
@@ -586,12 +481,9 @@ export async function runScreenshot(
     // Skip folding when an explicit --key was given — --key sets the whole
     // key, so there's no auto-derived name to fold state into.
     state: keyHint ? undefined : explicitMeta.state,
-    measureSelectors: annotateSelectors.length > 0 ? annotateSelectors : undefined,
-    apiUrl: ctx.config.apiUrl,
-    token: ctx.config.token,
   });
 
-  if (logHuman) process.stderr.write(`>> captured via ${captured.backend} backend\n`);
+  if (logHuman) process.stderr.write(">> captured\n");
 
   // Full-page height cap note (issue #652): printed regardless of --format
   // (only --quiet suppresses it) since it's directly actionable info about
@@ -601,30 +493,7 @@ export async function runScreenshot(
     : undefined;
   if (clipHint && !ctx.quiet) process.stderr.write(`${clipHint}\n`);
 
-  // Resolve selectors + render annotations before the frame/optimize/upload
-  // pipeline runs — everything downstream (the --out write, the sidecar
-  // hash, and the upload itself) should see the annotated bytes.
-  let finalPng: Uint8Array = captured.png;
-  if (annotateModule && annotateSpec) {
-    let resolvedSpec = annotateSpec;
-    if (annotateSelectors.length > 0) {
-      // Covers auto-routing landing on remote: the explicit --via remote
-      // case already failed fast above, before capture.
-      if (captured.backend !== "local") {
-        throw new UsageError("selector annotations need --via local in v1");
-      }
-      try {
-        resolvedSpec = annotateModule.resolveSelectors(annotateSpec, captured.measures ?? {});
-      } catch (err) {
-        if (err instanceof annotateModule.AnnotateSpecError) {
-          throw new UsageError(`--annotate: ${err.errors.map((e) => e.message).join("; ")}`);
-        }
-        throw err;
-      }
-    }
-    finalPng = await annotateModule.renderAnnotations(captured.png, resolvedSpec);
-    if (logHuman) process.stderr.write(">> annotated\n");
-  }
+  const finalPng: Uint8Array = captured.png;
 
   if (outFile) {
     writeFileSync(outFile, finalPng);

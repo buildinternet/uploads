@@ -12,15 +12,13 @@ The path-by-path inventory lives in the README's
 can't drift. `packages/uploads` also ships `uploads mcp`, a stdio MCP server
 mirroring the CLI commands.
 
-Three agent skills are checked in at the repo root so they're installable via
+Two agent skills are checked in at the repo root so they're installable via
 the `npx skills add` convention (and by `uploads install`):
 `skills/github-screenshots` is the thin workflow skill (when a screenshot or
 recording should go into a PR/issue or be shared as a link — the in-repo
 successor to the external `github-screenshots` skill's bundled R2 scripts),
-`skills/annotate-screenshots` covers callouts and redaction
-(`uploads annotate` / `screenshot --annotate`), and `skills/uploads-cli` is
-the full CLI reference the others defer to. Keep all three in sync when the
-CLI's commands or flags change. The hosted MCP also serves them as
+and `skills/uploads-cli` is the full CLI reference it defers to. Keep both in
+sync when the CLI's commands or flags change. The hosted MCP also serves them as
 `skill://<name>/SKILL.md` (Skills extension, SEP-2640; `apps/mcp/src/skills.ts`),
 so a new root skill must be added there too.
 

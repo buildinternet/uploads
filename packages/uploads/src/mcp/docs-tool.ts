@@ -5,7 +5,7 @@ import { DEFAULT_DOCS_LIMIT, MAX_DOCS_LIMIT, searchDocs } from "../docs.js";
 import { optPosInt, optString, usage, type ToolArgs } from "./args.js";
 
 export const SEARCH_DOCS_DESCRIPTION =
-  "Search the public uploads.sh documentation. Use this to answer questions about uploads.sh product workflows, including: attaching screenshots and video to GitHub PRs and issues; staging files before a PR exists; galleries; the GitHub App; comment config (.uploads.yml); hosted MCP and agent setup; screenshot capture and annotate; plans and limits; bring-your-own bucket. Same as `uploads docs`. Returns titles, URLs, and snippets. Pass `page` to fetch the full markdown of one page (slug, path, or URL). Omit `query` to list the catalog.";
+  "Search the public uploads.sh documentation. Use this to answer questions about uploads.sh product workflows, including: attaching screenshots and video to GitHub PRs and issues; staging files before a PR exists; galleries; the GitHub App; comment config (.uploads.yml); hosted MCP and agent setup; screenshot capture and redaction; plans and limits; bring-your-own bucket. Same as `uploads docs`. Returns titles, URLs, and snippets. Pass `page` to fetch the full markdown of one page (slug, path, or URL). Omit `query` to list the catalog.";
 
 export const SEARCH_DOCS_INPUT_SCHEMA: Record<string, unknown> = {
   type: "object",

@@ -140,16 +140,8 @@
       },
     ],
   },
-  // Browser Run binding (POST /v1/render, phase 1). "remote": true is
-  // required — quickAction has no Miniflare/local simulation and always
-  // proxies to the real metered service, even under `wrangler dev`. Unit
-  // tests substitute a `Renderer`/FakeBrowser (see src/render.ts) instead.
-  "browser": {
-    "binding": "BROWSER",
-    "remote": true,
-  },
-  // Media Transformations — video poster frames (issue #299). Like BROWSER,
-  // this has no local simulation and proxies to the real service, so
+  // Media Transformations — video poster frames (issue #299). This has no
+  // local simulation and proxies to the real service, so
   // "remote": true is required. Removing this binding is the hard kill
   // switch: apps/api/src/poster.ts treats an absent env.MEDIA as a no-op.
   "media": {
@@ -275,23 +267,11 @@
         },
       },
       {
-        // POST /v1/render burst guard, keyed by workspace. Independent of the
-        // monthly upload-budget check (checkPutBudget) that also gates
-        // renders — this one blunts a hot loop within a single period.
-        "name": "RENDER_LIMITER",
-        "type": "ratelimit",
-        "namespace_id": "1004",
-        "simple": {
-          "limit": 10,
-          "period": 60,
-        },
-      },
-      {
         // Video poster generation, keyed by workspace. Media Transformations
         // is unbilled during its beta and per-operation after; this is the
         // automatic ceiling so a bulk upload can't run up a bill unattended.
         // The manual switches are the Flagship flag and the MEDIA binding.
-        // Unlike WRITE_LIMITER/RENDER_LIMITER, posterGenerationAllowed treats
+        // Unlike WRITE_LIMITER, posterGenerationAllowed treats
         // this binding as required: if it's ever deleted (e.g. self-hoster
         // trimming bindings), poster generation fails closed rather than
         // falling back to the shared guard's fail-open default.
@@ -358,7 +338,7 @@
   // lists — so everything is spelled out: stateful bindings re-pointed at
   // preview-tier resources (without that, a preview of an API branch would
   // write to production KV/D1/R2), and the stateless/shared-safe ones
-  // repeated verbatim: BROWSER/MEDIA/IMAGES (metered, stateless), FLAGS (read-only),
+  // repeated verbatim: MEDIA/IMAGES (metered, stateless), FLAGS (read-only),
   // EMAIL, the rate limiters, and the AUTH service binding — service bindings
   // always call the bound Worker's *production* deployment, so a preview
   // verifies sessions against real auth. Cron triggers and queue consumers
@@ -457,10 +437,6 @@
     // Everything below repeats the production bindings verbatim — stateless,
     // account-level, or per-colo, so sharing is safe. See the notes on the
     // top-level entries for what each does.
-    "browser": {
-      "binding": "BROWSER",
-      "remote": true,
-    },
     "media": {
       "binding": "MEDIA",
       "remote": true,
@@ -506,14 +482,6 @@
         "namespace_id": "1003",
         "simple": {
           "limit": 3,
-          "period": 60,
-        },
-      },
-      {
-        "name": "RENDER_LIMITER",
-        "namespace_id": "1004",
-        "simple": {
-          "limit": 10,
           "period": 60,
         },
       },

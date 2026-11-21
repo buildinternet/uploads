@@ -92,7 +92,6 @@ command to run by hand, rather than overwriting your build.
 | `attach <file\|key\|url…>` | Attach media (local files, or already-uploaded keys/URLs via server-side copy) to the current PR (stable URLs + comment)                          |
 | `put <file\|--url…>`       | Upload a local file or a fetched URL → public URL + GitHub markdown                                                                               |
 | `screenshot <url\|html>`   | Capture a page (or local HTML) and host it in one step                                                                                            |
-| `annotate <image>`         | Bake boxes, arrows, labels, strokes, and redactions onto an image                                                                                 |
 | `comment`                  | Create/update a PR/issue attachments comment (via `gh`)                                                                                           |
 | `ingest`                   | Mirror `github.com/user-attachments` and public Cursor `/artifacts/c/art-*` URLs from a PR/issue into the workspace                               |
 | `list` / `find k=v`        | List objects, optionally filtered by queryable metadata                                                                                           |
@@ -267,31 +266,19 @@ has no effect on running `ingest` directly. Both paths skip attachments authored
 by `[bot]` accounts and images under 200px on either side; `ingestBotAttachments: true`
 re-admits bot media on the webhook path.
 
-## Annotating screenshots
+## Redacting secrets in a capture
 
-Bake hand-drawn callouts into a capture so reviewers see what changed without
-hunting through the image. Two commands share one JSON spec format:
+Hosted URLs are public. Black out anything sensitive at capture time with a
+CSS selector:
 
 ```bash
-# Capture and annotate in one pass (CSS selectors resolve on the live page;
-# local capture backend only for selector-bearing specs)
-uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
-
-# Annotate an existing PNG/JPEG (pixel coordinates only — no selectors)
-uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
+uploads screenshot http://localhost:3000/settings --redact '[data-testid=api-key]' --redact .email
 ```
 
-A spec is `{ "version": 1, "annotations": [ … ] }`. Supported types: `box`,
-`arrow`, `label`, `draw`, `redact`, and `svg`. Prefer selectors with
-`screenshot --annotate` whenever a live page is available; fall back to pixel
-geometry with `annotate` when you only have the image. Use `redact` with
-`style: "solid"` for secrets before anything is uploaded — hosted URLs are
-public.
-
-Full format, worked examples, and redaction guidance:
-[`skills/annotate-screenshots/SKILL.md`](../skills/annotate-screenshots/SKILL.md).
-Public walkthrough:
-[uploads.sh/docs/capture#annotate](https://uploads.sh/docs/capture#annotate).
+Each match becomes a solid box (text, images, and children included) without
+shifting the layout. A selector that matches nothing fails the capture, so a
+typo can't upload the secret. Public walkthrough:
+[uploads.sh/docs/capture#redact](https://uploads.sh/docs/capture#redact).
 
 ## Custom metadata
 
@@ -434,10 +421,7 @@ npx skills add buildinternet/uploads
 [`skills/github-screenshots/SKILL.md`](../skills/github-screenshots/SKILL.md) is
 the workflow skill — screenshots and recordings into PRs and issues.
 [`skills/uploads-cli/SKILL.md`](../skills/uploads-cli/SKILL.md) is the full CLI
-reference it defers to.
-[`skills/annotate-screenshots/SKILL.md`](../skills/annotate-screenshots/SKILL.md)
-covers callouts and redaction (`uploads annotate` /
-`uploads screenshot --annotate`). See [api.md](api.md) for the REST routes.
+reference it defers to. See [api.md](api.md) for the REST routes.
 
 `uploads hook pre-pr-screenshot` is a `gh pr create` PreToolUse hook
 (installed by `uploads install`/`hooks-install`). It's non-blocking and

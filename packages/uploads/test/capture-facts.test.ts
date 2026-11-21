@@ -9,12 +9,12 @@ function urlTarget(url: string, localOnly: boolean): ScreenshotTarget {
 }
 
 describe("captureFacts", () => {
-  it("derives url, path and viewport for a public URL", () => {
+  it("derives url (without query or fragment), path and viewport for a public URL", () => {
     const facts = captureFacts({
       target: urlTarget("https://app.example/settings?tab=billing#x", false),
       viewport,
     });
-    expect(facts.url).toBe("https://app.example/settings?tab=billing#x");
+    expect(facts.url).toBe("https://app.example/settings");
     expect(facts.path).toBe("/settings");
     expect(facts.viewport).toBe("1280x800@2x");
   });
@@ -51,11 +51,11 @@ describe("captureFacts", () => {
   });
 
   it("drops an over-long url rather than failing the upload", () => {
-    const long = `https://app.example/a?q=${"x".repeat(600)}`;
+    const long = `https://app.example/${"x".repeat(600)}`;
     const facts = captureFacts({ target: urlTarget(long, false), viewport });
     expect(facts.url).toBeUndefined();
+    expect(facts.path).toBeUndefined();
     // The other facts survive the drop.
-    expect(facts.path).toBe("/a");
     expect(facts.viewport).toBe("1280x800@2x");
   });
 

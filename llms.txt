@@ -36,7 +36,6 @@ claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 In-repo skill sources (installable via `npx skills add buildinternet/uploads`):
 
 - [skills/github-screenshots](skills/github-screenshots) — when/how to put visuals on PRs/issues
-- [skills/annotate-screenshots](skills/annotate-screenshots) — callouts and redaction
 - [skills/uploads-cli](skills/uploads-cli) — CLI and MCP flag reference
 
 Machine-readable product discovery:

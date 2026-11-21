@@ -9,11 +9,10 @@ import type {
   UploadsClient,
 } from "../src/client.js";
 import type { CliContext } from "../src/commands.js";
-import { runScreenshot, type AnnotateModule } from "../src/commands/screenshot.js";
+import { runScreenshot } from "../src/commands/screenshot.js";
 import { foldStateIntoFilename } from "../src/screenshot.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import type { CaptureScreenshotResult } from "../src/screenshot.js";
-import type { AnnotationSpec, SpecError } from "../src/annotate/index.js";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
 function fakeClient(
@@ -113,18 +112,15 @@ const noRun: CommandRunner = () => {
 
 const png = new Uint8Array([137, 80, 78, 71]); // fake PNG magic-ish bytes
 
-function fakeCapture(
-  backend: "local" | "remote" = "remote",
-  measures?: Record<string, { x: number; y: number; w: number; h: number }>,
-): (opts: unknown) => Promise<CaptureScreenshotResult> {
-  return async () => ({ png, filename: "example-com.png", backend, measures });
+function fakeCapture(): (opts: unknown) => Promise<CaptureScreenshotResult> {
+  return async () => ({ png, filename: "example-com.png", backend: "local" });
 }
 
 /**
  * Records the `state` the command passed through to captureImpl and applies
  * the real `foldStateIntoFilename` (issue #618) so wiring — including the
  * canonical-values-only guard — can be asserted end to end without going
- * through the real backend-selection code.
+ * through the real capture code.
  */
 function fakeCaptureRecordingState(record: {
   state?: string;
@@ -132,44 +128,7 @@ function fakeCaptureRecordingState(record: {
   return async (opts) => {
     const state = (opts as { state?: string }).state;
     record.state = state;
-    return { png, filename: foldStateIntoFilename("example-com.png", state), backend: "remote" };
-  };
-}
-
-class FakeAnnotateSpecError extends Error {
-  readonly errors: SpecError[];
-  constructor(errors: SpecError[]) {
-    super("fake annotate spec error");
-    this.name = "AnnotateSpecError";
-    this.errors = errors;
-  }
-}
-
-/**
- * A stand-in for the real `../annotate/index.js` module (which pulls in
- * sharp/roughjs) so CLI-layer tests can assert on the wiring — validate →
- * (selector gate) → resolveSelectors → renderAnnotations, before upload —
- * without rendering a real image.
- */
-function fakeAnnotateModule(overrides: Partial<AnnotateModule> = {}): AnnotateModule {
-  const hasAnySelector = (spec: AnnotationSpec) =>
-    spec.annotations.some((a) => "selector" in a && typeof a.selector === "string");
-  return {
-    validateSpec: (json: unknown) => json as AnnotationSpec,
-    hasSelectors: hasAnySelector,
-    specSelectors: (spec: AnnotationSpec) => {
-      const seen: string[] = [];
-      for (const a of spec.annotations) {
-        const sel = "selector" in a ? a.selector : undefined;
-        if (typeof sel === "string" && !seen.includes(sel)) seen.push(sel);
-      }
-      return seen;
-    },
-    resolveSelectors: (spec: AnnotationSpec) => spec,
-    renderAnnotations: async () => Buffer.from([1, 2, 3, 4]),
-    clampReport: () => [],
-    AnnotateSpecError: FakeAnnotateSpecError as unknown as AnnotateModule["AnnotateSpecError"],
-    ...overrides,
+    return { png, filename: foldStateIntoFilename("example-com.png", state), backend: "local" };
   };
 }
 
@@ -198,6 +157,55 @@ describe("runScreenshot flag validation", () => {
         fakeCapture(),
       ),
     ).rejects.toThrow(UsageError);
+  });
+
+  it("--via remote fails with a pointer to the local browser (rendering was removed)", async () => {
+    const { client } = fakeClient();
+    let captured = false;
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--via", "remote"],
+        false,
+        noRun,
+        async () => {
+          captured = true;
+          return { png, filename: "x.png", backend: "local" };
+        },
+      ),
+    ).rejects.toThrow(/remote screenshot rendering was removed/);
+    expect(captured).toBe(false);
+  });
+
+  it("still accepts --via local and --via auto", async () => {
+    const { client } = fakeClient();
+    for (const via of ["local", "auto"]) {
+      const code = await runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--via", via],
+        false,
+        noRun,
+        fakeCapture(),
+      );
+      expect(code).toBe(0);
+    }
+  });
+
+  it("threads repeated --redact selectors through to the capture", async () => {
+    const { client } = fakeClient();
+    let seenRedact: unknown;
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--redact", ".api-key", "--redact", "#email"],
+      false,
+      noRun,
+      async (opts) => {
+        seenRedact = (opts as { redact?: string[] }).redact;
+        return { png, filename: "example-com.png", backend: "local" };
+      },
+    );
+    expect(code).toBe(0);
+    expect(seenRedact).toEqual([".api-key", "#email"]);
   });
 
   it("rejects --dark combined with --light", async () => {
@@ -246,7 +254,7 @@ describe("runScreenshot flag validation", () => {
     let captured = false;
     const code = await runScreenshot(ctxWith(client), ["--help"], false, noRun, async () => {
       captured = true;
-      return { png, filename: "x.png", backend: "remote" };
+      return { png, filename: "x.png", backend: "local" };
     });
     expect(code).toBe(0);
     expect(captured).toBe(false);
@@ -289,7 +297,7 @@ describe("runScreenshot flag validation", () => {
       noRun,
       async (opts) => {
         seenMaxHeight = (opts as { maxHeight?: number }).maxHeight;
-        return { png, filename: "example-com.png", backend: "remote" };
+        return { png, filename: "example-com.png", backend: "local" };
       },
     );
     expect(code).toBe(0);
@@ -328,7 +336,7 @@ describe("runScreenshot upload tail", () => {
         ["https://example.com"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       );
       expect(code).toBe(0);
     } finally {
@@ -351,7 +359,7 @@ describe("runScreenshot upload tail", () => {
       ["https://example.com", "--dry-run"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts).toHaveLength(1);
@@ -367,7 +375,7 @@ describe("runScreenshot upload tail", () => {
       ["https://example.com", "--out", out],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(existsSync(out)).toBe(true);
@@ -383,7 +391,7 @@ describe("runScreenshot upload tail", () => {
       ["https://example.com", "--no-upload", "--out", out],
       false,
       noRun,
-      fakeCapture("local"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts).toEqual([]);
@@ -399,7 +407,7 @@ describe("runScreenshot upload tail", () => {
       ["https://example.com/settings", "--out", out, "--state", "after"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     const sidecarPath = `${out}.uploads.json`;
@@ -425,7 +433,7 @@ describe("runScreenshot upload tail", () => {
       ["https://example.com/settings", "--out", out, "--no-sidecar"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(existsSync(`${out}.uploads.json`)).toBe(false);
@@ -453,7 +461,7 @@ describe("runScreenshot upload tail", () => {
       ["./card.html", "--out", out, "--no-auto"],
       false,
       noRun,
-      fakeCapture("local"),
+      fakeCapture(),
     );
     void code;
     expect(existsSync(`${out}.uploads.json`)).toBe(false);
@@ -466,7 +474,7 @@ describe("runScreenshot upload tail", () => {
       ["https://example.com", "--destination", "screenshots"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.prefix).toBe("screenshots");
@@ -485,7 +493,7 @@ describe("runScreenshot upload tail", () => {
         ["https://example.com"],
         false,
         noRun,
-        fakeCapture("local"),
+        fakeCapture(),
       );
       expect(code).toBe(0);
     } finally {
@@ -505,7 +513,7 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
       ["https://example.com", "--branch", "feature/thing", "--repo", "o/r"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
@@ -522,7 +530,7 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
       ["https://example.com", "--branch", "--repo", "o/r"],
       false,
       run,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/branch/main/example-com.png");
@@ -540,7 +548,7 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
         ["https://example.com", "--branch", "--repo", "o/r"],
         false,
         run,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     ).rejects.toThrow(UsageError);
   });
@@ -552,7 +560,7 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
       ["https://example.com", "--branch", "feature/thing", "--repo", "o/r"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     const metadata = puts[0]?.metadata;
@@ -582,7 +590,7 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
         ["https://example.com", "--branch", "feature/thing", "--repo", "o/r", ...extra],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     ).rejects.toThrow(UsageError);
   });
@@ -595,7 +603,7 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
         ["https://example.com", "--branch", "feature/🚀", "--repo", "o/r"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     ).rejects.toThrow(UsageError);
   });
@@ -657,7 +665,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
@@ -670,7 +678,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--meta", "path=/docs/limits", "--state", "after"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.metadata).toMatchObject({
@@ -691,7 +699,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com/settings", "--out", out, "--state", "after"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     // Auto-staged upload: branch-keyed, gh.* branch metadata present.
@@ -723,7 +731,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com"],
       false,
       stagingRunner({ ...staged, branch: "main" }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBeUndefined();
@@ -736,7 +744,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com"],
       false,
       stagingRunner({ branch: "feature/thing" }), // no originUrl → deriveRepoFromGit fails
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBeUndefined();
@@ -749,7 +757,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--no-git"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBeUndefined();
@@ -762,7 +770,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--pr", "9", "--repo", "o/r"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/pull/9/example-com.png");
@@ -778,7 +786,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--pr", "9", "--repo", "o/r"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe(`gh/private/${PREFIX_ID}/pull/9/example-com.png`);
@@ -791,7 +799,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--issue", "9", "--repo", "o/r"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/issues/9/example-com.png");
@@ -804,7 +812,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--key", "screenshots/explicit.png"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("screenshots/explicit.png");
@@ -817,7 +825,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--ref", "1722"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBeUndefined();
@@ -830,7 +838,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--prefix", "custom"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.prefix).toBe("custom");
@@ -844,7 +852,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
       ["https://example.com", "--destination", "screenshots"],
       false,
       stagingRunner(staged),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBeUndefined();
@@ -859,7 +867,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["http://localhost:3000/admin"],
           false,
           noRun, // git derive throws → no repo context
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(stderr).toContain(
@@ -876,7 +884,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["http://localhost:3000/admin", "--app", "web"],
           false,
           noRun,
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(withApp).not.toContain("no repo detected");
@@ -886,7 +894,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["http://localhost:3000/admin", "--no-git"],
           false,
           noRun,
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(noGit).not.toContain("no repo detected");
@@ -896,7 +904,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["http://localhost:3000/admin"],
           false,
           noRun,
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(quiet).not.toContain("no repo detected");
@@ -912,7 +920,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["https://example.com"],
           false,
           stagingRunner(staged),
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(stderr).toContain(
@@ -929,7 +937,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["https://example.com"],
           false,
           stagingRunner(staged),
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(stderr).not.toContain("note:");
@@ -944,7 +952,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["https://example.com"],
           false,
           stagingRunner(staged),
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       const parsed = JSON.parse(stdout);
@@ -959,7 +967,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
           ["https://example.com"],
           false,
           stagingRunner({ ...staged, branch: "main" }),
-          fakeCapture("remote"),
+          fakeCapture(),
         ),
       );
       expect(stderr).not.toContain("note:");
@@ -1003,7 +1011,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com"],
       false,
       autoPrRunner({ ...noPr, renames }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
     expect(renameCalls).toEqual([{ repo: "o/r", from: "old/thing", to: "feature/thing" }]);
@@ -1016,7 +1024,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com"],
       false,
       autoPrRunner({ ...withPr, renames }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
     expect(renameCalls).toEqual([{ repo: "o/r", from: "old/thing", to: "feature/thing" }]);
@@ -1030,7 +1038,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com", "--dry-run"],
       false,
       autoPrRunner({ ...noPr, renames }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     // The staging path still ran — it just must not record anything server-side.
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
@@ -1045,7 +1053,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com", "--dry-run"],
       false,
       autoPrRunner({ ...withPr, renames }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
     expect(puts[0]?.dryRun).toBe(true);
@@ -1064,7 +1072,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com", "--no-upload", "--out", out],
       false,
       autoPrRunner({ ...noPr, renames }),
-      fakeCapture("local"),
+      fakeCapture(),
     );
     expect(puts).toEqual([]);
     expect(renameCalls).toEqual([]);
@@ -1079,7 +1087,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com", "--no-upload", "--out", out],
       false,
       autoPrRunner({ ...withPr, renames }),
-      fakeCapture("local"),
+      fakeCapture(),
     );
     expect(puts).toEqual([]);
     expect(renameCalls).toEqual([]);
@@ -1092,7 +1100,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com", "--pr", "77", "--repo", "o/r"],
       false,
       autoPrRunner({ ...withPr, renames }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(renameCalls).toEqual([]);
   });
@@ -1104,7 +1112,7 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
       ["https://example.com"],
       false,
       autoPrRunner(withPr),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(renameCalls).toEqual([]);
   });
@@ -1127,7 +1135,7 @@ describe("runScreenshot auto-PR context (issue #700)", () => {
         ["https://example.com"],
         false,
         autoPrRunner(withPr),
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     );
     expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
@@ -1142,7 +1150,7 @@ describe("runScreenshot auto-PR context (issue #700)", () => {
       ["https://example.com", "--no-pr"],
       false,
       autoPrRunner(withPr),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
@@ -1158,7 +1166,7 @@ describe("runScreenshot auto-PR context (issue #700)", () => {
         ["https://example.com"],
         false,
         autoPrRunner(withPr),
-        fakeCapture("remote"),
+        fakeCapture(),
       );
     } finally {
       if (prev === undefined) delete process.env.UPLOADS_NO_AUTO_PR;
@@ -1174,7 +1182,7 @@ describe("runScreenshot auto-PR context (issue #700)", () => {
       ["https://example.com", "--branch"],
       false,
       autoPrRunner(withPr),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
@@ -1187,7 +1195,7 @@ describe("runScreenshot auto-PR context (issue #700)", () => {
       ["https://example.com"],
       false,
       autoPrRunner({ ...withPr, branch: "main" }),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(puts[0]?.key).toBeUndefined();
   });
@@ -1200,7 +1208,7 @@ describe("runScreenshot auto-PR context (issue #700)", () => {
       ["https://example.com"],
       false,
       autoPrRunner(noPr),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
   });
@@ -1220,7 +1228,7 @@ describe("runScreenshot gh.title metadata (issue #267)", () => {
       ["https://example.com", "--pr", "9", "--repo", "o/r"],
       false,
       run,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.metadata).toMatchObject({
@@ -1239,7 +1247,7 @@ describe("runScreenshot gh.title metadata (issue #267)", () => {
       ["https://example.com", "--pr", "9", "--repo", "o/r"],
       false,
       run,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.metadata!["gh.title"]).toBeUndefined();
@@ -1264,7 +1272,7 @@ describe("runScreenshot derived repo metadata (spec: 2026-08-11-screenshots-proj
       ["https://example.com"],
       false,
       repoOnlyRunner("git@github.com:Acme/Web.git"),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.metadata).toMatchObject({ repo: "acme/web" });
@@ -1277,7 +1285,7 @@ describe("runScreenshot derived repo metadata (spec: 2026-08-11-screenshots-proj
       ["https://example.com", "--no-git"],
       false,
       noRun,
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.metadata?.repo).toBeUndefined();
@@ -1290,7 +1298,7 @@ describe("runScreenshot derived repo metadata (spec: 2026-08-11-screenshots-proj
       ["https://example.com", "--meta", "repo=custom/one"],
       false,
       repoOnlyRunner("git@github.com:Acme/Web.git"),
-      fakeCapture("remote"),
+      fakeCapture(),
     );
     expect(code).toBe(0);
     expect(puts[0]?.metadata?.repo).toBe("custom/one");
@@ -1312,7 +1320,7 @@ describe("screenshot canonical metadata", () => {
       "1280x800@2x",
     ]);
     expect(meta?.path).toBe("/settings");
-    expect(meta?.url).toBe("https://app.example/settings?tab=billing");
+    expect(meta?.url).toBe("https://app.example/settings");
     expect(meta?.viewport).toBe("1280x800@2x");
   });
 
@@ -1449,7 +1457,7 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
         ["https://example.com", "--state", "after"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     );
     expect(stderr).toContain(">> replaced existing object (same URL)\n");
@@ -1463,7 +1471,7 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
         ["https://example.com", "--state", "after"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     );
     expect(stderr).not.toContain("replaced existing object");
@@ -1477,7 +1485,7 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
         ["https://example.com", "--state", "after"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     );
     expect(stderr).not.toContain("replaced existing object");
@@ -1491,7 +1499,7 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
         ["https://example.com", "--state", "after"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     );
     const parsed = JSON.parse(stdout);
@@ -1508,7 +1516,7 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
         ["https://example.com"],
         false,
         noRun,
-        fakeCapture("remote"),
+        fakeCapture(),
       ),
     );
     const parsed = JSON.parse(stdout);
@@ -1522,7 +1530,7 @@ function fakeCaptureCapped(capped?: {
   maxHeightPx: number;
   clipped: boolean;
 }): (opts: unknown) => Promise<CaptureScreenshotResult> {
-  return async () => ({ png, filename: "example-com.png", backend: "remote", capped });
+  return async () => ({ png, filename: "example-com.png", backend: "local", capped });
 }
 
 describe("runScreenshot full-page height cap note/hint (issue #652)", () => {
@@ -1625,188 +1633,13 @@ async function captureStdout(fn: () => Promise<unknown>): Promise<string> {
   }
 }
 
-describe("runScreenshot --annotate", () => {
-  function writeSpec(spec: unknown): string {
-    const dir = mkdtempSync(join(tmpdir(), "uploads-annotate-spec-"));
-    const file = join(dir, "spec.json");
-    writeFileSync(file, JSON.stringify(spec));
-    return file;
-  }
-
-  it("validates the spec before capturing — invalid spec never reaches captureImpl", async () => {
-    const { client } = fakeClient();
-    const specFile = writeSpec({ version: 1, annotations: [] }); // shape irrelevant; validateSpec fails
-    let captureCalled = false;
-    const annotateModule = fakeAnnotateModule({
-      validateSpec: () => {
-        throw new (fakeAnnotateModule().AnnotateSpecError)([
-          { index: null, message: "annotations must be a non-empty array" },
-        ]);
-      },
-    });
-    await expect(
-      runScreenshot(
-        ctxWith(client),
-        ["https://example.com", "--annotate", specFile],
-        false,
-        noRun,
-        async () => {
-          captureCalled = true;
-          return { png, filename: "x.png", backend: "remote" };
-        },
-        undefined,
-        async () => annotateModule,
-      ),
-    ).rejects.toThrow(UsageError);
-    expect(captureCalled).toBe(false);
-  });
-
-  it("rejects a selector-bearing spec combined with an explicit --via remote, before capturing", async () => {
-    const { client } = fakeClient();
-    const specFile = writeSpec({
-      version: 1,
-      annotations: [{ type: "box", selector: "h1" }],
-    });
-    let captureCalled = false;
-    await expect(
-      runScreenshot(
-        ctxWith(client),
-        ["https://example.com", "--via", "remote", "--annotate", specFile],
-        false,
-        noRun,
-        async () => {
-          captureCalled = true;
-          return { png, filename: "x.png", backend: "remote" };
-        },
-        undefined,
-        async () => fakeAnnotateModule(),
-      ),
-    ).rejects.toThrow(/--via local/);
-    expect(captureCalled).toBe(false);
-  });
-
-  it("rejects a selector-bearing spec when the resolved backend is remote (auto fallback)", async () => {
-    const { client } = fakeClient();
-    const specFile = writeSpec({
-      version: 1,
-      annotations: [{ type: "box", selector: "h1" }],
-    });
-    await expect(
-      runScreenshot(
-        ctxWith(client),
-        ["https://example.com", "--annotate", specFile],
-        false,
-        noRun,
-        fakeCapture("remote"), // captureImpl resolved to remote (e.g. auto fallback)
-        undefined,
-        async () => fakeAnnotateModule(),
-      ),
-    ).rejects.toThrow(/--via local/);
-  });
-
-  it("resolves selectors against measured boxes and renders before upload (end to end, local backend)", async () => {
-    const { client, puts } = fakeClient();
-    const specFile = writeSpec({
-      version: 1,
-      annotations: [{ type: "box", selector: "h1" }],
-    });
-    const rendered = Buffer.from([9, 9, 9, 9, 9]);
-    let resolvedWith: unknown;
-    const annotateModule = fakeAnnotateModule({
-      resolveSelectors: (spec, boxes) => {
-        resolvedWith = boxes;
-        return spec;
-      },
-      renderAnnotations: async () => rendered,
-    });
-    const code = await runScreenshot(
-      ctxWith(client),
-      ["https://example.com", "--annotate", specFile],
-      false,
-      noRun,
-      fakeCapture("local", { h1: { x: 1, y: 2, w: 3, h: 4 } }),
-      undefined,
-      async () => annotateModule,
-    );
-    expect(code).toBe(0);
-    expect(resolvedWith).toEqual({ h1: { x: 1, y: 2, w: 3, h: 4 } });
-    expect(puts).toHaveLength(1);
-    expect(puts[0]?.body).toEqual(rendered);
-  });
-
-  it("renders a pixel-only spec (no selectors) regardless of backend", async () => {
-    const { client, puts } = fakeClient();
-    const specFile = writeSpec({
-      version: 1,
-      annotations: [{ type: "box", x: 0, y: 0, w: 10, h: 10 }],
-    });
-    const rendered = Buffer.from([7, 7, 7]);
-    const annotateModule = fakeAnnotateModule({
-      renderAnnotations: async () => rendered,
-    });
-    const code = await runScreenshot(
-      ctxWith(client),
-      ["https://example.com", "--annotate", specFile],
-      false,
-      noRun,
-      fakeCapture("remote"),
-      undefined,
-      async () => annotateModule,
-    );
-    expect(code).toBe(0);
-    expect(puts).toHaveLength(1);
-    expect(puts[0]?.body).toEqual(rendered);
-  });
-
-  it("--annotate - reads the spec from stdin", async () => {
-    const { client, puts } = fakeClient();
-    const rendered = Buffer.from([5, 5, 5]);
-    const annotateModule = fakeAnnotateModule({ renderAnnotations: async () => rendered });
-    const spec = { version: 1, annotations: [{ type: "box", x: 0, y: 0, w: 1, h: 1 }] };
-    const code = await runScreenshot(
-      ctxWith(client),
-      ["https://example.com", "--annotate", "-"],
-      false,
-      noRun,
-      fakeCapture("remote"),
-      async () => JSON.stringify(spec),
-      async () => annotateModule,
-    );
-    expect(code).toBe(0);
-    expect(puts).toHaveLength(1);
-    expect(puts[0]?.body).toEqual(rendered);
-  });
-
-  it("also annotates the local --out file, not just the uploaded bytes", async () => {
-    const { client } = fakeClient();
-    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
-    const out = join(dir, "shot.png");
-    const specFile = writeSpec({
-      version: 1,
-      annotations: [{ type: "box", x: 0, y: 0, w: 1, h: 1 }],
-    });
-    const rendered = Buffer.from([3, 3, 3]);
-    const annotateModule = fakeAnnotateModule({ renderAnnotations: async () => rendered });
-    const code = await runScreenshot(
-      ctxWith(client),
-      ["https://example.com", "--no-upload", "--out", out, "--annotate", specFile],
-      false,
-      noRun,
-      fakeCapture("remote"),
-      undefined,
-      async () => annotateModule,
-    );
-    expect(code).toBe(0);
-    expect(readFileSync(out)).toEqual(Buffer.from(rendered));
-  });
-});
-
 describe("runScreenshot --replace / UPLOADS_OVERWRITE (issue #1029)", () => {
   const run = (args: string[]) => {
     const { client, puts } = fakeClient();
-    return runScreenshot(ctxWith(client), args, false, noRun, fakeCapture("remote")).then(
-      (code) => ({ code, puts }),
-    );
+    return runScreenshot(ctxWith(client), args, false, noRun, fakeCapture()).then((code) => ({
+      code,
+      puts,
+    }));
   };
 
   it("does not pass replace to the client by default", async () => {

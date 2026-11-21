@@ -30,7 +30,7 @@ Setup:
 
 Then get the staged loop working end to end:
 - While you're still working, before there's a PR, capture a screenshot at each visual milestone and run uploads put <file> --state before (or --state after). On a branch, a bare put stages it automatically — no --branch flag, no PR needed yet. uploads screenshot <url> captures and hosts in one step if that's easier.
-- Need to point at what changed? uploads screenshot <url> --via local --annotate ./callouts.json bakes boxes, arrows, labels, or solid redactions into the capture (or uploads annotate on an existing image).
+- Page shows a secret? uploads screenshot <url> --redact '<css selector>' blacks it out before the capture is hosted.
 - Check what's queued anytime with uploads staged.
 - Open the PR (gh pr create or the GitHub UI) and the staged files promote automatically — the single attachments comment appears with no extra upload command at PR time.
 - Already have an open PR or issue to target directly instead? uploads attach <files> does that immediately.
@@ -996,16 +996,17 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="feature">
             <h3>Capture and host</h3>
             <p>
-              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with local and
-              remote browser support and optional device chrome via <code>--frame</code>.
+              <code>uploads screenshot &lt;url&gt;</code> captures in your own browser and hosts in one
+              step, <code>localhost</code> included, with optional device chrome via <code
+                >--frame</code
+              >.
             </p>
           </div>
           <div class="feature">
-            <h3>Point at the change</h3>
+            <h3>Redact before you share</h3>
             <p>
-              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with{" "}
-              <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
-              changed without hunting.
+              <code>screenshot --redact &lt;css&gt;</code> blacks out API keys, tokens, and emails before
+              the capture is hosted. A selector that matches nothing stops the upload.
             </p>
           </div>
           <div class="feature">

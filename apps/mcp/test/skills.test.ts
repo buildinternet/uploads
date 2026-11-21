@@ -7,7 +7,6 @@ describe("skills served over MCP", () => {
   it("are all valid Agent Skills", async () => {
     const catalog = await SkillsExtension.load(memorySkillFiles(SKILL_FILES), { strict: true });
     expect(catalog.entries.map((skill) => skill.frontmatter.name)).toEqual([
-      "annotate-screenshots",
       "github-screenshots",
       "uploads-cli",
     ]);

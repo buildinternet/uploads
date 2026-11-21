@@ -151,20 +151,12 @@ place. Other keys are strict (refuse overwrite unless `--replace`).
 
 ```bash
 uploads screenshot http://localhost:4321/settings --out after.png --state after
-uploads screenshot https://example.com --via remote --pr 123
+uploads screenshot http://localhost:4321/settings --redact '[data-testid=api-key]' --pr 123
 ```
 
-`--via auto` prefers local Chrome, else remote server render (counts against
-the workspace upload budget). localhost targets are local-only.
-
-### Annotate
-
-```bash
-uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
-uploads annotate ./shot.png --spec ./callouts.json
-```
-
-See skill `annotate-screenshots` for the JSON spec.
+Captures run in your local Chrome/Chromium, so localhost works. `--redact <css>`
+blacks out matching elements before upload and fails if a selector matches
+nothing.
 
 ### Manage
 
@@ -223,7 +215,6 @@ Local stdio MCP exposes a first-class `staged` tool mirroring the CLI.
 | Skill | When |
 | --- | --- |
 | github-screenshots | Visual needs to land in a PR/issue/share link |
-| annotate-screenshots | Callouts, arrows, redaction on a capture |
 | uploads-cli | Exact flags, keys, MCP contracts, edge cases |
 
 Install: `npx skills add buildinternet/uploads` or `uploads install`.
@@ -284,7 +275,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - Changelog: https://uploads.sh/changelog (Atom at https://uploads.sh/changelog.xml; JSON at https://uploads.sh/changelog.json; `uploads changelog`)
 - Docs catalog: https://uploads.sh/docs.json (`uploads docs [query]` or MCP `search_docs`; `uploads docs attach` fetches one page as markdown)
 - Attach artifacts to pull requests: https://uploads.sh/docs/attach-pull-request-images
-- Capture & annotate: https://uploads.sh/docs/capture
+- Capture screenshots: https://uploads.sh/docs/capture
 - Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
 - Slack: https://uploads.sh/docs/slack

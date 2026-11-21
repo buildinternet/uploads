@@ -41,7 +41,7 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "put",
     "share",
   ],
-  capture: ["screenshot", "capture", "annotate", "redact", "callout"],
+  capture: ["screenshot", "capture", "redact"],
   galleries: ["gallery", "collection"],
   feeds: [
     "feed",

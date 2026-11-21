@@ -70,8 +70,8 @@ Three things a neighboring product could not truthfully copy:
   first-class parity, not a fallback.
 - Agent runtimes are an install target of their own: `uploads install` wires in
   the skills and MCP server; `npx skills add buildinternet/uploads` installs the
-  three skills (`github-screenshots`, `uploads-cli`, `annotate-screenshots`)
-  into any runtime without a checkout.
+  two skills (`github-screenshots`, `uploads-cli`) into any runtime without a
+  checkout.
 - Everything hosted is a public URL. Private-repo attachments get non-guessable
   capability links, but anyone holding a URL can view the file. The product
   states this plainly rather than implying access control it does not have.

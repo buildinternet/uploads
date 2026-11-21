@@ -1,19 +1,16 @@
 ---
-title: Capture & annotate
-description: Capture a screenshot of a URL or local HTML file and host it in one step, then bake boxes, labels, and redactions onto it with the uploads CLI.
-heading: Capture & annotate
-tagline: Render a page, mark what changed, and host the result in one step.
-navLabel: Capture & annotate
+title: Capture screenshots
+description: Capture a screenshot of a URL or local HTML file in your own browser and host it in one step, with secrets blacked out, using the uploads CLI.
+heading: Capture screenshots
+tagline: Render a page in your browser and host the result in one step.
+navLabel: Capture screenshots
 navSlug: capture
 navOrder: 6
 navGroup: media
 toc:
   - { id: screenshot, label: Capture a screenshot }
-  - { id: annotate, label: Annotate a screenshot }
+  - { id: redact, label: Redact secrets }
 ---
-
-import TabItem from "../../../components/docs/TabItem.astro";
-import Tabs from "../../../components/docs/Tabs.astro";
 
 <section class="lead" id="screenshot">
 
@@ -22,14 +19,14 @@ import Tabs from "../../../components/docs/Tabs.astro";
 `screenshot` renders a URL or a local `.html` file and hosts the image in one step:
 
 ```bash
-uploads screenshot https://app.example --pr 123
+uploads screenshot http://localhost:3000/settings --pr 123
 ```
 
 Leave off `--pr` and it [stages on your branch](/docs/attach-pull-request-images#staging), the same
 way `put` does.
 
-It uses Chrome if you have it installed. Otherwise it renders on uploads.sh, which can't reach
-`localhost`.
+It runs in the Chrome or Chromium you already have, so `localhost` works. No browser? Install
+Chrome, or run `npx playwright install chromium`.
 
 Common flags:
 
@@ -42,50 +39,18 @@ For dev-server options, like hiding overlays or waiting for the app to load, run
 
 </section>
 
-<section id="annotate">
+<section id="redact">
 
-## Annotate a screenshot <a class="anchor" data-pagefind-ignore href="#annotate" aria-label="Link to this section">#</a>
+## Redact secrets <a class="anchor" data-pagefind-ignore href="#redact" aria-label="Link to this section">#</a>
 
-Point reviewers at what changed. `uploads` bakes boxes, labels, and redactions into the image before
-it hosts it. Both commands read the same JSON file:
-
-<Tabs syncKey="annotate-entry-point">
-  <TabItem label="screenshot --annotate">
+Hosted files are public. If the page shows an API key, a token, or someone's email, black it out
+before capture with a CSS selector:
 
 ```bash
-uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+uploads screenshot http://localhost:3000/settings --redact '[data-testid=api-key]' --redact .email
 ```
 
-  </TabItem>
-  <TabItem label="annotate">
-
-```bash
-uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
-```
-
-  </TabItem>
-</Tabs>
-
-Use `screenshot --annotate` on a page you can load locally, so annotations can target elements by
-CSS selector. Use `annotate` on an image you already have; it takes pixel coordinates.
-
-```json title="callouts.json" frame="code"
-{
-  "version": 1,
-  "annotations": [
-    { "type": "box", "selector": "#save-button" },
-    { "type": "label", "text": "New: bulk save", "selector": "#save-button" },
-    { "type": "redact", "selector": "[data-testid=api-key]", "style": "solid" }
-  ]
-}
-```
-
-Hide secrets with a `solid` redact. Hosted files are public, and blurred text can sometimes be read.
-
-<div class="note">
-  The full spec, including arrows and freehand strokes, is in the
-  [annotate-screenshots](https://github.com/buildinternet/uploads/blob/main/skills/annotate-screenshots/SKILL.md)
-  skill and in `uploads annotate --help`.
-</div>
+Each match becomes a solid box, text and images included, and the layout doesn't shift. A selector
+that matches nothing fails the capture instead of uploading the page unredacted.
 
 </section>

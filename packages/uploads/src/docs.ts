@@ -99,11 +99,11 @@ export const FALLBACK_DOCS_CATALOG: DocsCatalog = {
     },
     {
       page: "capture",
-      title: "Capture & annotate",
+      title: "Capture screenshots",
       url: "https://uploads.sh/docs/capture",
       summary:
-        "Capture a screenshot of a URL or local HTML file and host it in one step, then bake boxes, labels, and redactions onto it with the uploads CLI.",
-      aliases: ["screenshot", "capture", "annotate", "redact", "callout"],
+        "Capture a screenshot of a URL or local HTML file in your own browser and host it in one step, with secrets blacked out, using the uploads CLI.",
+      aliases: ["screenshot", "capture", "redact"],
     },
     {
       page: "galleries",

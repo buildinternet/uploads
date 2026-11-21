@@ -21,7 +21,7 @@ import {
 
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
-const SKILL_NAMES = ["uploads-cli", "github-screenshots", "annotate-screenshots"];
+const SKILL_NAMES = ["uploads-cli", "github-screenshots"];
 const MANUAL_SKILL_COMMAND = `npx skills add ${SKILL_SOURCE} -g`;
 
 /**
@@ -175,11 +175,11 @@ const MCP_CLIENT_BINARIES = MCP_CLIENTS.map((c) => c.id).join(", ");
 
 const INSTALL_HELP = `uploads install — set up agent integrations (skills + remote MCP + hooks)
 
-Installs the github-screenshots, uploads-cli, and annotate-screenshots agent
-skills, registers the hosted MCP server with whichever of Claude Code, Codex,
-and Grok are on PATH, and installs the PR screenshot reminder hook for
-Grok / Cursor when those tools are present. A missing agent CLI is skipped —
-it does not fail the rest of the install. The remote MCP endpoint infers your
+Installs the github-screenshots and uploads-cli agent skills, registers the
+hosted MCP server with whichever of Claude Code, Codex, and Grok are on PATH,
+and installs the PR screenshot reminder hook for Grok / Cursor when those
+tools are present. A missing agent CLI is skipped — it does not fail the rest
+of the install. The remote MCP endpoint infers your
 workspace from the bearer token, so only the token is needed.
 
 Claude Code and Codex ship the same reminder via their plugins (same command:
@@ -199,8 +199,7 @@ On a terminal, the default \`all\` lists what it will install and asks first;
 
 What it does:
   skill   Agent skills (via npx skills) — github-screenshots: visuals into
-          PRs/issues; uploads-cli: full CLI reference; annotate-screenshots:
-          hand-drawn callouts and redaction on screenshots
+          PRs/issues; uploads-cli: full CLI reference
   mcp     Hosted MCP server in Claude Code, Codex, and Grok — each CLI that
           is installed is registered; missing ones are skipped
   hooks   PR screenshot reminder for Grok / Cursor (user-global manifests)

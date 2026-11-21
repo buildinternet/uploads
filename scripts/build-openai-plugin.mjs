@@ -178,7 +178,6 @@ export function writePluginArchive(staging, archive) {
       "assets/logo.png",
       "mcp.json",
       "plugin.json",
-      "skills/annotate-screenshots/SKILL.md",
       "skills/github-screenshots/SKILL.md",
       "skills/uploads-cli/SKILL.md",
     ],

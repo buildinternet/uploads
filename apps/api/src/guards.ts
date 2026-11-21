@@ -886,16 +886,6 @@ export const writeRateLimit = writeRateLimitGuard.middleware;
 export const allowWrite = writeRateLimitGuard.allow;
 
 /**
- * Burst limit for POST /v1/render. Browser hours bill to us, so this guards
- * against hot loops independent of the monthly budget.
- */
-const renderRateLimitGuard = makeRateLimitGuard("RENDER_LIMITER", "render rate limit exceeded", {
-  windowSeconds: 60,
-});
-export const renderRateLimit = renderRateLimitGuard.middleware;
-export const allowRender = renderRateLimitGuard.allow;
-
-/**
  * Per-workspace rate limit for video poster generation (`POSTER_LIMITER`),
  * used by `posterGenerationAllowed` in poster.ts.
  */

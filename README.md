@@ -128,8 +128,8 @@ promotes the staged files into one managed attachments comment.
 
 ## More ways to upload
 
-Use the same commands for before-and-after evidence, an open pull request, a
-browser capture, or an annotated image:
+Use the same commands for before-and-after evidence, an open pull request, or
+a browser capture:
 
 ```bash
 # Pair two states from the same page in the pull request comment.
@@ -142,8 +142,8 @@ uploads staged
 # Attach files directly when a pull request or issue is already open.
 uploads attach ./before.png ./after.png
 
-# Capture, annotate, and upload a page in one command.
-uploads screenshot http://localhost:4321/settings --via local --annotate ./callouts.json
+# Capture and upload a page in one command, with a secret blacked out.
+uploads screenshot http://localhost:4321/settings --redact '[data-testid=api-key]'
 ```
 
 `attach` detects the repository and current PR through `gh`, uploads all files,
@@ -208,9 +208,8 @@ standalone into any agent runtime:
 npx skills add buildinternet/uploads
 ```
 
-That installs three skills: `github-screenshots` (visuals → PRs/issues),
-`uploads-cli` (full CLI reference), and `annotate-screenshots` (callouts and
-redaction on a capture).
+That installs two skills: `github-screenshots` (visuals → PRs/issues) and
+`uploads-cli` (full CLI reference).
 
 On Claude Code or Codex, the [plugin](https://uploads.sh/docs/agents#plugin)
 bundles the skills and the MCP server (Codex also gets a pre-PR screenshot
@@ -222,7 +221,7 @@ the PR opens. On claude.ai and in Cowork, add uploads from the
 submitted to the [xAI plugin marketplace](https://github.com/xai-org/plugin-marketplace)
 as `uploads`.
 
-Full CLI usage, including annotations, managed comments, public galleries,
+Full CLI usage, including screenshot capture, managed comments, public galleries,
 and change feeds (repo-wide or one pull request), lives in
 [docs/cli.md](docs/cli.md).
 

@@ -29,7 +29,7 @@ describe("generateCompletionScript", () => {
     const script = generateCompletionScript("bash");
     expect(script).toMatch(/complete -o default -F _uploads uploads/);
     expect(script).toMatch(
-      /local -a root_cmds=\(attach put staged unstage approve screenshot annotate gallery/,
+      /local -a root_cmds=\(attach put staged unstage approve screenshot gallery/,
     );
     for (const cmd of ROOT_COMMANDS) {
       expect(script).toContain(cmd.name);

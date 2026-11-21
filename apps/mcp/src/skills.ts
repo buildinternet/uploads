@@ -9,12 +9,10 @@
  * wrangler.jsonc `rules` and vitest.config.ts), so a deploy is what changes them.
  */
 import { SkillsExtension, memorySkillFiles } from "@modelcontextprotocol/server/ext/skills";
-import annotateScreenshots from "../../../skills/annotate-screenshots/SKILL.md";
 import githubScreenshots from "../../../skills/github-screenshots/SKILL.md";
 import uploadsCli from "../../../skills/uploads-cli/SKILL.md";
 
 export const SKILL_FILES: Record<string, string> = {
-  "annotate-screenshots/SKILL.md": annotateScreenshots,
   "github-screenshots/SKILL.md": githubScreenshots,
   "uploads-cli/SKILL.md": uploadsCli,
 };
