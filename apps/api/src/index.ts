@@ -1,4 +1,4 @@
-import { NotFoundError } from "@uploads/errors";
+import { AppError, NotFoundError } from "@uploads/errors";
 import { reportHandledError } from "@uploads/observability";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -203,6 +203,10 @@ export const app = new Hono<WorkspaceVars>()
   // MUST stay before the `/v1/:workspace/*` guard below: that pattern matches
   // this path, so registration order is what keeps workspaceAuth from running.
   .route("/v1/github/webhook", githubWebhook)
+  // Remote screenshot rendering was removed (#1432). Older CLIs still POST
+  // here for `--via remote` or the no-browser auto fallback; answer 410 with
+  // an actionable message instead of the generic 404.
+  .all("/v1/render", (c) => respondError(c, renderRemovedError()))
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/feeds", feeds)
@@ -240,6 +244,17 @@ export const app = new Hono<WorkspaceVars>()
   .route("/internal/classify", internalClassify)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
+
+/** 410 for the removed `/v1/render` route. */
+function renderRemovedError(): AppError {
+  return new AppError({
+    code: "render_removed",
+    type: "not_found",
+    status: 410,
+    message:
+      "Remote screenshot rendering was removed. Update the uploads CLI and install Chrome (or run `npx playwright install chromium`); screenshots now capture locally.",
+  });
+}
 
 const DAILY_MAINTENANCE_CRON = "0 6 * * *";
 
