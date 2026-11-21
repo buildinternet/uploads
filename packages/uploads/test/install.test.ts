@@ -107,7 +107,7 @@ describe("uploads install", () => {
     expect(calls[0]).toEqual(["npx", "--version"]);
     expect(calls[1]).toEqual(["npm", "--version"]);
     expect(withoutSkillProbe(calls)).toEqual([
-      ...["uploads-cli", "github-screenshots", "annotate-screenshots"].map((skill) => [
+      ...["uploads-cli", "github-screenshots"].map((skill) => [
         "npx",
         "-y",
         "skills",
@@ -136,7 +136,6 @@ describe("uploads install", () => {
     expect(printed).toContain("Installing MCP server…");
     expect(printed).toMatch(/skill:uploads-cli: ok/);
     expect(printed).toMatch(/skill:github-screenshots: ok/);
-    expect(printed).toMatch(/skill:annotate-screenshots: ok/);
     expect(printed).toMatch(/mcp:claude: ok/);
     expect(printed).toMatch(/mcp:codex: ok/);
     expect(printed).toMatch(/mcp:grok: ok/);
@@ -203,7 +202,7 @@ describe("uploads install", () => {
     expect(calls).toEqual([]);
     const printed = out.join("");
     expect(printed).toContain(
-      "Add the uploads-cli, github-screenshots, annotate-screenshots skills for Claude Code, Cursor",
+      "Add the uploads-cli, github-screenshots skills for Claude Code, Cursor",
     );
     expect(printed).toContain("Register the uploads MCP server in Claude Code, Codex\n");
     expect(printed).toContain("Add the PR screenshot reminder hook for Cursor");
@@ -216,7 +215,7 @@ describe("uploads install", () => {
     const { run, calls } = fakeRunner();
     const confirm = async () => true;
     expect(await install([], { globals: GLOBALS, runner: run, confirm })).toBe(0);
-    expect(withoutSkillProbe(calls).filter((c) => c.includes("skills"))).toHaveLength(3);
+    expect(withoutSkillProbe(calls).filter((c) => c.includes("skills"))).toHaveLength(2);
     expect(calls.some((c) => c[0] === "claude" && c[2] === "add")).toBe(true);
   });
 
@@ -232,7 +231,7 @@ describe("uploads install", () => {
     const { run, calls } = fakeRunner();
     expect(await install(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
     const skillAdds = withoutSkillProbe(calls);
-    expect(skillAdds).toHaveLength(3);
+    expect(skillAdds).toHaveLength(2);
     expect(skillAdds.every((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
   });
 
@@ -313,11 +312,10 @@ describe("uploads install", () => {
     });
     expect(code).toBe(1);
     const skillAdds = withoutSkillProbe(calls);
-    expect(skillAdds).toHaveLength(3);
+    expect(skillAdds).toHaveLength(2);
     expect(skillAdds.every((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
     expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
     expect(out.join("")).toMatch(/skill:github-screenshots: ok/);
-    expect(out.join("")).toMatch(/skill:annotate-screenshots: ok/);
     expect(out.join("")).toMatch(/mcp: skipped/);
     expect(out.join("")).not.toMatch(/mcp: failed/);
     expect(out.join("")).toMatch(/uploads login/);
@@ -508,11 +506,7 @@ describe("uploads install", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(true);
-    expect(Object.keys(parsed.steps)).toEqual([
-      "skill:uploads-cli",
-      "skill:github-screenshots",
-      "skill:annotate-screenshots",
-    ]);
+    expect(Object.keys(parsed.steps)).toEqual(["skill:uploads-cli", "skill:github-screenshots"]);
   });
 
   it("mixed skill success/failure prints closing guidance (issue #191)", async () => {

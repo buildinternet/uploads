@@ -1,6 +1,5 @@
 import { parseCommandArgs, UsageError } from "../cli-args.js";
 import {
-  ANNOTATE_FLAGS,
   COMPLETION_SHELLS,
   GLOBAL_FLAGS,
   LIST_LIKE_FLAGS,
@@ -62,7 +61,6 @@ function bashScript(): string {
   const putFlags = PUT_LIKE_FLAGS.join(" ");
   const listFlags = LIST_LIKE_FLAGS.join(" ");
   const screenshotFlags = SCREENSHOT_FLAGS.join(" ");
-  const annotateFlags = ANNOTATE_FLAGS.join(" ");
 
   const subMaps = ROOT_COMMANDS.filter((c) => c.subcommands?.length).map((c) => {
     const names = c.subcommands!.map((s) => s.name).join(" ");
@@ -90,7 +88,6 @@ _uploads() {
   local -a put_flags=(${putFlags})
   local -a list_flags=(${listFlags})
   local -a screenshot_flags=(${screenshotFlags})
-  local -a annotate_flags=(${annotateFlags})
 
   # Find the first non-global positional (the subcommand).
   local cmd="" i=1
@@ -147,9 +144,6 @@ ${subMaps.join("\n")}
       screenshot)
         COMPREPLY=( $(compgen -W "\${screenshot_flags[*]}" -- "$cur") )
         ;;
-      annotate)
-        COMPREPLY=( $(compgen -W "\${annotate_flags[*]}" -- "$cur") )
-        ;;
       list|find)
         COMPREPLY=( $(compgen -W "\${list_flags[*]}" -- "$cur") )
         ;;
@@ -162,7 +156,7 @@ ${subMaps.join("\n")}
 
   # File paths for upload-style commands.
   case "$cmd" in
-    put|attach|screenshot|annotate)
+    put|attach|screenshot)
       COMPREPLY=( $(compgen -f -- "$cur") )
       ;;
   esac
@@ -241,7 +235,7 @@ ${globalArgs} \\
     args)
       case $line[1] in
 ${subCases}
-      put|attach|screenshot|annotate)
+      put|attach|screenshot)
         _files
         ;;
       esac
@@ -314,20 +308,8 @@ function fishScript(): string {
       `complete -c uploads -n '__fish_seen_subcommand_from list find' -l ${flag.slice(2)}`,
     );
   }
-  for (const flag of ANNOTATE_FLAGS) {
-    if (flag === "-o") continue; // folded into --out's paired completion below
-    if (flag === "--out") {
-      lines.push(`complete -c uploads -n '__fish_seen_subcommand_from annotate' -s o -l out`);
-      continue;
-    }
-    if (!flag.startsWith("--")) continue;
-    lines.push(`complete -c uploads -n '__fish_seen_subcommand_from annotate' -l ${flag.slice(2)}`);
-  }
-
-  // File completion for put/attach/screenshot/annotate
-  lines.push(
-    `complete -c uploads -n '__fish_seen_subcommand_from put attach screenshot annotate' -F`,
-  );
+  // File completion for put/attach/screenshot
+  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put attach screenshot' -F`);
 
   return lines.join("\n") + "\n";
 }

@@ -5335,8 +5335,8 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
   if (report.browser.supported) {
     lines.push(
       report.browser.found
-        ? `browser:   found (${report.browser.winner?.source}/${report.browser.winner?.kind}) — screenshot --via auto uses local`
-        : `browser:   none found — screenshot --via auto uses remote`,
+        ? `browser:   found (${report.browser.winner?.source}/${report.browser.winner?.kind}) — used by screenshot`
+        : `browser:   none found — screenshot needs Chrome (or npx playwright install chromium)`,
     );
   } else {
     lines.push(`browser:   ${report.browser.note ?? "not supported in this runtime"}`);

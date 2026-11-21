@@ -40,7 +40,6 @@ import { publicGithubAvatars } from "./routes/public-github-avatars";
 import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
 import { abuse } from "./routes/abuse";
-import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
 import { handleGithubWebhookBatch } from "./github-webhook-queue";
 import { installImageWasm } from "./image-wasm-install";
@@ -200,12 +199,6 @@ export const app = new Hono<WorkspaceVars>()
   .route("/v1/reports", reports)
   // Public content / abuse reports from the file page — no auth; emails abuse@.
   .route("/v1/abuse", abuse)
-  // Screenshot render (phase 1, POST /v1/render). Brings its own auth
-  // (tokenWorkspaceAuth resolves the workspace from the token, not the path)
-  // so — like /v1/tokens — it must be registered before the `/v1/:workspace/*`
-  // guard: that pattern requires a trailing segment and never matches this
-  // route. See src/routes/render.ts.
-  .route("/v1/render", render)
   // GitHub App webhooks (phase 2 PR A). HMAC-verified, no session/bearer auth.
   // MUST stay before the `/v1/:workspace/*` guard below: that pattern matches
   // this path, so registration order is what keeps workspaceAuth from running.

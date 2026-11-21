@@ -33,9 +33,15 @@ export function captureFacts(input: CaptureFactsInput): Record<string, string> {
   if (input.colorScheme) facts.theme = input.colorScheme;
 
   if (input.target.kind === "url") {
-    facts.url = input.target.url;
     try {
-      facts.path = new URL(input.target.url).pathname || "/";
+      const url = new URL(input.target.url);
+      facts.path = url.pathname || "/";
+      // Query strings and fragments often carry one-time tokens (dev sign-in
+      // links, signed URLs), and metadata is public, so keep only
+      // origin + path.
+      url.search = "";
+      url.hash = "";
+      facts.url = url.href;
     } catch {
       // classifyTarget already validated this, but never let a URL parse
       // failure cost us the other facts.
@@ -43,8 +49,8 @@ export function captureFacts(input: CaptureFactsInput): Record<string, string> {
     if (input.target.localOnly) facts.env = "local";
   }
 
-  // A long query string can exceed the 512-char value cap; drop rather than
-  // let a derived value fail the upload.
+  // A long path can exceed the 512-char value cap; drop rather than let a
+  // derived value fail the upload.
   return dropUnsafeMetaValues(facts);
 }
 

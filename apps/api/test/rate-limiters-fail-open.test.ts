@@ -1,6 +1,6 @@
 /**
- * The five apps/api rate limiters (WRITE_LIMITER, RENDER_LIMITER,
- * WS_CREATE_LIMITER, INVITE_LIMITER — POSTER_LIMITER is covered separately in
+ * The apps/api rate limiters (WRITE_LIMITER, WS_CREATE_LIMITER,
+ * INVITE_LIMITER — POSTER_LIMITER is covered separately in
  * poster-gate.test.ts, since it fails *closed* by design) are optional
  * bindings (issue #754 item 3): every guard already fails open when its
  * binding is absent, but until now nothing pinned that behavior with a
@@ -9,7 +9,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { respondError } from "../src/error-response";
-import { allowRender, allowWorkspaceCreate, allowWrite } from "../src/guards";
+import { allowWorkspaceCreate, allowWrite } from "../src/guards";
 import { auth } from "../src/routes/auth";
 
 const authApp = new Hono<{ Bindings: Env }>()
@@ -24,10 +24,6 @@ describe("guards.ts rate limiters — binding absent fails open", () => {
   it("allowWrite (WRITE_LIMITER) still enforces the limit when the binding is present", async () => {
     const env = { WRITE_LIMITER: { limit: async () => ({ success: false }) } };
     await expect(allowWrite(env, "acme")).resolves.toBe(false);
-  });
-
-  it("allowRender (RENDER_LIMITER) allows when the binding is absent", async () => {
-    await expect(allowRender({}, "acme")).resolves.toBe(true);
   });
 
   it("allowWorkspaceCreate (WS_CREATE_LIMITER) allows when the binding is absent", async () => {

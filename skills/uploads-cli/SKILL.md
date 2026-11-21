@@ -41,18 +41,17 @@ The CLI can fall back to local `gh`. Hosted MCP is bot-only.
 
 Same product, two transports. Skills do not install a binary.
 
-| Need                                                  | Use                                             | Why                                                                                                                                                                                                                                                                                                                    |
-| ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
-| File on a sandbox disk, shell but no CLI              | Hosted MCP `sign_upload_url`                    | Returns one upload command per file: an HTTPS PUT of that file to `https://agents.uploads.sh/u/<ticket>` (15 min, up to the plan's upload limit). The PUT response is `put`'s JSON. With `pr`/`issue`, call `comment` once after. Sandbox must allow agents.uploads.sh.                                                |
-| File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
-| List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
-| Recent tagged files, by pull request or by repo       | Hosted MCP `list_activity` / `list_repo_files`  | Hosted only. `list_activity` groups by pull (default) or repo. `list_repo_files` needs `repo`. Times are tag metadata, not upload time. Does not publish a feed.                                                                                                                                                       |
-| Live page of this PR's (or repo's) screenshots        | Either                                          | CLI `uploads feed create` or MCP `feed_create`. Repo-wide: `repo` only. One PR: `repo` + `pr`, or `github` (`owner/repo#123` / a GitHub URL). Same product — not a curated gallery. `feed_get` / `uploads feed show` opens an existing feed.                                                                           |
-| Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                                                                                                                                               |
-| `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                                                                                                                                                                               |
-| Selector annotate on a live page                      | CLI `uploads screenshot --annotate --via local` | Remote backend rejects selector-bearing specs.                                                                                                                                                                                                                                                                         |
-| Neither transport                                     | Stop                                            | Do not treat `npm install -g` as the ChatGPT path. OAuth on `https://agents.uploads.sh/mcp` is the published remote path.                                                                                                                                                                                              |
+| Need                                                  | Use                                            | Why                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                               | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
+| File on a sandbox disk, shell but no CLI              | Hosted MCP `sign_upload_url`                   | Returns one upload command per file: an HTTPS PUT of that file to `https://agents.uploads.sh/u/<ticket>` (15 min, up to the plan's upload limit). The PUT response is `put`'s JSON. With `pr`/`issue`, call `comment` once after. Sandbox must allow agents.uploads.sh.                                                |
+| File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`            | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
+| List, find, metadata, comment, promote                | Either                                         | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
+| Recent tagged files, by pull request or by repo       | Hosted MCP `list_activity` / `list_repo_files` | Hosted only. `list_activity` groups by pull (default) or repo. `list_repo_files` needs `repo`. Times are tag metadata, not upload time. Does not publish a feed.                                                                                                                                                       |
+| Live page of this PR's (or repo's) screenshots        | Either                                         | CLI `uploads feed create` or MCP `feed_create`. Repo-wide: `repo` only. One PR: `repo` + `pr`, or `github` (`owner/repo#123` / a GitHub URL). Same product — not a curated gallery. `feed_get` / `uploads feed show` opens an existing feed.                                                                           |
+| Local path or current-branch attach                   | CLI                                            | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                                                                                                                                               |
+| `localhost` / private-network screenshot              | CLI `uploads screenshot`                       | Captures run in your local browser.                                                                                                                                                                                                                                                                                    |
+| Neither transport                                     | Stop                                           | Do not treat `npm install -g` as the ChatGPT path. OAuth on `https://agents.uploads.sh/mcp` is the published remote path.                                                                                                                                                                                              |
 
 CLI examples in the rest of this skill assume a checkout and the `uploads`
 binary. Hosted tool contracts live under **Notes and cautions** (the MCP
@@ -534,26 +533,10 @@ above: optional `--frame`, optimize-by-default, `--pr`/`--issue` attachment +
 `--comment`, `--gallery`, `--meta`, and the same output formats. It also
 ships as an MCP tool (`screenshot`) alongside the CLI command.
 
-**Two capture backends**, selected with `--via`:
-
-| Backend  | What it is                                                        | Needs                                                               |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `local`  | Drives an already-installed Chrome/Chromium via `playwright-core` | A discoverable browser on disk, or `--cdp`                          |
-| `remote` | Renders server-side via the uploads.sh render endpoint            | Nothing local; counts against the workspace's monthly upload budget |
-
-`--via auto` (the default) prefers local when a usable browser is found,
-else falls back to remote. Set a persistent default with
-`UPLOADS_SCREENSHOT_VIA=auto|local|remote` (env, `--env-file`, or the user
-config file — see "Config commands"); the `--via` flag always wins.
-
-**localhost/private-network targets are local-only.** With `--via remote`
-(or `auto` falling back to remote) these fail fast with a clear error instead
-of sending a request that could never work. Local `.html` files work on both
-backends — the remote backend receives the file's contents inline (≤ 2 MiB),
-so anything the page references via `file://` or relative paths only resolves
-with `--via local`. A numeric
-`--wait <ms>` (fixed settle delay after load) is also local-only; use
-`--wait load|domcontentloaded|networkidle` for a backend-agnostic wait.
+Captures run in an already-installed Chrome/Chromium via `playwright-core`
+(no browser download), so `localhost`, private-network URLs, and local
+`.html` files all work. Server-side rendering (`--via remote`) was removed;
+`--via auto` and `--via local` are still accepted and mean the same thing.
 
 Use `--cdp <endpoint>` to attach to a Chrome that's already running
 (`http://host:port` or `ws://…`) instead of launching a new one — handy when
@@ -563,25 +546,26 @@ explicit executable.
 
 Key options (`uploads screenshot --help` for all):
 
-| Flag                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--via auto\|local\|remote`                          | Capture backend (default: `auto`, or `UPLOADS_SCREENSHOT_VIA`).                                                                                                                                                                                                                                                                                                          |
-| `--browser <path>`                                   | Explicit local browser executable (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`).                                                                                                                                                                                                                                                                                            |
-| `--cdp <endpoint>`                                   | Attach to a running Chrome via CDP instead of launching one (local backend only).                                                                                                                                                                                                                                                                                        |
-| `--viewport <WxH[@Sx]>`                              | Size + device scale factor (default: `1280x800@2`).                                                                                                                                                                                                                                                                                                                      |
-| `--selector <css>`                                   | Capture one element instead of the viewport.                                                                                                                                                                                                                                                                                                                             |
-| `--full-page`                                        | Capture the full scrollable page.                                                                                                                                                                                                                                                                                                                                        |
-| `--max-height <px>`                                  | Cap on `--full-page` capture height in CSS px (default: `5000`; `0` = uncapped). A page over the cap is clipped, with a note to stderr and a `--format json` `hint`. Requires `--full-page`; applies on both `--via local` and `--via remote`.                                                                                                                           |
-| `--dark` / `--light`                                 | Emulate `prefers-color-scheme` (full media-query emulation on `--via local` only — `--via remote` only sets the CSS `color-scheme` property, so a page's own `prefers-color-scheme` queries won't flip).                                                                                                                                                                 |
-| `--wait <load\|domcontentloaded\|networkidle\|ms>`   | Settle strategy (default: `load`); a millisecond count is local-only.                                                                                                                                                                                                                                                                                                    |
-| `--wait-for <js>`                                    | Poll this JS expression in the page until truthy before `--eval` and capture (local backend only). Bridges framework hydration — `load`/`networkidle` settle before React/Next attach handlers, so a synthetic click in `--eval` hits the inert SSR DOM. Express the app's own signal, e.g. `--wait-for 'window.__hydrated===true'`. Times out with the capture timeout. |
-| `--eval <js>` / `--init-script <file>`               | Run setup JS after settle / inject a script before navigation (local backend only). Synthetic events (`el.click()`) won't reach framework handlers until the app hydrates — pair `--eval` with `--wait-for` on React/Next apps.                                                                                                                                          |
-| `--out <file>`                                       | Also write the PNG to a local file, plus a sidecar manifest (`<file>.uploads.json`) with this capture's derived metadata (`path`/`url`/`env`/`viewport`, plus `--state` if given) and a content hash. A later `put`/`attach` of that exact file picks the metadata back up automatically — explicit `--meta`/`--state` still win. See `--no-sidecar`.                    |
-| `--no-sidecar`                                       | Don't write the `<file>.uploads.json` sidecar alongside `--out`.                                                                                                                                                                                                                                                                                                         |
-| `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                                                                                                                                                                                        |
-| `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                                                                                                                                                                                        |
-| `--branch [name]`                                    | Stage against a branch, pre-PR — same key as `attach --branch` (see below); this is also what a bare `screenshot` on a non-default branch does automatically.                                                                                                                                                                                                            |
-| `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                                                                                                                                                                                  |
+| Flag                                                 | Purpose                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--browser <path>`                                   | Explicit local browser executable (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`).                                                                                                                                                                                                                                                                         |
+| `--cdp <endpoint>`                                   | Attach to a running Chrome via CDP instead of launching one.                                                                                                                                                                                                                                                                                          |
+| `--viewport <WxH[@Sx]>`                              | Size + device scale factor (default: `1280x800@2`).                                                                                                                                                                                                                                                                                                   |
+| `--selector <css>`                                   | Capture one element instead of the viewport.                                                                                                                                                                                                                                                                                                          |
+| `--full-page`                                        | Capture the full scrollable page.                                                                                                                                                                                                                                                                                                                     |
+| `--max-height <px>`                                  | Cap on `--full-page` capture height in CSS px (default: `5000`; `0` = uncapped). A page over the cap is clipped, with a note to stderr and a `--format json` `hint`. Requires `--full-page`.                                                                                                                                                          |
+| `--dark` / `--light`                                 | Emulate `prefers-color-scheme`.                                                                                                                                                                                                                                                                                                                       |
+| `--wait <load\|domcontentloaded\|networkidle\|ms>`   | Settle strategy (default: `load`), or a millisecond delay.                                                                                                                                                                                                                                                                                            |
+| `--wait-for <js>`                                    | Poll this JS expression in the page until truthy before `--eval` and capture. Bridges framework hydration — `load`/`networkidle` settle before React/Next attach handlers, so a synthetic click in `--eval` hits the inert SSR DOM. Express the app's own signal, e.g. `--wait-for 'window.__hydrated===true'`. Times out with the capture timeout.   |
+| `--eval <js>` / `--init-script <file>`               | Run setup JS after settle / inject a script before navigation. Synthetic events (`el.click()`) won't reach framework handlers until the app hydrates — pair `--eval` with `--wait-for` on React/Next apps.                                                                                                                                            |
+| `--hide <css>`                                       | Hide matching elements (`display:none`) before capture. Repeatable.                                                                                                                                                                                                                                                                                   |
+| `--redact <css>`                                     | Black out matching elements (text, images, children) before capture — API keys, emails, tokens. Repeatable. Fails if a selector matches nothing, so a typo can't leak the value.                                                                                                                                                                      |
+| `--out <file>`                                       | Also write the PNG to a local file, plus a sidecar manifest (`<file>.uploads.json`) with this capture's derived metadata (`path`/`url`/`env`/`viewport`, plus `--state` if given) and a content hash. A later `put`/`attach` of that exact file picks the metadata back up automatically — explicit `--meta`/`--state` still win. See `--no-sidecar`. |
+| `--no-sidecar`                                       | Don't write the `<file>.uploads.json` sidecar alongside `--out`.                                                                                                                                                                                                                                                                                      |
+| `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                                                                                                                                                                     |
+| `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                                                                                                                                                                     |
+| `--branch [name]`                                    | Stage against a branch, pre-PR — same key as `attach --branch` (see below); this is also what a bare `screenshot` on a non-default branch does automatically.                                                                                                                                                                                         |
+| `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                                                                                                                                                               |
 
 **Inside a git repo, on a non-default branch, a bare `screenshot` now stages
 automatically too** — same
@@ -599,17 +583,10 @@ classic dated `screenshots/<repo>/<date>/...` layout. Prints the same
 staging note as bare `put` (see above) — same stderr wording, same JSON
 `hint` field, same `--quiet`/`UPLOADS_NO_NUDGE` suppression.
 
-**Errors and hints:** a local capture with no usable browser fails with
-`BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install
-Chromium ([Playwright's browser docs](https://playwright.dev/docs/browsers)). A remote render that the server
-can't complete returns `RENDER_FAILED`. A burst rate limit on the render
-endpoint returns `RATE_LIMITED` (exit `4`) — hint: wait ~60s and retry. A
-remote render over the workspace's monthly upload budget surfaces the usual
-`UPLOAD_BUDGET` code and hint (`uploads usage`, then delete objects or raise
-limits) — renders and puts share one monthly counter.
-
-`uploads doctor` reports which local browser (if any) was detected and which
-backend `--via auto` would currently pick.
+**Errors and hints:** a capture with no usable browser fails with
+`BROWSER_NOT_FOUND` (exit `2`) — install Chrome, or Chromium
+([Playwright's browser docs](https://playwright.dev/docs/browsers)).
+`uploads doctor` reports which local browser (if any) was detected.
 
 **Key derivation and `--state`.** Whenever the object's filename is
 auto-derived from the captured URL (host + path) — the default dated
@@ -626,21 +603,19 @@ stderr (same wording as `put`'s hot-swap note, above) and `--format json`
 adds `"replaced": true`, plus a `hint` field when a `--state` capture
 replaced an existing object.
 
-### Baking in callouts: `--annotate`
+### Redacting secrets: `--redact`
 
-`--annotate <file|->` bakes hand-drawn boxes, arrows, labels, freeform
-strokes, and redactions onto the capture before it's uploaded (JSON spec, a
-file path or `-` for stdin). Selectors resolve against the live page — the
-local backend only in v1, so a selector-bearing spec on `--via remote` is
-rejected up front:
+Uploads are public to anyone with the URL. When a page shows something that
+must not ship — an API key, a customer email, a token — black it out at
+capture time with a CSS selector:
 
 ```bash
-uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+uploads screenshot http://localhost:3000/settings --redact '[data-testid=api-key]' --redact .email
 ```
 
-For the spec format and an existing-image equivalent (`uploads annotate
-<image> --spec <file|->`, pixel-only, no selectors), see the
-**annotate-screenshots** skill.
+Each matched element becomes a solid box (its text, images, and children
+included) without shifting the layout. A selector that matches nothing fails
+the capture instead of uploading the unredacted page.
 
 ## Custom metadata & search
 
@@ -1139,7 +1114,7 @@ every later `uploads login` to it. Pass `--workspace` when you want it fixed.
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
 `UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`,
-`UPLOADS_NO_AUTO_META`, `UPLOADS_SCREENSHOT_VIA`, `UPLOADS_NO_NUDGE`.
+`UPLOADS_NO_AUTO_META`, `UPLOADS_NO_NUDGE`.
 Also read (env only, not config-file keys): `UPLOADS_EMBED_PUBLIC_BASE_URL`,
 `UPLOADS_OVERWRITE`.
 

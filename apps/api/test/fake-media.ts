@@ -2,7 +2,7 @@
  * Minimal stand-in for the `MEDIA` (Media Transformations) binding. Frame
  * extraction has no Miniflare/local simulation — `"remote": true` always
  * proxies to the real service — so tests substitute this instead, mirroring
- * `FakeBrowser` and `FakeR2Bucket`.
+ * `FakeR2Bucket`.
  */
 export interface FakeMediaCall {
   transform: unknown;

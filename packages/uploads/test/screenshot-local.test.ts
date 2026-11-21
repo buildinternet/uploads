@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { UploadsError } from "../src/errors.js";
 import {
+  applyRedactions,
   detectLocalBrowser,
-  measureSelectorBoxes,
+  REDACT_CSS,
   type DetectRoots,
 } from "../src/screenshot-local.js";
 
@@ -162,50 +163,31 @@ describe("detectLocalBrowser", () => {
   });
 });
 
-describe("measureSelectorBoxes", () => {
-  function fakePage(
-    boxes: Record<string, { x: number; y: number; w: number; h: number }>,
-    counts: Record<string, number> = {},
-  ) {
+describe("applyRedactions", () => {
+  function fakePage(counts: Record<string, number>) {
+    const styles: string[] = [];
     return {
+      styles,
       evaluate: async <T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T> => {
         void fn;
-        return arg.map((sel) => {
-          if (sel in counts) return { count: counts[sel] };
-          return boxes[sel] ?? { count: 0 };
-        }) as T;
+        return arg.map((sel) => counts[sel] ?? 0) as T;
+      },
+      addStyleTag: async ({ content }: { content: string }) => {
+        styles.push(content);
       },
     };
   }
 
-  it("scales CSS-pixel boxes by deviceScaleFactor", async () => {
-    const page = fakePage({ h1: { x: 1, y: 2, w: 3, h: 4 } });
-    const measures = await measureSelectorBoxes(page, ["h1"], 2);
-    expect(measures).toEqual({ h1: { x: 2, y: 4, w: 6, h: 8 } });
+  it("injects one blackout rule covering every selector", async () => {
+    const page = fakePage({ ".key": 1, "#email": 2 });
+    await applyRedactions(page, [".key", "#email"]);
+    expect(page.styles).toEqual([`.key,#email{${REDACT_CSS}}`]);
   });
 
-  it("measures multiple selectors in order, 1x scale is a no-op", async () => {
-    const page = fakePage({
-      a: { x: 0, y: 0, w: 10, h: 10 },
-      b: { x: 5, y: 5, w: 20, h: 20 },
-    });
-    const measures = await measureSelectorBoxes(page, ["a", "b"], 1);
-    expect(measures).toEqual({
-      a: { x: 0, y: 0, w: 10, h: 10 },
-      b: { x: 5, y: 5, w: 20, h: 20 },
-    });
-  });
-
-  it("throws naming any selector that matches nothing — no silent skips", async () => {
-    const page = fakePage({ a: { x: 0, y: 0, w: 1, h: 1 } });
-    await expect(measureSelectorBoxes(page, ["a", "b.missing"], 1)).rejects.toThrow(UploadsError);
-    await expect(measureSelectorBoxes(page, ["a", "b.missing"], 1)).rejects.toThrow(/b\.missing/);
-  });
-
-  it("throws on an ambiguous selector instead of measuring the first match", async () => {
-    const page = fakePage({ a: { x: 0, y: 0, w: 1, h: 1 } }, { ".card": 3 });
-    await expect(measureSelectorBoxes(page, ["a", ".card"], 1)).rejects.toThrow(
-      /ambiguous \(3 matches\): \.card/,
-    );
+  it("throws naming any selector that matches nothing, before injecting anything", async () => {
+    const page = fakePage({ ".key": 1 });
+    await expect(applyRedactions(page, [".key", ".missing"])).rejects.toThrow(UploadsError);
+    await expect(applyRedactions(page, [".key", ".missing"])).rejects.toThrow(/\.missing/);
+    expect(page.styles).toEqual([]);
   });
 });

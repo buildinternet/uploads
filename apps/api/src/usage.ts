@@ -158,7 +158,7 @@ export type UploadReservation =
 
 /**
  * Atomically reserve `count` uploads against the monthly budget BEFORE the
- * paid work (Browser Run render / R2 put) happens. A guarded UPDATE increments
+ * paid work (the R2 put) happens. A guarded UPDATE increments
  * `uploads_in_period` only while the workspace stays within
  * `maxUploadsPerPeriod`, so concurrent requests at the cap boundary cannot all
  * pass a read-then-check and overshoot the cap. Callers must

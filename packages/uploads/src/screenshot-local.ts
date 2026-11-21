@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { UploadsError } from "./errors.js";
 
 /**
- * `measureSelectorBoxes` below passes a closure to `page.evaluate`, which
+ * `applyRedactions` below passes a closure to `page.evaluate`, which
  * playwright-core serializes and runs inside the browser page — never in
  * Node. `document` is a DOM global there, but this package's tsconfig is
  * Node-only (`"lib": ["ES2023"]`, no "dom"), so it's declared ambiently and
@@ -23,19 +23,10 @@ import { UploadsError } from "./errors.js";
  * leak into any other file's type-checking.
  */
 declare const document: {
-  querySelectorAll(selector: string): {
-    length: number;
-    [index: number]: { getBoundingClientRect(): DOMRectLike };
-  };
+  querySelectorAll(selector: string): { length: number };
   documentElement: { scrollHeight: number };
   body: { scrollHeight: number } | null;
 };
-interface DOMRectLike {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 export type BrowserCandidateSource = "env" | "system" | "playwright-cache" | "puppeteer-cache";
 
@@ -347,12 +338,11 @@ export interface LocalCaptureOptions {
   /** JS injected via addInitScript before navigation. */
   initScript?: string;
   /**
-   * CSS selectors to measure (getBoundingClientRect, scaled to device pixels)
-   * after settle, before capture — for resolving annotation-spec selectors.
-   * Every selector must match exactly one element; a miss throws naming the
-   * selector (no silent skips).
+   * CSS selectors blacked out just before capture (after `hide` and
+   * `evalJs`). Every selector must match at least one element; a miss throws
+   * naming the selector, so a typo can't silently leave a secret visible.
    */
-  measureSelectors?: string[];
+  redact?: string[];
   timeoutMs?: number;
   detectRoots?: DetectRoots;
   /**
@@ -363,17 +353,43 @@ export interface LocalCaptureOptions {
   detectResult?: DetectResult;
 }
 
-/** A measured element box in device (raster) pixels — CSS pixels × deviceScaleFactor. */
-export interface MeasuredBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+/** Minimal page shape `applyRedactions` needs — matches playwright-core's `Page`. */
+interface RedactablePage {
+  evaluate<T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T>;
+  addStyleTag(options: { content: string }): Promise<unknown>;
 }
 
-/** Minimal page shape this needs — matches playwright-core's `Page.evaluate`. */
-interface EvaluatablePage {
-  evaluate<T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T>;
+/**
+ * Paints each matched element (and everything inside it) as a solid
+ * near-black box: the background fills the element's box and
+ * `brightness(0)` turns its text, images and children black. Neither
+ * property changes layout, so the rest of the page renders as it would.
+ */
+export const REDACT_CSS = "background:#111 !important;filter:brightness(0) !important";
+
+/**
+ * Blacks out every element matching `selectors`. Counts matches first, in a
+ * single `page.evaluate` round-trip, and throws naming any selector that
+ * matches nothing — a typo must fail the capture rather than upload the
+ * secret it was meant to hide.
+ */
+export async function applyRedactions(
+  page: RedactablePage,
+  selectors: readonly string[],
+): Promise<void> {
+  if (selectors.length === 0) return;
+  const counts = await page.evaluate(
+    (sels) => sels.map((selector) => document.querySelectorAll(selector).length),
+    [...selectors],
+  );
+  const missing = selectors.filter((_, i) => counts[i] === 0);
+  if (missing.length > 0) {
+    throw new UploadsError(
+      `--redact selector matched no element: ${missing.join(", ")} (nothing was captured)`,
+      "USAGE",
+    );
+  }
+  await page.addStyleTag({ content: `${selectors.join(",")}{${REDACT_CSS}}` });
 }
 
 /**
@@ -389,46 +405,6 @@ export async function measureFullPageHeight(page: {
   return page.evaluate(() =>
     Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0),
   );
-}
-
-/**
- * Measures each selector's getBoundingClientRect on the page in a single
- * `page.evaluate` round-trip, scaling CSS pixels to device (raster) pixels so
- * the resulting boxes line up with the captured PNG. Throws `UploadsError`
- * naming any selector that matches zero elements or more than one — an
- * ambiguous selector would silently measure the first match and place the
- * annotation confidently in the wrong spot.
- */
-export async function measureSelectorBoxes(
-  page: EvaluatablePage,
-  selectors: readonly string[],
-  scale: number,
-): Promise<Record<string, MeasuredBox>> {
-  if (selectors.length === 0) return {};
-  const boxes = await page.evaluate(
-    (sels) =>
-      sels.map((selector) => {
-        const matches = document.querySelectorAll(selector);
-        if (matches.length !== 1) return { count: matches.length };
-        const r = matches[0]!.getBoundingClientRect();
-        return { x: r.x, y: r.y, w: r.width, h: r.height };
-      }),
-    [...selectors],
-  );
-  const measures: Record<string, MeasuredBox> = {};
-  selectors.forEach((sel, i) => {
-    const box = boxes[i]!;
-    if ("count" in box) {
-      throw new UploadsError(
-        box.count === 0
-          ? `--annotate selector matched no element: ${sel}`
-          : `--annotate selector is ambiguous (${box.count} matches): ${sel}`,
-        "USAGE",
-      );
-    }
-    measures[sel] = { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale };
-  });
-  return measures;
 }
 
 type PlaywrightCoreModule = typeof import("playwright-core");
@@ -496,7 +472,7 @@ async function launchLocalBrowser(
 /** Capture a PNG screenshot using a local (already-installed) browser. */
 export async function captureLocal(
   opts: LocalCaptureOptions,
-): Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox>; clipped?: boolean }> {
+): Promise<{ png: Uint8Array; clipped?: boolean }> {
   const { chromium } = await loadPlaywrightCore();
 
   let browser: import("playwright-core").Browser;
@@ -584,11 +560,8 @@ export async function captureLocal(
       await page.addStyleTag({ content: `${opts.hide.join(",")}{display:none !important}` });
     }
     if (opts.evalJs) await page.evaluate(opts.evalJs);
-
-    const measures =
-      opts.measureSelectors && opts.measureSelectors.length > 0
-        ? await measureSelectorBoxes(page, opts.measureSelectors, opts.viewport.deviceScaleFactor)
-        : undefined;
+    // Redact last, after any eval that could reveal or re-render content.
+    if (opts.redact && opts.redact.length > 0) await applyRedactions(page, opts.redact);
 
     // Full-page height cap (issue #652): measure the actual scroll height
     // first so a page under the cap keeps its normal exact-content-height
@@ -613,7 +586,7 @@ export async function captureLocal(
       png = await page.screenshot({ fullPage: opts.fullPage === true });
     }
     // Buffer extends Uint8Array — return it as-is rather than copying.
-    return { png, measures, clipped };
+    return { png, clipped };
   } finally {
     await browser.close();
   }

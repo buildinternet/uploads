@@ -113,14 +113,6 @@ interface Env {
    */
   OPENROUTER_API_KEY?: string;
   /**
-   * Browser Run (screenshot rendering, `POST /v1/render`). Like `MEDIA`, this
-   * has no local Miniflare simulation and self-hosters may skip the block
-   * entirely (uploads#754 item 3) — `browserRenderer()` in render.ts treats
-   * an absent binding as a distinct `renderer_unavailable` 503, never a
-   * crash.
-   */
-  BROWSER?: BrowserRun;
-  /**
    * Per-workspace/IP rate limiters (uploads#754 item 3). All fail OPEN when
    * absent (unlike POSTER_LIMITER above, which fails closed) — see
    * guards.ts's `makeRateLimitGuard` and the five call sites of
@@ -128,10 +120,9 @@ interface Env {
    * blocks and simply run without that burst guard.
    */
   WRITE_LIMITER?: RateLimit;
-  RENDER_LIMITER?: RateLimit;
   /**
    * Read-side limiters (issue #829 §3), keyed by workspace and entirely
-   * separate from the write/render/poster/intake budgets above.
+   * separate from the write/poster/intake budgets above.
    * `HEAVY_READ_LIMITER` covers search, facets, by-path, and
    * metadata-hydrated listings; `READ_LIMITER` covers the cheaper reads
    * (including a listing the caller opted out of hydrating). See

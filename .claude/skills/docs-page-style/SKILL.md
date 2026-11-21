@@ -238,16 +238,16 @@ actually runs in sequence (an install line, a golden path) — not the whole
 catalog.
 
 **Genuinely equivalent alternatives go in tabs, not stacked blocks.** When one
-action has two interchangeable entry points (the two ways to bake annotations
-onto a capture, say), wrap them in `<Tabs>` / `<TabItem>` from
+action has two interchangeable entry points (the same setup step in Claude
+Code and in Codex, say), wrap them in `<Tabs>` / `<TabItem>` from
 `apps/web/src/components/docs/`:
 
 ````mdx
-<Tabs syncKey="annotate-entry-point">
-  <TabItem label="screenshot --annotate">
+<Tabs syncKey="agent-runtime">
+  <TabItem label="Claude Code">
 
 ```bash
-uploads screenshot … --annotate ./callouts.json
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 ```
 ````
 

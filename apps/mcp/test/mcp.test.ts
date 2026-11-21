@@ -2024,7 +2024,6 @@ describe("skills for clients without the Skills extension", () => {
     const body = (await response.json()) as { result: { resources: { uri: string }[] } };
     expect(body.result.resources.map((resource) => resource.uri)).toEqual(
       expect.arrayContaining([
-        "skill://annotate-screenshots/SKILL.md",
         "skill://github-screenshots/SKILL.md",
         "skill://uploads-cli/SKILL.md",
       ]),
@@ -2182,7 +2181,6 @@ describe("modern-era (2026-07-28) requests", () => {
       cacheScope: string;
     };
     expect(list.skills.map((skill) => skill.uri)).toEqual([
-      "skill://annotate-screenshots/SKILL.md",
       "skill://github-screenshots/SKILL.md",
       "skill://uploads-cli/SKILL.md",
     ]);

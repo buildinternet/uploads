@@ -151,6 +151,10 @@ function mcpFrameOptions(args: ToolArgs): {
   return { frameId, frameUrl, frameFit };
 }
 
+/** Mirrors `remoteBackendRemovedError()` in screenshot.ts (imported dynamically here). */
+const remoteBackendRemovedMessage =
+  "remote screenshot rendering was removed — captures run in a local Chrome/Chromium (install Chrome, or run `npx playwright install chromium`)";
+
 const frameProps = {
   frame: {
     type: "string",
@@ -971,7 +975,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Capture a URL or local HTML file and host it. Shares put's attach, comment, and metadata options. `via=local` needs Chrome; `via=remote` renders server-side. localhost URLs are local-only.",
+        "Capture a URL or local HTML file in a local Chrome/Chromium and host it. Works on localhost. Shares put's attach, comment, and metadata options. `redact` blacks out elements (secrets, personal data) before capture.",
       inputSchema: {
         type: "object",
         properties: {
@@ -981,16 +985,16 @@ export function createUploadsMcpTools(opts: {
           },
           via: {
             type: "string",
-            description: "Capture backend: auto (default) | local | remote.",
+            description:
+              "Deprecated: captures always use the local browser. auto | local are accepted; remote was removed.",
           },
           browser: {
             type: "string",
-            description: "Explicit local browser executable path (local backend only).",
+            description: "Explicit local browser executable path.",
           },
           cdp: {
             type: "string",
-            description:
-              "Attach to a running Chrome via CDP instead of launching one (local backend only).",
+            description: "Attach to a running Chrome via CDP instead of launching one.",
           },
           viewport: {
             type: "string",
@@ -1002,24 +1006,27 @@ export function createUploadsMcpTools(opts: {
             type: "number",
             description:
               "Cap on full-page capture height in CSS px (default: 5000, 0 = uncapped). A page over " +
-              "the cap is clipped, with a `hint` in the result. Requires fullPage. Applied on both " +
-              "via: local and via: remote so behavior matches.",
+              "the cap is clipped, with a `hint` in the result. Requires fullPage.",
           },
           colorScheme: {
             type: "string",
-            description:
-              "Emulate prefers-color-scheme: dark | light. Full media-query emulation requires via: \"local\" — the remote backend only sets the CSS color-scheme property and won't flip a page's own prefers-color-scheme queries.",
+            description: "Emulate prefers-color-scheme: dark | light.",
           },
           wait: {
             type: "string",
             description:
-              'Settle strategy: load (default) | domcontentloaded | networkidle | a millisecond count (millisecond counts are local-only — via: "local").',
+              "Settle strategy: load (default) | domcontentloaded | networkidle | a millisecond count.",
           },
           hide: {
             type: "array",
             items: { type: "string" },
+            description: "CSS selectors to hide (display:none) before capture.",
+          },
+          redact: {
+            type: "array",
+            items: { type: "string" },
             description:
-              "CSS selectors to hide (display:none) before capture. Works on both backends.",
+              "CSS selectors to black out before capture (API keys, emails, tokens). Fails if a selector matches nothing.",
           },
           noHideDevTools: {
             type: "boolean",
@@ -1028,8 +1035,7 @@ export function createUploadsMcpTools(opts: {
           },
           reducedMotion: {
             type: "boolean",
-            description:
-              'Emulate prefers-reduced-motion: reduce so animations settle. Best-effort on via: "remote" (neutralizes animations via injected CSS).',
+            description: "Emulate prefers-reduced-motion: reduce so animations settle.",
           },
           key: {
             type: "string",
@@ -1116,9 +1122,8 @@ export function createUploadsMcpTools(opts: {
         const targetArg = optString(args, "target");
         if (!targetArg) usage("target is required");
         const viaArg = optString(args, "via") ?? "auto";
-        if (viaArg !== "auto" && viaArg !== "local" && viaArg !== "remote") {
-          usage("via must be auto, local, or remote");
-        }
+        if (viaArg === "remote") usage(remoteBackendRemovedMessage);
+        if (viaArg !== "auto" && viaArg !== "local") usage("via must be auto or local");
         const colorSchemeArg = optString(args, "colorScheme");
         if (colorSchemeArg && colorSchemeArg !== "dark" && colorSchemeArg !== "light") {
           usage("colorScheme must be dark or light");
@@ -1230,13 +1235,13 @@ export function createUploadsMcpTools(opts: {
         // Dynamic import only: keeps mcp/tools.ts (and therefore anything
         // that statically imports it) free of a static reference to the
         // local-backend chain. If this fails, the runtime can't do Node-side
-        // capture at all — point the caller at the remote backend instead.
+        // capture at all.
         let screenshotModule: typeof import("../screenshot.js");
         try {
           screenshotModule = await import("../screenshot.js");
         } catch (err) {
           usage(
-            `screenshot capture is unavailable in this runtime; try via: "remote" instead (${
+            `screenshot capture is unavailable in this runtime (${
               err instanceof Error ? err.message : String(err)
             })`,
           );
@@ -1267,40 +1272,25 @@ export function createUploadsMcpTools(opts: {
         const metadataWithCaptureFacts = stagingTarget
           ? mergeStagingMeta(metadataBase, stagingTarget)
           : metadataBase;
-        let captured: Awaited<ReturnType<typeof screenshotModule.captureScreenshot>>;
-        try {
-          captured = await screenshotModule.captureScreenshot({
-            target: targetArg!,
-            via: viaArg,
-            browserPath: optString(args, "browser"),
-            cdp: optString(args, "cdp"),
-            viewport,
-            selector: optString(args, "selector"),
-            fullPage: fullPageArg,
-            maxHeight: maxHeightArg,
-            colorScheme: colorSchemeArg as "dark" | "light" | undefined,
-            waitUntil: screenshotModule.parseWaitUntil(optString(args, "wait")),
-            hide: optStringArray(args, "hide"),
-            hideDevTools: optBool(args, "noHideDevTools") ? false : undefined,
-            reducedMotion: optBool(args, "reducedMotion"),
-            // Skip folding when an explicit key was given — key sets the
-            // whole object key, so there's no auto-derived name to fold
-            // state into.
-            state: keyArg ? undefined : metadataWithCaptureFacts?.state,
-            apiUrl: config.apiUrl,
-            token: config.token,
-          });
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            "code" in err &&
-            (err as { code?: string }).code === "BROWSER_NOT_FOUND" &&
-            viaArg === "local"
-          ) {
-            usage(`${err.message} — try via: "remote" instead`);
-          }
-          throw err;
-        }
+        const captured = await screenshotModule.captureScreenshot({
+          target: targetArg!,
+          browserPath: optString(args, "browser"),
+          cdp: optString(args, "cdp"),
+          viewport,
+          selector: optString(args, "selector"),
+          fullPage: fullPageArg,
+          maxHeight: maxHeightArg,
+          colorScheme: colorSchemeArg as "dark" | "light" | undefined,
+          waitUntil: screenshotModule.parseWaitUntil(optString(args, "wait")),
+          hide: optStringArray(args, "hide"),
+          redact: optStringArray(args, "redact"),
+          hideDevTools: optBool(args, "noHideDevTools") ? false : undefined,
+          reducedMotion: optBool(args, "reducedMotion"),
+          // Skip folding when an explicit key was given — key sets the
+          // whole object key, so there's no auto-derived name to fold
+          // state into.
+          state: keyArg ? undefined : metadataWithCaptureFacts?.state,
+        });
 
         // Resolved once (issue #631), only now that upload is actually
         // about to happen — never per file (screenshot uploads exactly one).

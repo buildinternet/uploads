@@ -63,7 +63,7 @@ export const HOME_FAQ: HomeFaqItem[] = [
     q: "Does it work with private repos?",
     a: `<p>Yes. Install the <a href="/docs/github-app">uploads GitHub App</a> on the private repository and it can post the attachments comment.</p>
 <p>Anyone with the file URL can still fetch the file, including a file attached to a private repo. When the App can see that the repo is private, new attachment URLs use an unguessable prefix, so they are not derived from the repository name.</p>
-<p>Leave secrets out of the capture, or redact them with <code>uploads annotate</code>.</p>`,
+<p>Leave secrets out of the capture, or black them out with <code>uploads screenshot --redact</code>.</p>`,
   },
 ];
 

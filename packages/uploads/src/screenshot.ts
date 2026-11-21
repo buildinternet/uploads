@@ -1,7 +1,7 @@
 /**
- * Shared screenshot capture core: target classification, backend selection,
- * and dispatch to the local (playwright-core, dynamic import) or remote
- * (render endpoint) backend. Used by both the CLI command and the MCP tool.
+ * Shared screenshot capture core: target classification and dispatch to the
+ * local backend (playwright-core, dynamic import). Used by both the CLI
+ * command and the MCP tool.
  *
  * Deliberately NOT re-exported from index.ts/agent.ts — this module is safe
  * to import statically (it never touches playwright-core itself), but
@@ -15,12 +15,21 @@ import { UploadsError } from "./errors.js";
 import { sanitizeFilename } from "./comment-render.generated.js";
 import { isMetaStateValue } from "./metadata-vocab.js";
 import { isPrivateOrLocalHost } from "./private-host.js";
-import { captureRemote, MAX_REMOTE_HTML_BYTES } from "./screenshot-remote.js";
 import type { DetectRoots } from "./screenshot-local.js";
 
 export { isPrivateOrLocalHost };
 
-export type ScreenshotBackend = "auto" | "local" | "remote";
+/**
+ * The error for a caller still asking for the removed server-side renderer.
+ * `--via auto` / `--via local` stay accepted (both mean the local browser) so
+ * existing scripts and agent instructions keep working.
+ */
+export function remoteBackendRemovedError(): UploadsError {
+  return new UploadsError(
+    "remote screenshot rendering was removed — captures run in a local Chrome/Chromium (install Chrome, or run `npx playwright install chromium`)",
+    "USAGE",
+  );
+}
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | number;
 
 /**
@@ -41,17 +50,17 @@ export const DEV_TOOLBAR_SELECTORS: readonly string[] = [
 ];
 
 /**
- * Reject a `--hide` selector that could break out of the generated
+ * Reject a `--hide`/`--redact` selector that could break out of the generated
  * `selector{display:none}` rule (or inject markup server-side). The selectors
  * are the caller's own, so this guards against footguns, not a trust boundary.
  * `@` is rejected too: a leading at-rule (e.g. `@import url(...);*`) needs no
  * braces to smuggle an `@import` into the injected stylesheet — and `@` is
  * never valid in a CSS selector anyway.
  */
-export function assertHideSelector(selector: string): void {
+export function assertHideSelector(selector: string, flag = "hide"): void {
   if (selector.length === 0 || /[@{}<>]/.test(selector)) {
     throw new UploadsError(
-      `invalid hide selector: ${JSON.stringify(selector)} (a CSS selector, no @, {, }, <, or >)`,
+      `invalid ${flag} selector: ${JSON.stringify(selector)} (a CSS selector, no @, {, }, <, or >)`,
       "USAGE",
     );
   }
@@ -142,17 +151,8 @@ export function classifyTarget(target: string): ScreenshotTarget {
   return { kind: "html-file", path: abs, html: readFileSync(abs, "utf8") };
 }
 
-/** A measured element box in device (raster) pixels — CSS pixels × deviceScaleFactor. */
-export interface MeasuredBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
 export interface CaptureScreenshotOptions {
   target: string;
-  via: ScreenshotBackend;
   browserPath?: string;
   cdp?: string;
   viewport?: ScreenshotViewport;
@@ -161,8 +161,7 @@ export interface CaptureScreenshotOptions {
   /**
    * Cap (CSS px) on `--full-page` capture height. Only meaningful with
    * `fullPage: true`; ignored otherwise. `undefined` applies
-   * `DEFAULT_FULL_PAGE_MAX_HEIGHT`; `0` means uncapped. Wired through both
-   * capture backends so behavior matches regardless of `via` (issue #652).
+   * `DEFAULT_FULL_PAGE_MAX_HEIGHT`; `0` means uncapped (issue #652).
    */
   maxHeight?: number;
   colorScheme?: "dark" | "light";
@@ -178,6 +177,11 @@ export interface CaptureScreenshotOptions {
   /** Extra CSS selectors to hide (display:none) before capture. */
   hide?: string[];
   /**
+   * CSS selectors blacked out before capture. Each must match at least one
+   * element, or the capture fails (see `applyRedactions`).
+   */
+  redact?: string[];
+  /**
    * Auto-hide known framework dev toolbars. Defaults to on for localhost/
    * private-network targets and off otherwise; pass `false` to opt out.
    */
@@ -188,21 +192,12 @@ export interface CaptureScreenshotOptions {
    * JS expression polled in the page until truthy after settle, before
    * `evalJs` and capture — the caller's "app is interactive" signal so a
    * synthetic click in `evalJs` lands after framework hydration (issue #715).
-   * Local backend only — throws if the resolved backend is remote.
    */
   waitForExpr?: string;
-  /** Run this JS in the page after settle, before capture (local backend only). */
+  /** Run this JS in the page after settle, before capture. */
   evalJs?: string;
-  /** Inject this JS as an init script before navigation (local backend only). */
+  /** Inject this JS as an init script before navigation. */
   initScript?: string;
-  /**
-   * CSS selectors to measure (getBoundingClientRect, scaled to device pixels)
-   * before capture, for resolving annotation-spec selectors. Local backend
-   * only — throws if the resolved backend is remote.
-   */
-  measureSelectors?: string[];
-  apiUrl: string;
-  token: string;
   /** Injectable for tests; forwarded to detectLocalBrowser. */
   detectRoots?: DetectRoots;
   /** Injectable for tests: replaces the local capture implementation. */
@@ -218,33 +213,27 @@ export interface CaptureScreenshotOptions {
     colorScheme?: "dark" | "light";
     waitUntil: WaitUntil;
     hide?: string[];
+    redact?: string[];
     reducedMotion?: boolean;
     waitForExpr?: string;
     evalJs?: string;
     initScript?: string;
-    measureSelectors?: string[];
     detectRoots?: DetectRoots;
-    /** Pre-computed detection result from auto-routing, to avoid a second fs scan. */
-    detectResult?: import("./screenshot-local.js").DetectResult;
   }) => Promise<{
     png: Uint8Array;
-    measures?: Record<string, MeasuredBox>;
     /** Present when `fullPage` + a positive `maxHeightPx` were given. */
     clipped?: boolean;
   }>;
-  /** Injectable for tests: replaces the remote capture implementation. */
-  captureRemoteImpl?: typeof captureRemote;
 }
 
 export interface CaptureScreenshotResult {
   png: Uint8Array;
   filename: string;
-  backend: "local" | "remote";
-  /** Present when `measureSelectors` was given and the local backend ran. */
-  measures?: Record<string, MeasuredBox>;
+  /** Always "local"; kept on the result so JSON output stays stable. */
+  backend: "local";
   /**
    * Present when `fullPage` was requested with a nonzero max-height cap
-   * (explicit or default) — regardless of backend. `clipped` tells the
+   * (explicit or default). `clipped` tells the
    * caller whether the cap actually kicked in, so it can print the
    * "exceeds Npx; clipped" note and JSON `hint` (issue #652).
    */
@@ -302,25 +291,7 @@ export function foldStateIntoFilename(filename: string, state: string | undefine
 }
 
 /**
- * Best-effort local-browser probe used only to decide `auto` routing. Never
- * throws — any failure (e.g. optional playwright-core not installed) means
- * "no local browser available". Returns the full detection result (not just
- * a boolean) so callers that go on to launch locally can reuse it instead of
- * re-scanning the filesystem a second time.
- */
-async function probeLocalBrowser(
-  detectRoots: DetectRoots | undefined,
-): Promise<import("./screenshot-local.js").DetectResult | undefined> {
-  try {
-    const { detectLocalBrowser } = await import("./screenshot-local.js");
-    return detectLocalBrowser(detectRoots);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Resolve target + options into PNG bytes via the local or remote backend.
+ * Resolve target + options into PNG bytes via the local browser.
  * Shared by the CLI `screenshot` command and the MCP `screenshot` tool.
  */
 export async function captureScreenshot(
@@ -331,148 +302,46 @@ export async function captureScreenshot(
   const waitUntil = opts.waitUntil ?? "load";
   const filename = foldStateIntoFilename(deriveFilename(target), opts.state);
 
-  // Only private-network URLs are truly unreachable remotely; an .html file
-  // is sent to the remote backend as an inline `html` body (though anything
-  // it references via file:// or relative paths won't resolve there).
-  const localOnly = target.kind === "url" && target.localOnly;
-
   // Auto-hide framework dev toolbars only makes sense for a running dev server
   // (a localhost/private URL); default off elsewhere. Combine with any
-  // explicit --hide selectors into one list shared by both backends.
+  // explicit --hide selectors into one list.
+  const localOnly = target.kind === "url" && target.localOnly;
   const autoHideDevTools = opts.hideDevTools ?? localOnly;
   for (const sel of opts.hide ?? []) assertHideSelector(sel);
+  for (const sel of opts.redact ?? []) assertHideSelector(sel, "redact");
   const hide = [...(opts.hide ?? []), ...(autoHideDevTools ? DEV_TOOLBAR_SELECTORS : [])];
 
   // Full-page height cap (issue #652): only meaningful with fullPage. 0
   // (explicit --max-height 0) means uncapped; undefined applies the default.
   const effectiveMaxHeight = opts.fullPage ? (opts.maxHeight ?? DEFAULT_FULL_PAGE_MAX_HEIGHT) : 0;
 
-  // Shared by both backends below — only meaningful when fullPage capped at
-  // a positive height; `clipped` is the one thing that differs per backend.
-  const cappedFrom = (clipped: boolean): CaptureScreenshotResult["capped"] =>
-    opts.fullPage && effectiveMaxHeight > 0
-      ? { maxHeightPx: effectiveMaxHeight, clipped }
-      : undefined;
-
-  // Populated only when auto-routing actually probes the filesystem, so it
-  // can be threaded into captureLocalImpl below to avoid a second scan.
-  let detected: import("./screenshot-local.js").DetectResult | undefined;
-
-  let backend: "local" | "remote";
-  if (opts.via === "local") {
-    backend = "local";
-  } else if (opts.via === "remote") {
-    if (localOnly) {
-      throw new UploadsError(
-        `${opts.target} is only reachable by the local backend (localhost/private network, or a local file) — use --via local`,
-        "USAGE",
-      );
-    }
-    backend = "remote";
-  } else {
-    // auto
-    detected = await probeLocalBrowser(opts.detectRoots);
-    const available = Boolean(detected?.winner);
-    if (localOnly) {
-      if (!available) {
-        throw new UploadsError(
-          `${opts.target} is only reachable by the local backend, but no local browser was found — install Chrome or run \`npx playwright install chromium\``,
-          "BROWSER_NOT_FOUND",
-        );
-      }
-      backend = "local";
-    } else {
-      backend = available ? "local" : "remote";
-    }
-  }
-
-  // Numeric --wait is a fixed post-load settle delay the local Playwright
-  // page can honor directly; the remote render endpoint only understands the
-  // named strategies, so fail fast instead of silently ignoring the delay.
-  if (backend === "remote" && typeof waitUntil === "number") {
-    throw new UploadsError(
-      `numeric --wait (${waitUntil}ms) is local-only — use --via local, or one of load/domcontentloaded/networkidle for the remote backend`,
-      "USAGE",
-    );
-  }
-
-  // Arbitrary pre-capture JS runs only on the local backend — the shared
-  // remote renderer intentionally has no eval escape hatch (different security
-  // posture). Fail fast rather than silently dropping it.
-  if (backend === "remote" && (opts.evalJs !== undefined || opts.initScript !== undefined)) {
-    throw new UploadsError("--eval and --init-script are local-only — use --via local", "USAGE");
-  }
-
-  // --wait-for polls a JS predicate via the live local page (page.waitForFunction);
-  // the remote renderer has no eval escape hatch to evaluate it. Fail fast
-  // rather than silently ignore the caller's readiness signal.
-  if (backend === "remote" && opts.waitForExpr !== undefined) {
-    throw new UploadsError("--wait-for is local-only — use --via local", "USAGE");
-  }
-
-  // Selector-based annotation measurement needs a live local page — the
-  // remote render endpoint has no eval escape hatch to run
-  // getBoundingClientRect. Covers both explicit --via remote and auto
-  // resolving to remote.
-  if (backend === "remote" && opts.measureSelectors && opts.measureSelectors.length > 0) {
-    throw new UploadsError("selector annotations need --via local in v1", "USAGE");
-  }
-
-  if (backend === "local") {
-    const captureLocalImpl =
-      opts.captureLocalImpl ??
-      (async (localOpts) => {
-        const { captureLocal } = await import("./screenshot-local.js");
-        return captureLocal(localOpts);
-      });
-    const localResult = await captureLocalImpl({
-      url: target.kind === "html-file" ? pathToFileURL(target.path).href : target.url,
-      browserPath: opts.browserPath,
-      cdp: opts.cdp,
-      viewport,
-      selector: opts.selector,
-      fullPage: opts.fullPage,
-      maxHeightPx: effectiveMaxHeight,
-      colorScheme: opts.colorScheme,
-      waitUntil,
-      hide,
-      reducedMotion: opts.reducedMotion,
-      waitForExpr: opts.waitForExpr,
-      evalJs: opts.evalJs,
-      initScript: opts.initScript,
-      measureSelectors: opts.measureSelectors,
-      detectRoots: opts.detectRoots,
-      detectResult: detected,
+  const captureLocalImpl =
+    opts.captureLocalImpl ??
+    (async (localOpts) => {
+      const { captureLocal } = await import("./screenshot-local.js");
+      return captureLocal(localOpts);
     });
-    const capped = cappedFrom(localResult.clipped === true);
-    return { png: localResult.png, filename, backend, measures: localResult.measures, capped };
-  }
-
-  if (target.kind === "html-file") {
-    const bytes = new TextEncoder().encode(target.html).byteLength;
-    if (bytes > MAX_REMOTE_HTML_BYTES) {
-      throw new UploadsError(
-        `${opts.target} is ${bytes} bytes, over the remote backend's ${MAX_REMOTE_HTML_BYTES} byte limit — use --via local`,
-        "USAGE",
-      );
-    }
-  }
-
-  const captureRemoteImpl = opts.captureRemoteImpl ?? captureRemote;
-  const remoteResult = await captureRemoteImpl(
-    {
-      ...(target.kind === "html-file" ? { html: target.html } : { url: target.url }),
-      viewport,
-      selector: opts.selector,
-      fullPage: opts.fullPage,
-      ...(opts.fullPage && effectiveMaxHeight > 0 ? { maxHeight: effectiveMaxHeight } : {}),
-      colorScheme: opts.colorScheme,
-      waitUntil,
-      ...(hide.length > 0 ? { hide } : {}),
-      ...(opts.reducedMotion ? { reducedMotion: true } : {}),
-    },
-    { apiUrl: opts.apiUrl, token: opts.token },
-  );
-  const capped = cappedFrom(remoteResult.clipped === true);
-  return { png: remoteResult.png, filename, backend, capped };
+  const localResult = await captureLocalImpl({
+    url: target.kind === "html-file" ? pathToFileURL(target.path).href : target.url,
+    browserPath: opts.browserPath,
+    cdp: opts.cdp,
+    viewport,
+    selector: opts.selector,
+    fullPage: opts.fullPage,
+    maxHeightPx: effectiveMaxHeight,
+    colorScheme: opts.colorScheme,
+    waitUntil,
+    hide,
+    ...(opts.redact && opts.redact.length > 0 ? { redact: opts.redact } : {}),
+    reducedMotion: opts.reducedMotion,
+    waitForExpr: opts.waitForExpr,
+    evalJs: opts.evalJs,
+    initScript: opts.initScript,
+    detectRoots: opts.detectRoots,
+  });
+  const capped =
+    opts.fullPage && effectiveMaxHeight > 0
+      ? { maxHeightPx: effectiveMaxHeight, clipped: localResult.clipped === true }
+      : undefined;
+  return { png: localResult.png, filename, backend: "local", capped };
 }

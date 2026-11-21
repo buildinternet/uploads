@@ -212,25 +212,19 @@ describe("foldStateIntoFilename", () => {
   });
 });
 
-describe("captureScreenshot backend selection", () => {
+describe("captureScreenshot", () => {
   const png = new Uint8Array([9, 9, 9]);
 
   it("folds --state into the derived filename, so before/after produce distinct keys", async () => {
     const before = await captureScreenshot({
       target: "https://example.com/docs/mcp",
-      via: "remote",
       state: "before",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async () => ({ png, clipped: false }),
+      captureLocalImpl: async () => ({ png, clipped: false }),
     });
     const after = await captureScreenshot({
       target: "https://example.com/docs/mcp",
-      via: "remote",
       state: "after",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async () => ({ png, clipped: false }),
+      captureLocalImpl: async () => ({ png, clipped: false }),
     });
     expect(before.filename).toBe("example-com-docs-mcp-before.png");
     expect(after.filename).toBe("example-com-docs-mcp-after.png");
@@ -240,221 +234,16 @@ describe("captureScreenshot backend selection", () => {
   it("leaves the derived filename untouched when no state is given", async () => {
     const result = await captureScreenshot({
       target: "https://example.com/docs/mcp",
-      via: "remote",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async () => ({ png, clipped: false }),
+      captureLocalImpl: async () => ({ png, clipped: false }),
     });
     expect(result.filename).toBe("example-com-docs-mcp.png");
   });
 
-  it("uses local when --via local is requested", async () => {
-    let usedLocal = false;
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "local",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureLocalImpl: async () => {
-        usedLocal = true;
-        return { png };
-      },
-    });
-    expect(usedLocal).toBe(true);
-    expect(result.backend).toBe("local");
-    expect(result.png).toEqual(png);
-  });
-
-  it("uses remote when --via remote is requested for a public URL", async () => {
-    let usedRemote = false;
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "remote",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async () => {
-        usedRemote = true;
-        return { png, clipped: false };
-      },
-    });
-    expect(usedRemote).toBe(true);
-    expect(result.backend).toBe("remote");
-  });
-
-  it("--via remote on a localhost target fails fast instead of sending a doomed request", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "http://localhost:4000",
-        via: "remote",
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toThrow(UploadsError);
-    expect(usedRemote).toBe(false);
-  });
-
-  it("--via remote on an .html file POSTs its contents as inline html", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
-    const file = join(dir, "card.html");
-    writeFileSync(file, "<html><body>hi</body></html>");
-    let sentHtml: string | undefined;
-    const result = await captureScreenshot({
-      target: file,
-      via: "remote",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async (body) => {
-        sentHtml = (body as { html?: string }).html;
-        return { png, clipped: false };
-      },
-    });
-    expect(sentHtml).toBe("<html><body>hi</body></html>");
-    expect(result.backend).toBe("remote");
-  });
-
-  it("--via remote rejects an .html file over the 2 MiB inline limit", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
-    const file = join(dir, "big.html");
-    writeFileSync(file, `<html>${"x".repeat(2 * 1024 * 1024)}</html>`);
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: file,
-        via: "remote",
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("auto falls back to remote when no local browser is detected", async () => {
-    let usedRemote = false;
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "auto",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      // Force detectLocalBrowser to find nothing, regardless of what's
-      // actually installed on the machine running this test.
-      detectRoots: {
-        env: {},
-        systemCandidates: [],
-        playwrightCacheDir: "/nonexistent/ms-playwright",
-        puppeteerCacheDir: "/nonexistent/puppeteer",
-      },
-      captureRemoteImpl: async () => {
-        usedRemote = true;
-        return { png, clipped: false };
-      },
-    });
-    expect(usedRemote).toBe(true);
-    expect(result.backend).toBe("remote");
-  });
-
-  it("auto uses local when a local browser is detected", async () => {
-    let usedLocal = false;
-    let seenDetectResult: unknown;
-    const systemChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "auto",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      detectRoots: {
-        env: {},
-        systemCandidates: [{ kind: "chrome", path: systemChrome }],
-        exists: (p: string) => p === systemChrome,
-        playwrightCacheDir: "/nonexistent/ms-playwright",
-        puppeteerCacheDir: "/nonexistent/puppeteer",
-      },
-      captureLocalImpl: async (opts) => {
-        usedLocal = true;
-        seenDetectResult = opts.detectResult;
-        return { png };
-      },
-    });
-    expect(usedLocal).toBe(true);
-    expect(result.backend).toBe("local");
-    // auto-routing's probe result is threaded through so the local capture
-    // doesn't have to re-scan the filesystem a second time.
-    expect(seenDetectResult).toMatchObject({ winner: { executablePath: systemChrome } });
-  });
-
-  it("--via local (no auto-probe) does not pre-populate detectResult — capture scans once itself", async () => {
-    let seenDetectResult: unknown = "unset";
-    await captureScreenshot({
-      target: "https://example.com",
-      via: "local",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureLocalImpl: async (opts) => {
-        seenDetectResult = opts.detectResult;
-        return { png };
-      },
-    });
-    expect(seenDetectResult).toBeUndefined();
-  });
-
-  it("rejects a numeric --wait on --via remote before making any request", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "remote",
-        waitUntil: 500,
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("rejects a numeric --wait when auto resolves to remote (no local browser)", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "auto",
-        waitUntil: 250,
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        detectRoots: {
-          env: {},
-          systemCandidates: [],
-          playwrightCacheDir: "/nonexistent/ms-playwright",
-          puppeteerCacheDir: "/nonexistent/puppeteer",
-        },
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("allows a numeric --wait on --via local", async () => {
+  it("forwards a numeric --wait to the local backend", async () => {
     let seenWait: unknown;
     const result = await captureScreenshot({
       target: "https://example.com",
-      via: "local",
       waitUntil: 500,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenWait = opts.waitUntil;
         return { png };
@@ -468,9 +257,6 @@ describe("captureScreenshot backend selection", () => {
     let seenHide: string[] | undefined;
     await captureScreenshot({
       target: "http://localhost:3000",
-      via: "local",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
         return { png };
@@ -483,9 +269,6 @@ describe("captureScreenshot backend selection", () => {
     let seenHide: string[] | undefined;
     await captureScreenshot({
       target: "https://example.com",
-      via: "local",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
         return { png };
@@ -498,11 +281,8 @@ describe("captureScreenshot backend selection", () => {
     let seenHide: string[] | undefined;
     await captureScreenshot({
       target: "http://localhost:3000",
-      via: "local",
       hide: [".banner"],
       hideDevTools: false,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
         return { png };
@@ -515,10 +295,7 @@ describe("captureScreenshot backend selection", () => {
     let seenHide: string[] | undefined;
     await captureScreenshot({
       target: "http://localhost:3000",
-      via: "local",
       hide: [".banner"],
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
         return { png };
@@ -527,14 +304,35 @@ describe("captureScreenshot backend selection", () => {
     expect(seenHide).toEqual([".banner", ...DEV_TOOLBAR_SELECTORS]);
   });
 
+  it("forwards --redact selectors to the local backend, separate from --hide", async () => {
+    let seen: { hide?: string[]; redact?: string[] } = {};
+    await captureScreenshot({
+      target: "https://example.com",
+      hide: [".banner"],
+      redact: ["[data-testid=api-key]"],
+      captureLocalImpl: async (opts) => {
+        seen = { hide: opts.hide, redact: opts.redact };
+        return { png };
+      },
+    });
+    expect(seen).toEqual({ hide: [".banner"], redact: ["[data-testid=api-key]"] });
+  });
+
+  it("rejects a --redact selector that could break out of the injected rule", async () => {
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        redact: ["x}body{display:none"],
+        captureLocalImpl: async () => ({ png }),
+      }),
+    ).rejects.toMatchObject({ code: "USAGE", message: expect.stringContaining("redact") });
+  });
+
   it("rejects a --hide selector that could break out of the injected rule", async () => {
     await expect(
       captureScreenshot({
         target: "https://example.com",
-        via: "local",
         hide: ["ok", "evil}{body{display:none"],
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
         captureLocalImpl: async () => ({ png }),
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
@@ -544,209 +342,23 @@ describe("captureScreenshot backend selection", () => {
     await expect(
       captureScreenshot({
         target: "https://example.com",
-        via: "local",
         hide: ["@import url(http://127.0.0.1);*"],
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
         captureLocalImpl: async () => ({ png }),
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
-  });
-
-  it("forwards reducedMotion and hide to the remote backend body", async () => {
-    let sentBody: Record<string, unknown> | undefined;
-    await captureScreenshot({
-      target: "https://example.com",
-      via: "remote",
-      hide: [".banner"],
-      reducedMotion: true,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async (body) => {
-        sentBody = body as unknown as Record<string, unknown>;
-        return { png, clipped: false };
-      },
-    });
-    expect(sentBody).toMatchObject({ hide: [".banner"], reducedMotion: true });
-  });
-
-  it("rejects --eval on the remote backend (local-only) before any request", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "remote",
-        evalJs: "document.title = 'x'",
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
   });
 
   it("forwards --wait-for to the local backend", async () => {
     let seenWaitFor: unknown;
     await captureScreenshot({
       target: "https://example.com",
-      via: "local",
       waitForExpr: "window.__hydrated === true",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenWaitFor = opts.waitForExpr;
         return { png };
       },
     });
     expect(seenWaitFor).toBe("window.__hydrated === true");
-  });
-
-  it("rejects --wait-for on the remote backend (local-only) before any request", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "remote",
-        waitForExpr: "window.__hydrated === true",
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("rejects --wait-for when auto resolves to remote (no local browser)", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "auto",
-        waitForExpr: "window.__hydrated === true",
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        detectRoots: {
-          env: {},
-          systemCandidates: [],
-          playwrightCacheDir: "/nonexistent/ms-playwright",
-          puppeteerCacheDir: "/nonexistent/puppeteer",
-        },
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("auto on a localhost target errors clearly when no local browser is found (no doomed remote request)", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "http://localhost:4000",
-        via: "auto",
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        detectRoots: {
-          env: {},
-          systemCandidates: [],
-          playwrightCacheDir: "/nonexistent/ms-playwright",
-          puppeteerCacheDir: "/nonexistent/puppeteer",
-        },
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "BROWSER_NOT_FOUND" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("measureSelectors round-trips through captureLocalImpl into result.measures", async () => {
-    let seenMeasureSelectors: string[] | undefined;
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "local",
-      measureSelectors: ["h1", ".hero"],
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureLocalImpl: async (opts) => {
-        seenMeasureSelectors = opts.measureSelectors;
-        return {
-          png,
-          measures: {
-            h1: { x: 10, y: 20, w: 100, h: 40 },
-            ".hero": { x: 0, y: 0, w: 1280, h: 200 },
-          },
-        };
-      },
-    });
-    expect(seenMeasureSelectors).toEqual(["h1", ".hero"]);
-    expect(result.measures).toEqual({
-      h1: { x: 10, y: 20, w: 100, h: 40 },
-      ".hero": { x: 0, y: 0, w: 1280, h: 200 },
-    });
-  });
-
-  it("captureLocalImpl without measures leaves result.measures undefined", async () => {
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "local",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureLocalImpl: async () => ({ png }),
-    });
-    expect(result.png).toEqual(png);
-    expect(result.measures).toBeUndefined();
-  });
-
-  it("rejects measureSelectors on an explicit --via remote before any request", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "remote",
-        measureSelectors: ["h1"],
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
-  });
-
-  it("rejects measureSelectors when auto resolves to remote (no local browser)", async () => {
-    let usedRemote = false;
-    await expect(
-      captureScreenshot({
-        target: "https://example.com",
-        via: "auto",
-        measureSelectors: ["h1"],
-        apiUrl: "https://api.uploads.sh",
-        token: "t",
-        detectRoots: {
-          env: {},
-          systemCandidates: [],
-          playwrightCacheDir: "/nonexistent/ms-playwright",
-          puppeteerCacheDir: "/nonexistent/puppeteer",
-        },
-        captureRemoteImpl: async () => {
-          usedRemote = true;
-          return { png, clipped: false };
-        },
-      }),
-    ).rejects.toMatchObject({ code: "USAGE" });
-    expect(usedRemote).toBe(false);
   });
 });
 
@@ -757,10 +369,7 @@ describe("captureScreenshot full-page height cap (issue #652)", () => {
     let seenMaxHeightPx: number | undefined;
     await captureScreenshot({
       target: "https://example.com",
-      via: "local",
       fullPage: true,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenMaxHeightPx = opts.maxHeightPx;
         return { png, clipped: false };
@@ -773,9 +382,6 @@ describe("captureScreenshot full-page height cap (issue #652)", () => {
     let seenMaxHeightPx: number | undefined;
     const result = await captureScreenshot({
       target: "https://example.com",
-      via: "local",
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenMaxHeightPx = opts.maxHeightPx;
         return { png, clipped: false };
@@ -789,11 +395,8 @@ describe("captureScreenshot full-page height cap (issue #652)", () => {
     let seenMaxHeightPx: number | undefined;
     const result = await captureScreenshot({
       target: "https://example.com",
-      via: "local",
       fullPage: true,
       maxHeight: 8000,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenMaxHeightPx = opts.maxHeightPx;
         return { png, clipped: false };
@@ -807,11 +410,8 @@ describe("captureScreenshot full-page height cap (issue #652)", () => {
     let seenMaxHeightPx: number | undefined;
     const result = await captureScreenshot({
       target: "https://example.com",
-      via: "local",
       fullPage: true,
       maxHeight: 0,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async (opts) => {
         seenMaxHeightPx = opts.maxHeightPx;
         return { png, clipped: false };
@@ -824,49 +424,9 @@ describe("captureScreenshot full-page height cap (issue #652)", () => {
   it("propagates clipped: true from the local backend", async () => {
     const result = await captureScreenshot({
       target: "https://example.com",
-      via: "local",
       fullPage: true,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
       captureLocalImpl: async () => ({ png, clipped: true }),
     });
     expect(result.capped).toEqual({ maxHeightPx: DEFAULT_FULL_PAGE_MAX_HEIGHT, clipped: true });
-  });
-
-  it("applies the default cap to the remote backend and propagates clipped: true", async () => {
-    let seenBody: Record<string, unknown> | undefined;
-    const result = await captureScreenshot({
-      target: "https://example.com",
-      via: "remote",
-      fullPage: true,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async (body) => {
-        seenBody = body as unknown as Record<string, unknown>;
-        return { png, clipped: true };
-      },
-    });
-    expect(seenBody).toMatchObject({ fullPage: true, maxHeight: DEFAULT_FULL_PAGE_MAX_HEIGHT });
-    expect(result.capped).toEqual({
-      maxHeightPx: DEFAULT_FULL_PAGE_MAX_HEIGHT,
-      clipped: true,
-    });
-  });
-
-  it("does not send maxHeight to the remote backend when uncapped", async () => {
-    let seenBody: Record<string, unknown> | undefined;
-    await captureScreenshot({
-      target: "https://example.com",
-      via: "remote",
-      fullPage: true,
-      maxHeight: 0,
-      apiUrl: "https://api.uploads.sh",
-      token: "t",
-      captureRemoteImpl: async (body) => {
-        seenBody = body as unknown as Record<string, unknown>;
-        return { png, clipped: false };
-      },
-    });
-    expect(seenBody).not.toHaveProperty("maxHeight");
   });
 });

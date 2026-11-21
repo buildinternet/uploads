@@ -3,8 +3,7 @@
  *
  * Design: `.context/2026-07-22-299-video-poster-thumbnails-design.md`.
  *
- * This module owns three things kept deliberately separate, mirroring
- * `render.ts`:
+ * This module owns three things kept deliberately separate:
  *  - pure helpers (key layout, duration formatting, display width): no
  *    bindings, trivially unit-testable.
  *  - the `FrameExtractor` seam: wraps `env.MEDIA`. Media Transformations has
@@ -253,7 +252,7 @@ async function extractPoster(
  *
  * The rate limiter is the one exception to `allowPoster`'s own shared
  * behavior: `makeRateLimitGuard` fails *open* when its binding is absent, by
- * design, for the pre-existing WRITE_LIMITER/RENDER_LIMITER guards. Poster
+ * design, for the pre-existing WRITE_LIMITER guards. Poster
  * generation does not inherit that laxness — a missing `POSTER_LIMITER`
  * binding is treated as a hard kill switch here, checked explicitly before
  * ever delegating to `allowPoster`.
@@ -266,7 +265,7 @@ export async function posterGenerationAllowed(
   if (!env.MEDIA) return false;
   if (ws.videoPosterEnabled === false) return false;
   // Unlike allowPoster's own fail-open default for a missing binding (shared
-  // with WRITE_LIMITER/RENDER_LIMITER), poster generation fails closed here.
+  // with WRITE_LIMITER), poster generation fails closed here.
   if (!env.POSTER_LIMITER) return false;
   return await allowPoster(env, workspaceName);
 }

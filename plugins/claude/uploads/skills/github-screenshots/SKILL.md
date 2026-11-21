@@ -106,7 +106,7 @@ Pick one transport and stay on it. This skill is the workflow. The
 | No shell (ChatGPT, or any host without a checkout)              | Hosted MCP `put` with (`contentBase64` + `filename`, or `contentUrl`) + `repo` + (`pr` or `branch`). Filename is optional with `contentUrl` when the URL path has a leaf. Embed the returned `markdown` / `embedUrl`. Never imply you can run `uploads attach ./shot.png`.                                                                            |
 | A shell and hosted MCP, but no `uploads` binary (cloud sandbox) | Hosted MCP `sign_upload_url` with `files: [{ filename }]` + `repo` + (`pr` or `branch`), then run each returned upload command (an HTTPS PUT to `https://agents.uploads.sh/u/<ticket>`). Each response carries `markdown`. With `pr`, call `comment` once after all uploads. On a proxy 403, ask the person to allow agents.uploads.sh, or use `put`. |
 | A checkout and the `uploads` binary                             | The CLI examples below. Git can fill `repo` / `branch`.                                                                                                                                                                                                                                                                                               |
-| A `localhost` page or a selector annotate                       | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                                                                                                                                                                                                 |
+| A `localhost` page                                              | CLI only (`uploads screenshot`). Captures run in your local browser.                                                                                                                                                                                                                                                                                  |
 | Neither MCP nor the CLI                                         | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                                                                                                                                                                                   |
 
 On the hosted MCP there is no `attach` tool and the server has no git. If you
@@ -141,10 +141,10 @@ Capturing a **clicked/selected state of a React/Next (or other hydrating) app**?
 A synthetic `el.click()` in `--eval` fires before the framework hydrates — the
 element is in the SSR HTML but no handler is attached yet, so it silently does
 nothing. Gate on the app's own "interactive" signal with `--wait-for <js>`
-(local backend), which polls that expression until truthy before `--eval` runs:
+which polls that expression until truthy before `--eval` runs:
 
 ```bash
-uploads screenshot http://localhost:3000 --via local \
+uploads screenshot http://localhost:3000 \
   --wait-for 'document.querySelector("[data-hydrated]")' \
   --eval 'document.querySelector(".tab-settings").click()' --out settings.png
 ```
@@ -453,10 +453,15 @@ handful of milestones reads better than a dumped folder.
   (`uploads github rotate-prefix`). See **docs/private-attachments.md** for
   the full model.
 
-## Need to point at something in the screenshot?
+## Secrets on the page?
 
-Boxes, arrows, labels, freeform strokes, and redaction (solid for secrets
-caught in a capture — blurred text can be recoverable) get baked onto a
-screenshot with `uploads
-screenshot --annotate` or `uploads annotate` — see the **annotate-screenshots**
-skill for the spec format and workflow, then come back here to attach.
+Uploads are public to anyone with the URL. If the page shows an API key, a
+token, or someone's email, black it out at capture time:
+
+```bash
+uploads screenshot http://localhost:3000/settings --redact '[data-testid=api-key]'
+```
+
+A `--redact` selector that matches nothing fails the capture rather than
+uploading the unredacted page. Prefer a caption over drawing on the image
+when you need to point at something.
