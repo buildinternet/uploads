@@ -5143,8 +5143,6 @@ export interface DoctorReport {
     /** false when this runtime has no Node fs/process (e.g. the apps/mcp Worker). */
     supported: boolean;
     found: boolean;
-    /** Which backend `uploads screenshot --via auto` would pick right now. */
-    autoBackend: "local" | "remote";
     candidates: { source: string; kind: string; executablePath: string }[];
     /** The best candidate by rank (may differ from candidates[0], which is scan order). */
     winner?: { source: string; kind: string; executablePath: string };
@@ -5158,7 +5156,6 @@ async function detectBrowserForDoctor(detectRoots?: DetectRoots): Promise<Doctor
     return {
       supported: false,
       found: false,
-      autoBackend: "remote",
       candidates: [],
       note: "browser detection is not supported in this runtime",
     };
@@ -5169,7 +5166,6 @@ async function detectBrowserForDoctor(detectRoots?: DetectRoots): Promise<Doctor
     return {
       supported: true,
       found: Boolean(winner),
-      autoBackend: winner ? "local" : "remote",
       candidates: candidates.map((c) => ({
         source: c.source,
         kind: c.kind,
@@ -5183,7 +5179,6 @@ async function detectBrowserForDoctor(detectRoots?: DetectRoots): Promise<Doctor
     return {
       supported: true,
       found: false,
-      autoBackend: "remote",
       candidates: [],
       note: err instanceof Error ? err.message : String(err),
     };

@@ -118,9 +118,6 @@ describe("buildDoctorReport browser section", () => {
     // On Node (which is what runs vitest), detection is supported even if no
     // browser happens to be installed on the CI/dev machine.
     expect(report.browser.supported).toBe(true);
-    expect(report.browser.autoBackend === "local" || report.browser.autoBackend === "remote").toBe(
-      true,
-    );
     expect(Array.isArray(report.browser.candidates)).toBe(true);
   });
 
@@ -160,6 +157,5 @@ describe("buildDoctorReport browser section", () => {
     // ...but the playwright-cache chromium outranks it and must win.
     expect(report.browser.winner?.source).toBe("playwright-cache");
     expect(report.browser.winner?.kind).toBe("chromium");
-    expect(report.browser.autoBackend).toBe("local");
   });
 });
