@@ -45,6 +45,7 @@ import { applyVisibilityOverride, sanitizeVisibility } from "../visibility";
 import { parseCliUserAgent } from "../client-activity";
 import { clientCanApprove, projectHold } from "../upload-hold";
 import { effectiveHold } from "../upload-hold-read";
+import { attachmentTargetFor, resyncAttachmentComment } from "../upload-hold-service";
 import type { WorkspaceVars } from "../workspace";
 import { dbFor, primaryDbFor } from "../db-session";
 
@@ -430,5 +431,31 @@ export async function patchFileHandler(c: Context<WorkspaceVars>) {
     (set as Record<string, string> | undefined) ?? {},
     (remove as string[] | undefined) ?? [],
   );
+  // A caption (or label) edit on a PR attachment re-renders the managed
+  // comment, so a fix made on the file page or via set_metadata shows on
+  // GitHub without waiting for the next upload.
+  const touched = [
+    ...Object.keys((set as object | undefined) ?? {}),
+    ...((remove as string[]) ?? []),
+  ];
+  if (
+    touched.some((k) => COMMENT_EDITABLE_META_KEYS.has(k)) &&
+    attachmentTargetFor(key, metadata)
+  ) {
+    const resync = resyncAttachmentComment(c.env, ws, c.get("workspaceName"), key, metadata);
+    try {
+      c.executionCtx.waitUntil(resync);
+    } catch {
+      await resync; // no executionCtx (tests)
+    }
+  }
   return c.json({ metadata });
 }
+
+/** Client-settable keys the managed PR comment renders (`COMMENT_META_KEYS`). */
+const COMMENT_EDITABLE_META_KEYS: ReadonlySet<string> = new Set([
+  "caption",
+  "screen",
+  "path",
+  "state",
+]);

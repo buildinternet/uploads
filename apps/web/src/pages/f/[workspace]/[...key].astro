@@ -87,6 +87,15 @@ else if (!file) Astro.response.status = 404;
 
 const previewUrl = file?.previewUrl ?? file?.url ?? null;
 const filename = key.split("/").filter(Boolean).pop() ?? key;
+// Optional human title (`title` metadata, editable from the ⋯ menu). The key
+// and filename never change, so agents keep addressing the same object.
+const displayTitle = file?.metadata?.title?.trim() || null;
+const displayName = displayTitle ?? filename;
+const caption = file?.metadata?.caption?.trim() ?? "";
+// Shown as the heading instead, so keep it out of the Details list.
+const detailMetadata = file?.metadata
+  ? Object.fromEntries(Object.entries(file.metadata).filter(([k]) => k !== "title"))
+  : undefined;
 const gh = file?.github;
 const ghKindLabel = gh?.kind === "pull" ? "Pull request" : gh ? "Issue" : "";
 const ghRef = gh ? `${gh.repo}#${gh.number}` : "";
@@ -122,7 +131,7 @@ if (timingsEnabled && file && isTextPreviewable(file.contentType, file.size))
     `file_text_preview;dur=${Date.now() - textStarted}`,
   );
 const title = file
-  ? `${filename} · uploads.sh`
+  ? `${displayName} · uploads.sh`
   : result.status === "auth_required"
     ? "Sign in to view · uploads.sh"
     : "File unavailable · uploads.sh";
@@ -167,7 +176,7 @@ if (timingsEnabled)
     <UnfurlMeta
       pageUrl={canonical}
       siteOrigin={Astro.url.origin}
-      title={file ? filename : "File unavailable"}
+      title={file ? displayName : "File unavailable"}
       description={description}
       kind={unfurlKind}
       mediaUrl={previewUrl}
@@ -249,6 +258,17 @@ if (timingsEnabled)
         color: var(--fg);
         font: 600 var(--text-h3) var(--mono);
         letter-spacing: -0.01em;
+        overflow-wrap: anywhere;
+      }
+      /* A human title reads as prose; the filename moves under it. */
+      .filetitle[data-titled] {
+        font-family: var(--sans);
+        letter-spacing: -0.015em;
+      }
+      .filekey {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font: var(--text-meta) var(--mono);
         overflow-wrap: anywhere;
       }
       /* PR/issue under the filename — light byline, not a rail chip. */
@@ -672,6 +692,34 @@ if (timingsEnabled)
         background: var(--red);
         color: var(--bg);
       }
+      .delete-actions .edit-save {
+        border-color: var(--fg);
+        background: var(--fg);
+        color: var(--bg);
+      }
+      .edit-field {
+        display: grid;
+        gap: 6px;
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: var(--text-micro);
+      }
+      .edit-field input,
+      .edit-field textarea {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--bg);
+        color: var(--fg);
+        font: var(--text-meta) / 1.5 var(--sans);
+        resize: vertical;
+      }
+      .edit-field input:focus-visible,
+      .edit-field textarea:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+        outline-offset: 1px;
+      }
       .delete-actions button:disabled {
         opacity: 0.6;
         cursor: default;
@@ -692,7 +740,10 @@ if (timingsEnabled)
           <>
             <header class="filehead">
               <div class="filehead-text">
-                <h1 class="filetitle">{filename}</h1>
+                <h1 class="filetitle" data-titled={displayTitle ? "true" : undefined}>
+                  {displayName}
+                </h1>
+                {displayTitle && <p class="filekey">{filename}</p>}
                 {gh && (
                   <a
                     class="gh-byline"
@@ -745,6 +796,9 @@ if (timingsEnabled)
                 <div class="fa-sep" />
                 <button type="button" class="fa-item" id="report-open">
                   Report a problem
+                </button>
+                <button type="button" class="fa-item" id="edit-open" hidden>
+                  Edit title and caption…
                 </button>
                 <button type="button" class="fa-item" id="hold-again" hidden>
                   Hold for review again
@@ -842,7 +896,7 @@ if (timingsEnabled)
               </div>
               <FileDetails
                 showEmpty={!railRows}
-                metadata={file.metadata}
+                metadata={detailMetadata}
                 size={file.size}
                 uploaded={file.uploaded}
                 modified={file.modified}
@@ -855,6 +909,41 @@ if (timingsEnabled)
                 workspace={workspace}
                 objectKey={key}
               />
+            </dialog>
+            <dialog class="sheet" id="edit-pop" aria-label="Edit title and caption">
+              <form id="edit-form" method="dialog">
+                <h2 class="delete-title">Edit title and caption</h2>
+                <label class="edit-field">
+                  <span>Title</span>
+                  <input
+                    id="edit-title"
+                    name="title"
+                    type="text"
+                    maxlength="80"
+                    placeholder={filename}
+                    value={displayTitle ?? ""}
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="edit-field">
+                  <span>Caption</span>
+                  <textarea id="edit-caption" name="caption" rows="3" maxlength="140">
+                    {caption}
+                  </textarea>
+                </label>
+                <p class="delete-text delete-gh">
+                  The filename and link stay the same.{gh && " The PR comment updates too."}
+                </p>
+                <p class="delete-text delete-error" id="edit-error" hidden />
+                <div class="delete-actions">
+                  <button type="button" id="edit-cancel">
+                    Cancel
+                  </button>
+                  <button type="submit" class="edit-save" id="edit-save">
+                    Save
+                  </button>
+                </div>
+              </form>
             </dialog>
             <dialog class="sheet" id="delete-pop" aria-label={`Delete ${filename}`}>
               <h2 class="delete-title">Delete this file?</h2>
@@ -1284,6 +1373,7 @@ if (timingsEnabled)
         }
         openBtn.hidden = false;
         void showReviewed();
+        wireEdit();
 
         const stepBtn = document.getElementById("delete-step");
         const cancelBtn = document.getElementById("delete-cancel");
@@ -1337,6 +1427,93 @@ if (timingsEnabled)
           }
         });
       })();
+
+      // Member-only title/caption editor, revealed by the same membership
+      // probe as Delete. Saves through the dual-auth metadata PATCH, then
+      // reloads so the heading, rail and unfurl tags all re-render.
+      function wireEdit() {
+        const openBtn = document.getElementById("edit-open");
+        const pop = document.getElementById("edit-pop");
+        const form = document.getElementById("edit-form");
+        if (!openBtn || !(pop instanceof HTMLDialogElement) || !form) return;
+        const titleEl = document.getElementById("edit-title");
+        const captionEl = document.getElementById("edit-caption");
+        const saveBtn = document.getElementById("edit-save");
+        const cancelBtn = document.getElementById("edit-cancel");
+        const errorEl = document.getElementById("edit-error");
+        const initial = { title: titleEl.value.trim(), caption: captionEl.value.trim() };
+        captionEl.value = initial.caption;
+        var saving = false;
+
+        openBtn.hidden = false;
+        openBtn.addEventListener("click", function () {
+          errorEl.hidden = true;
+          openBtn.closest("details")?.removeAttribute("open");
+          pop.showModal();
+          titleEl.focus();
+        });
+        cancelBtn.addEventListener("click", function () {
+          if (!saving) pop.close();
+        });
+        pop.addEventListener("cancel", function (event) {
+          if (saving) event.preventDefault();
+        });
+
+        // Metadata values are printable ASCII. Fold the punctuation macOS and
+        // iOS substitute as you type, then refuse anything else plainly.
+        function plain(value) {
+          return value
+            .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+            .replace(/[\u201C\u201D\u201F\u2033]/g, '"')
+            .replace(/[\u2013\u2014\u2212]/g, "-")
+            .replace(/\u2026/g, "...")
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+
+        form.addEventListener("submit", async function (event) {
+          event.preventDefault();
+          if (saving) return;
+          const next = { title: plain(titleEl.value), caption: plain(captionEl.value) };
+          if (/[^\x20-\x7E]/.test(next.title + next.caption)) {
+            errorEl.textContent =
+              "Use plain text: emoji and accented letters aren't supported yet.";
+            errorEl.hidden = false;
+            return;
+          }
+          const set = {};
+          const remove = [];
+          for (const field of ["title", "caption"]) {
+            if (next[field] === initial[field]) continue;
+            if (next[field]) set[field] = next[field];
+            else remove.push(field);
+          }
+          if (Object.keys(set).length === 0 && remove.length === 0) {
+            pop.close();
+            return;
+          }
+          saving = true;
+          saveBtn.disabled = true;
+          cancelBtn.disabled = true;
+          try {
+            const keyPath = key.split("/").map(encodeURIComponent).join("/");
+            const response = await fetch(filesEndpoint(`/${keyPath}`), {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              body: JSON.stringify({ set, delete: remove }),
+            });
+            if (!response.ok) throw new Error(String(response.status));
+            window.location.reload();
+          } catch (e) {
+            saving = false;
+            saveBtn.disabled = false;
+            cancelBtn.disabled = false;
+            errorEl.textContent = "Couldn't save. Try again shortly.";
+            errorEl.hidden = false;
+          }
+        });
+      }
     </script>
   </body>
 </html>
