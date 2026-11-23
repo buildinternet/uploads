@@ -12,6 +12,9 @@
  * (`transition:persist`). When the target is in it, the request carries
  * `X-Item-Strip: <feed id>` and the page skips re-reading the whole feed,
  * sending an empty strip that the kept one replaces.
+ *
+ * Moves from the strip or prev/next keep the scroll position, so picking a
+ * thumbnail below the media doesn't jump the page back to the top.
  */
 import type { TransitionBeforePreparationEvent } from "astro:transitions/client";
 import { createPageCache, ITEM_STRIP_HEADER } from "./item-page-cache";
@@ -80,9 +83,17 @@ for (const type of ["pointerover", "focusin", "pointerdown"] as const) {
   );
 }
 
+// ClientRouter scrolls to the top on every push; put it back right after.
+let keepScrollY: number | null = null;
+
 document.addEventListener("astro:before-preparation", (event) => {
   const prep = event as TransitionBeforePreparationEvent;
   if (prep.formData) return;
+  keepScrollY =
+    prep.navigationType === "push" &&
+    prep.sourceElement?.closest("[data-item-strip], [data-item-navigation]")
+      ? window.scrollY
+      : null;
   if (!document.querySelector("[data-item-navigation]")) return;
   if (prep.to.origin !== location.origin || !/^\/[cg]\//.test(prep.to.pathname)) return;
   const key = cacheKey(prep.to.href);
@@ -99,6 +110,22 @@ document.addEventListener("astro:before-preparation", (event) => {
 
 // The kept strip still marks the item it was rendered for.
 document.addEventListener("astro:after-swap", () => {
+  if (keepScrollY !== null) {
+    // The new image has no size until it loads; hold the page tall enough
+    // that the scroll isn't clamped, then let go once it has.
+    const root = document.documentElement;
+    root.style.minHeight = `${keepScrollY + window.innerHeight}px`;
+    window.scrollTo({ top: keepScrollY, left: 0, behavior: "instant" });
+    keepScrollY = null;
+    const image = document.querySelector<HTMLImageElement>("img.single-image");
+    const release = () => root.style.removeProperty("min-height");
+    if (!image || image.complete) release();
+    else {
+      image.addEventListener("load", release, { once: true });
+      image.addEventListener("error", release, { once: true });
+      setTimeout(release, 4000);
+    }
+  }
   for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-item-strip] a")) {
     const current = link.pathname === location.pathname;
     link.classList.toggle("current", current);
