@@ -1,0 +1,321 @@
+---
+/**
+ * Full-screen viewer for a list page's images (live link /c/:id). Opens from
+ * any `a[data-lightbox-item]` (a plain click; modified clicks still follow the
+ * link to the item page), pages with ←/→ through the images in page order,
+ * and closes on Esc or a backdrop click. Each trigger carries `data-src`,
+ * `data-filename` and optional `data-caption`; its href is the item page.
+ * Same look as ImagePreview's single-image lightbox on the item page.
+ */
+---
+
+<div
+  class="feed-lightbox"
+  data-feed-lightbox
+  data-zoom="fit"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Image viewer"
+  hidden
+>
+  <button type="button" class="lb-btn lb-close" data-lb-close aria-label="Close">
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path d="M4 4l8 8M12 4l-8 8"></path>
+    </svg>
+  </button>
+  <button type="button" class="lb-btn lb-prev" data-lb-prev aria-label="Previous image">
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path d="M10 3.5L5.5 8l4.5 4.5"></path>
+    </svg>
+  </button>
+  <button type="button" class="lb-btn lb-next" data-lb-next aria-label="Next image">
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path d="M6 3.5L10.5 8 6 12.5"></path>
+    </svg>
+  </button>
+  <div class="lb-scroll" data-lb-scroll>
+    <img class="lb-image" data-lb-image alt="" decoding="async" />
+  </div>
+  <div class="lb-meta">
+    <div class="lb-titlerow">
+      <a class="lb-filename" data-lb-link href="#"></a>
+      <span class="lb-count" data-lb-count></span>
+    </div>
+    <p class="lb-caption" data-lb-caption hidden></p>
+  </div>
+</div>
+
+<script>
+  function initFeedLightbox(): void {
+    const box = document.querySelector<HTMLElement>("[data-feed-lightbox]");
+    if (!box || box.dataset.ready === "1") return;
+    const triggers = [...document.querySelectorAll<HTMLAnchorElement>("a[data-lightbox-item]")];
+    if (triggers.length === 0) return;
+    box.dataset.ready = "1";
+
+    const img = box.querySelector<HTMLImageElement>("[data-lb-image]")!;
+    const scroll = box.querySelector<HTMLElement>("[data-lb-scroll]")!;
+    const link = box.querySelector<HTMLAnchorElement>("[data-lb-link]")!;
+    const count = box.querySelector<HTMLElement>("[data-lb-count]")!;
+    const caption = box.querySelector<HTMLElement>("[data-lb-caption]")!;
+    const closeBtn = box.querySelector<HTMLButtonElement>("[data-lb-close]")!;
+    const prevBtn = box.querySelector<HTMLButtonElement>("[data-lb-prev]")!;
+    const nextBtn = box.querySelector<HTMLButtonElement>("[data-lb-next]")!;
+    const single = triggers.length === 1;
+    prevBtn.hidden = single;
+    nextBtn.hidden = single;
+
+    let index = 0;
+    let lastFocused: HTMLElement | null = null;
+    let prevBodyOverflow = "";
+
+    const setZoom = (zoom: "fit" | "actual") => {
+      box.dataset.zoom = zoom;
+      scroll.scrollTop = 0;
+      scroll.scrollLeft = 0;
+    };
+
+    const preload = (at: number) => {
+      const src = triggers[(at + triggers.length) % triggers.length]?.dataset.src;
+      if (src) new Image().src = src;
+    };
+
+    const show = (at: number) => {
+      index = (at + triggers.length) % triggers.length;
+      const trigger = triggers[index]!;
+      const filename = trigger.dataset.filename ?? "";
+      img.src = trigger.dataset.src ?? "";
+      img.alt = filename;
+      link.href = trigger.href;
+      link.textContent = filename;
+      count.textContent = single ? "" : `${index + 1} / ${triggers.length}`;
+      caption.textContent = trigger.dataset.caption ?? "";
+      caption.hidden = !trigger.dataset.caption;
+      box.setAttribute("aria-label", `Image viewer: ${filename}`);
+      setZoom("fit");
+      if (!single) {
+        preload(index + 1);
+        preload(index - 1);
+      }
+    };
+
+    const focusables = () =>
+      [closeBtn, prevBtn, nextBtn, link].filter((el) => !el.hidden) as HTMLElement[];
+
+    const onKeydown = (e: KeyboardEvent) => {
+      if (box.hidden) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      } else if (e.key === "ArrowLeft" && !single) {
+        e.preventDefault();
+        show(index - 1);
+      } else if (e.key === "ArrowRight" && !single) {
+        e.preventDefault();
+        show(index + 1);
+      } else if (e.key === "Tab") {
+        // Keep focus inside the viewer.
+        const list = focusables();
+        const at = list.indexOf(document.activeElement as HTMLElement);
+        e.preventDefault();
+        const step = e.shiftKey ? -1 : 1;
+        list[(at + step + list.length) % list.length]?.focus();
+      }
+    };
+
+    const open = (at: number) => {
+      lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      prevBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      show(at);
+      box.hidden = false;
+      document.addEventListener("keydown", onKeydown, true);
+      closeBtn.focus();
+    };
+
+    function close(): void {
+      if (box!.hidden) return;
+      box!.hidden = true;
+      document.body.style.overflow = prevBodyOverflow;
+      document.removeEventListener("keydown", onKeydown, true);
+      img.removeAttribute("src");
+      if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+    }
+
+    triggers.forEach((trigger, at) => {
+      trigger.addEventListener("click", (e) => {
+        // New-tab and other modified clicks keep the item-page link.
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        // A preview that failed to load shows its fallback instead.
+        if (trigger.closest('[data-failed="1"]')) return;
+        e.preventDefault();
+        open(at);
+      });
+    });
+
+    closeBtn.addEventListener("click", close);
+    prevBtn.addEventListener("click", () => show(index - 1));
+    nextBtn.addEventListener("click", () => show(index + 1));
+    box.addEventListener("click", (e) => {
+      if (e.target === box || e.target === scroll) close();
+    });
+    img.addEventListener("click", () => setZoom(box.dataset.zoom === "actual" ? "fit" : "actual"));
+    document.addEventListener("astro:before-swap", close, { once: true });
+  }
+
+  initFeedLightbox();
+  document.addEventListener("astro:page-load", initFeedLightbox);
+</script>
+
+<style>
+  .feed-lightbox[hidden] {
+    display: none;
+  }
+  .feed-lightbox,
+  .feed-lightbox * {
+    box-sizing: border-box;
+  }
+  .feed-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    place-items: center;
+    padding: 24px 72px 16px;
+    background: color-mix(in srgb, #000 86%, transparent);
+    backdrop-filter: blur(4px);
+    overscroll-behavior: contain;
+  }
+  .lb-btn {
+    position: absolute;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, #fff 22%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, #000 45%, transparent);
+    color: #fff;
+    cursor: pointer;
+  }
+  .lb-btn[hidden] {
+    display: none;
+  }
+  .lb-btn svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .lb-btn:hover,
+  .lb-btn:focus-visible {
+    background: color-mix(in srgb, #000 62%, transparent);
+    outline: none;
+  }
+  .lb-btn:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  .lb-close {
+    top: 16px;
+    right: 16px;
+  }
+  .lb-prev,
+  .lb-next {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .lb-prev {
+    left: 16px;
+  }
+  .lb-next {
+    right: 16px;
+  }
+  .lb-scroll {
+    max-width: 100%;
+    max-height: 100%;
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .lb-image {
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .feed-lightbox[data-zoom="fit"] .lb-image {
+    max-width: 100%;
+    max-height: calc(100dvh - 120px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    cursor: zoom-in;
+  }
+  .feed-lightbox[data-zoom="actual"] .lb-scroll {
+    width: 100%;
+    height: 100%;
+    place-items: start center;
+  }
+  .feed-lightbox[data-zoom="actual"] .lb-image {
+    max-width: none;
+    max-height: none;
+    cursor: zoom-out;
+  }
+  .lb-meta {
+    width: min(720px, 100%);
+    padding-top: 12px;
+    color: #fff;
+    text-align: center;
+  }
+  .lb-titlerow {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .lb-filename {
+    color: #fff;
+    font: var(--weight-semibold) var(--text-meta) / 1.3 var(--mono);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .lb-filename:hover,
+  .lb-filename:focus-visible {
+    text-decoration: underline;
+    outline: none;
+  }
+  .lb-count {
+    color: color-mix(in srgb, #fff 60%, transparent);
+    font: var(--text-micro) var(--mono);
+  }
+  .lb-caption {
+    margin: 6px 0 0;
+    color: color-mix(in srgb, #fff 82%, transparent);
+    font: var(--text-ui) / 1.5 var(--sans);
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+  }
+  .lb-caption[hidden] {
+    display: none;
+  }
+  @media (max-width: 760px) {
+    .feed-lightbox {
+      padding: 64px 12px 16px;
+    }
+    .lb-prev,
+    .lb-next {
+      top: auto;
+      bottom: 16px;
+      transform: none;
+    }
+    .lb-meta {
+      padding: 12px 52px 0;
+    }
+  }
+</style>

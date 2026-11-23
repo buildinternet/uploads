@@ -63,6 +63,23 @@ a.pr-label:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Page headings wrap to three balanced lines instead of one clipped line. */
+.pr-label--lg {
+  align-items: flex-start;
+}
+.pr-label--lg .pr-label__icon {
+  /* Centre on the first line (line-height 1.2). */
+  margin-top: calc((1.2em - 20px) / 2);
+}
+.pr-label--lg .pr-label__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  white-space: normal;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+}
 .pr-label__number {
   color: var(--muted);
   font-weight: var(--weight-regular);

@@ -54,6 +54,8 @@ export interface PublicFeedItemPage {
   next: string | null;
   index: number;
   total: number;
+  /** Same public PR/issue label as `PublicFeed.github`. */
+  github?: PublicFeed["github"];
 }
 
 export type FeedItemFetchResult =
@@ -132,6 +134,16 @@ export function feedPageCopy(feed: Pick<PublicFeed, "repo" | "number" | "kind">)
   };
 }
 
+function isGithubLabel(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== "object") return false;
+  const github = value as Record<string, unknown>;
+  return (
+    nullableText(github.title, 800) &&
+    [null, "open", "closed", "merged"].includes(github.state as string | null)
+  );
+}
+
 export function isPublicFeed(value: unknown): value is PublicFeed {
   if (typeof value !== "object" || value === null) return false;
   const feed = value as Record<string, unknown>;
@@ -158,15 +170,7 @@ export function isPublicFeed(value: unknown): value is PublicFeed {
     !Number.isFinite(Date.parse(feed.updatedAt)) ||
     !Array.isArray(feed.items) ||
     feed.items.length > 100 ||
-    !(
-      feed.github === undefined ||
-      feed.github === null ||
-      (typeof feed.github === "object" &&
-        nullableText((feed.github as Record<string, unknown>).title, 800) &&
-        [null, "open", "closed", "merged"].includes(
-          (feed.github as Record<string, unknown>).state as string | null,
-        ))
-    ) ||
+    !isGithubLabel(feed.github) ||
     !(
       feed.nextCursor === undefined ||
       feed.nextCursor === null ||
@@ -224,6 +228,7 @@ export function isPublicFeedItemPage(value: unknown): value is PublicFeedItemPag
     (feed.number === null || (Number.isSafeInteger(feed.number) && (feed.number as number) >= 1)) &&
     (feed.kind === null || feed.kind === "pull" || feed.kind === "issue") &&
     isPublicFeedItem(page.item) &&
+    isGithubLabel(page.github) &&
     neighbour(page.prev) &&
     neighbour(page.next) &&
     Number.isSafeInteger(page.index) &&

@@ -9,7 +9,7 @@ import Footer from "../../../components/Footer.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import ReportAbuse from "../../../components/ReportAbuse.astro";
 import UnfurlMeta from "../../../components/UnfurlMeta.astro";
-import { GH_KIND_PATH } from "../../../lib/brand-icons";
+import GhByline from "../../../components/GhByline.astro";
 import {
   comparisonRows,
   ownBeforeAfterState,
@@ -97,13 +97,7 @@ const detailMetadata = file?.metadata
   ? Object.fromEntries(Object.entries(file.metadata).filter(([k]) => k !== "title"))
   : undefined;
 const gh = file?.github;
-const ghKindLabel = gh?.kind === "pull" ? "Pull request" : gh ? "Issue" : "";
 const ghRef = gh ? `${gh.repo}#${gh.number}` : "";
-const ghAriaLabel = gh
-  ? gh.title
-    ? `${ghKindLabel} ${gh.title} (${ghRef}) on GitHub`
-    : `${ghKindLabel} ${ghRef} on GitHub`
-  : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
 // Empty when there's no file.
@@ -269,51 +263,6 @@ if (timingsEnabled)
         margin: 4px 0 0;
         color: var(--muted);
         font: var(--text-meta) var(--mono);
-        overflow-wrap: anywhere;
-      }
-      /* PR/issue under the filename — light byline, not a rail chip. */
-      .gh-byline {
-        display: inline-flex;
-        align-items: center;
-        flex-wrap: wrap;
-        column-gap: 8px;
-        row-gap: 2px;
-        margin-top: 6px;
-        max-width: 100%;
-        color: var(--muted);
-        font: var(--text-meta)/1.45 var(--sans);
-        text-decoration: none;
-      }
-      .gh-byline:hover,
-      .gh-byline:focus-visible {
-        color: var(--accent);
-        outline: none;
-      }
-      .gh-byline-avatar {
-        flex: none;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        object-fit: cover;
-        background: var(--panel);
-        border: 1px solid var(--line);
-      }
-      .gh-byline-icon {
-        flex: none;
-        align-self: center;
-      }
-      .gh-byline-title {
-        color: var(--body);
-        overflow-wrap: anywhere;
-      }
-      .gh-byline:hover .gh-byline-title,
-      .gh-byline:focus-visible .gh-byline-title {
-        color: inherit;
-      }
-      .gh-byline-sep {
-        opacity: 0.7;
-      }
-      .gh-byline-ref {
         overflow-wrap: anywhere;
       }
       /* Right rail content (slotted into MediaStage): Details uses label + rule. */
@@ -745,46 +694,14 @@ if (timingsEnabled)
                 </h1>
                 {displayTitle && <p class="filekey">{filename}</p>}
                 {gh && (
-                  <a
-                    class="gh-byline"
-                    href={gh.url}
-                    rel="noopener noreferrer"
-                    aria-label={ghAriaLabel}
-                  >
-                    {gh.avatarUrl && (
-                      <img
-                        class="gh-byline-avatar"
-                        src={gh.avatarUrl}
-                        alt=""
-                        width="16"
-                        height="16"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    )}
-                    <svg
-                      class="gh-byline-icon"
-                      viewBox="0 0 16 16"
-                      width="13"
-                      height="13"
-                      aria-hidden="true"
-                      focusable="false"
-                    >
-                      <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
-                      <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
-                    </svg>
-                    {gh.title ? (
-                      <>
-                        <span class="gh-byline-title">{gh.title}</span>
-                        <span class="gh-byline-sep" aria-hidden="true">
-                          ·
-                        </span>
-                        <span class="gh-byline-ref">{ghRef}</span>
-                      </>
-                    ) : (
-                      <span class="gh-byline-ref">{ghRef}</span>
-                    )}
-                  </a>
+                  <GhByline
+                    repo={gh.repo}
+                    number={gh.number}
+                    kind={gh.kind}
+                    title={gh.title}
+                    url={gh.url}
+                    avatarUrl={gh.avatarUrl}
+                  />
                 )}
               </div>
               <FileActions
