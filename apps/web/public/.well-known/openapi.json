@@ -2313,6 +2313,15 @@
             "type": "integer",
             "minimum": 0,
             "description": "Items in the feed's scope, capped at 2,000."
+          },
+          "github": {
+            "type": ["object", "null"],
+            "required": ["title", "state"],
+            "description": "Live PR or issue title and state, public repos only. Null for a repo-wide feed.",
+            "properties": {
+              "title": { "type": ["string", "null"] },
+              "state": { "type": ["string", "null"], "enum": ["open", "closed", "merged", null] }
+            }
           }
         }
       },

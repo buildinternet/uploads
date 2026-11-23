@@ -2,6 +2,7 @@
 import PublicItemLayout from "../../../layouts/PublicItemLayout.astro";
 import FileActions from "../../../components/FileActions.astro";
 import FileDetails from "../../../components/FileDetails.astro";
+import GhByline from "../../../components/GhByline.astro";
 import ItemNavigation from "../../../components/ItemNavigation.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import UnfurlMeta from "../../../components/UnfurlMeta.astro";
@@ -18,6 +19,7 @@ import {
   type PublicFeedItem,
 } from "../../../lib/public-feed";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
+import { githubOwnerAvatarUrl, githubUrl, ownerFromRepo } from "../../../lib/gh-context";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../../lib/ssr-fetch";
 import { ITEM_STRIP_HEADER } from "../../../lib/item-page-cache";
@@ -58,6 +60,19 @@ const position = pageData
 const listPath = feedPath(id);
 const itemPath = (target: PublicFeedItem) => feedItemPath(id, target.id);
 const page = feed ? feedPageCopy(feed) : null;
+const ghKind: "pull" | "issue" = feed?.kind === "issue" ? "issue" : "pull";
+const ghOwner = feed ? ownerFromRepo(feed.repo) : null;
+const gh =
+  feed && feed.number != null
+    ? {
+        repo: feed.repo,
+        number: feed.number,
+        kind: ghKind,
+        title: pageData?.github?.title ?? null,
+        url: githubUrl(feed.repo, ghKind, String(feed.number)),
+        avatarUrl: ghOwner ? githubOwnerAvatarUrl(origin, ghOwner) : null,
+      }
+    : null;
 const canonical = new URL(item ? itemPath(item) : listPath, Astro.url.origin).href;
 const title =
   item && feed ? `${item.filename} · ${feed.title} · uploads.sh` : "Media unavailable · uploads.sh";
@@ -128,7 +143,10 @@ function thumbSrc(entry: PublicFeedItem): string | null {
           />
         </div>
         <header class="filehead">
-          <h1 class="filetitle filehead-text">{item.filename}</h1>
+          <div class="filehead-text">
+            <h1 class="filetitle">{item.filename}</h1>
+            {gh && <GhByline {...gh} />}
+          </div>
           {item.status === "available" && (
             <FileActions
               formats={embedFormats}

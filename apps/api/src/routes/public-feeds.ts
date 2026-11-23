@@ -43,10 +43,16 @@ export const publicFeeds = new Hono<WorkspaceVars>()
   .get("/:id/items/:item", (c) =>
     withPublicReadTiming(c, "/public/feeds/:id/items/:item", "feed_item_api", async (measure) => {
       const { record, workspace } = await liveFeed(c.env, c.req.param("id"), measure);
-      const page = await measure("item_page", () =>
-        publicFeedItemPage(c.env, workspace, record, c.req.param("item"), c.env.LIVE_LINK_INDEX),
-      );
+      // Same public PR/issue label as the list, read beside the item (KV
+      // cache, never throws) so the item page can name the pull request.
+      const githubPromise = measure("github", () => publicFeedGithub(c.env, record));
+      const [page, github] = await Promise.all([
+        measure("item_page", () =>
+          publicFeedItemPage(c.env, workspace, record, c.req.param("item"), c.env.LIVE_LINK_INDEX),
+        ),
+        githubPromise,
+      ]);
       if (!page) throw new NotFoundError("Feed item not found.", { code: "feed_item_not_found" });
-      return c.json(page);
+      return c.json({ ...page, github });
     }),
   );

@@ -224,5 +224,9 @@ describe("public feed item endpoint", () => {
     expect(isPublicFeedItemPage({ ...page, index: 75 })).toBe(false);
     expect(isPublicFeedItemPage({ ...page, prev: "../x" })).toBe(false);
     expect(isPublicFeedItemPage({ ...page, feed: { ...page.feed, kind: "branch" } })).toBe(false);
+    expect(isPublicFeedItemPage({ ...page, github: { title: "Fix nav", state: "merged" } })).toBe(
+      true,
+    );
+    expect(isPublicFeedItemPage({ ...page, github: { title: "x", state: "draft" } })).toBe(false);
   });
 });

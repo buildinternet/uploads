@@ -171,4 +171,6 @@ export interface PublicFeedItemPage {
   index: number;
   /** Scope size, capped at 2,000. */
   total: number;
+  /** Live PR/issue title and state (public repos only), as on `GET /public/feeds/:id`. Null for a repo scope. */
+  github?: { title: string | null; state: "open" | "closed" | "merged" | null } | null;
 }

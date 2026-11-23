@@ -1,0 +1,128 @@
+---
+/**
+ * PR/issue byline under a file title: owner avatar, kind icon, title · ref,
+ * linking to GitHub. Used by the public file page (/f/) and live link item
+ * pages (/c/:id/:item) so both name the pull request the same way.
+ */
+import { GH_KIND_PATH } from "../lib/brand-icons";
+
+interface Props {
+  repo: string;
+  number: number | string;
+  kind: "pull" | "issue";
+  title?: string | null;
+  url: string;
+  avatarUrl?: string | null;
+}
+
+const { repo, number, kind, title = null, url, avatarUrl = null } = Astro.props;
+const kindLabel = kind === "pull" ? "Pull request" : "Issue";
+const ref = `${repo}#${number}`;
+const ariaLabel = title
+  ? `${kindLabel} ${title} (${ref}) on GitHub`
+  : `${kindLabel} ${ref} on GitHub`;
+---
+
+<a class="gh-byline" href={url} rel="noopener noreferrer" aria-label={ariaLabel}>
+  {
+    avatarUrl && (
+      <img
+        class="gh-byline-avatar"
+        src={avatarUrl}
+        alt=""
+        width="16"
+        height="16"
+        loading="lazy"
+        decoding="async"
+        data-hide-on-error
+      />
+    )
+  }
+  <svg
+    class="gh-byline-icon"
+    viewBox="0 0 16 16"
+    width="13"
+    height="13"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <title>{kind === "pull" ? "pull request" : "issue"}</title>
+    <path fill="currentColor" d={GH_KIND_PATH[kind]}></path>
+  </svg>
+  {
+    title ? (
+      <>
+        <span class="gh-byline-title">{title}</span>
+        <span class="gh-byline-sep" aria-hidden="true">
+          ·
+        </span>
+        <span class="gh-byline-ref">{ref}</span>
+      </>
+    ) : (
+      <span class="gh-byline-ref">{ref}</span>
+    )
+  }
+</a>
+
+<script>
+  // GitHub has no avatar for a deleted or renamed owner: drop the broken image.
+  function hideBroken(): void {
+    for (const img of document.querySelectorAll<HTMLImageElement>("img[data-hide-on-error]")) {
+      if (img.complete && img.naturalWidth === 0) img.hidden = true;
+      else img.addEventListener("error", () => (img.hidden = true), { once: true });
+    }
+  }
+  hideBroken();
+  document.addEventListener("astro:page-load", hideBroken);
+</script>
+
+<style>
+  /* Doubled class: outranks host layouts' `.shell a` link color and underline. */
+  .gh-byline.gh-byline {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    column-gap: 8px;
+    row-gap: 2px;
+    margin-top: 6px;
+    max-width: 100%;
+    color: var(--muted);
+    font: var(--text-meta) / 1.45 var(--sans);
+    text-decoration: none;
+  }
+  .gh-byline.gh-byline:hover,
+  .gh-byline.gh-byline:focus-visible {
+    color: var(--accent);
+    outline: none;
+  }
+  .gh-byline-avatar {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+  .gh-byline-avatar[hidden] {
+    display: none;
+  }
+  .gh-byline-icon {
+    flex: none;
+    align-self: center;
+  }
+  .gh-byline-title {
+    color: var(--body);
+    overflow-wrap: anywhere;
+  }
+  .gh-byline:hover .gh-byline-title,
+  .gh-byline:focus-visible .gh-byline-title {
+    color: inherit;
+  }
+  .gh-byline-sep {
+    opacity: 0.7;
+  }
+  .gh-byline-ref {
+    overflow-wrap: anywhere;
+  }
+</style>

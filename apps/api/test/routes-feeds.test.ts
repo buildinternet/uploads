@@ -729,6 +729,8 @@ describe("public feed pagination and pager", () => {
     });
     expect(body.item).not.toHaveProperty("objectKey");
     expect(body.feed).not.toHaveProperty("source");
+    // No GitHub App in this env: the label is present but unresolved.
+    expect(body.github).toEqual({ title: null, state: null });
 
     const newest = (await (
       await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`, {}, env)
@@ -751,6 +753,7 @@ describe("public feed pagination and pager", () => {
       await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`, {}, env)
     ).json()) as PublicFeedItemPage;
     expect(body.feed).toMatchObject({ id, number: null, kind: null });
+    expect(body.github).toBeNull();
   });
 
   it("withholds a private pager item and 404s unknown, malformed, and revoked ids", async () => {

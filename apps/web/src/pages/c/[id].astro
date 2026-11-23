@@ -3,6 +3,7 @@ import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
 import ThemeToggle from "../../components/ThemeToggle.astro";
 import Footer from "../../components/Footer.astro";
+import FeedLightbox from "../../components/FeedLightbox.astro";
 import MediaFallback from "../../components/MediaFallback.astro";
 import PrLabel from "../../components/PrLabel.astro";
 import UnfurlMeta from "../../components/UnfurlMeta.astro";
@@ -18,6 +19,7 @@ import {
   type PublicFeedItem,
 } from "../../lib/public-feed";
 import { collectionPreview } from "../../lib/unfurl";
+import { githubOwnerAvatarUrl, ownerFromRepo } from "../../lib/gh-context";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../lib/ssr-fetch";
 
@@ -41,6 +43,11 @@ if (result.status === "unavailable") Astro.response.status = 503;
 const feed = result.status === "ok" ? result.feed : null;
 const canonical = new URL(feedPath(id), Astro.url.origin).href;
 const page = feed ? feedPageCopy(feed) : null;
+const owner = feed ? ownerFromRepo(feed.repo) : null;
+const ownerAvatar = owner ? githubOwnerAvatarUrl(origin, owner) : null;
+// A PR/issue live link names its repo above the title; a repo live link's
+// title already is the repo.
+const showRepo = feed?.number != null;
 const olderHref = feed?.nextCursor
   ? `${feedPath(feed.id)}?cursor=${encodeURIComponent(feed.nextCursor)}`
   : null;
@@ -128,11 +135,38 @@ function itemDate(item: PublicFeedItem): string | null {
       header {
         margin-bottom: 28px;
       }
-      .eyebrow {
+      .scope {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px 8px;
         color: var(--muted);
-        font: var(--text-micro) var(--sans);
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
+        font: var(--text-meta) / 1.4 var(--sans);
+      }
+      .scope-avatar {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: var(--panel);
+        border: 1px solid var(--line);
+      }
+      .scope-avatar[hidden] {
+        display: none;
+      }
+      .scope-repo {
+        color: var(--body);
+        text-decoration: none;
+        overflow-wrap: anywhere;
+      }
+      .scope-repo:hover,
+      .scope-repo:focus-visible {
+        color: var(--accent);
+        outline: none;
+      }
+      .scope-sep {
+        opacity: 0.7;
       }
       h1 {
         margin: 10px 0 12px;
@@ -260,6 +294,9 @@ function itemDate(item: PublicFeedItem): string | null {
       .media-link {
         display: contents;
       }
+      [data-lightbox-item] img {
+        cursor: zoom-in;
+      }
       .empty,
       .error {
         padding: 70px 24px;
@@ -306,7 +343,34 @@ function itemDate(item: PublicFeedItem): string | null {
         feed ? (
           <>
             <header>
-              <div class="eyebrow">{page?.eyebrow}</div>
+              <div class="scope">
+                {ownerAvatar && (
+                  <img
+                    class="scope-avatar"
+                    src={ownerAvatar}
+                    alt=""
+                    width="20"
+                    height="20"
+                    decoding="async"
+                    data-hide-on-error
+                  />
+                )}
+                {showRepo && (
+                  <>
+                    <a
+                      class="scope-repo"
+                      href={`https://github.com/${feed.repo}`}
+                      rel="noopener noreferrer"
+                    >
+                      {feed.repo}
+                    </a>
+                    <span class="scope-sep" aria-hidden="true">
+                      ·
+                    </span>
+                  </>
+                )}
+                <span>{page?.eyebrow}</span>
+              </div>
               <h1>
                 {feed.number != null ? (
                   <PrLabel
@@ -355,6 +419,10 @@ function itemDate(item: PublicFeedItem): string | null {
                             class="media-link"
                             href={feedItemPath(feed.id, item.id)}
                             aria-label={`Open ${item.filename}`}
+                            data-lightbox-item
+                            data-src={view.src}
+                            data-filename={item.filename}
+                            data-caption={item.metadata?.caption || undefined}
                           >
                             <img src={view.src} alt={view.alt} loading="lazy" decoding="async" />
                           </a>
@@ -480,10 +548,19 @@ function itemDate(item: PublicFeedItem): string | null {
       }
     </main>
     <Footer />
+    {feed && <FeedLightbox />}
     <script>
       import { bindMediaFallbacks } from "../../lib/media-load";
+      // No GitHub avatar (renamed or deleted owner): drop the broken image.
+      function hideBrokenAvatars(): void {
+        for (const img of document.querySelectorAll<HTMLImageElement>("img[data-hide-on-error]")) {
+          if (img.complete && img.naturalWidth === 0) img.hidden = true;
+          else img.addEventListener("error", () => (img.hidden = true), { once: true });
+        }
+      }
       function boot(): void {
         bindMediaFallbacks(document);
+        hideBrokenAvatars();
       }
       boot();
       document.addEventListener("astro:page-load", boot);
