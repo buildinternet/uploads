@@ -101,7 +101,7 @@ async function expectedSignature(id: string, timestamp: string, body: string) {
 }
 
 const subscribeParams = (extra: Record<string, unknown> = {}) => ({
-  name: "upload.held",
+  name: "uploads.file.held",
   arguments: { repo: "Acme/Web" },
   delivery: { mode: "webhook", url: URL_, secret: SECRET },
   cursor: null,
@@ -192,7 +192,7 @@ describe("subscribeEvent", () => {
     expect(entry!.ttl).toBe(3600);
     expect(entry!.value).not.toContain(SECRET);
     expect(JSON.parse(entry!.value)).toMatchObject({
-      name: "upload.held",
+      name: "uploads.file.held",
       filter: { repo: "acme/web" },
     });
   });
@@ -250,7 +250,7 @@ describe("subscribeEvent", () => {
     const { fetcher } = receiver();
     await subscribeEvent(env, principal, subscribeParams(), fetcher);
     const params = {
-      name: "upload.held",
+      name: "uploads.file.held",
       arguments: { repo: "acme/web" },
       delivery: { url: URL_ },
     };
@@ -282,14 +282,19 @@ describe("deliverEvent", () => {
       subscribeParams({ arguments: { repo: "acme/other" } }),
       fetcher,
     );
-    await subscribeEvent(env, principal, subscribeParams({ name: "upload.approved" }), fetcher);
+    await subscribeEvent(
+      env,
+      principal,
+      subscribeParams({ name: "uploads.file.approved" }),
+      fetcher,
+    );
     calls.length = 0;
 
     const delivered = await deliverEvent(
       env,
       "acme",
-      "upload.held",
-      "upload.held|acme|k|t",
+      "uploads.file.held",
+      "uploads.file.held|acme|k|t",
       { repo: "acme/web", pr: 7 },
       data,
       { fetch: fetcher, sleep: noSleep },
@@ -298,7 +303,7 @@ describe("deliverEvent", () => {
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     const body = JSON.parse(call.body) as Record<string, unknown>;
-    expect(body).toMatchObject({ name: "upload.held", data, cursor: null });
+    expect(body).toMatchObject({ name: "uploads.file.held", data, cursor: null });
     expect(call.headers["webhook-id"]).toBe(body.eventId);
     expect(call.headers["x-mcp-subscription-id"]).toBe(sub.id);
     expect(call.headers["webhook-signature"]).toBe(
@@ -317,7 +322,7 @@ describe("deliverEvent", () => {
     flaky.calls.length = 0;
     const ctx = { repo: "acme/web" };
     expect(
-      await deliverEvent(env, "acme", "upload.held", "u1", ctx, data, {
+      await deliverEvent(env, "acme", "uploads.file.held", "u1", ctx, data, {
         fetch: flaky.fetcher,
         sleep: noSleep,
       }),
@@ -329,7 +334,7 @@ describe("deliverEvent", () => {
     await subscribeEvent(env, principal, subscribeParams(), gone.fetcher);
     gone.calls.length = 0;
     expect(
-      await deliverEvent(env, "acme", "upload.held", "u2", ctx, data, {
+      await deliverEvent(env, "acme", "uploads.file.held", "u2", ctx, data, {
         fetch: gone.fetcher,
         sleep: noSleep,
       }),
@@ -345,7 +350,7 @@ describe("deliverEvent", () => {
     calls.length = 0;
     members.length = 0;
     expect(
-      await deliverEvent(env, "acme", "upload.held", "u3", { repo: "acme/web" }, data, {
+      await deliverEvent(env, "acme", "uploads.file.held", "u3", { repo: "acme/web" }, data, {
         fetch: fetcher,
         sleep: noSleep,
       }),
@@ -364,7 +369,7 @@ describe("deliverHoldEvents", () => {
       { key: "screenshots/a.png", meta: {} },
     ];
     const extra = { reason: "secret", at: "2026-11-23T00:00:00.000Z" };
-    expect(await deliverHoldEvents(env, "acme", "upload.held", files, extra)).toBe(0);
+    expect(await deliverHoldEvents(env, "acme", "uploads.file.held", files, extra)).toBe(0);
 
     await subscribeEvent(
       env,
@@ -374,7 +379,7 @@ describe("deliverHoldEvents", () => {
     );
     calls.length = 0;
     const deps = { fetch: fetcher, sleep: async () => {} };
-    expect(await deliverHoldEvents(env, "acme", "upload.held", files, extra, deps)).toBe(1);
+    expect(await deliverHoldEvents(env, "acme", "uploads.file.held", files, extra, deps)).toBe(1);
     expect(JSON.parse(calls[0]!.body).data).toEqual({
       workspace: "acme",
       key: "gh/acme/web/pull/7/a.png",

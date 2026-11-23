@@ -164,7 +164,7 @@ async function applyUploadHoldUntraced(
     emitHoldEvent(
       env,
       workspaceName,
-      "upload.held",
+      "uploads.file.held",
       [
         { key, meta: existing },
         ...copies.map((copy) => ({ key: copy, meta: copyMeta.get(copy) ?? {} })),
@@ -282,7 +282,7 @@ async function approveUploadUntraced(
   emitHoldEvent(
     env,
     workspaceName,
-    "upload.approved",
+    "uploads.file.approved",
     keys.map((heldKey) => ({
       key: heldKey,
       meta: heldKey === key ? existing : (metas.get(heldKey) ?? {}),

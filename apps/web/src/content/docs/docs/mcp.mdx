@@ -205,8 +205,8 @@ delivery, which is what ChatGPT uses.
 
 | Event             | Sent when                                                      |
 | ----------------- | -------------------------------------------------------------- |
-| `upload.held`     | A file is [held for review](/docs/ai-labels#held-uploads).     |
-| `upload.approved` | A workspace member approves a held file.                       |
+| `uploads.file.held`     | A file is [held for review](/docs/ai-labels#held-uploads).     |
+| `uploads.file.approved` | A workspace member approves a held file.                       |
 
 Both events take optional `repo` (`owner/name`) and `pr` filters. The payload carries the file
 key, its file page URL, and the repo and PR when the file has them. It never carries file
@@ -263,6 +263,10 @@ These matter only if you write your own client.
   `initialize`-based flow on the same endpoint.
 - **Limits.** The REST API's upload limits apply, and writes are rate limited per workspace. See
   [Plans & limits](/docs/limits).
+- **Extensions.** The server supports
+  [MCP Skills](https://modelcontextprotocol.io/seps/2640-skills-extension) and
+  [MCP Events](#events). It serves the `github-screenshots` and `uploads-cli` skills as
+  `skill://<name>/SKILL.md`, and also lists them under `resources/list` for older clients.
 - **Discovery.** The server card is at
   [/.well-known/mcp/server-card.json](/.well-known/mcp/server-card.json).
 

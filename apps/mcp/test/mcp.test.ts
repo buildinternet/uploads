@@ -3298,8 +3298,8 @@ describe("MCP Events (SEP-3415, webhook delivery)", () => {
       result: { events: { name: string; delivery: string[] }[] };
     };
     expect(listed.result.events.map((e) => [e.name, e.delivery])).toEqual([
-      ["upload.held", ["webhook"]],
-      ["upload.approved", ["webhook"]],
+      ["uploads.file.held", ["webhook"]],
+      ["uploads.file.approved", ["webhook"]],
     ]);
   });
 
@@ -3335,7 +3335,7 @@ describe("MCP Events (SEP-3415, webhook delivery)", () => {
     );
 
     const params = {
-      name: "upload.held",
+      name: "uploads.file.held",
       arguments: { repo: "acme/web" },
       delivery: { mode: "webhook", url: CALLBACK, secret: SECRET },
       cursor: null,
@@ -3354,7 +3354,7 @@ describe("MCP Events (SEP-3415, webhook delivery)", () => {
     expect(bad.error?.code).toBe(-32602);
 
     const removed = await modern(env, jwt, "events/unsubscribe", {
-      name: "upload.held",
+      name: "uploads.file.held",
       arguments: { repo: "acme/web" },
       delivery: { url: CALLBACK },
     });

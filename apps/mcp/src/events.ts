@@ -2,7 +2,7 @@
  * MCP Events on the hosted server (SEP-3415, webhook delivery only):
  * `events/list`, `events/subscribe` and `events/unsubscribe`. The rules,
  * storage and delivery live in `@uploads/api/mcp-events`, which the hold
- * service also calls when it emits `upload.held` and `upload.approved`.
+ * service also calls when it emits `uploads.file.held` and `uploads.file.approved`.
  *
  * Attached only when the caller is a signed-in user who can read files, so a
  * workspace token never sees the capability. The capability goes under

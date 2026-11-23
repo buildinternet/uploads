@@ -74,7 +74,7 @@ export class McpEventsError extends Error {
   }
 }
 
-export type HoldEventName = "upload.held" | "upload.approved";
+export type HoldEventName = "uploads.file.held" | "uploads.file.approved";
 
 const filterSchema = {
   type: "object",
@@ -107,7 +107,7 @@ const holdPayloadProperties = {
 /** `events/list` entries. Evolve these additively (SEP-3415 "Schema evolution"). */
 export const EVENT_TYPES = [
   {
-    name: "upload.held",
+    name: "uploads.file.held",
     description:
       "A file was held for review because the classifier found a likely secret or personal data. The file stays private until a workspace member approves it.",
     delivery: ["webhook"],
@@ -126,7 +126,7 @@ export const EVENT_TYPES = [
     },
   },
   {
-    name: "upload.approved",
+    name: "uploads.file.approved",
     description:
       "A workspace member approved a held file, so it is public again and back in its PR comment.",
     delivery: ["webhook"],
@@ -677,7 +677,7 @@ export async function deliverEvent(
 }
 
 /**
- * Hold service hook: queue `upload.held` / `upload.approved` for each key
+ * Hold service hook: queue `uploads.file.held` / `uploads.file.approved` for each key
  * on the request's `waitUntil`, so slow webhooks never delay the caller.
  * Never throws.
  */
@@ -719,8 +719,10 @@ export async function deliverHoldEvents(
         key,
         pageUrl: filePageUrl(env, workspace, key),
         ...context,
-        ...(name === "upload.held" && extra.reason ? { reason: extra.reason } : {}),
-        ...(name === "upload.approved" && extra.approvedBy ? { approvedBy: extra.approvedBy } : {}),
+        ...(name === "uploads.file.held" && extra.reason ? { reason: extra.reason } : {}),
+        ...(name === "uploads.file.approved" && extra.approvedBy
+          ? { approvedBy: extra.approvedBy }
+          : {}),
       };
       const upstreamId = `${name}|${workspace}|${key}|${extra.at}`;
       delivered += await deliverEvent(env, workspace, name, upstreamId, context, data, deps);
