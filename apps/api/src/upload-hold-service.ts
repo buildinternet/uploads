@@ -24,6 +24,7 @@ import {
   readGateInsertsUnlessReleased,
 } from "./read-gate";
 import { emailHold } from "./hold-email-notify";
+import { emitHoldEvent } from "./mcp-events";
 import { notifySlackHoldResolved, notifySlackOfHold } from "./slack-hold-notify";
 import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
@@ -160,6 +161,16 @@ async function applyUploadHoldUntraced(
       copies.length > 0
         ? await getMetadataForKeys(db, workspaceName, copies, { metaKeys: ["gh.repo"] })
         : new Map<string, Record<string, string>>();
+    emitHoldEvent(
+      env,
+      workspaceName,
+      "uploads.file.held",
+      [
+        { key, meta: existing },
+        ...copies.map((copy) => ({ key: copy, meta: copyMeta.get(copy) ?? {} })),
+      ],
+      { reason, at: now },
+    );
     await Promise.all([
       resyncAttachmentComment(env, ws, workspaceName, key, existing),
       ...copies.map((copy) =>
@@ -268,6 +279,16 @@ async function approveUploadUntraced(
     return { approved: false, reason: "not_held" };
   }
   console.log({ event: "upload_approved", workspace: workspaceName });
+  emitHoldEvent(
+    env,
+    workspaceName,
+    "uploads.file.approved",
+    keys.map((heldKey) => ({
+      key: heldKey,
+      meta: heldKey === key ? existing : (metas.get(heldKey) ?? {}),
+    })),
+    { approvedBy: by, at },
+  );
   await Promise.all([
     ...keys.map((heldKey) =>
       resyncAttachmentComment(

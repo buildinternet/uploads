@@ -62,6 +62,8 @@ import { ROBOTS_TXT } from "./robots";
 import { registerStagedMediaResource, withStagedMediaApp } from "./staged-media-ui";
 import { traceTools } from "./tool-spans";
 import { loadSkills } from "./skills";
+import { attachEvents } from "./events";
+import type { EventsPrincipal } from "@uploads/api/mcp-events";
 
 /**
  * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
@@ -247,7 +249,11 @@ function requestWaitUntil(
 }
 
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
-function buildServer(c: Context<WorkspaceVars>, skills: SkillsExtension | undefined): McpServer {
+function buildServer(
+  c: Context<WorkspaceVars>,
+  skills: SkillsExtension | undefined,
+  events: EventsPrincipal | null,
+): McpServer {
   const server = createMcpServer({
     // Advertise the published CLI version (the MCP Registry listing), not
     // this worker's private package.json, which is inert.
@@ -272,7 +278,18 @@ function buildServer(c: Context<WorkspaceVars>, skills: SkillsExtension | undefi
   });
   if (c.get("authScopes").includes("files:read")) registerStagedMediaResource(server);
   skills?.attach(server);
+  if (events) attachEvents(server, c.env, events);
   return server;
+}
+
+/**
+ * The events principal when MCP Events apply to this request: a signed-in
+ * user with `files:read`. Webhook subscriptions need a principal (SEP-3415).
+ */
+function eventsPrincipal(c: Context<WorkspaceVars>): EventsPrincipal | null {
+  const identity = c.get("uploaderIdentity");
+  if (identity?.kind !== "user" || !c.get("authScopes").includes("files:read")) return null;
+  return { workspace: c.get("workspaceName"), userId: identity.userId };
 }
 
 /**
@@ -295,12 +312,13 @@ const MCP_MAX_REQUEST_BODY_BYTES = 100_000_000;
 async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   await recordMcpClient(c);
   const skills = await loadSkills();
+  const events = eventsPrincipal(c);
   if (
     await isLegacyRequest(c.req.raw, undefined, {
       maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
     })
   ) {
-    const server = buildServer(c, skills);
+    const server = buildServer(c, skills, events);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -332,7 +350,7 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
     }
   }
 
-  const handler = createMcpHandler(() => buildServer(c, skills), {
+  const handler = createMcpHandler(() => buildServer(c, skills, events), {
     legacy: "reject",
     maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
   });

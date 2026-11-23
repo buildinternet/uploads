@@ -3197,3 +3197,168 @@ describe("classifying hosted uploads (issue #1148)", () => {
     expect(pending).toHaveLength(0);
   });
 });
+
+describe("MCP Events (SEP-3415, webhook delivery)", () => {
+  const SECRET = `whsec_${btoa(String.fromCharCode(...new Uint8Array(32).fill(7)))}`;
+  const CALLBACK = "https://hooks.example.com/mcp/cb_1";
+
+  /** makeEnv plus a KV that can list, and the secrets key subscriptions are sealed with. */
+  async function eventsEnv() {
+    const made = await makeEnv();
+    const ws = await made.env.REGISTRY.get("ws:test-ws");
+    const store = new Map<string, string>();
+    (made.env as unknown as Record<string, unknown>).REGISTRY = {
+      get: async (key: string) => (key === "ws:test-ws" ? ws : (store.get(key) ?? null)),
+      put: async (key: string, value: string) => {
+        if (key.startsWith("mcpev:")) store.set(key, value);
+      },
+      delete: async (key: string) => {
+        store.delete(key);
+      },
+      list: async ({ prefix }: { prefix: string }) => ({
+        keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+        list_complete: true,
+      }),
+    };
+    (made.env as unknown as Record<string, unknown>).WORKSPACE_SECRETS_KEY =
+      "test-secrets-key-0123456789";
+    return { ...made, store };
+  }
+
+  const userJwt = () =>
+    signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scope: "files:read files:write",
+    });
+
+  async function modern(env: Env, token: string, method: string, params: Record<string, unknown>) {
+    const response = await app.request(
+      "/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method,
+          params: {
+            ...params,
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+              "io.modelcontextprotocol/clientCapabilities": {
+                extensions: { "io.modelcontextprotocol/events": {} },
+              },
+            },
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
+          "Mcp-Method": method,
+          ...(typeof params.name === "string" ? { "Mcp-Name": params.name } : {}),
+        },
+      },
+      env,
+    );
+    return (await response.json()) as {
+      result?: Record<string, unknown>;
+      error?: { code: number; message: string; data?: unknown };
+    };
+  }
+
+  it("advertises events to a signed-in user on initialize and lists the hold events", async () => {
+    const { env } = await eventsEnv();
+    const jwt = await userJwt();
+    const init = await rpc(
+      env,
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "test", version: "1" },
+        },
+      },
+      jwt,
+      "/mcp",
+    );
+    const body = (await init.json()) as {
+      result: { capabilities: { events?: object; extensions?: Record<string, object> } };
+    };
+    expect(body.result.capabilities.events).toEqual({});
+    expect(body.result.capabilities.extensions?.["io.modelcontextprotocol/events"]).toEqual({});
+
+    const list = await rpc(env, { jsonrpc: "2.0", id: 2, method: "events/list" }, jwt, "/mcp");
+    const listed = (await list.json()) as {
+      result: { events: { name: string; delivery: string[] }[] };
+    };
+    expect(listed.result.events.map((e) => [e.name, e.delivery])).toEqual([
+      ["uploads.file.held", ["webhook"]],
+      ["uploads.file.approved", ["webhook"]],
+    ]);
+  });
+
+  it("does not offer events to a workspace token, which has no user", async () => {
+    const { env } = await eventsEnv();
+    const list = await rpc(env, { jsonrpc: "2.0", id: 2, method: "events/list" });
+    const body = (await list.json()) as { error?: { code: number } };
+    expect(body.error?.code).toBe(-32601);
+  });
+
+  it("subscribes over the 2026-07-28 protocol after the callback echoes the challenge, then unsubscribes", async () => {
+    const { env, store } = await eventsEnv();
+    const jwt = await userJwt();
+    const discover = await modern(env, jwt, "server/discover", {});
+    const capabilities = discover.result?.capabilities as
+      | { extensions?: Record<string, unknown> }
+      | undefined;
+    expect(capabilities?.extensions?.["io.modelcontextprotocol/events"]).toEqual({});
+
+    stubFetchRoutes({});
+    const jwks = globalThis.fetch;
+    let verification: { headers: Headers; body: string } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === CALLBACK) {
+          verification = { headers: new Headers(init?.headers), body: String(init?.body) };
+          const { challenge } = JSON.parse(String(init?.body)) as { challenge: string };
+          return Response.json({ challenge });
+        }
+        return jwks(input, init);
+      }),
+    );
+
+    const params = {
+      name: "uploads.file.held",
+      arguments: { repo: "acme/web" },
+      delivery: { mode: "webhook", url: CALLBACK, secret: SECRET },
+      cursor: null,
+    };
+    const subscribed = await modern(env, jwt, "events/subscribe", params);
+    expect(subscribed.error).toBeUndefined();
+    expect(subscribed.result).toMatchObject({ cursor: null, truncated: false });
+    expect(subscribed.result?.id).toMatch(/^sub_/);
+    expect(verification!.headers.get("x-mcp-subscription-id")).toBe(subscribed.result?.id);
+    expect(store.size).toBe(1);
+
+    const bad = await modern(env, jwt, "events/subscribe", {
+      ...params,
+      delivery: { ...params.delivery, url: "http://hooks.example.com/x" },
+    });
+    expect(bad.error?.code).toBe(-32602);
+
+    const removed = await modern(env, jwt, "events/unsubscribe", {
+      name: "uploads.file.held",
+      arguments: { repo: "acme/web" },
+      delivery: { url: CALLBACK },
+    });
+    expect(removed.error).toBeUndefined();
+    expect(store.size).toBe(0);
+  });
+});

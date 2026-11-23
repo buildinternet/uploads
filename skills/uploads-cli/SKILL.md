@@ -159,6 +159,8 @@ uploads approve gh/owner/name/pull/123/settings.png
 
 From MCP: `list_held` (pass `pr`/`issue`, plus `repo` on the hosted server)
 lists held files and why, and `approve` takes `keys` or a `pr`/`issue`.
+A client that supports MCP Events can subscribe to `uploads.file.held` and
+`uploads.file.approved` on the hosted server instead of polling `list_held`.
 `get_metadata` still answers for a held file and shows `ai.hold=pending`.
 The classifier decides after the upload returns, so a put that may still be
 held carries `holdCheck: "pending"`. Later syncs of the PR comment report

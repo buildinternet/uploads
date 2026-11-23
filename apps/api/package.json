@@ -42,6 +42,7 @@
     "./upload-hold": "./src/upload-hold.ts",
     "./upload-hold-read": "./src/upload-hold-read.ts",
     "./upload-hold-service": "./src/upload-hold-service.ts",
+    "./mcp-events": "./src/mcp-events.ts",
     "./github-repo-binding": "./src/github-repo-binding.ts",
     "./github-pull-context": "./src/github-pull-context.ts",
     "./admin-ui": "./src/routes/admin-ui.ts",

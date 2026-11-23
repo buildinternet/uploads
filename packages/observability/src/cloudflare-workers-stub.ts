@@ -51,3 +51,17 @@ export function __setIssueSpanExplode(next: boolean): void {
 export function __setEnterSpan(next: EnterSpan | undefined | "default"): void {
   enterSpanImpl = next === "default" ? defaultEnterSpan : next;
 }
+
+const pendingWaitUntil: Promise<unknown>[] = [];
+
+/** Stand-in for `waitUntil`: holds the promise so a test can await it. */
+export function waitUntil(promise: Promise<unknown>): void {
+  pendingWaitUntil.push(promise);
+}
+
+/** Awaits (and clears) every promise handed to `waitUntil` so far. */
+export async function __drainWaitUntil(): Promise<void> {
+  while (pendingWaitUntil.length > 0) {
+    await Promise.allSettled(pendingWaitUntil.splice(0));
+  }
+}
