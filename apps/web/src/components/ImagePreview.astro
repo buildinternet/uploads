@@ -102,6 +102,40 @@ const counterpartUrl = compare?.src ?? null;
           d="M4 4l8 8M12 4l-8 8"></path>
       </svg>
     </button>
+    <button
+      type="button"
+      class="lightbox-close lightbox-step lightbox-step--prev"
+      data-lightbox-step="prev"
+      aria-label="Previous item"
+      hidden
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M10 3.5L5.5 8l4.5 4.5"></path>
+      </svg>
+    </button>
+    <button
+      type="button"
+      class="lightbox-close lightbox-step lightbox-step--next"
+      data-lightbox-step="next"
+      aria-label="Next item"
+      hidden
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M6 3.5L10.5 8 6 12.5"></path>
+      </svg>
+    </button>
     <div class="lightbox-scroll" data-lightbox-scroll>
       <img class="lightbox-image" data-lightbox-image alt={alt} decoding="async" />
     </div>
@@ -263,6 +297,16 @@ const counterpartUrl = compare?.src ?? null;
     }
   }
 
+  // Item pages (/c/, /g/ items) have a ‹ › pager. While the lightbox is open,
+  // ←/→ follow it and the lightbox reopens on the next item's page, so
+  // paging through a live link or gallery works without leaving full size.
+  // Module state survives ClientRouter swaps; a full reload just drops it.
+  let reopenAfterStep = false;
+
+  function itemStepLink(rel: "prev" | "next"): HTMLAnchorElement | null {
+    return document.querySelector<HTMLAnchorElement>(`[data-item-navigation] a[rel="${rel}"]`);
+  }
+
   // One lightbox controller per preview, built lazily on first open. The
   // controller portals the overlay to <body> (so no ancestor's overflow or
   // containing block clips the fixed layer) and returns an `open(src)`.
@@ -283,6 +327,7 @@ const counterpartUrl = compare?.src ?? null;
     const scroll = box.querySelector<HTMLElement>("[data-lightbox-scroll]");
     const img = box.querySelector<HTMLImageElement>("[data-lightbox-image]");
     const closeBtn = box.querySelector<HTMLButtonElement>("[data-lightbox-close]");
+    const stepBtns = [...box.querySelectorAll<HTMLButtonElement>("button[data-lightbox-step]")];
     document.body.appendChild(box);
 
     let lastFocused: HTMLElement | null = null;
@@ -309,21 +354,47 @@ const counterpartUrl = compare?.src ?? null;
       if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
     };
 
-    // Close button is the only focusable control, so the trap simply pins Tab
-    // to it — enough to keep keyboard focus from escaping to the page behind.
+    const step = (rel: "prev" | "next") => {
+      const link = itemStepLink(rel);
+      if (!link) return;
+      reopenAfterStep = true;
+      link.click();
+    };
+
+    // The trap cycles Tab through the lightbox's own buttons so keyboard
+    // focus can't escape to the page behind.
     const onKeydown = (e: KeyboardEvent) => {
       if (box.hidden) return;
       if (e.key === "Escape") {
         e.preventDefault();
         close();
+      } else if (
+        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+        !e.repeat &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey
+      ) {
+        const rel = e.key === "ArrowLeft" ? "prev" : "next";
+        if (!itemStepLink(rel)) return;
+        e.preventDefault();
+        step(rel);
       } else if (e.key === "Tab") {
         e.preventDefault();
-        closeBtn?.focus();
+        const list = [closeBtn, ...stepBtns].filter(
+          (el): el is HTMLButtonElement => !!el && !el.hidden,
+        );
+        const at = list.indexOf(document.activeElement as HTMLButtonElement);
+        list[(at + (e.shiftKey ? -1 : 1) + list.length) % list.length]?.focus();
       }
     };
 
     const open = (src: string) => {
       if (img) img.src = src;
+      for (const btn of stepBtns) {
+        btn.hidden = !itemStepLink(btn.dataset.lightboxStep === "prev" ? "prev" : "next");
+      }
       setZoom("fit");
       lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       prevBodyOverflow = document.body.style.overflow;
@@ -343,6 +414,12 @@ const counterpartUrl = compare?.src ?? null;
     );
 
     closeBtn?.addEventListener("click", close);
+    for (const btn of stepBtns) {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        step(btn.dataset.lightboxStep === "prev" ? "prev" : "next");
+      });
+    }
     // A click anywhere that isn't the image (backdrop, letterbox margin) closes.
     box.addEventListener("click", (e) => {
       if (e.target !== img) close();
@@ -436,6 +513,15 @@ const counterpartUrl = compare?.src ?? null;
 
   function boot(): void {
     document.querySelectorAll<HTMLElement>("[data-image-preview]").forEach(initPreview);
+    if (!reopenAfterStep) return;
+    reopenAfterStep = false;
+    // Arrived here by paging inside the lightbox: keep it open. A video or
+    // file item has no image preview, so the page shows as usual.
+    const root = document.querySelector<HTMLElement>("[data-image-preview]");
+    const img = root?.querySelector<HTMLImageElement>("img.single-image");
+    if (!root || !img || root.dataset.failed === "1") return;
+    const src = img.currentSrc || img.src;
+    if (src) initLightbox(root, src);
   }
 
   boot();
@@ -813,6 +899,36 @@ const counterpartUrl = compare?.src ?? null;
 
   .lightbox-close:focus-visible {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+
+  /* ‹ › on item pages: same pill as close, centred on each side. */
+  .lightbox-step {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .lightbox-step[hidden] {
+    display: none;
+  }
+  /* Keep the image clear of the side buttons. */
+  .lightbox:has(.lightbox-step:not([hidden])) {
+    padding-inline: 72px;
+  }
+  .lightbox-step--prev {
+    right: auto;
+    left: 16px;
+  }
+  .lightbox-step--next {
+    right: 16px;
+  }
+  @media (max-width: 760px) {
+    .lightbox:has(.lightbox-step:not([hidden])) {
+      padding-inline: 24px;
+    }
+    .lightbox-step {
+      top: auto;
+      bottom: 16px;
+      transform: none;
+    }
   }
 
   .lightbox-scroll {
