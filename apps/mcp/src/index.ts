@@ -39,6 +39,7 @@ import {
   loadWorkspaceRecord,
   tokenWorkspaceAuth,
   workspaceAuth,
+  type FileScope,
   type WorkspaceVars,
 } from "@uploads/api/workspace";
 import { userUploaderIdentity } from "@uploads/api/uploader-identity";
@@ -50,7 +51,14 @@ import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { version as uploadsVersion } from "../../../packages/uploads/package.json";
 import { createRemoteTools, runTicketedPut } from "./tools";
-import { verifyUploadTicket } from "./upload-ticket";
+import { canSignUploadTickets, verifyUploadTicket } from "./upload-ticket";
+import {
+  FILE_SLOT_TTL_S,
+  FILES_CAPABILITY,
+  FILES_EXTENSION_ID,
+  fileSlotKey,
+  requestMayUseFiles,
+} from "./file-uploads";
 import {
   invalidTokenChallenge,
   isJwtShaped,
@@ -253,6 +261,7 @@ function buildServer(
   c: Context<WorkspaceVars>,
   skills: SkillsExtension | undefined,
   events: EventsPrincipal | null,
+  fileUploads: FileUploadsMode,
 ): McpServer {
   const server = createMcpServer({
     // Advertise the published CLI version (the MCP Registry listing), not
@@ -270,6 +279,7 @@ function buildServer(
           resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
           waitUntil: requestWaitUntil(c),
           classifierHandoff: classifierHandoff(c.env),
+          fileUploads: fileUploads === "list",
         }),
         c.get("authScopes").includes("files:read"),
       ),
@@ -279,7 +289,22 @@ function buildServer(
   if (c.get("authScopes").includes("files:read")) registerStagedMediaResource(server);
   skills?.attach(server);
   if (events) attachEvents(server, c.env, events);
+  if (fileUploads !== "off") {
+    server.server.registerCapabilities({ extensions: { [FILES_EXTENSION_ID]: FILES_CAPABILITY } });
+  }
   return server;
+}
+
+/**
+ * MCP File Uploads (`file-uploads.ts`) for this request: `off` without
+ * signing keys or files:write; otherwise always advertised, and `put` lists
+ * its `file` argument (`list`) only when the client may use it.
+ */
+type FileUploadsMode = "off" | "advertise" | "list";
+
+async function fileUploadsMode(c: Context<WorkspaceVars>): Promise<FileUploadsMode> {
+  if (!canSignUploadTickets(c.env) || !c.get("authScopes").includes("files:write")) return "off";
+  return (await requestMayUseFiles(c.req.raw)) ? "list" : "advertise";
 }
 
 /**
@@ -313,12 +338,13 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   await recordMcpClient(c);
   const skills = await loadSkills();
   const events = eventsPrincipal(c);
+  const fileUploads = await fileUploadsMode(c);
   if (
     await isLegacyRequest(c.req.raw, undefined, {
       maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
     })
   ) {
-    const server = buildServer(c, skills, events);
+    const server = buildServer(c, skills, events, fileUploads);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -350,7 +376,7 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
     }
   }
 
-  const handler = createMcpHandler(() => buildServer(c, skills, events), {
+  const handler = createMcpHandler(() => buildServer(c, skills, events, fileUploads), {
     legacy: "reject",
     maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES,
   });
@@ -445,8 +471,11 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
       env: c.env,
       workspace: record,
       workspaceName: claims.ws,
-      // Minting required files:write; that's all the PUT does.
-      authScopes: ["files:write"],
+      // Minting required files:write; that's all a `sign_upload_url` PUT
+      // does. `put`'s File Uploads ticket carries its scopes for the comment.
+      authScopes: (claims.scopes ?? ["files:write"]).filter(
+        (scope): scope is FileScope => scope === "files:write" || scope === "files:read",
+      ),
       uploaderIdentity: claims.who,
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
       waitUntil: requestWaitUntil(c),
@@ -454,7 +483,14 @@ async function handleTicketUpload(c: Context<WorkspaceVars>): Promise<Response> 
     },
     claims.args,
     body,
+    { syncComment: claims.slot !== undefined },
   );
+  if (claims.slot !== undefined) {
+    // The retried `put` call reads this (`putFile` in tools.ts).
+    await c.env.REGISTRY.put(fileSlotKey(claims.ws, claims.slot), JSON.stringify(result), {
+      expirationTtl: FILE_SLOT_TTL_S,
+    });
+  }
   return c.json(result);
 }
 

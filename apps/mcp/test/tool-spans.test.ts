@@ -16,7 +16,7 @@ describe("traceTools", () => {
     const handler = vi.fn(async () => ({ ok: true }));
     const [tool] = traceTools([{ name: "put", handler } as unknown as McpTool]);
     await expect(tool!.handler({ filename: "a.png" })).resolves.toEqual({ ok: true });
-    expect(handler).toHaveBeenCalledWith({ filename: "a.png" });
+    expect(handler).toHaveBeenCalledWith({ filename: "a.png" }, undefined);
     expect(names).toEqual(["tools/call put"]);
     expect(span.setAttributes).toHaveBeenCalledWith({
       "mcp.method.name": "tools/call",

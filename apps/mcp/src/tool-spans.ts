@@ -13,7 +13,7 @@ import { withSpan } from "@uploads/observability/tracing";
 export function traceTools(tools: McpTool[]): McpTool[] {
   return tools.map((tool) => ({
     ...tool,
-    handler: (args) =>
+    handler: (args, call) =>
       withSpan(
         `tools/call ${tool.name}`,
         {
@@ -21,7 +21,7 @@ export function traceTools(tools: McpTool[]): McpTool[] {
           "gen_ai.operation.name": "execute_tool",
           "gen_ai.tool.name": tool.name,
         },
-        async () => tool.handler(args),
+        async () => tool.handler(args, call),
       ),
   }));
 }

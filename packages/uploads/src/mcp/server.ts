@@ -177,7 +177,47 @@ export interface McpTool {
   outputSchema?: Record<string, unknown>;
   /** Optional MCP App linkage and host extensions. Auth metadata stays authoritative. */
   _meta?: Record<string, unknown>;
-  handler: (args: Record<string, unknown>) => Promise<unknown>;
+  handler: (args: Record<string, unknown>, call?: McpToolCallContext) => Promise<unknown>;
+}
+
+/**
+ * What a tool handler may read about the request beyond its arguments
+ * (protocol 2026-07-28 only; both fields are absent on 2025-era requests).
+ */
+export interface McpToolCallContext {
+  /** `params.requestState` a client echoes when it retries a call. */
+  requestState?: string;
+  /** The client capabilities this request declared in its `_meta`. */
+  clientCapabilities?: Record<string, unknown>;
+}
+
+/**
+ * Returned by a handler to send `result` as the whole `tools/call` result,
+ * unwrapped. For results that aren't ordinary tool output, such as the File
+ * Uploads extension's `resultType: "upload_required"`. It must still carry
+ * `content` and, for a tool with an output schema, a `structuredContent`
+ * that schema accepts.
+ */
+export class RawToolResult {
+  constructor(readonly result: CallToolResult) {}
+}
+
+const CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities";
+
+/** The SDK's per-request context, read loosely: only these two fields are used. */
+function callContextOf(ctx: unknown): McpToolCallContext {
+  const req = (ctx as { mcpReq?: { requestState?: () => unknown; envelope?: unknown } } | undefined)
+    ?.mcpReq;
+  const requestState = req?.requestState?.();
+  const declared = (req?.envelope as Record<string, unknown> | undefined)?.[
+    CLIENT_CAPABILITIES_META_KEY
+  ];
+  return {
+    ...(typeof requestState === "string" ? { requestState } : {}),
+    ...(declared && typeof declared === "object"
+      ? { clientCapabilities: declared as Record<string, unknown> }
+      : {}),
+  };
 }
 
 /**
@@ -211,14 +251,15 @@ function toolErrorText(err: unknown): string {
  */
 function wrapHandler(tool: McpTool, apiUrl: string | undefined) {
   const command = `tool ${tool.name}`.slice(0, 120);
-  return async (args: Record<string, unknown>): Promise<CallToolResult> => {
+  return async (args: Record<string, unknown>, ctx?: unknown): Promise<CallToolResult> => {
     const start = Date.now();
     try {
-      const result = await tool.handler(args ?? {});
+      const result = await tool.handler(args ?? {}, callContextOf(ctx));
       recordEvent(
         { surface: "mcp", command, exitCode: 0, durationMs: Date.now() - start },
         { apiUrl },
       );
+      if (result instanceof RawToolResult) return result.result;
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         structuredContent: result as CallToolResult["structuredContent"],
