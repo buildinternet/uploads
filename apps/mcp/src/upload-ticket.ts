@@ -28,6 +28,13 @@ export interface UploadTicketClaims {
   args: Record<string, unknown>;
   /** Byte ceiling for the body, checked against Content-Length. */
   maxBytes: number;
+  /**
+   * Set by `put`'s File Uploads flow (`file-uploads.ts`): the PUT also syncs
+   * the PR comment and saves its result under this id for the retried call.
+   */
+  slot?: string;
+  /** The minting token's file scopes, so the PUT can sync the comment. Defaults to files:write. */
+  scopes?: string[];
 }
 
 interface TicketKeyEnv {
@@ -35,8 +42,8 @@ interface TicketKeyEnv {
   WORKSPACE_SECRETS_KEY_PREVIOUS?: string;
 }
 
-/** `HMAC(master, "upload-ticket-v1")` — a ticket-only key, separate from the AES use. */
-async function ticketKey(master: string): Promise<Uint8Array> {
+/** `HMAC(master, label)` — a key for one token kind, separate from the AES use. */
+async function derivedKey(master: string, label = KEY_LABEL): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(master),
@@ -44,7 +51,7 @@ async function ticketKey(master: string): Promise<Uint8Array> {
     false,
     ["sign"],
   );
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(KEY_LABEL)));
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(label)));
 }
 
 /** Whether this worker can mint tickets at all. */
@@ -64,7 +71,7 @@ export async function signUploadTicket(
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(iat)
     .setExpirationTime(exp)
-    .sign(await ticketKey(env.WORKSPACE_SECRETS_KEY));
+    .sign(await derivedKey(env.WORKSPACE_SECRETS_KEY));
   return { ticket, expiresAt: new Date(exp * 1000).toISOString() };
 }
 
@@ -82,7 +89,7 @@ export async function verifyUploadTicket(
     if (!master) continue;
     let payload: Record<string, unknown>;
     try {
-      ({ payload } = await jwtVerify(ticket, await ticketKey(master), {
+      ({ payload } = await jwtVerify(ticket, await derivedKey(master), {
         algorithms: ["HS256"],
         currentDate: new Date(now),
         requiredClaims: ["exp"],
@@ -90,7 +97,7 @@ export async function verifyUploadTicket(
     } catch {
       continue;
     }
-    const { ws, who, args, maxBytes } = payload;
+    const { ws, who, args, maxBytes, slot, scopes } = payload;
     if (
       typeof ws !== "string" ||
       typeof who !== "object" ||
@@ -101,7 +108,90 @@ export async function verifyUploadTicket(
     ) {
       return null;
     }
-    return { ws, who: who as UploaderIdentity, args: args as Record<string, unknown>, maxBytes };
+    return {
+      ws,
+      who: who as UploaderIdentity,
+      args: args as Record<string, unknown>,
+      maxBytes,
+      ...(typeof slot === "string" ? { slot } : {}),
+      ...(Array.isArray(scopes) ? { scopes: scopes.filter((x) => typeof x === "string") } : {}),
+    };
+  }
+  return null;
+}
+
+const STATE_KEY_LABEL = "mcp-file-state-v1";
+
+/** How long a File Uploads `requestState` stays valid. Outlives its 15-minute upload URL. */
+export const FILE_STATE_TTL_S = 60 * 60;
+
+/**
+ * The `requestState` of a File Uploads `upload_required` result: which call
+ * it belongs to (workspace, uploader, a hash of the arguments) and the slot
+ * where the PUT saves its result. Signed with its own derived key, so a
+ * ticket can't pass as a state or the other way round.
+ */
+export interface FileStateClaims {
+  ws: string;
+  who: UploaderIdentity;
+  /** `argsDigest` of the tool arguments. */
+  args: string;
+  slot: string;
+  /** A hint `put` adds to the result, and whether it replaces one the result has. */
+  hint?: string;
+  hintWins?: boolean;
+}
+
+export async function signFileState(
+  env: TicketKeyEnv,
+  claims: FileStateClaims,
+  now = Date.now(),
+): Promise<string> {
+  if (!env.WORKSPACE_SECRETS_KEY) throw new Error("upload tickets are not configured");
+  const iat = Math.floor(now / 1000);
+  return new SignJWT({ ...claims })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt(iat)
+    .setExpirationTime(iat + FILE_STATE_TTL_S)
+    .sign(await derivedKey(env.WORKSPACE_SECRETS_KEY, STATE_KEY_LABEL));
+}
+
+/** Claims for a valid, unexpired state; null for anything else. */
+export async function verifyFileState(
+  env: TicketKeyEnv,
+  state: string,
+  now = Date.now(),
+): Promise<FileStateClaims | null> {
+  for (const master of [env.WORKSPACE_SECRETS_KEY, env.WORKSPACE_SECRETS_KEY_PREVIOUS]) {
+    if (!master) continue;
+    let payload: Record<string, unknown>;
+    try {
+      ({ payload } = await jwtVerify(state, await derivedKey(master, STATE_KEY_LABEL), {
+        algorithms: ["HS256"],
+        currentDate: new Date(now),
+        requiredClaims: ["exp"],
+      }));
+    } catch {
+      continue;
+    }
+    const { ws, who, args, slot, hint, hintWins } = payload;
+    if (
+      typeof ws !== "string" ||
+      typeof who !== "object" ||
+      who === null ||
+      typeof args !== "string" ||
+      typeof slot !== "string"
+    ) {
+      return null;
+    }
+    return {
+      ws,
+      who: who as UploaderIdentity,
+      args,
+      slot,
+      ...(typeof hint === "string" ? { hint } : {}),
+      ...(hintWins === true ? { hintWins } : {}),
+    };
   }
   return null;
 }

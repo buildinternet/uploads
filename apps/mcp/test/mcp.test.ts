@@ -3362,3 +3362,189 @@ describe("MCP Events (SEP-3415, webhook delivery)", () => {
     expect(store.size).toBe(0);
   });
 });
+
+describe("put with the MCP File Uploads extension", () => {
+  const FILES = "io.modelcontextprotocol/files";
+
+  async function filesEnv() {
+    const made = await makeEnv();
+    const ws = await made.env.REGISTRY.get("ws:test-ws");
+    const store = new Map<string, string>();
+    (made.env as unknown as Record<string, unknown>).REGISTRY = {
+      get: async (key: string, type?: string) => {
+        if (key === "ws:test-ws") return ws;
+        const value = store.get(key);
+        if (value === undefined) return null;
+        return type === "json" ? JSON.parse(value) : value;
+      },
+      put: async (key: string, value: string) => {
+        store.set(key, value);
+      },
+    };
+    (made.env as unknown as Record<string, unknown>).WORKSPACE_SECRETS_KEY =
+      "test-secrets-key-0123456789";
+    return { ...made, store };
+  }
+
+  const meta = (files?: object) => ({
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientCapabilities": files ? { extensions: { [FILES]: files } } : {},
+  });
+
+  async function call(env: Env, method: string, params: Record<string, unknown>) {
+    const response = await app.request(
+      "/test-ws/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
+          "Mcp-Method": method,
+          ...(method === "tools/call" ? { "Mcp-Name": String(params.name) } : {}),
+        },
+      },
+      env,
+    );
+    expect(response.status).toBe(200);
+    return (await response.json()) as {
+      result?: Record<string, unknown>;
+      error?: { code: number; message: string };
+    };
+  }
+
+  const fileArg = { id: "file-1", name: "shot.png", mimeType: "image/png", size: 11 };
+
+  it("advertises the extension, and lists put's file argument only to clients that declare it", async () => {
+    const { env } = await filesEnv();
+    const discover = await call(env, "server/discover", { _meta: meta({ upload: {} }) });
+    const capabilities = discover.result?.capabilities as { extensions?: Record<string, unknown> };
+    expect(capabilities.extensions?.[FILES]).toEqual({ upload: {}, maxInlineBytes: 1048576 });
+
+    const putSchema = async (files?: object) => {
+      const listed = await call(env, "tools/list", { _meta: meta(files) });
+      const tools = listed.result?.tools as { name: string; inputSchema: any }[];
+      return tools.find((t) => t.name === "put")!.inputSchema.properties;
+    };
+    expect((await putSchema({ upload: {} })).file["x-mcp-file"].maxSize).toBe(100_000_000);
+    expect(await putSchema({})).toHaveProperty("file");
+    expect(await putSchema()).not.toHaveProperty("file");
+
+    const { env: unsigned } = await makeEnv();
+    const plain = await call(unsigned, "server/discover", { _meta: meta({ upload: {} }) });
+    const plainCaps = plain.result?.capabilities as { extensions?: Record<string, unknown> };
+    expect(plainCaps.extensions?.[FILES]).toBeUndefined();
+  });
+
+  it("asks for an upload, takes the bytes, and returns put's result on the retry", async () => {
+    const { env, bucket } = await filesEnv();
+    const args = { file: fileArg, repo: "acme/web" };
+    const first = await call(env, "tools/call", {
+      name: "put",
+      arguments: args,
+      _meta: meta({ upload: {} }),
+    });
+    expect(first.result?.resultType).toBe("upload_required");
+    const [target] = first.result!.uploads as {
+      fileId: string;
+      url: string;
+      headers: Record<string, string>;
+      credentials: string;
+    }[];
+    expect(target).toMatchObject({
+      fileId: "file-1",
+      headers: { "Content-Type": "image/png" },
+      credentials: "omit",
+    });
+    const requestState = first.result?.requestState as string;
+    expect(typeof requestState).toBe("string");
+    expect(bucket.store.size).toBe(0);
+
+    // Before the bytes arrive the retry says so.
+    const early = await call(env, "tools/call", {
+      name: "put",
+      arguments: args,
+      requestState,
+      _meta: meta({ upload: {} }),
+    });
+    expect(early.result?.isError).toBe(true);
+
+    // The target takes exactly the declared size.
+    const { pathname } = new URL(target!.url);
+    const tooBig = await app.request(
+      pathname,
+      { method: "PUT", body: new Uint8Array(12), headers: { "Content-Length": "12" } },
+      env,
+    );
+    expect(tooBig.status).toBe(413);
+    const uploaded = await app.request(
+      pathname,
+      { method: "PUT", body: PNG_BYTES, headers: { "Content-Length": "11" } },
+      env,
+    );
+    expect(uploaded.status).toBe(200);
+
+    const retry = await call(env, "tools/call", {
+      name: "put",
+      arguments: args,
+      requestState,
+      _meta: meta({ upload: {} }),
+    });
+    expect(retry.result?.isError).toBe(false);
+    const result = retry.result?.structuredContent as Record<string, string>;
+    expect(result.key).toMatch(/^screenshots\/acme-web\/.*shot.*\.png$/);
+    expect(result.markdown).toBe(`![shot.png](${result.url})`);
+    expect(bucket.store.get(result.key!)?.data).toEqual(PNG_BYTES);
+
+    // The state belongs to these arguments.
+    const other = await call(env, "tools/call", {
+      name: "put",
+      arguments: { ...args, alt: "changed" },
+      requestState,
+      _meta: meta({ upload: {} }),
+    });
+    expect(other.result?.isError).toBe(true);
+    expect(JSON.stringify(other.result?.content)).toContain("requestState");
+  });
+
+  it("uploads inline file.data directly and checks its size and digest", async () => {
+    const { env, bucket } = await filesEnv();
+    const ok = await call(env, "tools/call", {
+      name: "put",
+      arguments: { file: { ...fileArg, data: PNG_B64 }, key: "shots/inline.png" },
+      _meta: meta({}),
+    });
+    expect(ok.result?.isError).toBe(false);
+    expect(bucket.store.get("shots/inline.png")?.data).toEqual(PNG_BYTES);
+
+    const wrongSize = await call(env, "tools/call", {
+      name: "put",
+      arguments: { file: { ...fileArg, size: 12, data: PNG_B64 }, key: "shots/a.png" },
+      _meta: meta({}),
+    });
+    expect(wrongSize.result?.isError).toBe(true);
+    const wrongDigest = await call(env, "tools/call", {
+      name: "put",
+      arguments: {
+        file: { ...fileArg, data: PNG_B64, digest: { algorithm: "sha-256", value: "nope" } },
+        key: "shots/b.png",
+      },
+      _meta: meta({}),
+    });
+    expect(wrongDigest.result?.isError).toBe(true);
+    expect(bucket.store.has("shots/a.png") || bucket.store.has("shots/b.png")).toBe(false);
+  });
+
+  it("explains the alternatives to a client that can't upload out of band", async () => {
+    const { env } = await filesEnv();
+    const refused = await call(env, "tools/call", {
+      name: "put",
+      arguments: { file: fileArg },
+      _meta: meta({}),
+    });
+    expect(refused.result?.isError).toBe(true);
+    expect(JSON.stringify(refused.result?.content)).toContain("contentBase64");
+  });
+});

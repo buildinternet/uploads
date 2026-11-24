@@ -50,6 +50,8 @@ import {
   optStringRecord,
   usage,
   type McpTool,
+  type McpToolCallContext,
+  RawToolResult,
   insufficientScopeError,
   mcpDestroyPublic,
   mcpNoAuth,
@@ -172,7 +174,23 @@ import { activityReadTools } from "./activity-tools";
 import { recentStagedBranches } from "@uploads/api/staged-scopes";
 import { stagedMediaReadTools } from "./staged-media-tools";
 import { stagedMediaOutputSchemas } from "./staged-media-response";
-import { canSignUploadTickets, signUploadTicket, UPLOAD_TICKET_TTL_S } from "./upload-ticket";
+import {
+  canSignUploadTickets,
+  signFileState,
+  signUploadTicket,
+  UPLOAD_TICKET_TTL_S,
+  verifyFileState,
+} from "./upload-ticket";
+import {
+  argsDigest,
+  clientCanUpload,
+  FILE_INPUT_SCHEMA,
+  FILE_MAX_BYTES,
+  fileSlotKey,
+  MAX_INLINE_BYTES,
+  sha256Base64Url,
+  type FileInput,
+} from "./file-uploads";
 import { withWorkspaceRouting } from "./workspace-routing";
 
 export interface RemoteToolContext {
@@ -208,6 +226,11 @@ export interface RemoteToolContext {
   waitUntil?: (promise: Promise<unknown>) => void;
   /** Sends a stored file to uploads-api to classify (`classifierHandoff`). */
   classifierHandoff?: ClassifierHandoff;
+  /**
+   * List `put`'s `file` argument (MCP File Uploads extension, `file-uploads.ts`).
+   * Set only when the request may come from a client that declared it.
+   */
+  fileUploads?: boolean;
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -245,7 +268,9 @@ async function bytesFromPutSource(
  * Where a non-tool `put` gets its bytes: a ticketed request body, or none
  * at all when `sign_upload_url` only validates the arguments.
  */
-type PutUpload = { bytes: Uint8Array | StreamedBody } | { validateOnly: true };
+type PutUpload =
+  | { bytes: Uint8Array | StreamedBody; syncComment?: boolean }
+  | { validateOnly: true };
 
 /**
  * Ceiling for one ticketed upload, on top of the workspace's own limit:
@@ -487,8 +512,9 @@ export function runTicketedPut(
   ctx: RemoteToolContext,
   args: Record<string, unknown>,
   bytes: Uint8Array | StreamedBody,
+  opts: { syncComment?: boolean } = {},
 ) {
-  return createRemoteToolkit(ctx).runPut(args, { bytes });
+  return createRemoteToolkit(ctx).runPut(args, { bytes, ...opts });
 }
 
 function createRemoteToolkit(ctx: RemoteToolContext) {
@@ -697,6 +723,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
     requireScope("files:write");
     const validateOnly = upload !== undefined && "validateOnly" in upload;
     const ticketBytes = upload !== undefined && "bytes" in upload ? upload.bytes : undefined;
+    const syncComment = upload !== undefined && "bytes" in upload && upload.syncComment === true;
     // One limiter hit per tool call, single or batch — the batch's cost
     // ceiling is bounded by MAX_PUT_FILES instead. A ticketed upload is
     // charged on its PUT, not when the URL is signed.
@@ -1038,9 +1065,10 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
             width,
             contentType: result.contentType,
           });
-    // A ticketed upload never syncs the comment: parallel PUTs on a new PR
-    // would each create one. The agent calls `comment` once afterwards.
-    const extras = ticketBytes ? {} : await afterUploadExtras(true);
+    // A `sign_upload_url` upload never syncs the comment: parallel PUTs on a
+    // new PR would each create one. The agent calls `comment` once afterwards.
+    // `put`'s own File Uploads flow is one file per call, like `put`, so it does.
+    const extras = ticketBytes && !syncComment ? {} : await afterUploadExtras(true);
     return {
       workspace: workspaceName,
       ...result,
@@ -1048,6 +1076,162 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
       ...extras,
       ...(contextHint ? { hint: contextHint } : {}),
     };
+  }
+
+  /** The hint `put` adds for an auto-attached PR (replacing any) or a staged-only upload. */
+  function putHint(
+    args: Record<string, unknown>,
+    resolved: Record<string, unknown>,
+    autoPr: number | undefined,
+  ): { hint: string; wins: boolean } | undefined {
+    if (autoPr !== undefined) return { hint: autoPrHint(String(args.branch), autoPr), wins: true };
+    const staged = resolved.branch;
+    const stagedOnly =
+      typeof staged === "string" &&
+      staged.length > 0 &&
+      resolved.pr === undefined &&
+      resolved.issue === undefined &&
+      resolved.key === undefined;
+    return stagedOnly ? { hint: stagedHint(staged), wins: false } : undefined;
+  }
+
+  function withPutHint<T extends object>(result: T, hint?: { hint: string; wins: boolean }) {
+    if (!hint || (!hint.wins && "hint" in result)) return result;
+    return { ...result, hint: hint.hint };
+  }
+
+  /**
+   * `put` with the File Uploads extension's `file` argument
+   * (`file-uploads.ts`): inline `data` runs as `contentBase64`; otherwise
+   * the first call answers `upload_required` and the retry, carrying
+   * `requestState`, returns what the upload's PUT stored.
+   */
+  async function putFile(args: Record<string, unknown>, call: McpToolCallContext | undefined) {
+    const { file: rawFile, ...rest } = args;
+    const file = rawFile as FileInput;
+    if (
+      rest.contentBase64 !== undefined ||
+      rest.contentUrl !== undefined ||
+      rest.files !== undefined
+    ) {
+      usage("file cannot be combined with contentBase64, contentUrl, or files");
+    }
+    const filename = optString(rest, "filename") ?? file.name;
+    if (!filename) usage("filename is required when the file has no name");
+    if (file.size === 0) usage("file is empty");
+
+    if (call?.requestState !== undefined) {
+      const claims = await verifyFileState(env, call.requestState);
+      if (
+        !claims ||
+        claims.ws !== workspaceName ||
+        JSON.stringify(claims.who) !== JSON.stringify(ctx.uploaderIdentity) ||
+        claims.args !== (await argsDigest(args))
+      ) {
+        usage("requestState is invalid, expired, or from another call. Call put again without it.");
+      }
+      const stored = await env.REGISTRY.get<Record<string, unknown>>(
+        fileSlotKey(workspaceName, claims.slot),
+        "json",
+      );
+      if (!stored) {
+        throw new Error("The file upload didn't arrive. Call put again for a new upload URL.");
+      }
+      return withPutHint(
+        stored,
+        claims.hint === undefined
+          ? undefined
+          : { hint: claims.hint, wins: claims.hintWins === true },
+      );
+    }
+
+    if (file.data !== undefined) {
+      let bytes: Uint8Array;
+      try {
+        bytes = Uint8Array.from(atob(file.data), (ch) => ch.charCodeAt(0));
+      } catch {
+        usage("file.data must be valid base64");
+      }
+      if (bytes.byteLength > MAX_INLINE_BYTES) {
+        usage(`inline file.data is limited to ${MAX_INLINE_BYTES} bytes`);
+      }
+      if (bytes.byteLength !== file.size) usage("file.data doesn't match file.size");
+      if (file.digest && file.digest.value !== (await sha256Base64Url(bytes))) {
+        usage("file.data doesn't match file.digest");
+      }
+      const { args: resolved, autoPr } = await withGithubContext(
+        { ...rest, filename, contentBase64: file.data },
+        { keepBranch: true },
+      );
+      return withPutHint(await runPut(resolved), putHint(rest, resolved, autoPr));
+    }
+
+    if (!clientCanUpload(call?.clientCapabilities)) {
+      usage(
+        `This client didn't declare file uploads, so send the bytes another way: file.data (up to ${MAX_INLINE_BYTES} bytes), contentBase64, or sign_upload_url.`,
+      );
+    }
+    if (!canSignUploadTickets(env)) {
+      throw new Error("file uploads are not available on this server; use contentBase64");
+    }
+    const { args: resolved, autoPr } = await withGithubContext(
+      { ...rest, filename },
+      { keepBranch: true },
+    );
+    // Every argument check `put` makes, before anything is signed.
+    const checked = (await runPut(resolved, { validateOnly: true })) as { maxBytes: number };
+    const maxBytes = Math.min(checked.maxBytes, FILE_MAX_BYTES);
+    if (file.size > maxBytes) {
+      usage(`file is ${file.size} bytes; this workspace accepts up to ${maxBytes}`);
+    }
+    const slot = crypto.randomUUID();
+    const now = Date.now();
+    const ticket = await signUploadTicket(
+      env,
+      {
+        ws: workspaceName,
+        who: ctx.uploaderIdentity,
+        args: resolved,
+        maxBytes: file.size,
+        slot,
+        scopes: [...ctx.authScopes],
+      },
+      now,
+    );
+    const hint = putHint(rest, resolved, autoPr);
+    const requestState = await signFileState(
+      env,
+      {
+        ws: workspaceName,
+        who: ctx.uploaderIdentity,
+        args: await argsDigest(args),
+        slot,
+        ...(hint ? { hint: hint.hint, hintWins: hint.wins } : {}),
+      },
+      now,
+    );
+    const origin = new URL(ctx.resourceMetadataUrl).origin;
+    return new RawToolResult({
+      content: [
+        {
+          type: "text",
+          text: "Upload the file to the URL given, then call put again with the same arguments and requestState.",
+        },
+      ],
+      // `put`'s output schema accepts this; the client reads `uploads`.
+      structuredContent: { workspace: workspaceName },
+      resultType: "upload_required",
+      uploads: [
+        {
+          fileId: file.id,
+          url: `${origin}/u/${ticket.ticket}`,
+          headers: { "Content-Type": file.mimeType },
+          credentials: "omit",
+          expiresAt: ticket.expiresAt,
+        },
+      ],
+      requestState,
+    } as unknown as ConstructorParameters<typeof RawToolResult>[0]);
   }
 
   const tools: McpTool[] = [
@@ -1444,6 +1628,7 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
               "With `pr` or `issue`: create or update the managed attachments comment after upload. Default true. Pass false to skip. A comment failure never fails the upload.",
           },
           ...putFormatProps,
+          ...(ctx.fileUploads ? { file: FILE_INPUT_SCHEMA } : {}),
         },
         additionalProperties: false,
         examples: [
@@ -1477,20 +1662,11 @@ function createRemoteToolkit(ctx: RemoteToolContext) {
           },
         ],
       },
-      async handler(args) {
+      async handler(args, call) {
         requireScope("files:write");
+        if (args.file !== undefined) return putFile(args, call);
         const { args: resolved, autoPr } = await withGithubContext(args, { keepBranch: true });
-        const result = await runPut(resolved);
-        if (autoPr !== undefined)
-          return { ...result, hint: autoPrHint(String(args.branch), autoPr) };
-        const staged = resolved.branch;
-        const stagedOnly =
-          typeof staged === "string" &&
-          staged.length > 0 &&
-          resolved.pr === undefined &&
-          resolved.issue === undefined &&
-          resolved.key === undefined;
-        return stagedOnly && !("hint" in result) ? { ...result, hint: stagedHint(staged) } : result;
+        return withPutHint(await runPut(resolved), putHint(args, resolved, autoPr));
       },
     },
     {

@@ -266,7 +266,11 @@ These matter only if you write your own client.
 - **Extensions.** The server supports
   [MCP Skills](https://modelcontextprotocol.io/seps/2640-skills-extension) and
   [MCP Events](#events). It serves the `github-screenshots` and `uploads-cli` skills as
-  `skill://<name>/SKILL.md`, and also lists them under `resources/list` for older clients.
+  `skill://<name>/SKILL.md`, and also lists them under `resources/list` for older clients. It
+  also supports the draft
+  [MCP File Uploads](https://github.com/modelcontextprotocol/experimental-ext-file-uploads)
+  extension: a client that declares it can attach a file to `put`, and the bytes go to a
+  short-lived upload URL instead of through the conversation as base64.
 - **Discovery.** The server card is at
   [/.well-known/mcp/server-card.json](/.well-known/mcp/server-card.json).
 

@@ -79,7 +79,7 @@ export function withWorkspaceRouting(
         ...tool.inputSchema,
         properties: { ...schema.properties, workspace: WORKSPACE_ARG_SCHEMA },
       },
-      async handler(args) {
+      async handler(args, call) {
         const { workspace: requested, ...rest } = args;
         if (requested !== undefined && typeof requested !== "string") {
           usage("workspace must be a string");
@@ -96,12 +96,12 @@ export function withWorkspaceRouting(
           requested,
           repoWorkspace,
         });
-        if (target === opts.defaultName) return tool.handler(rest);
+        if (target === opts.defaultName) return tool.handler(rest, call);
         const record = await loadWorkspaceRecord(opts.env, target);
         if (!record) usage(`workspace "${target}" no longer exists`);
         const routed = opts.toolsFor(record, target).find((t) => t.name === tool.name);
         if (!routed) usage(`${tool.name} is not available in workspace "${target}"`);
-        return routed.handler(rest);
+        return routed.handler(rest, call);
       },
     };
   });
