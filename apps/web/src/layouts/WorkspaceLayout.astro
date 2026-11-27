@@ -51,6 +51,7 @@ const hasPreview = Astro.slots.has("preview");
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
 const storagePath = workspaceStorageBucketHref(workspace);
+const billingPath = `/account/workspaces/${encodeURIComponent(workspace)}/billing`;
 ---
 
 <AccountLayout
@@ -78,6 +79,24 @@ const storagePath = workspaceStorageBucketHref(workspace);
       data-storage-health-dismiss
       aria-label="Dismiss this notice">×</button
     >
+  </div>
+
+  {
+    /* Full storage cap. Server-rendered hidden; `initStorageFullBanner`
+      reveals it for every member, and the links only for admins/owners. */
+  }
+  <div class="ws-storage-alert" data-storage-full-banner role="status" hidden>
+    <div class="ws-storage-alert__body">
+      <p class="ws-storage-alert__msg">
+        Storage is full, so new uploads are paused until you delete files or add room.
+      </p>
+      <a class="ws-storage-alert__link" data-storage-full-upgrade href={billingPath} hidden
+        >Upgrade</a
+      >
+      <a class="ws-storage-alert__link" data-storage-full-bucket href={storagePath} hidden
+        >Use your own bucket</a
+      >
+    </div>
   </div>
 
   <slot />
@@ -357,6 +376,7 @@ const storagePath = workspaceStorageBucketHref(workspace);
   import { onAstroPageLoad } from "../lib/account-shell";
   import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
   import { initStorageHealthBanner } from "../lib/storage-health-banner";
+  import { initStorageFullBanner } from "../lib/storage-full-banner";
   import { initWorkspaceRail } from "../lib/workspace-rail";
 
   function bootWorkspaceRail(): void {
@@ -385,6 +405,7 @@ const storagePath = workspaceStorageBucketHref(workspace);
     // Same boot, same re-entrancy guard: one health check per workspace-tab
     // page load, painting the shell banner only when it has something to say.
     initStorageHealthBanner(apiOrigin, workspace);
+    initStorageFullBanner(apiOrigin, workspace);
   }
 
   // Eager boot for the initial load, then re-boot after every ClientRouter

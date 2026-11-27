@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageAlertEvent } from "@uploads/email";
-import { runUsageAlertSweep } from "./usage-alert-sweep";
+import { alertStorageFullNow, runUsageAlertSweep } from "./usage-alert-sweep";
 import { usagePeriodStart } from "./usage";
 
 type UsageSeed = { bytes?: number; uploads?: number; sharedBytes?: number };
@@ -263,5 +263,56 @@ describe("runUsageAlertSweep", () => {
     });
     await runUsageAlertSweep(env);
     expect(AUTH.posts).toHaveLength(0);
+  });
+});
+
+describe("alertStorageFullNow", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("sends the 100% email once, and the sweep stays quiet after it", async () => {
+    const markers = new Map<string, string>([["usage:alert:acme:storage", "90"]]);
+    const { env, AUTH } = makeEnv({
+      records: { "ws:acme": wsRecord() },
+      usage: { acme: { bytes: 250_000_000 } },
+      markers,
+    });
+
+    expect(await alertStorageFullNow(env, "acme")).toBe(true);
+    expect(await alertStorageFullNow(env, "acme")).toBe(false);
+    expect(AUTH.posts).toEqual([
+      {
+        slug: "acme",
+        events: [{ cap: "storage", threshold: 100, used: 250_000_000, limit: 250_000_000 }],
+        storageMode: "hosted",
+      },
+    ]);
+    expect(markers.get("usage:alert:acme:storage")).toBe("100");
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await runUsageAlertSweep(env);
+    expect(AUTH.posts).toHaveLength(1);
+  });
+
+  it("stays quiet when a big file is refused below a full cap", async () => {
+    const { env, AUTH } = makeEnv({
+      records: { "ws:acme": wsRecord() },
+      usage: { acme: { bytes: 240_000_000 } },
+    });
+    expect(await alertStorageFullNow(env, "acme")).toBe(false);
+    expect(AUTH.posts).toHaveLength(0);
+  });
+
+  it("puts the marker back when the send fails, so the sweep retries", async () => {
+    const markers = new Map<string, string>([["usage:alert:acme:storage", "90"]]);
+    const { env } = makeEnv({
+      records: { "ws:acme": wsRecord() },
+      usage: { acme: { bytes: 250_000_000 } },
+      markers,
+      authStatuses: [500],
+    });
+    expect(await alertStorageFullNow(env, "acme")).toBe(false);
+    expect(markers.get("usage:alert:acme:storage")).toBe("90");
   });
 });

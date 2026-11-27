@@ -163,7 +163,7 @@ function storageQuotaMessage(workspace: string): string {
     ? `${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}/billing / ${HOSTED_WEB_ORIGIN}/account/workspaces/${encodeURIComponent(slug)}/storage#bucket`
     : `${HOSTED_WEB_ORIGIN}/docs/limits`;
   const who = slug || "this workspace";
-  return `Storage full: ${who} is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: ${remedy}`;
+  return `Storage full: ${who} is out of space, so this upload didn't go through. Delete files you no longer need, upgrade your plan, or connect your own bucket: ${remedy}`;
 }
 
 /** The 403 storage-quota denial, shared by the read-side check and

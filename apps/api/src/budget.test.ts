@@ -138,7 +138,7 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
     expect(denial?.code).toBe("storage_quota_exceeded");
     expect(denial?.status).toBe(403);
     expect(denial?.message).toBe(
-      "Storage full: acme is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket",
+      "Storage full: acme is out of space, so this upload didn't go through. Delete files you no longer need, upgrade your plan, or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket",
     );
     expect(denial?.message).not.toContain("900 + 200");
     expect(denial?.detail).toMatchObject({ bytes: 900, deltaBytes: 200, maxStorageBytes: 1000 });
@@ -147,7 +147,7 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
   it("points a slug-less denial at the limits doc", () => {
     const denial = storageBudgetDenial({ ...usage, workspace: " " }, 1_000, 200, 900);
     expect(denial.message).toBe(
-      "Storage full: this workspace is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/docs/limits",
+      "Storage full: this workspace is out of space, so this upload didn't go through. Delete files you no longer need, upgrade your plan, or connect your own bucket: https://uploads.sh/docs/limits",
     );
     expect(denial.message).not.toContain("900 + 200");
     expect(denial.message).not.toContain("/account/workspaces/");

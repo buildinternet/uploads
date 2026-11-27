@@ -169,7 +169,7 @@ export function outputFormat(argv: string[]): OutputFormat {
 }
 
 const STORAGE_QUOTA_HINT =
-  "hint: Out of storage. Free up space by deleting old files (`uploads usage` shows what's using it), or upgrade or connect your own bucket: https://uploads.sh/docs/limits\n";
+  "hint: Out of storage. Free up space with `uploads list` and `uploads delete`, or upgrade or connect your own bucket: https://uploads.sh/docs/limits\n";
 // A monthly upload cap is a count. Deleting files or a bucket does not lower it.
 const UPLOAD_BUDGET_HINT =
   "hint: Out of uploads for this month. Run `uploads usage` for details, or upgrade: https://uploads.sh/docs/limits\n";

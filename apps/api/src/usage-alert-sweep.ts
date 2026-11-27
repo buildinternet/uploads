@@ -218,3 +218,46 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
   );
   return result;
 }
+
+/**
+ * Send the 100% storage email as soon as an upload is refused for a full cap,
+ * instead of waiting up to a day for the next sweep. Same marker as the sweep,
+ * so whichever runs first sends and the other stays quiet.
+ *
+ * Only a truly full cap counts: a large file refused at 95% already had the
+ * 90% email, and the 100% copy says every byte is used. The marker is claimed
+ * before the send so a burst of refused CI uploads sends one email, and put
+ * back if the send fails so the sweep retries. KV is eventually consistent
+ * across locations, so two colos racing can rarely both send; that's accepted.
+ */
+export async function alertStorageFullNow(env: Env, name: string): Promise<boolean> {
+  const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(`ws:${name}`, "json");
+  if (!record || isPurgedTombstone(record) || record.deletedAt) return false;
+  const limit = enforcedMaxStorageBytes(record);
+  if (limit === undefined) return false;
+  const usage = await getWorkspaceUsage(dbFor(env), name);
+  const used = enforcedStorageUsageBytes(record, usage);
+  if (used === undefined || used < limit) return false;
+
+  const markerKey = `usage:alert:${name}:storage`;
+  const prevRaw = await env.REGISTRY.get(markerKey);
+  if ((prevRaw ? parseInt(prevRaw, 10) || 0 : 0) >= 100) return false;
+  await env.REGISTRY.put(markerKey, "100", { expirationTtl: STORAGE_MARKER_TTL_S });
+
+  let delivered = false;
+  try {
+    delivered = await postUsageAlert(
+      env,
+      name,
+      [{ cap: "storage", threshold: 100, used, limit }],
+      record.plan,
+      isByoRecord(record) ? "byo" : "hosted",
+    );
+  } finally {
+    if (!delivered) {
+      if (prevRaw === null) await env.REGISTRY.delete(markerKey);
+      else await env.REGISTRY.put(markerKey, prevRaw, { expirationTtl: STORAGE_MARKER_TTL_S });
+    }
+  }
+  return delivered;
+}

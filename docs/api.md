@@ -101,7 +101,7 @@ Every non-2xx response uses one nested envelope (same shape as either/releases):
   "error": {
     "code": "storage_quota_exceeded",
     "type": "insufficient_storage",
-    "message": "Storage full: <workspace> is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: <billing> / <storage>",
+    "message": "Storage full: <workspace> is out of space, so this upload didn't go through. Delete files you no longer need, upgrade your plan, or connect your own bucket: <billing> / <storage>",
     "details": { "maxStorageBytes": 1000 }
   }
 }
