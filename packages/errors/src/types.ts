@@ -32,7 +32,7 @@ export const STATUS_BY_TYPE: Record<ErrorType, number> = {
   payload_too_large: 413,
   unsupported_media_type: 415,
   rate_limited: 429,
-  insufficient_storage: 507,
+  insufficient_storage: 403,
   unavailable: 503,
   internal: 500,
 };

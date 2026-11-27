@@ -420,7 +420,7 @@ function respondError(c: Context, err: unknown): Response {
     : err instanceof UploadsError && err.code === "USAGE"
       ? new ValidationError(err.message, { cause: err })
       : AppError.from(err);
-  if (appErr.status >= 500 && appErr.type !== "insufficient_storage") {
+  if (appErr.status >= 500) {
     reportHandledError(appErr.cause instanceof Error ? appErr.cause : appErr);
   }
   return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);

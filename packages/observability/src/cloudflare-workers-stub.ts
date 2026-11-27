@@ -31,6 +31,9 @@ let enterSpanImpl: EnterSpan | undefined = defaultEnterSpan;
 
 export const tracing = {
   getActiveSpan(): IssueSpan | undefined {
+    // Like the runtime's native method, which throws "Illegal invocation"
+    // when called detached from `tracing`.
+    if (this !== tracing) throw new TypeError("Illegal invocation");
     if (explode) throw new Error("tracing unavailable");
     return span;
   },

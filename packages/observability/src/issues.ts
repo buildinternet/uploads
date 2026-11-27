@@ -39,10 +39,12 @@ function issueAttributeValue(value: string | null | undefined): string | undefin
 
 function activeSpan(): IssueSpan | undefined {
   try {
-    const getActiveSpan = (tracing as { getActiveSpan?: () => IssueSpan | undefined })
-      .getActiveSpan;
-    if (typeof getActiveSpan !== "function") return undefined;
-    return getActiveSpan() ?? undefined;
+    const api = tracing as { getActiveSpan?: () => IssueSpan | undefined } | undefined;
+    if (typeof api?.getActiveSpan !== "function") return undefined;
+    // Call it as a method. The runtime's native getActiveSpan throws
+    // "Illegal invocation" when detached from `tracing`, which the catch
+    // below swallowed, so no uploads worker ever set these attributes.
+    return api.getActiveSpan() ?? undefined;
   } catch {
     return undefined;
   }

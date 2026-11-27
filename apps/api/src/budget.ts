@@ -82,8 +82,8 @@ export type BudgetDenialCode = "storage_quota_exceeded" | "upload_budget_exceede
 export interface BudgetDenial {
   code: BudgetDenialCode;
   message: string;
-  /** HTTP status: 507 storage, 429 monthly upload budget. */
-  status: 507 | 429;
+  /** HTTP status: 403 storage (was 507 until Nov 2026), 429 monthly upload budget. */
+  status: 403 | 429;
   /** Structured fields for agents / CLI. */
   detail: Record<string, unknown>;
 }
@@ -166,7 +166,7 @@ function storageQuotaMessage(workspace: string): string {
   return `Storage full: ${who} is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: ${remedy}`;
 }
 
-/** The 507 storage-quota denial, shared by the read-side check and
+/** The 403 storage-quota denial, shared by the read-side check and
  * the atomic reservation path (usage.ts reserveStorageBytes). */
 export function storageBudgetDenial(
   usage: WorkspaceUsage,
@@ -176,7 +176,7 @@ export function storageBudgetDenial(
 ): BudgetDenial {
   return {
     code: "storage_quota_exceeded",
-    status: 507,
+    status: 403,
     message: storageQuotaMessage(usage.workspace),
     detail: {
       bytes: usageBytes,
@@ -187,12 +187,12 @@ export function storageBudgetDenial(
   };
 }
 
-/** Map a denial to the thrown error type: 507 storage, 429 upload budget. */
+/** Map a denial to the thrown error type: 403 storage, 429 upload budget. */
 export function budgetDenialError(
   denial: BudgetDenial,
 ): InsufficientStorageError | RateLimitedError {
   const options = { code: denial.code, details: denial.detail };
-  return denial.status === 507
+  return denial.code === "storage_quota_exceeded"
     ? new InsufficientStorageError(denial.message, options)
     : new RateLimitedError(denial.message, options);
 }

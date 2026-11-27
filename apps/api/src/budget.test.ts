@@ -136,7 +136,7 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
   it("denies a storage-exceeding put on a shared-bucket workspace", () => {
     const denial = checkPutBudget(usage, { maxStorageBytes: 1_000 }, { bytes: 200, uploads: 1 });
     expect(denial?.code).toBe("storage_quota_exceeded");
-    expect(denial?.status).toBe(507);
+    expect(denial?.status).toBe(403);
     expect(denial?.message).toBe(
       "Storage full: acme is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket",
     );

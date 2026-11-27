@@ -746,7 +746,7 @@ describe("tools/call put", () => {
       factory: () =>
         ({
           put: async () => {
-            throw new UploadsError(message, "STORAGE_QUOTA", 507);
+            throw new UploadsError(message, "STORAGE_QUOTA", 403);
           },
         }) as unknown as UploadsClient,
     });

@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { syncSessionCliVersion } from "../src/session-cli-version.js";
+import {
+  maybeSyncSessionCliVersion,
+  settleSessionCliVersionSync,
+  syncSessionCliVersion,
+} from "../src/session-cli-version.js";
 
 describe("syncSessionCliVersion", () => {
   const dirs: string[] = [];
@@ -96,5 +100,28 @@ describe("syncSessionCliVersion", () => {
     const cfg = loadConfigFile(path);
     expect(cfg.UPLOADS_SESSION_TOKEN).toBeUndefined();
     expect(cfg.UPLOADS_TOKEN).toBe("up_ws_abc");
+  });
+
+  it("settle waits for a started sync, so a 401 drops the token before exit", async () => {
+    const path = tmpConfig("UPLOADS_SESSION_TOKEN=sess_dead\nUPLOADS_TOKEN=up_ws_abc\n");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    maybeSyncSessionCliVersion({
+      envFile: path,
+      version: "9.9.9",
+      force: true,
+      fetchImpl: (async () => {
+        await gate;
+        return new Response("{}", { status: 401 });
+      }) as unknown as typeof fetch,
+      cachePath: join(path, "..", "cache-settle"),
+    });
+    const { loadConfigFile } = await import("../src/config-file.js");
+    expect(loadConfigFile(path).UPLOADS_SESSION_TOKEN).toBe("sess_dead");
+    release();
+    await settleSessionCliVersionSync();
+    expect(loadConfigFile(path).UPLOADS_SESSION_TOKEN).toBeUndefined();
+    // Nothing pending: a second settle returns at once.
+    await settleSessionCliVersionSync();
   });
 });

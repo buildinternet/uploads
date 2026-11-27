@@ -59,7 +59,7 @@ Optional **budgets** live on the workspace registry record (KV), same as
 | `maxKeyDepth`         | Max `/`-separated segments after governance      |
 
 Omit a field for unlimited (or no retention / unrestricted keys). Puts that
-would exceed storage return **507** with `code: "storage_quota_exceeded"`;
+would exceed storage return **403** with `code: "storage_quota_exceeded"`;
 monthly upload budget returns **429** with `code: "upload_budget_exceeded"`.
 Key policy denials return **400** with `code: "key_prefix_not_allowed"` or
 `key_too_deep`. `GET …/usage` includes the caps and remaining when set.
