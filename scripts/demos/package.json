@@ -8,12 +8,12 @@
     "render": "remotion render"
   },
   "dependencies": {
-    "@remotion/cli": "^4.0.496",
-    "@remotion/fonts": "^4.0.496",
+    "@remotion/cli": "^4.0.547",
+    "@remotion/fonts": "^4.0.547",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "remotion": "^4.0.496",
-    "zod": "^4.5.4"
+    "remotion": "^4.0.547",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

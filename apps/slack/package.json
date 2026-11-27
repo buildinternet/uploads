@@ -11,12 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "hono": "^4.13.19"
+    "hono": "^4.13.22"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.6.11",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.1",
-    "wrangler": "^4.165.0"
+    "vitest": "^5.1.2",
+    "wrangler": "^4.168.0"
   }
 }

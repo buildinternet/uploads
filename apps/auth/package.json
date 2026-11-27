@@ -17,22 +17,22 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/cimd": "^1.7.26",
+    "@better-auth/cimd": "^1.7.28",
     "@better-auth/infra": "^0.4.31",
-    "@better-auth/oauth-provider": "^1.7.26",
-    "@better-auth/stripe": "^1.7.26",
+    "@better-auth/oauth-provider": "^1.7.28",
+    "@better-auth/stripe": "^1.7.28",
     "@uploads/billing": "workspace:^",
     "@uploads/email": "workspace:^",
     "@uploads/observability": "workspace:^",
-    "better-auth": "^1.7.26",
+    "better-auth": "^1.7.28",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.19",
+    "hono": "^4.13.22",
     "stripe": "^22.3.2"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.6.11",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.1",
-    "wrangler": "^4.165.0"
+    "vitest": "^5.1.2",
+    "wrangler": "^4.168.0"
   }
 }
