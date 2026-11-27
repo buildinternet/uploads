@@ -157,7 +157,7 @@ export class RateLimitedError extends AppError {
   }
 }
 
-/** Storage budget exceeded (HTTP 507). */
+/** Storage budget exceeded (HTTP 403, code `storage_quota_exceeded`). */
 export class InsufficientStorageError extends AppError {
   constructor(message = "Insufficient storage.", opts: SubclassOpts = {}) {
     super({

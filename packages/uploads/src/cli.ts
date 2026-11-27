@@ -55,7 +55,7 @@ import { runReport } from "./commands/report.js";
 import { runScreenshot } from "./commands/screenshot.js";
 import { packageVersion } from "./package-version.js";
 import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
-import { maybeSyncSessionCliVersion } from "./session-cli-version.js";
+import { maybeSyncSessionCliVersion, settleSessionCliVersionSync } from "./session-cli-version.js";
 import {
   errorCodeFromUnknown,
   maybeShowFirstRunNotice,
@@ -262,6 +262,15 @@ function usageHint(argv: string[]): void {
 }
 
 export async function runCli(argv: string[]): Promise<number> {
+  try {
+    return await runCliCommand(argv);
+  } finally {
+    // The bin exits right after this returns; let the version sync finish.
+    await settleSessionCliVersionSync();
+  }
+}
+
+async function runCliCommand(argv: string[]): Promise<number> {
   const telemetryStart = Date.now();
   const telemetryCmd = telemetryCommandName(argv);
   // Prefer --api-url from argv early so every exit path can pass it to telemetry.

@@ -6,7 +6,7 @@ import { UsageFakeD1 } from "./usage-fake-d1";
 // Regression coverage for the BYO-bucket storage-budget fix: a self-serve
 // BYO workspace is stamped `plan: "free"`, so once
 // its ledger crosses the free-plan byte cap every upload used to fail with
-// 507 `storage_quota_exceeded` — a hard outage for a customer paying their
+// 403 `storage_quota_exceeded` — a hard outage for a customer paying their
 // own R2 bill. The atomic reservation in `putObject` (files-core.ts) must
 // enforce the cap against shared-lane residue for BYO records while still
 // incrementing total usage and enforcing the per-period upload-count cap.
@@ -194,10 +194,10 @@ describe("BYO-bucket workspace storage budget attribution", () => {
     expect(row.shared_bytes).toBe(0);
   });
 
-  it("still denies a shared-bucket (non-BYO) workspace over its cap with 507 storage_quota_exceeded", async () => {
+  it("still denies a shared-bucket (non-BYO) workspace over its cap with 403 storage_quota_exceeded", async () => {
     const { env } = await makeSharedEnv({ maxStorageBytes: PNG.byteLength - 1 });
     const res = await put(env, "shared.png");
-    expect(res.status).toBe(507);
+    expect(res.status).toBe(403);
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("storage_quota_exceeded");
     expect(body.error.message).toContain(

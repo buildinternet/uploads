@@ -153,6 +153,7 @@ export function mapApiError(
     return new UploadsError(error, "KEY_POLICY", status);
   }
   // Prefer stable body code — bare 429 is also used for write rate limits.
+  // 507 is what servers sent before storage-full moved to 403.
   if (status === 507 || code === "storage_quota_exceeded") {
     return new UploadsError(error, "STORAGE_QUOTA", status);
   }

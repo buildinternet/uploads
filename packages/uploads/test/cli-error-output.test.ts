@@ -212,7 +212,7 @@ describe("quota hints tell a customer what to do", () => {
   it("prints a customer storage-quota hint and keeps the server remedy", async () => {
     const message =
       "Storage full: acme is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket";
-    const { exit, printed } = await runQuotaDelete(507, "storage_quota_exceeded", message);
+    const { exit, printed } = await runQuotaDelete(403, "storage_quota_exceeded", message);
     expect(exit).not.toBe(0);
     expect(printed).toContain(message);
     expect(printed).toContain(

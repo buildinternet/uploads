@@ -89,13 +89,13 @@ describe("createUploadsClient", () => {
             details: { bytes: 1, deltaBytes: 2, maxStorageBytes: 3 },
           },
         },
-        507,
+        403,
       ),
     );
     const client = createUploadsClient(config, { fetch });
     const err = await client.put("a.png", new Uint8Array([1])).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UploadsError);
-    expect(err).toMatchObject({ code: "STORAGE_QUOTA", status: 507, message });
+    expect(err).toMatchObject({ code: "STORAGE_QUOTA", status: 403, message });
   });
 
   it("retries a GET once on 503 and reports the retry", async () => {

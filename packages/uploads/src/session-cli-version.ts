@@ -96,7 +96,22 @@ export async function syncSessionCliVersion(opts: SyncCliVersionOptions = {}): P
   }
 }
 
-/** Fire-and-forget for CLI command starts. */
+let pendingSync: Promise<boolean> | undefined;
+
+/**
+ * Starts the sync at command start without blocking the command. Pair with
+ * {@link settleSessionCliVersionSync} before the process exits: the bin calls
+ * `process.exit` as soon as the command returns, which used to drop the
+ * request before its 401 handler could remove a dead session token, so the
+ * same stale token was re-sent by every command.
+ */
 export function maybeSyncSessionCliVersion(opts: SyncCliVersionOptions = {}): void {
-  void syncSessionCliVersion(opts);
+  pendingSync = syncSessionCliVersion(opts);
+}
+
+/** Waits for a started sync (bounded by its own timeout). Never throws. */
+export async function settleSessionCliVersionSync(): Promise<void> {
+  const pending = pendingSync;
+  pendingSync = undefined;
+  if (pending) await pending.catch(() => false);
 }

@@ -60,10 +60,10 @@ function put(env: unknown, key = "shot.png") {
 }
 
 describe("workspace budget enforcement", () => {
-  it("returns 507 when a put would exceed maxStorageBytes", async () => {
+  it("returns 403 when a put would exceed maxStorageBytes", async () => {
     const { env } = await makeEnv({ maxStorageBytes: PNG.byteLength - 1 });
     const res = await put(env);
-    expect(res.status).toBe(507);
+    expect(res.status).toBe(403);
     const body = (await res.json()) as {
       error: {
         code: string;

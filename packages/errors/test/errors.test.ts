@@ -87,12 +87,12 @@ describe("subclasses", () => {
     expect(err.toWire().error.details).toEqual({ retry_after: 30 });
   });
 
-  it("InsufficientStorageError maps to 507", () => {
+  it("InsufficientStorageError maps to 403", () => {
     const err = new InsufficientStorageError("quota", {
       code: "storage_quota_exceeded",
       details: { maxStorageBytes: 100 },
     });
-    expect(err.status).toBe(507);
+    expect(err.status).toBe(403);
     expect(err.type).toBe("insufficient_storage");
     expect(err.code).toBe("storage_quota_exceeded");
   });

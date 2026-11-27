@@ -413,7 +413,7 @@ headroom. Puts that would exceed them fail with (fields on `error`):
 
 | HTTP | `type`                 | `code`                   | Meaning                                              |
 | ---- | ---------------------- | ------------------------ | ---------------------------------------------------- |
-| 507  | `insufficient_storage` | `storage_quota_exceeded` | Net stored bytes would exceed `maxStorageBytes`      |
+| 403  | `insufficient_storage` | `storage_quota_exceeded` | Net stored bytes would exceed `maxStorageBytes`      |
 | 429  | `rate_limited`         | `upload_budget_exceeded` | Monthly put count would exceed `maxUploadsPerPeriod` |
 | 400  | `validation`           | `key_prefix_not_allowed` | Key not under `allowedKeyPrefixes` (put/sign)        |
 | 400  | `validation`           | `key_too_deep`           | Key path segments exceed `maxKeyDepth`               |
