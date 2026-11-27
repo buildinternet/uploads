@@ -6,12 +6,20 @@
  * processing semantics themselves are covered by github-webhook.test.ts and
  * the auto-promote/reconcile suites, which exercise the queueless inline path.
  */
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { describe, expect, it, vi } from "vitest";
 import { extractWebhookEvent, handleWebhook, type WebhookEvent } from "./github-webhook";
 import {
+  AlertFailed,
+  AlertSkipped,
   GITHUB_WEBHOOK_DLQ,
   GITHUB_WEBHOOK_QUEUE,
   handleGithubWebhookBatch,
+  OperatorAlerts,
+  runGithubWebhookBatch,
+  WebhookProcessingFailed,
+  WebhookProcessor,
 } from "./github-webhook-queue";
 import { ingestForWebhook } from "./github-ingest";
 import { adoptLinkedFilesForWebhook } from "./github-link-adopt";
@@ -619,6 +627,152 @@ describe("handleGithubWebhookBatch", () => {
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
     expect(m.retried).toBe(true);
     expect(m.acked).toBe(false);
+  });
+});
+
+describe("handleGithubWebhookBatch services", () => {
+  const quiet = { notify: () => Effect.void };
+  const alerts = () => Layer.succeed(OperatorAlerts, quiet);
+
+  it("acks a processed message and does not alert", async () => {
+    const seen: WebhookEvent[] = [];
+    const m = msg({ keys: ["ghtok:42"], deliveryId: "delivery-1" });
+    const layer = Layer.mergeAll(
+      Layer.succeed(WebhookProcessor, {
+        process: (event) =>
+          Effect.sync(() => {
+            seen.push(event);
+          }),
+      }),
+      alerts(),
+    );
+    await runGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), layer);
+    expect(seen).toEqual([m.body]);
+    expect(m.acked).toBe(true);
+    expect(m.retried).toBe(false);
+  });
+
+  it("retries a failed message once and still acks its batchmate", async () => {
+    const calls: string[] = [];
+    const failing = msg({ keys: ["bad"], deliveryId: "delivery-bad" });
+    const fine = msg({ keys: ["ok"] });
+    const error = new Error("transient");
+    const layer = Layer.mergeAll(
+      Layer.succeed(WebhookProcessor, {
+        process: (event) => {
+          calls.push(event.deliveryId ?? "none");
+          if (event.deliveryId === "delivery-bad") {
+            return Effect.fail(new WebhookProcessingFailed({ thrown: error }));
+          }
+          return Effect.void;
+        },
+      }),
+      alerts(),
+    );
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [failing, fine]), layer);
+    expect(calls).toEqual(["delivery-bad", "none"]);
+    expect(failing.retried).toBe(true);
+    expect(failing.acked).toBe(false);
+    expect(fine.acked).toBe(true);
+    expect(fine.retried).toBe(false);
+    expect(reported).toHaveBeenCalledWith(error);
+    reported.mockRestore();
+  });
+
+  it("logs a dead-letter batch and alerts once, without processing", async () => {
+    const processed: WebhookEvent[] = [];
+    const notified: WebhookEvent[][] = [];
+    const first = msg({ keys: ["ghtok:1"], deliveryId: "delivery-a" });
+    const second = msg({
+      keys: [],
+      deliveryId: "delivery-b",
+      ingest: { repo: "acme/app", kind: "pull", num: 7, source: "body" },
+    });
+    const layer = Layer.mergeAll(
+      Layer.succeed(WebhookProcessor, {
+        process: (event) =>
+          Effect.sync(() => {
+            processed.push(event);
+          }),
+      }),
+      Layer.succeed(OperatorAlerts, {
+        notify: (events) =>
+          Effect.sync(() => {
+            notified.push([...events]);
+          }),
+      }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runGithubWebhookBatch(batch(GITHUB_WEBHOOK_DLQ, [first, second]), layer);
+    expect(processed).toEqual([]);
+    expect(first.acked).toBe(true);
+    expect(second.acked).toBe(true);
+    expect(notified).toEqual([[first.body, second.body]]);
+    const lines = log.mock.calls.map((call) => JSON.parse(String(call[0])));
+    expect(lines).toEqual([
+      {
+        message: "github webhook event dead-lettered",
+        deliveryId: "delivery-a",
+        event: first.body,
+      },
+      {
+        message: "github webhook event dead-lettered",
+        deliveryId: "delivery-b",
+        event: second.body,
+      },
+    ]);
+    log.mockRestore();
+    reported.mockRestore();
+  });
+
+  it("acks when the alerter skips or fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const skipped = msg({ keys: [] });
+    await runGithubWebhookBatch(
+      batch(GITHUB_WEBHOOK_DLQ, [skipped]),
+      Layer.mergeAll(
+        Layer.succeed(WebhookProcessor, { process: () => Effect.void }),
+        Layer.succeed(OperatorAlerts, {
+          notify: () => Effect.fail(new AlertSkipped({ reason: "no_auth" })),
+        }),
+      ),
+    );
+    const failed = msg({ keys: [], deliveryId: "delivery-1" });
+    await runGithubWebhookBatch(
+      batch(GITHUB_WEBHOOK_DLQ, [failed]),
+      Layer.mergeAll(
+        Layer.succeed(WebhookProcessor, { process: () => Effect.void }),
+        Layer.succeed(OperatorAlerts, {
+          notify: () => Effect.fail(new AlertFailed({ status: 500 })),
+        }),
+      ),
+    );
+    const thrown = msg({ keys: [], deliveryId: "delivery-2" });
+    await runGithubWebhookBatch(
+      batch(GITHUB_WEBHOOK_DLQ, [thrown]),
+      Layer.mergeAll(
+        Layer.succeed(WebhookProcessor, { process: () => Effect.void }),
+        Layer.succeed(OperatorAlerts, {
+          notify: () => Effect.fail(new AlertFailed({ error: "auth down" })),
+        }),
+      ),
+    );
+    expect(skipped.acked).toBe(true);
+    expect(failed.acked).toBe(true);
+    expect(thrown.acked).toBe(true);
+    const warnings = warn.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(warnings).toContain("github_webhook_dlq_alert_skipped");
+    expect(warnings).toContain('"reason":"no_auth"');
+    expect(warnings).toContain("github_webhook_dlq_alert_failed");
+    expect(warnings).toContain('"status":500');
+    expect(warnings).toContain("auth down");
+    warn.mockRestore();
+    reported.mockRestore();
+    log.mockRestore();
   });
 });
 
