@@ -741,7 +741,7 @@ describe("tools/call put", () => {
   it("surfaces a storage-quota remedy from the API message", async () => {
     const { UploadsError } = await import("../src/errors.js");
     const message =
-      "Storage full: acme is out of space, so this upload didn't go through. Upgrade your plan or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket";
+      "Storage full: acme is out of space, so this upload didn't go through. Delete files you no longer need, upgrade your plan, or connect your own bucket: https://uploads.sh/account/workspaces/acme/billing / https://uploads.sh/account/workspaces/acme/storage#bucket";
     const { server } = serverWith({
       factory: () =>
         ({

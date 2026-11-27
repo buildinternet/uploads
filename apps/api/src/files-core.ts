@@ -123,6 +123,7 @@ import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
 import { openStreamedBody, type StreamedBody } from "./streamed-body";
 import { notifySlackHoldResolved } from "./slack-hold-notify";
+import { alertStorageFullNow } from "./usage-alert-sweep";
 
 export type { StreamedBody };
 
@@ -555,6 +556,42 @@ async function syncPutVisibility(
  * content type sniffed from the bytes; see guards.ts), then update the usage
  * ledger. Metering is best-effort and never fails the upload.
  */
+/**
+ * A refused upload is when a workspace learns it is full, so the 100% storage
+ * email goes out now instead of at the next daily sweep. After the response
+ * only: callers without `waitUntil` (ingest, server-side copies) skip it and
+ * leave it to the sweep.
+ */
+function alertStorageFull(
+  env: Env,
+  workspaceName: string,
+  waitUntil: ClassifierWaitUntil | undefined,
+): void {
+  if (!waitUntil) return;
+  // Start the work only once `waitUntil` accepts it: route wrappers throw
+  // here when there is no ExecutionContext (vitest `app.request`).
+  let start: () => void = () => {};
+  const task = new Promise<void>((resolve) => {
+    start = resolve;
+  })
+    .then(() => alertStorageFullNow(env, workspaceName))
+    .catch((error: unknown) => {
+      console.warn(
+        JSON.stringify({
+          message: "storage_full_alert_failed",
+          workspace: workspaceName,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    });
+  try {
+    waitUntil(task);
+  } catch {
+    return;
+  }
+  start();
+}
+
 export async function putObject(
   env: Env,
   ws: WorkspaceRecord,
@@ -721,7 +758,11 @@ export async function putObject(
   // Cheap read-side reject for obviously spent budgets (both caps). Concurrent
   // puts at the boundary still need the atomic reservations below.
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: uploadCount });
-  if (denial) throw budgetDenialError(denial);
+  if (denial) {
+    if (denial.code === "storage_quota_exceeded")
+      alertStorageFull(env, workspaceName, opts?.waitUntil);
+    throw budgetDenialError(denial);
+  }
 
   // Atomically reserve the monthly upload count and (when growing) storage
   // bytes before the write. Reservations are the ledger increments, so
@@ -753,6 +794,7 @@ export async function putObject(
   );
   if (!storageReservation.ok) {
     if (uploadCount > 0) await releaseUploadsSafe(dbFor(env), workspaceName, uploadCount);
+    alertStorageFull(env, workspaceName, opts?.waitUntil);
     throw budgetDenialError(
       storageBudgetDenial(
         storageReservation.usage,

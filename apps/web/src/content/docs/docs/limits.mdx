@@ -56,9 +56,10 @@ Each plan has one file cap: videos get the same ceiling as everything else,
   or 100%. The mail says how full you are. It links an upgrade on the billing tab, or your own bucket
   on the Storage tab when the cap is storage. It sends again only after usage drops and crosses that
   level once more. Turn it off under Account → Email notifications.
-- **Storage full.** New uploads are rejected until you free space. Existing files keep serving. Run
-  `uploads usage`, then `uploads list` and `uploads delete` to clear room. Upgrade on the billing
-  tab, or connect your own bucket on the Storage tab.
+- **Storage full.** New uploads are rejected until you free space. Existing files keep serving. The
+  100% email goes out on the first refused upload, and workspace pages show a banner until there's
+  room. Run `uploads list` and `uploads delete` to clear room. Upgrade on the billing tab, or connect
+  your own bucket on the Storage tab.
 - **Member cap (free).** Invites beyond the cap are refused, pending invites included. Upgrade the
   workspace or revoke an unused invite.
 
