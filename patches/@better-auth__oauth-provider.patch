@@ -1,6 +1,6 @@
---- a/dist/authorize-Dvegxay_.mjs
-+++ b/dist/authorize-Dvegxay_.mjs
-@@ -4196,6 +4196,35 @@
+--- a/dist/authorize-QdQa8Sf6.mjs
++++ b/dist/authorize-QdQa8Sf6.mjs
+@@ -5027,6 +5027,35 @@
  * jti is consumed, so a caller can refuse a client it does not serve without
  * spending the assertion or reaching out to a `jwks_uri`.
  */
@@ -34,9 +34,9 @@
 +	return audiences;
 +}
  async function verifyClientAssertion(ctx, opts, clientAssertion, clientAssertionType, clientIdHint, expectedAudience, options) {
+ 	const requestedSequence = getJwksCache(opts).nextSequence;
  	if (clientAssertionType !== CLIENT_ASSERTION_TYPE) throw new APIError$1("BAD_REQUEST", {
- 		error_description: "unsupported client_assertion_type",
-@@ -4249,7 +4278,11 @@
+@@ -5081,7 +5110,11 @@
  	const jwks = await fetchClientJwks(ctx, opts, client);
  	const endpointAudience = expectedAudience ?? getAuthEndpointUrl(ctx, "/oauth2/token");
  	const issuerAudience = getIssuer(ctx, opts);
