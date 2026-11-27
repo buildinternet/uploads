@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.64.1
+
+### Patch Changes
+
+- d6578e0: Finish the session version sync before the CLI exits, so an expired login session is dropped after one 401 instead of being re-sent by every command.
+- ca959f0: The storage-full hint now points at `uploads list` and `uploads delete` to free space, instead of saying `uploads usage` shows what's using it.
+
 ## 0.64.0
 
 ### Minor Changes
