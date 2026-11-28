@@ -11,6 +11,7 @@ import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
 import type { WorkspaceCreateQuota } from "@uploads/billing";
 import type { OpenEnrollment, OrgInvite, WorkspaceMemberRow } from "@uploads/api/workspace-members";
 import type { WorkspaceUsageResponse } from "@uploads/api/workspace-usage";
+import type { WorkspaceActivityResponse } from "@uploads/api/workspace-settings";
 import type {
   ClassifierSettingsResponse,
   CommentSettingsResponse,
@@ -587,6 +588,33 @@ export interface WorkspaceBilling {
   /** See GET /v1/workspaces/:name/billing. */
   planSource: WorkspacePlanSource;
   subscription: WorkspaceSubscription | null;
+}
+
+export type WorkspaceActivityResult =
+  | { kind: "ok"; activity: WorkspaceActivityResponse }
+  | { kind: "unavailable"; reason?: "not_found" | "server" | RequestFailure };
+
+/**
+ * GET /v1/workspaces/:name/activity — uploads, PRs and PR comment updates per
+ * UTC day for the Usage tab. Member-gated, session only.
+ */
+export async function getWorkspaceActivity(
+  apiOrigin: string,
+  name: string,
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
+): Promise<WorkspaceActivityResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/activity`,
+    sessionFetchInit(opts?.cookie),
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as WorkspaceActivityResponse | null;
+  if (!body || !Array.isArray(body.days)) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", activity: body };
 }
 
 export type WorkspaceBillingResult =

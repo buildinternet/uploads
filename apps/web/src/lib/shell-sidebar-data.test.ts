@@ -85,7 +85,7 @@ describe("accountNavSections", () => {
       "Links",
       "People",
       "Storage",
-      "Billing",
+      "Usage",
       "Settings",
     ]);
     expect(items.map((i) => i.icon)).toEqual([

@@ -1,6 +1,8 @@
 ---
 /**
- * Workspace billing tab — current plan, resolved limits vs usage, and the
+ * Workspace Usage tab (URL stays `/billing` so Stripe return URLs and email
+ * links keep working). Activity comes first: daily uploads, PRs with uploads
+ * and PR comment updates (`lib/workspace-activity.ts`). Below it: current plan, resolved limits vs usage, and the
  * upgrade/manage-billing CTA (resolveBillingCta). Upgrade goes through
  * Stripe Checkout via the @better-auth/stripe plugin on apps/auth; "Manage
  * billing" opens the Stripe customer portal. When the backend hasn't
@@ -21,7 +23,15 @@ import {
 } from "../../../../lib/billing-ui";
 import { resolveBillingCta, type BillingCtaState } from "../../../../lib/billing-cta";
 import { formatPrice } from "../../../../lib/plan-prices";
+import { getWorkspaceActivity } from "../../../../lib/api-client";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
+import {
+  ACTIVITY_WINDOWS,
+  DEFAULT_ACTIVITY_WINDOW,
+  renderActivityBodyHtml,
+} from "../../../../lib/workspace-activity";
+import "../../../../styles/admin-metrics.css";
+import "../../../../styles/workspace-activity.css";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
 import { workspaceHomePath } from "../../../../lib/workspaces-nav";
 
@@ -50,14 +60,14 @@ const authFetchImpl: typeof fetch = (input, init) =>
     env as AuthProxyEnv,
     new Request(new URL(String(input), Astro.request.url), init),
   );
-const initial = await loadBillingPageData(
-  apiOrigin,
-  authOrigin,
-  workspace,
-  cookie,
-  serverApiFetchImpl(env, Astro.request),
-  authFetchImpl,
-);
+const apiFetchImpl = serverApiFetchImpl(env, Astro.request);
+const [initial, activityResult] = await Promise.all([
+  loadBillingPageData(apiOrigin, authOrigin, workspace, cookie, apiFetchImpl, authFetchImpl),
+  cookie.trim()
+    ? getWorkspaceActivity(apiOrigin, workspace, { cookie, fetchImpl: apiFetchImpl })
+    : Promise.resolve(null),
+]);
+const activity = activityResult?.kind === "ok" ? activityResult.activity : null;
 const { billing } = initial;
 const proPriceCopy = formatPrice(initial.proPrice);
 const cta: BillingCtaState = billing
@@ -77,20 +87,48 @@ const cta: BillingCtaState = billing
     <div class="settings-section">
       <div class="ws-page-header">
         <div class="ws-title-block">
-          <h2>Billing</h2>
+          <h2>Usage</h2>
           <p class="muted" id="ws-slug"></p>
         </div>
         <a class="text-btn" id="ws-back" href={workspaceHomePath(workspace)}>← Workspace</a>
       </div>
 
-      <div
-        id="ws-plan-card"
-        class="ul-callout"
-        aria-busy={billing ? undefined : "true"}
-        set:html={billing
-          ? renderPlanCardBodyHtml(billing, proPriceCopy)
-          : renderPlanCardPlaceholderHtml()}
-      />
+      <div class="settings-section" id="ws-activity">
+        <div class="activity-head">
+          <h3>Activity</h3>
+          <select id="ws-activity-window" class="ul-select" aria-label="Time window">
+            {
+              ACTIVITY_WINDOWS.map((days) => (
+                <option value={String(days)} selected={days === DEFAULT_ACTIVITY_WINDOW}>
+                  Last {days} days
+                </option>
+              ))
+            }
+          </select>
+        </div>
+        <div
+          id="ws-activity-body"
+          aria-busy={activity ? undefined : "true"}
+          set:html={activity
+            ? renderActivityBodyHtml(activity, DEFAULT_ACTIVITY_WINDOW, "uploads")
+            : `<div class="activity-skeleton" aria-hidden="true"></div>`}
+        />
+        <p class="muted activity-note">
+          Days are in UTC. A PR counts on the day it got its first upload. A comment update is each
+          time the PR comment was posted or refreshed.
+        </p>
+      </div>
+
+      <div class="settings-section">
+        <div
+          id="ws-plan-card"
+          class="ul-callout"
+          aria-busy={billing ? undefined : "true"}
+          set:html={billing
+            ? renderPlanCardBodyHtml(billing, proPriceCopy)
+            : renderPlanCardPlaceholderHtml()}
+        />
+      </div>
 
       <div class="settings-section">
         <h3>Plans</h3>
@@ -134,7 +172,7 @@ const cta: BillingCtaState = billing
       onSession,
       requireElement,
     } from "../../../../lib/account-shell";
-    import { getWorkspaceBilling } from "../../../../lib/api-client";
+    import { getWorkspaceActivity, getWorkspaceBilling } from "../../../../lib/api-client";
     import {
       openOrganizationBillingPortal,
       upgradeOrganizationSubscription,
@@ -144,11 +182,17 @@ const cta: BillingCtaState = billing
     import { fetchProPrice, formatPrice } from "../../../../lib/plan-prices";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { loadWorkspaceSummary } from "../../../../lib/workspace-summary-source";
+    import {
+      parseActivityWindow,
+      renderActivityBodyHtml,
+      type ActivityMetric,
+    } from "../../../../lib/workspace-activity";
+    import type { WorkspaceActivityResponse } from "@uploads/api/workspace-settings";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("ws-plan-card")) return;
 
-      const page = "workspace billing";
+      const page = "workspace usage";
       const visit = getPageVisit();
       const stillHere = (): boolean => isCurrentPageVisit(visit);
       const w = window as unknown as {
@@ -176,6 +220,48 @@ const cta: BillingCtaState = billing
       const manageBillingBtn = requireElement<HTMLButtonElement>("#ws-manage-billing-btn", page);
       const compedNoteEl = requireElement<HTMLElement>("#ws-comped-note", page);
       const billingErrorEl = requireElement<HTMLElement>("#ws-billing-error", page);
+      const activityBodyEl = requireElement<HTMLElement>("#ws-activity-body", page);
+      // HTMLElement then cast: see the note in oauth/consent.astro on why
+      // HTMLSelectElement fails requireElement's `Element` constraint here.
+      const activityWindowEl = requireElement<HTMLElement>(
+        "#ws-activity-window",
+        page,
+      ) as unknown as HTMLSelectElement;
+
+      let activity: WorkspaceActivityResponse | null = null;
+      let activityMetric: ActivityMetric = "uploads";
+
+      function paintActivity(): void {
+        if (!activity) return;
+        activityBodyEl.innerHTML = renderActivityBodyHtml(
+          activity,
+          parseActivityWindow(activityWindowEl.value),
+          activityMetric,
+        );
+        activityBodyEl.removeAttribute("aria-busy");
+      }
+
+      async function loadActivity(): Promise<void> {
+        const result = await getWorkspaceActivity(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind === "unavailable") {
+          if (activity) return;
+          activityBodyEl.innerHTML = `<p class="muted">Activity is unavailable right now.</p>`;
+          activityBodyEl.removeAttribute("aria-busy");
+          return;
+        }
+        activity = result.activity;
+        paintActivity();
+      }
+
+      activityWindowEl.addEventListener("change", paintActivity);
+      activityBodyEl.addEventListener("click", (event) => {
+        const tile = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-metric]");
+        const metric = tile?.dataset.metric as ActivityMetric | undefined;
+        if (!metric || metric === activityMetric) return;
+        activityMetric = metric;
+        paintActivity();
+      });
 
       function showError(message: string, retry = true): void {
         if (!stillHere()) return;
@@ -316,9 +402,10 @@ const cta: BillingCtaState = billing
         const displayName = ws.organization.name || workspaceName;
         slugEl.textContent =
           displayName === workspaceName ? workspaceName : `${displayName} · ${workspaceName}`;
-        document.title = `Billing · ${displayName} · uploads.sh`;
+        document.title = `Usage · ${displayName} · uploads.sh`;
 
         void loadPlan();
+        void loadActivity();
       }
 
       retryBtn.addEventListener("click", () => {

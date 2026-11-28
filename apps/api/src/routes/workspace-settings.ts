@@ -34,6 +34,7 @@ import { previewFixtureItems } from "../comment-preview-fixtures";
 import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { listObjects } from "../files-core";
+import { cachedKvJson } from "../metrics-overview";
 import { addCommentMetadata, dropHiddenAttachments } from "../github-comment";
 import { findRepoLink } from "../github-repo-links";
 import {
@@ -81,6 +82,11 @@ import {
 } from "../workspace-lanes";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { webOrigin } from "../web-url";
+import {
+  ACTIVITY_CACHE_TTL,
+  activityCacheKey,
+  buildWorkspaceActivity,
+} from "../workspace-activity";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import type { ListBucketsResult } from "../r2-list-buckets";
 import {
@@ -1348,9 +1354,24 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
   return c.json({ resolved, source, repoConfig, body, sample });
 }
 
+/**
+ * Daily activity for the Usage tab (`workspace-activity.ts`). Any member can
+ * read it. KV-cached per workspace for `ACTIVITY_CACHE_TTL`.
+ */
+export async function activityHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  return c.json(
+    await cachedKvJson(c.env, activityCacheKey(name), ACTIVITY_CACHE_TTL, false, () =>
+      buildWorkspaceActivity(dbFor(c.env), name),
+    ),
+  );
+}
+export type WorkspaceActivityResponse = Awaited<ReturnType<typeof buildWorkspaceActivity>>;
+
 export const workspaceSettings = new Hono<SettingsVars>()
   .get("/:workspace/summary", sessionMemberGate(), summaryHandler)
   .get("/:workspace/billing", sessionMemberGate(), billingHandler)
+  .get("/:workspace/activity", sessionMemberGate(), activityHandler)
   .get("/:workspace/comment-settings", sessionAdminGate(), commentSettingsGetHandler)
   .patch("/:workspace/comment-settings", sessionAdminGate(), commentSettingsPatchHandler)
   .get("/:workspace/poster-settings", sessionAdminGate(), posterSettingsGetHandler)
