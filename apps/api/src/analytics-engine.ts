@@ -156,14 +156,19 @@ export function classifyMediaClass(contentType: string): "image" | "video" | "ot
  * use `formatDateTime` + `toStartOfInterval` (the documented AE pair);
  * `_sample_interval` scales the same way `breakdownQuery` does.
  */
-export function uploadClassSeriesQuery(days: number): string {
+/** Workspace names are slugs; anything else never reaches the SQL string. */
+const SAFE_WORKSPACE = /^[a-z0-9][a-z0-9._-]{0,99}$/i;
+
+export function uploadClassSeriesQuery(days: number, workspace?: string): string {
   const column = BLOB_COLUMN.contentType;
   const window = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
+  // `index1` is the workspace (writeAdoptionPoint's sampling index).
+  const scope = workspace ? ` AND index1 = '${workspace}'` : "";
   return `SELECT formatDateTime(toStartOfInterval(timestamp, INTERVAL '1' DAY), '%Y-%m-%d') AS day,
                  ${column} AS contentType,
                  SUM(_sample_interval) AS events
           FROM ${DATASET}
-          WHERE timestamp > NOW() - INTERVAL '${window}' DAY
+          WHERE timestamp > NOW() - INTERVAL '${window}' DAY${scope}
           GROUP BY day, contentType
           ORDER BY day`;
 }
@@ -175,15 +180,23 @@ interface UploadClassRow {
   events: number;
 }
 
+/**
+ * `workspace` narrows the series to one workspace (the Usage tab); omitted, it
+ * covers the whole platform (operator metrics).
+ */
 export async function fetchUploadClassSeries(
   env: Env,
   days: number,
   fetchImpl: typeof fetch = fetch,
   now = new Date(),
+  workspace?: string,
 ): Promise<UploadClassSeriesResult> {
   const account = (env as { CLOUDFLARE_ACCOUNT_ID?: string }).CLOUDFLARE_ACCOUNT_ID;
   const token = (env as { ANALYTICS_API_TOKEN?: string }).ANALYTICS_API_TOKEN;
   if (!account || !token) return { available: false, reason: "not_configured" };
+  if (workspace !== undefined && !SAFE_WORKSPACE.test(workspace)) {
+    return { available: false, reason: "invalid_workspace" };
+  }
 
   const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
 
@@ -191,7 +204,7 @@ export async function fetchUploadClassSeries(
     const res = await fetchImpl(`${SQL_ENDPOINT}/${account}/analytics_engine/sql`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
-      body: uploadClassSeriesQuery(days),
+      body: uploadClassSeriesQuery(days, workspace),
     });
     if (!res.ok) return { available: false, reason: "query_failed" };
     const payload = (await res.json()) as { data?: unknown };

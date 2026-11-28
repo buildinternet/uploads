@@ -6,6 +6,11 @@
  *
  * The API returns a fixed 180-day series (`apps/api/src/workspace-activity.ts`);
  * every window and its previous-period comparison is sliced from it here.
+ *
+ * On the Uploads chart, days with an Analytics Engine type split stack image,
+ * video and other like the operator chart. The split is sampled, so each bar
+ * keeps the D1 upload count as its height and only takes its proportions
+ * from the split (`splitUploads`).
  */
 import type { WorkspaceActivityResponse } from "@uploads/api/workspace-settings";
 import {
@@ -30,6 +35,44 @@ export const ACTIVITY_METRICS: readonly { key: ActivityMetric; label: string }[]
   { key: "prs", label: "PRs with uploads" },
   { key: "comments", label: "PR comment updates" },
 ];
+
+export const UPLOAD_TYPE_KEYS = ["image", "video", "other"] as const;
+export type UploadTypeKey = (typeof UPLOAD_TYPE_KEYS)[number];
+const UPLOAD_TYPE_LABELS: Record<UploadTypeKey, string> = {
+  image: "Images",
+  video: "Videos",
+  other: "Other",
+};
+
+/** "1 image", "3 images", "2 other". */
+function typeNoun(key: UploadTypeKey, n: number): string {
+  if (key === "other") return "other";
+  return n === 1 ? key : `${key}s`;
+}
+
+/**
+ * Splits a day's D1 upload count by its sampled type proportions, rounding
+ * by largest remainder so the parts always add up to `uploads`. `null` when
+ * the day has no split, or the split is empty while uploads is not.
+ */
+export function splitUploads(day: ActivityDay): Record<UploadTypeKey, number> | null {
+  const types = day.types;
+  if (!types) return null;
+  const sampled = types.image + types.video + types.other;
+  if (sampled <= 0) return day.uploads === 0 ? { image: 0, video: 0, other: 0 } : null;
+  const exact = UPLOAD_TYPE_KEYS.map((key) => (types[key] / sampled) * day.uploads);
+  const parts = exact.map(Math.floor);
+  let left = day.uploads - parts.reduce((n, v) => n + v, 0);
+  const order = exact
+    .map((v, i) => ({ i, rem: v - Math.floor(v) }))
+    .sort((a, b) => b.rem - a.rem || a.i - b.i);
+  for (const { i } of order) {
+    if (left <= 0) break;
+    parts[i]! += 1;
+    left -= 1;
+  }
+  return { image: parts[0]!, video: parts[1]!, other: parts[2]! };
+}
 
 export function parseActivityWindow(raw: unknown): ActivityWindow {
   const n = Number(raw);
@@ -122,21 +165,52 @@ export function renderActivityChartHtml(
     .join("");
 
   const lower = label.toLowerCase();
+  const splits = metric === "uploads" ? points.map(splitUploads) : points.map(() => null);
+  const stacked = splits.some((split) => split !== null);
   const bars = points
     .map((point, i) => {
       const value = values[i];
       const h = (value / niceMax) * plotH;
       const x = left + i * band + (band - barW) / 2;
       const day = escapeHtml(formatChartDay(point.day));
-      const path = roundedTopRectPath(x, baseline - h, barW, h, 4);
+      const split = splits[i];
+      let fills: string;
+      let detail = "";
+      if (split) {
+        // Stack bottom-up; only the topmost non-empty segment gets the rounded top.
+        const topKey = [...UPLOAD_TYPE_KEYS].reverse().find((key) => split[key] > 0);
+        let cursor = baseline;
+        fills = UPLOAD_TYPE_KEYS.map((key) => {
+          const segH = (split[key] / niceMax) * plotH;
+          const y = cursor - segH;
+          cursor = y;
+          if (segH <= 0) return "";
+          const d =
+            key === topKey
+              ? roundedTopRectPath(x, y, barW, segH, 4)
+              : `M${x},${y} H${x + barW} V${y + segH} H${x} Z`;
+          return `<path d="${d}" class="metrics-bar-fill metrics-bar-fill--${key}" />`;
+        }).join("");
+        detail = ` (${UPLOAD_TYPE_KEYS.map(
+          (key) => `${formatCount(split[key])} ${typeNoun(key, split[key])}`,
+        ).join(", ")})`;
+      } else {
+        const path = roundedTopRectPath(x, baseline - h, barW, h, 4);
+        fills = path ? `<path d="${path}" class="metrics-bar-fill" />` : "";
+      }
       const xLabel = labelIdx.has(i)
         ? `<text x="${x + barW / 2}" y="${H - 8}" class="metrics-axis-label" text-anchor="${xLabelAnchor(i, points.length)}">${day}</text>`
         : "";
-      return `<g class="metrics-bar"><title>${day}: ${escapeHtml(formatCount(value))} ${escapeHtml(lower)}</title>${
-        path ? `<path d="${path}" class="metrics-bar-fill" />` : ""
-      }<rect class="activity-bar-hit" x="${x - gap / 2}" y="${top}" width="${barW + gap}" height="${plotH}" />${xLabel}</g>`;
+      return `<g class="metrics-bar"><title>${day}: ${escapeHtml(formatCount(value))} ${escapeHtml(lower)}${escapeHtml(detail)}</title>${fills}<rect class="activity-bar-hit" x="${x - gap / 2}" y="${top}" width="${barW + gap}" height="${plotH}" />${xLabel}</g>`;
     })
     .join("");
+
+  const legend = stacked
+    ? `<div class="metrics-legend">${UPLOAD_TYPE_KEYS.map(
+        (key) =>
+          `<span class="metrics-legend-item"><span class="metrics-legend-swatch metrics-legend-swatch--${key}"></span>${UPLOAD_TYPE_LABELS[key]}</span>`,
+      ).join("")}</div>`
+    : "";
 
   const rows = points
     .map(
@@ -150,6 +224,7 @@ export function renderActivityChartHtml(
       ${grid}
       ${bars}
     </svg>
+    ${legend}
     <table class="sr-only">
       <caption>${escapeHtml(label)} per day</caption>
       <thead><tr><th scope="col">Day (UTC)</th><th scope="col">${escapeHtml(label)}</th></tr></thead>

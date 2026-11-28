@@ -17,10 +17,17 @@
  *     a seek on `github_pr_activity_workspace_cursor_idx`. A PR counts on the
  *     day of its first upload; any PR first seen in the span was also last
  *     seen in it, so the `last_media_at` bound never drops one.
+ *
+ * The upload type split (image / video / other) comes from Analytics Engine,
+ * the same source as the operator chart's. AE keeps 90 days and samples, so
+ * the split only covers the last 90 days, and the page scales it to the D1
+ * upload count rather than showing AE totals. When AE is unconfigured or
+ * unreachable, `uploadTypes` is false and the days carry no split.
  */
 
 import { utcDay } from "./adoption";
 import { windowStart } from "./adoption-queries";
+import type { UploadClassSeriesResult } from "./analytics-engine";
 import { type D1Queryable } from "./db-session";
 
 /** Days of history returned: two of the longest window, for the comparison. */
@@ -37,12 +44,22 @@ export interface ActivityDay {
   prs: number;
   /** Times the managed PR comment was posted or refreshed. */
   comments: number;
+  /**
+   * Upload type split from Analytics Engine (sampled; last 90 days only).
+   * Absent when the split is unavailable for this day.
+   */
+  types?: { image: number; video: number; other: number };
 }
 
 export interface WorkspaceActivity {
   /** Oldest first, one entry per day, ending today (UTC). */
   days: ActivityDay[];
+  /** Whether `types` was filled from Analytics Engine. */
+  uploadTypes: boolean;
 }
+
+/** Days of upload type split to request: Analytics Engine's retention. */
+export const UPLOAD_TYPE_DAYS = 90;
 
 export function activityCacheKey(workspace: string): string {
   return `activity:v1:${workspace}`;
@@ -101,5 +118,23 @@ export async function buildWorkspaceActivity(
     if (entry) entry.prs += 1;
   }
 
-  return { days: [...byDay.values()] };
+  return { days: [...byDay.values()], uploadTypes: false };
+}
+
+/** Adds the AE type split to the days it covers. Pure. */
+export function withUploadTypes(
+  activity: WorkspaceActivity,
+  classes: UploadClassSeriesResult,
+): WorkspaceActivity {
+  if (!classes.available) return activity;
+  const byDay = new Map(classes.days.map((point) => [point.day, point]));
+  return {
+    uploadTypes: true,
+    days: activity.days.map((day) => {
+      const point = byDay.get(day.day);
+      return point
+        ? { ...day, types: { image: point.image, video: point.video, other: point.other } }
+        : day;
+    }),
+  };
 }

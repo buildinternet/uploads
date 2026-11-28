@@ -3,7 +3,11 @@
 import { describe, expect, it } from "vitest";
 import { bumpDailyMetric } from "../src/adoption";
 import { recordPrMediaActivity } from "../src/github-pr-activity";
-import { ACTIVITY_SPAN_DAYS, buildWorkspaceActivity } from "../src/workspace-activity";
+import {
+  ACTIVITY_SPAN_DAYS,
+  buildWorkspaceActivity,
+  withUploadTypes,
+} from "../src/workspace-activity";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = [
@@ -61,5 +65,31 @@ describe("buildWorkspaceActivity", () => {
     } finally {
       sqlite.close();
     }
+  });
+});
+
+describe("withUploadTypes", () => {
+  const activity = {
+    uploadTypes: false,
+    days: [
+      { day: "2026-11-26", uploads: 3, prs: 0, comments: 0 },
+      { day: "2026-11-27", uploads: 1, prs: 0, comments: 0 },
+    ],
+  };
+
+  it("adds the split to the days Analytics Engine covers", () => {
+    const merged = withUploadTypes(activity, {
+      available: true,
+      days: [{ day: "2026-11-27", image: 1, video: 0, other: 0 }],
+    });
+    expect(merged.uploadTypes).toBe(true);
+    expect(merged.days[0]).not.toHaveProperty("types");
+    expect(merged.days[1]!.types).toEqual({ image: 1, video: 0, other: 0 });
+  });
+
+  it("leaves the activity alone when Analytics Engine is unavailable", () => {
+    expect(withUploadTypes(activity, { available: false, reason: "not_configured" })).toBe(
+      activity,
+    );
   });
 });

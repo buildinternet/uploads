@@ -82,10 +82,14 @@ import {
 } from "../workspace-lanes";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { webOrigin } from "../web-url";
+import { fetchUploadClassSeries } from "../analytics-engine";
 import {
   ACTIVITY_CACHE_TTL,
   activityCacheKey,
   buildWorkspaceActivity,
+  UPLOAD_TYPE_DAYS,
+  withUploadTypes,
+  type WorkspaceActivity,
 } from "../workspace-activity";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import type { ListBucketsResult } from "../r2-list-buckets";
@@ -1361,12 +1365,17 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
 export async function activityHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
   return c.json(
-    await cachedKvJson(c.env, activityCacheKey(name), ACTIVITY_CACHE_TTL, false, () =>
-      buildWorkspaceActivity(dbFor(c.env), name),
-    ),
+    await cachedKvJson(c.env, activityCacheKey(name), ACTIVITY_CACHE_TTL, false, async () => {
+      const now = new Date();
+      const [activity, classes] = await Promise.all([
+        buildWorkspaceActivity(dbFor(c.env), name, now),
+        fetchUploadClassSeries(c.env, UPLOAD_TYPE_DAYS, fetch, now, name),
+      ]);
+      return withUploadTypes(activity, classes);
+    }),
   );
 }
-export type WorkspaceActivityResponse = Awaited<ReturnType<typeof buildWorkspaceActivity>>;
+export type WorkspaceActivityResponse = WorkspaceActivity;
 
 export const workspaceSettings = new Hono<SettingsVars>()
   .get("/:workspace/summary", sessionMemberGate(), summaryHandler)
