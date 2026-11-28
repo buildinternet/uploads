@@ -57,6 +57,7 @@ const WS = "/v1/workspaces/:workspace";
 const INTERNAL_PREFIXES: Record<string, string> = {
   // Workspace settings and account management: session-only or web-app
   // shaped, managed from uploads.sh rather than through an SDK.
+  [`${WS}/activity`]: "web usage page",
   [`${WS}/billing`]: "web billing page",
   [`${WS}/classifier-settings`]: "workspace settings page",
   [`${WS}/comment-preview`]: "workspace settings page",

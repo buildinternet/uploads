@@ -208,6 +208,20 @@ describe("GET /v1/workspaces/:workspace/billing", () => {
   });
 });
 
+describe("GET /v1/workspaces/:workspace/activity", () => {
+  it("404s a non-member session", async () => {
+    const { env } = makeEnv({ noMembership: true });
+    const res = await app.request("/v1/workspaces/acme/activity", { headers: sessionHeaders }, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("403s a bearer token", async () => {
+    const { env } = makeEnv();
+    const res = await app.request("/v1/workspaces/acme/activity", { headers: bearerHeaders }, env);
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
   it("GET 200s for an admin session", async () => {
     const { env } = makeEnv({ role: "admin" });

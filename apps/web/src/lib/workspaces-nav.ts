@@ -33,7 +33,9 @@ export const WORKSPACE_NAV_TABS: {
   { id: "links", label: "links", path: "/links" },
   { id: "people", label: "people", path: "/people" },
   { id: "storage", label: "storage", path: "/storage" },
-  { id: "billing", label: "billing", path: "/billing" },
+  // Shown as "usage": activity sits above the plan. The id and path stay
+  // `billing` so Stripe return URLs and email links keep working.
+  { id: "billing", label: "usage", path: "/billing" },
   { id: "settings", label: "settings", path: "/settings" },
 ];
 

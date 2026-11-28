@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   breakdownQuery,
   classifyMediaClass,
@@ -191,6 +191,11 @@ describe("uploadClassSeriesQuery", () => {
   it("falls back to a 30-day window when days is not finite", () => {
     expect(uploadClassSeriesQuery(Number.NaN)).toContain("INTERVAL '30' DAY");
   });
+
+  it("narrows to one workspace by the sampling index", () => {
+    expect(uploadClassSeriesQuery(90, "acme")).toContain("AND index1 = 'acme'");
+    expect(uploadClassSeriesQuery(90)).not.toContain("index1");
+  });
 });
 
 describe("fetchUploadClassSeries", () => {
@@ -214,6 +219,13 @@ describe("fetchUploadClassSeries", () => {
         { day: "2026-08-03", image: 5, video: 0, other: 0 },
       ],
     });
+  });
+
+  it("refuses a workspace name that is not a slug without querying", async () => {
+    const impl = vi.fn();
+    const result = await fetchUploadClassSeries(env(), 3, impl, now, "x' OR 1=1 --");
+    expect(result).toEqual({ available: false, reason: "invalid_workspace" });
+    expect(impl).not.toHaveBeenCalled();
   });
 
   it("still accepts a pre-bucketed class field from fixtures", async () => {

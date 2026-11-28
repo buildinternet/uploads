@@ -1,0 +1,99 @@
+/*
+ * Usage tab activity section (lib/workspace-activity.ts). The bar chart
+ * reuses the operator chart classes from admin-metrics.css; this file covers
+ * the header row, the three tiles that switch the chart, and the skeleton.
+ */
+
+.activity-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+section.card.settings-page .activity-head h3 {
+  margin: 0;
+}
+
+.activity-head .ul-select {
+  inline-size: auto;
+}
+
+.activity-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+}
+
+.activity-tile {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) 14px;
+  background: var(--panel);
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.activity-tile:hover {
+  background: var(--surface-hover);
+}
+
+.activity-tile[aria-pressed="true"] {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.activity-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.activity-tile-label,
+.activity-tile-change {
+  font-size: var(--text-micro);
+  color: var(--muted);
+}
+
+.activity-tile-value {
+  font-size: var(--text-h3);
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-tile-change {
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-chart {
+  margin-top: var(--space-4);
+}
+
+.activity-chart .activity-bar-hit {
+  fill: transparent;
+}
+
+.activity-skeleton {
+  aspect-ratio: 960 / 380;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--panel);
+}
+
+.activity-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-micro);
+}
+
+@media (max-width: 560px) {
+  .activity-tiles {
+    grid-template-columns: 1fr;
+  }
+}
